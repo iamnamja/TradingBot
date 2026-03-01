@@ -1,0 +1,28 @@
+app:
+  mode: paper          # paper | live
+  dry_run: true        # when true, do not actually place orders
+  symbols:
+    - SPY
+    - QQQ
+    - NVDA
+    - GLD
+    - SLV
+
+risk:
+  max_open_positions: 10
+  max_trades_per_day: 20
+  max_position_size_usd: 500
+  max_daily_loss_usd: 100
+
+schedule:
+  interval_seconds: 300  # 5 minutes
+
+broker:
+  name: alpaca
+  base_url_paper: https://paper-api.alpaca.markets/v2
+  base_url_live: https://api.alpaca.markets/v2
+
+llm:
+  enabled: false
+  provider: openai       # openai | anthropic
+  model: gpt-4o-mini
