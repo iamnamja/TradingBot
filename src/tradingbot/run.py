@@ -1,29 +1,28 @@
-import os
 import time
-from dotenv import load_dotenv
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.requests import MarketOrderRequest
 
-
-def get_env(name: str) -> str:
-    v = os.getenv(name)
-    if not v:
-        raise RuntimeError(f"Missing env var: {name}")
-    return v
+from tradingbot.config.settings import load_settings, print_startup_summary
 
 
 def main() -> None:
-    load_dotenv()
+    s = load_settings()
+    print_startup_summary(s)
 
-    api_key = get_env("ALPACA_API_KEY")
-    api_secret = get_env("ALPACA_API_SECRET")
-    paper = os.getenv("ALPACA_PAPER", "true").lower() in ("1", "true", "yes", "y")
-    dry_run = os.getenv("DRY_RUN", "true").lower() in ("1", "true", "yes", "y")
+    api_key = s.env.alpaca_api_key
+    api_secret = s.env.alpaca_api_secret
+    if not api_key or not api_secret:
+        raise RuntimeError(
+            "Missing Alpaca credentials. Set TRADINGBOT_ALPACA_API_KEY and "
+            "TRADINGBOT_ALPACA_API_SECRET in .env (recommended) or env vars."
+        )
 
-    print(f"TradingBot starting... mode={'paper' if paper else 'live'} dry_run={dry_run}")
+    paper = s.effective_mode == "paper"
+    dry_run = s.effective_dry_run
 
+    # TradingClient: paper=True uses Alpaca paper endpoints internally.
     trading = TradingClient(api_key, api_secret, paper=paper)
 
     acct = trading.get_account()
@@ -33,7 +32,8 @@ def main() -> None:
     print(f"  equity:      {acct.equity}")
     print(f"  buyingPower: {acct.buying_power}")
 
-    symbol = "SPY"
+    # Use config symbols if present; fallback to SPY
+    symbol = (s.symbols[0] if s.symbols else "SPY")
     qty = 1
 
     if dry_run:
@@ -50,7 +50,6 @@ def main() -> None:
         print(f"  order_id: {order.id}")
         print(f"  status:   {order.status}")
 
-        # Give it a moment, then re-check status
         time.sleep(2)
         refreshed = trading.get_order_by_id(order.id)
         print("Order refreshed:")
@@ -58,14 +57,16 @@ def main() -> None:
         print(f"  filled_qty:     {refreshed.filled_qty}")
         print(f"  filled_avg_px:  {refreshed.filled_avg_price}")
 
-    # Show positions
     positions = trading.get_all_positions()
     print("\nPositions:")
     if not positions:
         print("  (none)")
     else:
         for p in positions:
-            print(f"  {p.symbol}: qty={p.qty} avg_entry={p.avg_entry_price} unrealized_pl={p.unrealized_pl}")
+            print(
+                f"  {p.symbol}: qty={p.qty} avg_entry={p.avg_entry_price} "
+                f"unrealized_pl={p.unrealized_pl}"
+            )
 
 
 if __name__ == "__main__":
