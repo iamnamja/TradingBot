@@ -101,13 +101,6 @@ _HUNK_RE = re.compile(r"^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@", re.M
 
 
 def _normalize_hunks(patch: str) -> str:
-    """
-    Fix common model mistake: incorrect hunk line counts, which yields:
-      error: corrupt patch at line N
-
-    We recompute old/new counts for each hunk based on the hunk body
-    and rewrite the @@ -a,b +c,d @@ header.
-    """
     lines = patch.splitlines(keepends=False)
     out: List[str] = []
     i = 0
@@ -123,7 +116,6 @@ def _normalize_hunks(patch: str) -> str:
             old_start = int(m.group(1))
             new_start = int(m.group(3))
 
-            # collect hunk body until next hunk or file header
             body: List[str] = []
             i += 1
             while i < len(lines):
@@ -137,8 +129,6 @@ def _normalize_hunks(patch: str) -> str:
             new_count = 0
             for b in body:
                 if not b:
-                    # empty lines in patches still start with ' ' / '+' / '-' normally,
-                    # but if model emits empty, treat as context line
                     old_count += 1
                     new_count += 1
                     continue
@@ -151,15 +141,12 @@ def _normalize_hunks(patch: str) -> str:
                 elif c == "+":
                     new_count += 1
                 elif c == "\\":
-                    # "\ No newline at end of file" -> ignore
                     pass
                 else:
-                    # unknown prefix; treat as context
                     old_count += 1
                     new_count += 1
 
-            header = f"@@ -{old_start},{old_count} +{new_start},{new_count} @@"
-            out.append(header)
+            out.append(f"@@ -{old_start},{old_count} +{new_start},{new_count} @@")
             out.extend(body)
             continue
 
@@ -240,6 +227,17 @@ def git_checkout_new_branch(branch: str) -> None:
         run(["git", "checkout", "-b", branch])
 
 
+def git_is_clean() -> bool:
+    p = subprocess.run(["git", "status", "--porcelain"], cwd=str(REPO_ROOT), text=True, capture_output=True)
+    return p.stdout.strip() == ""
+
+
+def git_hard_clean() -> None:
+    # WARNING: destructive. Only use on agent branches.
+    subprocess.run(["git", "reset", "--hard"], cwd=str(REPO_ROOT), text=True, capture_output=True)
+    subprocess.run(["git", "clean", "-fd"], cwd=str(REPO_ROOT), text=True, capture_output=True)
+
+
 def git_apply_patch(patch_text: str) -> Tuple[bool, str]:
     proc = subprocess.run(
         ["git", "apply", "--whitespace=nowarn", "--reject", "-"],
@@ -251,6 +249,21 @@ def git_apply_patch(patch_text: str) -> Tuple[bool, str]:
     ok = proc.returncode == 0
     out = (proc.stdout or "") + (proc.stderr or "")
     return ok, out.strip()
+
+
+def _extract_failed_paths(apply_out: str, limit: int = 4) -> List[str]:
+    # Examples:
+    #   error: patch failed: tests/test_smoke.py:1
+    #   Rejected hunk #1.
+    #   error: src/tradingbot/runtime/__init__.py: already exists in working directory
+    paths = []
+    for m in re.finditer(r"(?:patch failed:\s*|error:\s*)([A-Za-z0-9_./\\-]+\.py)(?::\d+)?", apply_out):
+        p = m.group(1).replace("\\", "/")
+        if p not in paths:
+            paths.append(p)
+        if len(paths) >= limit:
+            break
+    return paths
 
 
 def run_checks() -> Tuple[bool, str]:
@@ -302,6 +315,10 @@ def main() -> int:
 
     branch = args.branch.strip() or f"agent-{Path(args.task_file).stem}".replace(" ", "-").lower()
 
+    if not git_is_clean():
+        print("Working tree is not clean. Commit/stash your changes before running the agent.", file=sys.stderr)
+        return 2
+
     print(f"Current branch: {git_current_branch()}")
     print(f"Creating branch: {branch}")
     git_checkout_new_branch(branch)
@@ -334,11 +351,20 @@ def main() -> int:
 
         ok, apply_out = git_apply_patch(patch)
         if not ok:
-            last_error = f"git apply failed:\n{apply_out}\n\nPATCH:\n{patch}"
+            failed_paths = _extract_failed_paths(apply_out)
+            file_snips = ""
+            for p in failed_paths:
+                file_snips += f"\n\n## CURRENT FILE: {p}\n" + safe_read_text(p, max_chars=8_000)
+
+            # Clean up untracked/partial changes so next iteration starts from a clean branch state.
+            git_hard_clean()
+
+            last_error = f"git apply failed:\n{apply_out}\n\nPATCH:\n{patch}{file_snips}\n\nNOTE: Worktree was reset/cleaned after apply failure."
             continue
 
         checks_ok, checks_out = run_checks()
         if not checks_ok:
+            # Keep changes so a follow-up patch can fix them
             last_error = f"Checks failed after applying patch:\n{checks_out}\n\nMODEL_OUTPUT:\n{text}"
             continue
 
