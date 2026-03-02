@@ -1,14 +1,15 @@
-
-### `agents/run_task.py`
 import argparse
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Tuple, List
 
-from openai import OpenAI
 from dotenv import load_dotenv
+from openai import OpenAI
+
+# Load .env into process environment for local runs
 load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,8 +34,8 @@ DEFAULT_CONTEXT_FILES = [
 ]
 
 
-def run(cmd: list[str], cwd: Path = REPO_ROOT, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a shell command (guardrail: no arbitrary shell strings)."""
+def run(cmd: List[str], cwd: Path = REPO_ROOT, check: bool = True) -> subprocess.CompletedProcess:
+    """Run a command (guardrail: no arbitrary shell strings)."""
     return subprocess.run(cmd, cwd=str(cwd), check=check, capture_output=True, text=True)
 
 
@@ -47,12 +48,15 @@ def safe_read_text(relpath: str, max_chars: int = 20_000) -> str:
     """Read file content with guardrails."""
     if is_denied(relpath):
         return f"<<DENIED: {relpath}>>"
+
     fp = (REPO_ROOT / relpath).resolve()
     if not fp.exists() or not fp.is_file():
         return f"<<MISSING: {relpath}>>"
+
     # Ensure file is inside repo
     if REPO_ROOT not in fp.parents and fp != REPO_ROOT:
         return f"<<OUTSIDE_REPO: {relpath}>>"
+
     txt = fp.read_text(encoding="utf-8", errors="replace")
     if len(txt) > max_chars:
         return txt[:max_chars] + "\n<<TRUNCATED>>\n"
@@ -64,7 +68,7 @@ def list_tree(subdir: str, max_lines: int = 300) -> str:
     base = (REPO_ROOT / subdir)
     if not base.exists():
         return f"<<MISSING_DIR: {subdir}>>"
-    lines = []
+    lines: List[str] = []
     for p in sorted(base.rglob("*")):
         rel = p.relative_to(REPO_ROOT).as_posix()
         if is_denied(rel):
@@ -87,15 +91,12 @@ def _strip_code_fences(text: str) -> str:
       ```
     """
     t = text.strip()
-    # unwrap ```diff ... ``` or ``` ... ```
     if t.startswith("```"):
-        # remove first fence line
         first_nl = t.find("\n")
         if first_nl != -1:
             t2 = t[first_nl + 1 :]
-            # remove trailing fence if present
             if t2.rstrip().endswith("```"):
-                t2 = t2.rstrip()[: -3]
+                t2 = t2.rstrip()[:-3]
             return t2.strip()
     return t
 
@@ -108,8 +109,9 @@ def extract_diff(text: str) -> str:
     - Accept properly fenced ```diff ... ```
     - If closing fence is missing, treat end-of-message as end-of-diff
     - If response starts with 'diff --git', treat entire response as diff
+    - If response is wrapped in a single unlabeled fence, unwrap and parse
     """
-    raw = text.strip()
+    raw = (text or "").strip()
 
     # Case 1: model returned pure diff without fences
     if raw.startswith("diff --git "):
@@ -123,25 +125,22 @@ def extract_diff(text: str) -> str:
     # Case 3: fenced diff but missing closing fence
     start = raw.find("```diff")
     if start != -1:
-        # jump to first newline after ```diff
         nl = raw.find("\n", start)
         if nl == -1:
             raise RuntimeError("Found ```diff but no content after it.")
         body = raw[nl + 1 :].strip()
 
-        # If a closing fence exists later, strip after it; otherwise keep full body
         end = body.rfind("```")
         if end != -1:
             body = body[:end].strip()
 
-        # Sometimes models include extra text after the diff; try to cut at COMMIT: if present
         commit_idx = body.find("\nCOMMIT:")
         if commit_idx != -1:
             body = body[:commit_idx].strip()
 
         return body + "\n"
 
-    # Case 4: entire message is wrapped in a fence (maybe not labeled diff)
+    # Case 4: entire message wrapped in a single fence (maybe unlabeled)
     unwrapped = _strip_code_fences(raw)
     if unwrapped.startswith("diff --git "):
         return unwrapped + "\n"
@@ -150,22 +149,21 @@ def extract_diff(text: str) -> str:
 
 
 def extract_commit_message(text: str) -> str:
-    """
-    Commit message extraction:
-    - If model included a COMMIT: line, use it
-    - Else default
-    """
-    m = re.search(r"^COMMIT:\s*(.+)\s*$", text, re.MULTILINE)
+    """Extract COMMIT: line if present; else default."""
+    m = re.search(r"^COMMIT:\s*(.+)\s*$", text or "", re.MULTILINE)
     if m:
         return m.group(1).strip()
     return "Apply task changes"
 
 
-def build_prompt(task_file: str, extra_context_files: list[str]) -> str:
+def build_prompt(task_file: str, extra_context_files: List[str]) -> Tuple[str, str]:
+    """
+    Returns: (system_prompt, user_context)
+    """
     sys_prompt = safe_read_text("agents/prompts/system.md", max_chars=50_000)
     task_txt = safe_read_text(task_file, max_chars=50_000)
 
-    ctx_parts = []
+    ctx_parts: List[str] = []
     ctx_parts.append("## Repo Tree (src/tradingbot)\n" + list_tree("src/tradingbot"))
     ctx_parts.append("## Repo Tree (tests)\n" + list_tree("tests"))
     ctx_parts.append("## Task File\n" + f"FILE: {task_file}\n" + task_txt)
@@ -175,8 +173,7 @@ def build_prompt(task_file: str, extra_context_files: list[str]) -> str:
             ctx_parts.append(f"## FILE: {f}\n" + safe_read_text(f))
 
     context = "\n\n".join(ctx_parts)
-
-    return f"{sys_prompt}\n\n# Context\n{context}"
+    return sys_prompt, f"# Context\n{context}"
 
 
 def git_current_branch() -> str:
@@ -189,7 +186,6 @@ def git_checkout_new_branch(branch: str) -> None:
     Create and checkout a new branch.
     If it already exists locally, just checkout.
     """
-    # does branch exist?
     exists = subprocess.run(
         ["git", "rev-parse", "--verify", branch],
         cwd=str(REPO_ROOT),
@@ -203,7 +199,7 @@ def git_checkout_new_branch(branch: str) -> None:
         run(["git", "checkout", "-b", branch])
 
 
-def git_apply_patch(patch_text: str) -> tuple[bool, str]:
+def git_apply_patch(patch_text: str) -> Tuple[bool, str]:
     """Apply a unified diff patch. Returns (ok, output)."""
     proc = subprocess.run(
         ["git", "apply", "--whitespace=nowarn", "--reject", "-"],
@@ -217,9 +213,9 @@ def git_apply_patch(patch_text: str) -> tuple[bool, str]:
     return ok, out.strip()
 
 
-def run_checks() -> tuple[bool, str]:
+def run_checks() -> Tuple[bool, str]:
     """Run ruff and pytest. Returns (ok, combined_output)."""
-    outputs = []
+    outputs: List[str] = []
     ok = True
 
     ruff = subprocess.run(["ruff", "check", "."], cwd=str(REPO_ROOT), text=True, capture_output=True)
@@ -265,7 +261,6 @@ def main() -> int:
         print("OPENAI_API_KEY is not set in your environment. (Do NOT paste it here.)", file=sys.stderr)
         return 2
 
-    # Create branch
     branch = args.branch.strip()
     if not branch:
         base = Path(args.task_file).stem
@@ -278,21 +273,20 @@ def main() -> int:
 
     client = OpenAI()
 
-    prompt = build_prompt(args.task_file, args.extra_context)
+    sys_prompt, context_prompt = build_prompt(args.task_file, args.extra_context)
 
-    # Iterative patch loop
     last_error = ""
     for i in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {i}/{args.max_iters} ===")
 
-        user_msg = prompt
+        user_msg = context_prompt
         if last_error:
             user_msg += "\n\n# Previous attempt failed\n" + last_error
 
         resp = client.chat.completions.create(
             model=os.getenv("TRADINGBOT_AGENT_MODEL", "gpt-4.1-mini"),
             messages=[
-                {"role": "system", "content": "You are a careful coding agent. Follow the format strictly."},
+                {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": user_msg},
             ],
             temperature=0.2,
@@ -313,11 +307,9 @@ def main() -> int:
 
         checks_ok, checks_out = run_checks()
         if not checks_ok:
-            # Keep worktree changes, ask for fix patch
-            last_error = f"Checks failed after applying patch:\n{checks_out}"
+            last_error = f"Checks failed after applying patch:\n{checks_out}\n\nMODEL_OUTPUT:\n{text}"
             continue
 
-        # All good: commit and optionally push
         print("\n✅ Checks passed. Committing…")
         git_commit_all(commit_msg)
 
