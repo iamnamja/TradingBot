@@ -4,7 +4,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Tuple, List
+from typing import List, Tuple
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -68,6 +68,7 @@ def list_tree(subdir: str, max_lines: int = 300) -> str:
     base = (REPO_ROOT / subdir)
     if not base.exists():
         return f"<<MISSING_DIR: {subdir}>>"
+
     lines: List[str] = []
     for p in sorted(base.rglob("*")):
         rel = p.relative_to(REPO_ROOT).as_posix()
@@ -101,6 +102,21 @@ def _strip_code_fences(text: str) -> str:
     return t
 
 
+def _strip_trailing_commit_line(diff_text: str) -> str:
+    """
+    Some models append 'COMMIT: ...' after the diff even when asked not to.
+    That line is NOT valid patch content and will cause `git apply` to fail.
+
+    Remove anything from the first newline that starts a COMMIT line.
+    """
+    idx = diff_text.find("\nCOMMIT:")
+    if idx != -1:
+        return diff_text[:idx].rstrip()
+    if diff_text.startswith("COMMIT:"):
+        return ""
+    return diff_text
+
+
 def extract_diff(text: str) -> str:
     """
     Extract a unified diff from model output.
@@ -108,19 +124,22 @@ def extract_diff(text: str) -> str:
     Robust behaviors:
     - Accept properly fenced ```diff ... ```
     - If closing fence is missing, treat end-of-message as end-of-diff
-    - If response starts with 'diff --git', treat entire response as diff
+    - If response starts with 'diff --git', treat entire response as diff (minus trailing COMMIT)
     - If response is wrapped in a single unlabeled fence, unwrap and parse
     """
     raw = (text or "").strip()
 
     # Case 1: model returned pure diff without fences
     if raw.startswith("diff --git "):
+        raw = _strip_trailing_commit_line(raw)
         return raw + "\n"
 
     # Case 2: fenced diff with closing fence
     m = re.search(r"```diff\s*\n(.*?)\n```", raw, re.DOTALL)
     if m:
-        return m.group(1).strip() + "\n"
+        body = m.group(1).strip()
+        body = _strip_trailing_commit_line(body)
+        return body + "\n"
 
     # Case 3: fenced diff but missing closing fence
     start = raw.find("```diff")
@@ -134,15 +153,13 @@ def extract_diff(text: str) -> str:
         if end != -1:
             body = body[:end].strip()
 
-        commit_idx = body.find("\nCOMMIT:")
-        if commit_idx != -1:
-            body = body[:commit_idx].strip()
-
+        body = _strip_trailing_commit_line(body)
         return body + "\n"
 
     # Case 4: entire message wrapped in a single fence (maybe unlabeled)
     unwrapped = _strip_code_fences(raw)
     if unwrapped.startswith("diff --git "):
+        unwrapped = _strip_trailing_commit_line(unwrapped)
         return unwrapped + "\n"
 
     raise RuntimeError("Model response did not include a diff we could parse.")
