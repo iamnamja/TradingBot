@@ -77,115 +77,140 @@ def list_tree(subdir: str, max_lines: int = 300) -> str:
     return "\n".join(lines)
 
 
-def extract_commit_message(text: str) -> str:
-    m = re.search(r"^COMMIT:\s*(.+)\s*$", text, re.MULTILINE)
-    return (m.group(1).strip() if m else "Apply task changes")
-
-
-def _diff_line_ok(line: str) -> bool:
-    """Conservatively keep only lines that look like valid git diff output."""
-    if line == "":
-        return True
-    prefixes = (
-        "diff --git ",
-        "index ",
-        "--- ",
-        "+++ ",
-        "@@ ",
-        "new file mode ",
-        "deleted file mode ",
-        "old mode ",
-        "new mode ",
-        "similarity index ",
-        "rename from ",
-        "rename to ",
-        "copy from ",
-        "copy to ",
-        "Binary files ",
-        "GIT binary patch",
-        "literal ",
-        "delta ",
-    )
-    if line.startswith(prefixes):
-        return True
-    # hunk content lines begin with space, +, -, or \\
-    if line[0] in (" ", "+", "-", "\\"):
-        return True
-    return False
-
-
-def _filter_to_diff_only(text: str) -> str:
+def _strip_code_fences(text: str) -> str:
     """
-    Some models append extra commentary after a diff.
-    Keep only lines that look like diff output, stopping once we hit non-diff content
-    after we have started collecting.
+    If the whole response is wrapped in a single fenced block, unwrap it.
+    Example:
+      ```diff
+      ...
+      ```
     """
-    lines = text.splitlines()
-    out: list[str] = []
-    started = False
-    for ln in lines:
-        if ln.startswith("diff --git "):
-            started = True
-        if not started:
+    t = text.strip()
+    if t.startswith("```"):
+        first_nl = t.find("\n")
+        if first_nl != -1:
+            t2 = t[first_nl + 1 :]
+            if t2.rstrip().endswith("```"):
+                t2 = t2.rstrip()[: -3]
+            return t2.strip()
+    return t
+
+
+def _strip_trailing_commit(text: str) -> str:
+    """
+    Strip a trailing COMMIT: line from the diff body if a model mistakenly
+    included it inside the diff fence.
+    """
+    # Remove any line that starts with COMMIT: and everything after it
+    # (commit should be outside the diff fence)
+    m = re.search(r"(?m)^\s*COMMIT:\s*.+\s*$", text)
+    if not m:
+        return text
+    return text[: m.start()].rstrip() + "\n"
+
+
+def _normalize_hunk_headers(patch: str) -> str:
+    """
+    Fix common non-git hunk header variants that cause 'corrupt patch':
+      @@ -1 +1,2 @@   -> @@ -1,1 +1,2 @@
+      @@ -10 +10 @@  -> @@ -10,1 +10,1 @@
+      @@ -5,3 +7 @@  -> @@ -5,3 +7,1 @@
+    """
+    out_lines: list[str] = []
+    for line in patch.splitlines():
+        # Exact invalid: @@ -A +B,C @@
+        m = re.match(r"^(@@)\s+-(\d+)\s+\+(\d+),(\d+)\s+(@@.*)$", line)
+        if m:
+            out_lines.append(f"{m.group(1)} -{m.group(2)},1 +{m.group(3)},{m.group(4)} {m.group(5)}")
             continue
-        if _diff_line_ok(ln):
-            out.append(ln)
+
+        # Exact invalid: @@ -A,B +C @@
+        m = re.match(r"^(@@)\s+-(\d+),(\d+)\s+\+(\d+)\s+(@@.*)$", line)
+        if m:
+            out_lines.append(f"{m.group(1)} -{m.group(2)},{m.group(3)} +{m.group(4)},1 {m.group(5)}")
             continue
-        # First non-diff line after starting -> stop (drop any trailing chatter)
-        break
-    return "\n".join(out).strip() + "\n"
+
+        # Exact invalid: @@ -A +B @@
+        m = re.match(r"^(@@)\s+-(\d+)\s+\+(\d+)\s+(@@.*)$", line)
+        if m:
+            out_lines.append(f"{m.group(1)} -{m.group(2)},1 +{m.group(3)},1 {m.group(4)}")
+            continue
+
+        out_lines.append(line)
+
+    return "\n".join(out_lines) + ("\n" if not patch.endswith("\n") else "")
+
+
+def sanitize_patch(patch: str) -> str:
+    """
+    Best-effort patch sanitizer:
+    - normalize CRLF
+    - strip accidental COMMIT lines from inside diff
+    - normalize invalid hunk headers to git-compatible form
+    """
+    p = patch.replace("\r\n", "\n").replace("\r", "\n")
+    p = _strip_trailing_commit(p)
+    p = _normalize_hunk_headers(p)
+    return p
 
 
 def extract_diff(text: str) -> str:
     """
     Extract a unified diff from model output.
 
-    Accepted forms:
-    - Properly fenced ```diff ... ```
-    - Raw diff starting with 'diff --git'
-    We also sanitize to remove any non-diff trailing chatter.
+    Robust behaviors:
+    - Accept properly fenced ```diff ... ```
+    - If closing fence is missing, treat end-of-message as end-of-diff
+    - If response starts with 'diff --git', treat entire response as diff
     """
-    raw = (text or "").strip()
+    raw = text.strip()
 
-    # Preferred: fenced diff
+    # Case 1: model returned pure diff without fences
+    if raw.startswith("diff --git "):
+        return sanitize_patch(raw + "\n")
+
+    # Case 2: fenced diff with closing fence
     m = re.search(r"```diff\s*\n(.*?)\n```", raw, re.DOTALL)
     if m:
-        return _filter_to_diff_only(m.group(1).strip())
+        return sanitize_patch(m.group(1).strip() + "\n")
 
-    # Raw diff (unfenced)
-    if raw.startswith("diff --git "):
-        return _filter_to_diff_only(raw)
+    # Case 3: fenced diff but missing closing fence
+    start = raw.find("```diff")
+    if start != -1:
+        nl = raw.find("\n", start)
+        if nl == -1:
+            raise RuntimeError("Found ```diff but no content after it.")
+        body = raw[nl + 1 :].strip()
 
-    # Sometimes the model wraps the entire response in an unlabeled fence
-    if raw.startswith("```"):
-        first_nl = raw.find("\n")
-        if first_nl != -1:
-            body = raw[first_nl + 1 :].rstrip()
-            if body.endswith("```"):
-                body = body[:-3].rstrip()
-            body = body.strip()
-            if body.startswith("diff --git "):
-                return _filter_to_diff_only(body)
+        end = body.rfind("```")
+        if end != -1:
+            body = body[:end].strip()
+
+        return sanitize_patch(body + "\n")
+
+    # Case 4: entire message is wrapped in a fence (maybe not labeled diff)
+    unwrapped = _strip_code_fences(raw)
+    if unwrapped.startswith("diff --git "):
+        return sanitize_patch(unwrapped + "\n")
 
     raise RuntimeError("Model response did not include a diff we could parse.")
+
+
+def extract_commit_message(text: str) -> str:
+    m = re.search(r"^COMMIT:\s*(.+)\s*$", text, re.MULTILINE)
+    return (m.group(1).strip() if m else "Apply task changes")
 
 
 def build_prompt(task_file: str, extra_context_files: list[str]) -> tuple[str, str]:
     sys_prompt = safe_read_text("agents/prompts/system.md", max_chars=50_000)
     task_txt = safe_read_text(task_file, max_chars=50_000)
 
-    # Include exact contents of files that models commonly (wrongly) patch, so it cannot assume a stub.
-    common_files = [
-        "tests/test_smoke.py",
-        "src/tradingbot/utils/__init__.py",
-    ]
-
     ctx_parts: list[str] = []
     ctx_parts.append("## Repo Tree (src/tradingbot)\n" + list_tree("src/tradingbot"))
     ctx_parts.append("## Repo Tree (tests)\n" + list_tree("tests"))
     ctx_parts.append("## Task File\n" + f"FILE: {task_file}\n" + task_txt)
 
-    for f in DEFAULT_CONTEXT_FILES + common_files + extra_context_files:
+    for f in DEFAULT_CONTEXT_FILES + extra_context_files:
         if (REPO_ROOT / f).exists():
             ctx_parts.append(f"## FILE: {f}\n" + safe_read_text(f))
 
@@ -199,7 +224,10 @@ def git_current_branch() -> str:
 
 
 def git_checkout_new_branch(branch: str) -> None:
-    """Create and checkout a new branch. If it exists locally, just checkout it."""
+    """
+    Create and checkout a new branch.
+    If it already exists locally, just checkout.
+    """
     exists = subprocess.run(
         ["git", "rev-parse", "--verify", branch],
         cwd=str(REPO_ROOT),
@@ -255,17 +283,9 @@ def git_push(branch: str) -> None:
 
 
 def ensure_clean_worktree() -> None:
-    """Fail fast if worktree is dirty (guardrail)."""
-    proc = subprocess.run(["git", "status", "--porcelain"], cwd=str(REPO_ROOT), text=True, capture_output=True)
-    if proc.stdout.strip():
-        print("Working tree is not clean. Commit/stash your changes before running the agent.", file=sys.stderr)
-        raise SystemExit(2)
-
-
-def clean_worktree_hard() -> None:
-    """Hard reset and clean untracked files (used after failed apply)."""
-    subprocess.run(["git", "reset", "--hard"], cwd=str(REPO_ROOT), text=True, capture_output=True)
-    subprocess.run(["git", "clean", "-fd"], cwd=str(REPO_ROOT), text=True, capture_output=True)
+    cp = run(["git", "status", "--porcelain"], check=True)
+    if cp.stdout.strip():
+        raise RuntimeError("Working tree is not clean. Commit/stash your changes before running the agent.")
 
 
 def main() -> int:
@@ -289,9 +309,12 @@ def main() -> int:
         print("OPENAI_API_KEY is not set in your environment. (Do NOT paste it here.)", file=sys.stderr)
         return 2
 
-    ensure_clean_worktree()
+    try:
+        ensure_clean_worktree()
+    except Exception as e:
+        print(str(e), file=sys.stderr)
+        return 2
 
-    # Create branch
     branch = args.branch.strip()
     if not branch:
         base = Path(args.task_file).stem
@@ -306,7 +329,6 @@ def main() -> int:
 
     sys_prompt, user_prompt = build_prompt(args.task_file, args.extra_context)
 
-    # Iterative patch loop
     last_error = ""
     for i in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {i}/{args.max_iters} ===")
@@ -325,6 +347,7 @@ def main() -> int:
         )
 
         text = resp.choices[0].message.content or ""
+
         try:
             patch = extract_diff(text)
             commit_msg = extract_commit_message(text)
@@ -335,16 +358,19 @@ def main() -> int:
         ok, apply_out = git_apply_patch(patch)
         if not ok:
             last_error = f"git apply failed:\n{apply_out}\n\nPATCH:\n{patch}"
-            clean_worktree_hard()
+            # Clean rejects/partial state to keep iterations consistent
+            subprocess.run(["git", "reset", "--hard"], cwd=str(REPO_ROOT))
+            subprocess.run(["git", "clean", "-fd"], cwd=str(REPO_ROOT))
             continue
 
         checks_ok, checks_out = run_checks()
         if not checks_ok:
             last_error = f"Checks failed after applying patch:\n{checks_out}"
-            clean_worktree_hard()
+            # Clean to avoid accumulating broken state across iterations
+            subprocess.run(["git", "reset", "--hard"], cwd=str(REPO_ROOT))
+            subprocess.run(["git", "clean", "-fd"], cwd=str(REPO_ROOT))
             continue
 
-        # All good: commit and optionally push
         print("\n✅ Checks passed. Committing…")
         git_commit_all(commit_msg)
 
