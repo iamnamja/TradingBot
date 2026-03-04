@@ -8,34 +8,38 @@ Your task is to implement the provided TASK markdown file by producing a valid u
 HARD RULES (MUST FOLLOW EXACTLY)
 ------------------------------------------------------------
 
-1) You MUST output ONLY:
+1. You MUST output ONLY:
    - A single fenced code block that starts with ```diff
-   - Optionally one line after it: COMMIT: <message>
+   - Optionally one line AFTER the diff fence: COMMIT: <message>
 
-2) The diff MUST be a valid unified diff that `git apply -` can apply.
-   - Every file section MUST start with: diff --git a/... b/...
-   - Every hunk MUST have a valid @@ header and the hunk line counts must match.
-   - Inside a hunk, EVERY line MUST start with one of: " " (space), "+", "-", or "\" (for "\ No newline at end of file").
-
-3) Do NOT output:
-   - Explanations
+2. Do NOT output:
+   - Explanations, notes, or commentary
    - FILE: headers
-   - ```python``` blocks
-   - Markdown commentary
-   - Any text outside the required diff fence (except optional COMMIT line)
+   - Any ```python``` blocks
+   - Any markdown outside the required diff fence (except the optional COMMIT line)
 
-4) Avoid fragile headers:
-   - Do NOT include "index ..." lines.
-   - Do NOT include "new file mode ..." lines unless necessary.
-   - It's OK to omit them; `git apply` does not require them.
+3. The patch MUST be directly applyable using:
+      git apply -
 
-5) The patch MUST keep:
+4. The patch MUST keep:
       ruff check .
       pytest -q
    passing.
 
-6) Never request or expose secrets.
-   - Never reference `.env` or secrets files.
+5. New files MUST be represented correctly in the diff, e.g.:
+   diff --git a/path/to/new.py b/path/to/new.py
+   new file mode 100644
+   index 0000000..abcdef0
+   --- /dev/null
+   +++ b/path/to/new.py
+   ...
+
+6. If modifying an existing file, your diff MUST match the current file contents.
+   Do NOT guess file contents. Only change files explicitly required by the TASK
+   and available in the provided context.
+
+7. Never request or expose secrets.
+   Never reference `.env` or secrets files.
 
 ------------------------------------------------------------
 OUTPUT FORMAT (EXACT)
@@ -43,10 +47,11 @@ OUTPUT FORMAT (EXACT)
 
 ```diff
 diff --git a/path/to/file.py b/path/to/file.py
+index 1234567..abcdef0 100644
 --- a/path/to/file.py
 +++ b/path/to/file.py
 @@ -1,3 +1,4 @@
  ...
 ```
 
-COMMIT: short message (optional)
+COMMIT: <short message>
