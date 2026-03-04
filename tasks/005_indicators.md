@@ -3,25 +3,20 @@
 ## Goal
 Compute a small initial set of indicators used for deterministic candidate generation.
 
-## Initial Indicators (v1)
-- SMA (fast/slow)
-- RSI (14)
-- Simple trend filter (price above SMA)
+## Inputs
+- Bars from the data layer (`list[Bar]`), or a list of closes derived from bars.
 
-## Scope
-- `indicators.py` with pure functions:
-  - `sma(series, window)`
-  - `rsi(series, window=14)`
-- Indicator computation should not call APIs; it consumes bars from data layer
+## Deliverables
+- `src/tradingbot/indicators.py` with pure functions (no API calls):
+  - `sma(values: list[float], window: int) -> list[float | None]`
+  - `rsi(values: list[float], window: int = 14) -> list[float | None]`
+  - `trend_up(values: list[float], lookback: int = 5) -> bool`  
+    (simple: last value > value[-lookback])
 
-## Acceptance Criteria
-- Given a known price series, indicators match expected values (approx)
-- Deterministic and testable
+- `tests/test_indicators.py`
+  - uses small hand-made series to validate values and edge cases
 
-## Tests
-- Unit tests using fixed input arrays with expected outputs
-- No network calls
-
-## Notes for Agents
-- Keep dependencies minimal (pandas optional)
-- Ensure numerical stability for short series
+## Acceptance criteria
+- `ruff check .` and `pytest -q` pass
+- Indicators handle short series gracefully (return `None` where insufficient history)
+- No external dependencies (numpy/pandas) required for v1

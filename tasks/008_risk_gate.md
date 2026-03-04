@@ -3,24 +3,27 @@
 ## Goal
 Prevent trades that violate risk constraints.
 
-## Initial Constraints
+## Initial constraints (v1)
 - max position size USD (per trade)
 - max open positions
-- max trades per day
-- max daily loss USD (later requires PnL tracking; start with a stub)
+- max trades per day (simple counter in memory for now)
 
-## Scope
-- Implement `RiskGate.evaluate(candidate, portfolio_state) -> allow/deny + reason`
-- Portfolio state includes:
-  - open positions
-  - recent trades count
-  - cash/equity
-- For now: implement position sizing + open positions + trades/day checks
-
-## Acceptance Criteria
-- Trades that exceed constraints are denied with clear reason
-- Unit tests cover each constraint
+## Deliverables
+- `src/tradingbot/risk/types.py`
+  - `@dataclass PortfolioState`:
+    - `cash_usd: float`
+    - `open_positions: dict[str, float]` (symbol -> position notional or qty)
+    - `trades_today: int`
+- `src/tradingbot/risk/risk_gate.py`
+  - `class RiskGate`:
+    - `evaluate(candidate: Candidate, state: PortfolioState, cfg: Settings) -> tuple[bool, str]`
 
 ## Tests
-- RiskGate tests using synthetic portfolio states
-- No broker dependency
+- `tests/test_risk_gate.py` with simple candidate/state combos:
+  - deny when max positions reached
+  - deny when trade size exceeds max
+  - allow when within limits
+
+## Acceptance criteria
+- `ruff check .` and `pytest -q` pass
+- Reasons are stable strings suitable for logging/auditing

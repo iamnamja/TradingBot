@@ -1,29 +1,36 @@
-# Task 010: End-to-end cycle + logging/audit
+# Task 010: End-to-end cycle runner + logging/audit
 
 ## Goal
 Create a single “cycle” runner that:
 - checks market hours
 - fetches data
 - builds candidates
-- LLM approve/veto
+- LLM approve/veto (or noop)
 - risk gate
 - execute (or dry-run)
 - writes an audit log per cycle
 
-## Scope
-- `CycleRunner.run_once()` that returns a structured result
-- Log format: JSON lines or a single JSON per run saved under `logs/`
-- Include:
-  - timestamp
-  - config snapshot (safe fields only)
-  - candidates
-  - llm decisions
-  - risk decisions
-  - execution results
+## Deliverables
+- `src/tradingbot/cycle/runner.py`
+  - `class CycleRunner`:
+    - `run_once() -> dict`
+- `src/tradingbot/logging/audit.py`
+  - `write_audit(event: dict, path: str = "logs/") -> str`
+  - JSON lines or single JSON file per run is fine; choose one and document it.
 
-## Acceptance Criteria
-- Produces one audit entry per run under `logs/`
-- CI passes
+## Logging fields (minimum)
+- timestamp (UTC)
+- market_hours_guard result + reason
+- candidates (pre + post LLM decisions)
+- risk decisions
+- executed intents (or dry-run intents)
+- any errors
 
 ## Tests
-- Integration-ish test with mocks verifying call order + audit output created
+- `tests/test_cycle_runner_smoke.py`
+  - Wire fakes for DataClient, LLMAdvisor, RiskGate, Broker
+  - Assert returned dict shape and that audit writer is called (or writes to temp dir)
+
+## Acceptance criteria
+- `ruff check .` and `pytest -q` pass
+- Running a cycle in dry-run mode produces an audit artifact in `logs/` (or a temp dir in tests)

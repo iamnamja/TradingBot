@@ -1,39 +1,38 @@
 # Task 006: Strategy v1 (deterministic candidates)
 
 ## Goal
-Generate buy candidates using deterministic rules, long-only.
+Generate BUY candidates using deterministic rules, long-only.
 
 ## Inputs
 - bars + indicators per symbol
-- configuration thresholds
+- config thresholds
 
-## Candidate Rules (initial, configurable later)
-Example:
+## Deliverables
+- `src/tradingbot/strategy/types.py`
+  - `@dataclass Candidate`:
+    - `symbol: str`
+    - `score: float`
+    - `reason: str`
+    - `snapshot: dict` (selected indicator values used)
+- `src/tradingbot/strategy/strategy_v1.py`
+  - `class StrategyV1` with:
+    - `generate(symbols: list[str], data: DataClient, cfg: Settings) -> list[Candidate]`
+
+## Candidate rules (v1)
+Keep it simple and configurable (suggested defaults):
 - BUY candidate if:
-  - price > SMA(20)
-  - RSI(14) between 40 and 70
-  - SMA(20) trending up over last N bars (optional)
-
-Exit rules (initial)
-- If already holding, candidate to exit if:
-  - RSI > 75 (overbought) OR
-  - price crosses below SMA(20)
-
-## Outputs
-`Candidate` objects:
-- symbol
-- action: BUY/SELL/HOLD
-- confidence_score (0-1)
-- rationale (string list)
-
-## Acceptance Criteria
-- Produces candidates for configured tickers
-- Deterministic output given fixed input bars
-- Unit tests cover at least 2 symbols with synthetic series
+  - last_close > SMA(20)
+  - RSI(14) between [40, 70]
+- Score can be a basic heuristic (e.g., distance above SMA, RSI midpoint)
 
 ## Tests
-- Strategy unit tests using mocked bars
-- Verify candidate generation logic + rationale fields
+- `tests/test_strategy_v1.py`
+  - Use a fake `DataClient` that returns deterministic bars
+  - Validate:
+    - no candidates when rules fail
+    - candidate fields filled correctly when rules pass
 
-## Notes for Agents
-- Keep strategy pure; no order placement here
+## Acceptance criteria
+- `ruff check .` and `pytest -q` pass
+- Strategy does not call broker/order code
+- Strategy is deterministic given the same bars
