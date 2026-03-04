@@ -71,7 +71,12 @@ def ensure_branch(branch: str) -> None:
 
 def normalize_newlines(s: str) -> str:
     s = s.replace("\r\n", "\n").replace("\r", "\n")
+    # Strip UTF-8 BOM if present
     return re.sub(r"^\ufeff", "", s)
+
+
+# Accept either "FILE:" or "# FILE:" as a header line (fallback for model mistakes).
+FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
 
 
 def parse_file_bundle(text: str) -> Dict[str, str]:
@@ -87,20 +92,22 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
     if not body.strip():
         return {}
 
-    if FILE_BEGIN_PREFIX not in body:
+    if "FILE:" not in body:
         raise FileBundleError("No FILE: headers found inside file bundle.")
 
     files: Dict[str, str] = {}
     lines = body.split("\n")
     i = 0
     while i < len(lines):
-        line = lines[i].rstrip("\n")
-        if not line.startswith(FILE_BEGIN_PREFIX):
+        m = FILE_HEADER_RE.match(lines[i])
+        if not m:
             i += 1
             continue
-        relpath = line[len(FILE_BEGIN_PREFIX):].strip()
+
+        relpath = m.group(1).strip()
         if not relpath:
             raise FileBundleError("Empty FILE: path.")
+
         i += 1
         buf: List[str] = []
         while i < len(lines) and lines[i].strip("\n") != FILE_END:
@@ -108,8 +115,13 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
             i += 1
         if i >= len(lines):
             raise FileBundleError(f"Missing END_FILE for {relpath}.")
+
         i += 1  # consume END_FILE
         files[relpath] = "\n".join(buf).rstrip("\n") + "\n"
+
+    if not files:
+        raise FileBundleError("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
+
     return files
 
 
@@ -151,11 +163,10 @@ def parse_required_files(task_text: str) -> List[str]:
 def enforce_required_files(required: List[str], bundle: Dict[str, str]) -> Tuple[bool, str]:
     missing: List[str] = []
     for rf in required:
-        if rf in bundle:
-            continue
-        if Path(rf).exists():
-            continue
-        missing.append(rf)
+        # If it's a deliverable, we require it to be in the bundle (so it gets created/updated).
+        if rf not in bundle:
+            missing.append(rf)
+
     if not missing:
         return True, ""
     return False, "Missing required deliverables (must be created/updated): " + ", ".join(missing)
@@ -180,10 +191,7 @@ def load_system_prompt() -> str:
     p = Path("agents/prompts/system.md")
     if p.exists():
         return p.read_text(encoding="utf-8", errors="replace")
-    return (
-        "You are an engineering agent. Output ONLY a valid file bundle. "
-        "Never include analysis, commentary, or markdown fences."
-    )
+    return "You are an engineering agent. Output ONLY a valid file bundle."
 
 
 def chat(messages: List[dict], model: str) -> str:
@@ -245,16 +253,21 @@ def main() -> int:
             files = parse_file_bundle(out)
         except Exception:
             reminder = (
-                "Your previous response was INVALID because it did not include the required "
-                "BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers and FILE:/END_FILE blocks (literal lines starting with 'FILE: '). "
-                "Output ONLY a valid file bundle now. If there are no changes, output an EMPTY bundle "
-                "(just BEGIN_FILE_BUNDLE then END_FILE_BUNDLE)."
+                "Your previous response was INVALID. You MUST output ONLY a valid file bundle using literal lines "
+                "starting with 'FILE: '. Do NOT use commented headers like '# FILE:'. "
+                "Required structure:\n"
+                "BEGIN_FILE_BUNDLE\n"
+                "FILE: path/to/file.ext\n"
+                "<full file contents>\n"
+                "END_FILE\n"
+                "END_FILE_BUNDLE\n"
+                "If there are no changes, output exactly:\nBEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE"
             )
             out2 = chat(messages + [{"role": "user", "content": reminder}], model=args.model)
             last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
             files = parse_file_bundle(out2)
 
-        # Save parsed bundle for debugging
+        # Save parsed bundle for debugging (always as canonical FILE:/END_FILE format)
         pretty: List[str] = [FILE_BUNDLE_BEGIN]
         for p, c in files.items():
             pretty.append(f"FILE: {p}")
@@ -266,6 +279,7 @@ def main() -> int:
         ok_req, req_msg = enforce_required_files(required, files)
         if not ok_req:
             print(f"❌ {req_msg}")
+            # Add a hard requirement reminder into the task for the next iteration
             task_text = task_text.rstrip() + "\n\nIMPORTANT: " + req_msg + "\n"
             continue
 
