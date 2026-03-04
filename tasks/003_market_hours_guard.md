@@ -1,44 +1,71 @@
-# Task 003: Market hours guard (US equities RTH)
+# Task 003 — Market Hours Guard (US Equities RTH)
 
-Goal: add a reusable helper `market_hours_guard` and tests.
+## Goal
+Introduce a reusable `market_hours_guard` helper for **US equities regular trading hours (RTH)** and add tests.
 
-Constraints:
-- Do not edit `src/tradingbot/run.py` unless it already has inline market hours logic that should be moved.
-- Place the guard in: `src/tradingbot/utils/market_hours.py`
-- Export it from: `src/tradingbot/utils/__init__.py` (safe, minimal change)
-- Add unit tests in: `tests/test_market_hours_guard.py`
-- Do NOT add `tests/conftest.py` for sys.path hacks. The project should already be importable in CI.
-  - Import the module as `from tradingbot.utils.market_hours import market_hours_guard`.
-  - If imports fail, fix packaging the correct way (but keep changes minimal).
+## IMPORTANT: Idempotency / No-op
+Before making ANY changes:
+1) Inspect the repo state.
+2) If `src/tradingbot/utils/market_hours.py` already exists, tests exist, and `ruff check .` + `pytest -q` are green, **DO NOT CHANGE ANY FILES**.
+Return an explicit note: **NO_CHANGES_NEEDED** and produce **no diff**.
 
-Behavior:
-- Input: `now: datetime`
-- If `now` is naive: assume UTC, convert to America/New_York.
-- If aware: convert to America/New_York.
-- Weekend (Sat/Sun): closed -> ("market closed: weekend")
-- Weekday:
-  - before 09:30:00 NY time -> ("market closed: before open")
-  - at/after 16:00:00 NY time -> ("market closed: after close")
-  - otherwise -> ("market open")
+## Requirements
+### 1) New module
+Create:
+- `src/tradingbot/utils/market_hours.py`
 
-Return: tuple[bool, str] where bool is open/closed and str is exact reason above.
+It must implement:
+```py
+def market_hours_guard(now: datetime, calendar_source: object | None = None) -> tuple[bool, str]:
+    ...
+```
+Rules:
+- If `now` is naive, treat it as **UTC** first, then convert to **America/New_York**
+- Weekend => `(False, "market closed: weekend")`
+- Weekday time window (NY local time):
+  - before 09:30 => `(False, "market closed: before open")`
+  - 09:30 <= t < 16:00 => `(True, "market open")`
+  - at/after 16:00 => `(False, "market closed: after close")`
+- Ignore holidays for now (`calendar_source` unused).
 
-Tests:
-- at least these cases:
-  - Monday 09:29 NY -> closed before open
-  - Monday 09:30 NY -> open
-  - Monday 15:59:59 NY -> open
-  - Monday 16:00 NY -> closed after close
-  - Saturday noon NY -> closed weekend
-  - naive UTC datetime 13:30 UTC on Monday (== 09:30 NY during EDT) -> open
+### 2) Package export (ruff-safe)
+If you re-export from `src/tradingbot/utils/__init__.py`, it MUST be ruff-safe:
+- Use `# noqa: F401` on the import line, AND
+- Define `__all__ = ["market_hours_guard"]`
 
-Also:
-- Make sure ruff passes (no unused imports).
-- Do not change unrelated tests.
+Example:
+```py
+from .market_hours import market_hours_guard  # noqa: F401
+__all__ = ["market_hours_guard"]
+```
 
-Deliverables:
-- Implement `src/tradingbot/utils/market_hours.py`
-- Update `src/tradingbot/utils/__init__.py` to export the function
-- Add `tests/test_market_hours_guard.py`
+If the repo already prefers importing from `tradingbot.utils.market_hours`, you may skip re-export.
 
-Remember: output as FILE BUNDLE ONLY (see system prompt).
+### 3) Tests
+Create:
+- `tests/test_market_hours_guard.py`
+
+Tests must cover at least:
+- Before open (Mon 09:29 NY) => closed: before open
+- Open at open (Mon 09:30 NY) => market open
+- Open near close (Mon 15:59:59 NY) => market open
+- After close (Mon 16:00 NY) => closed: after close
+- Weekend (Sat noon NY) => closed: weekend
+- Naive UTC (Mon 13:30 naive) => 09:30 NY => market open
+
+**Do not import pytest unless you actually use it** (ruff F401). Plain asserts are fine.
+
+### 4) CI
+After changes:
+- `ruff check .` must be green
+- `pytest -q` must be green
+- No unused imports.
+- No placeholder comments like “# empty???”
+
+## Files you MAY touch
+- `src/tradingbot/utils/market_hours.py` (new)
+- `src/tradingbot/utils/__init__.py` (optional, only if needed)
+- `tests/test_market_hours_guard.py` (new)
+- `tests/conftest.py` (only if needed for import path; prefer not touching if already works)
+
+Return a clean diff only.
