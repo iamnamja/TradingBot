@@ -1,46 +1,44 @@
-# Task 003: Market hours guard
+# Task 003: Market hours guard (US equities RTH)
 
-## Goal
-Add a deterministic “market hours guard” for US equities regular trading hours (RTH) and tests.
+Goal: add a reusable helper `market_hours_guard` and tests.
 
-**RTH definition (for now):**
-- Monday–Friday only (no holidays yet)
-- 9:30am <= time < 4:00pm in America/New_York
+Constraints:
+- Do not edit `src/tradingbot/run.py` unless it already has inline market hours logic that should be moved.
+- Place the guard in: `src/tradingbot/utils/market_hours.py`
+- Export it from: `src/tradingbot/utils/__init__.py` (safe, minimal change)
+- Add unit tests in: `tests/test_market_hours_guard.py`
+- Do NOT add `tests/conftest.py` for sys.path hacks. The project should already be importable in CI.
+  - Import the module as `from tradingbot.utils.market_hours import market_hours_guard`.
+  - If imports fail, fix packaging the correct way (but keep changes minimal).
 
-## Important constraints
-To keep this task small and avoid churn:
-- **DO NOT edit** `src/tradingbot/run.py`
-- **DO NOT edit** `src/tradingbot/utils/__init__.py`
-- Implement logic in a new module and add tests only.
+Behavior:
+- Input: `now: datetime`
+- If `now` is naive: assume UTC, convert to America/New_York.
+- If aware: convert to America/New_York.
+- Weekend (Sat/Sun): closed -> ("market closed: weekend")
+- Weekday:
+  - before 09:30:00 NY time -> ("market closed: before open")
+  - at/after 16:00:00 NY time -> ("market closed: after close")
+  - otherwise -> ("market open")
 
-## Scope
-1) Add `src/tradingbot/utils/market_hours.py` exporting:
-   - `market_hours_guard(now: datetime, calendar_source: object | None = None) -> tuple[bool, str]`
+Return: tuple[bool, str] where bool is open/closed and str is exact reason above.
 
-Rules:
-- If `now` is timezone-aware: convert to America/New_York then evaluate.
-- If `now` is naive: treat as **UTC**, then convert to America/New_York.
-- Return `(True, "market open")` if within RTH.
-- Otherwise return `(False, one of:)`
-  - `"market closed: weekend"`
-  - `"market closed: before open"`
-  - `"market closed: after close"`
+Tests:
+- at least these cases:
+  - Monday 09:29 NY -> closed before open
+  - Monday 09:30 NY -> open
+  - Monday 15:59:59 NY -> open
+  - Monday 16:00 NY -> closed after close
+  - Saturday noon NY -> closed weekend
+  - naive UTC datetime 13:30 UTC on Monday (== 09:30 NY during EDT) -> open
 
-2) Ensure tests can import the src package:
-- If `tests/conftest.py` does not exist, create it to add `<repo>/src` to `sys.path`.
+Also:
+- Make sure ruff passes (no unused imports).
+- Do not change unrelated tests.
 
-3) Add tests in `tests/test_market_hours_guard.py` verifying boundary behavior:
-- Mon 09:29 NY => closed before open
-- Mon 09:30 NY => open
-- Mon 15:59:59 NY => open
-- Mon 16:00 NY => closed after close
-- Sat 12:00 NY => closed weekend
-- Naive UTC `2023-08-07 13:30:00` => 09:30 NY => open
+Deliverables:
+- Implement `src/tradingbot/utils/market_hours.py`
+- Update `src/tradingbot/utils/__init__.py` to export the function
+- Add `tests/test_market_hours_guard.py`
 
-## Acceptance criteria
-- `ruff check .` passes
-- `pytest -q` passes
-- Patch applies cleanly with `git apply -`
-
-## Notes
-- No holiday calendar yet (placeholder parameter only).
+Remember: output as FILE BUNDLE ONLY (see system prompt).
