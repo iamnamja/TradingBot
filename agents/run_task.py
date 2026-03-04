@@ -42,7 +42,7 @@ def is_denied(path: str) -> bool:
     return any(r.search(p) for r in DENY_READ_PATTERNS)
 
 
-def safe_read_text(relpath: str, max_chars: int = 20_000) -> str:
+def safe_read_text(relpath: str, max_chars: int = 50_000) -> str:
     """Read file content with guardrails."""
     if is_denied(relpath):
         return f"<<DENIED: {relpath}>>"
@@ -77,50 +77,82 @@ def list_tree(subdir: str, max_lines: int = 300) -> str:
     return "\n".join(lines)
 
 
-def _strip_outer_fence(text: str) -> str:
-    t = text.strip()
-    if not t.startswith("```"):
-        return t
-    first_nl = t.find("\n")
-    if first_nl == -1:
-        return t
-    body = t[first_nl + 1 :]
-    if body.rstrip().endswith("```"):
-        body = body.rstrip()[:-3]
-    return body.strip()
+def _save_last_patch(raw_text: str, patch_text: str) -> None:
+    """
+    Best-effort debug artifacts saved into repo root:
+      - _last_agent_model_output.txt
+      - _last_agent_patch.diff
+      - _last_agent_patch_lf.diff (LF-normalized)
+    """
+    try:
+        (REPO_ROOT / "_last_agent_model_output.txt").write_text(raw_text, encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    try:
+        (REPO_ROOT / "_last_agent_patch.diff").write_text(patch_text, encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    try:
+        lf = patch_text.replace("\r\n", "\n").replace("\r", "\n")
+        (REPO_ROOT / "_last_agent_patch_lf.diff").write_text(lf, encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+def _strip_trailing_commit_line(text: str) -> str:
+    # Remove a trailing COMMIT: line if it got included inside the diff body
+    return re.sub(r"\nCOMMIT:\s.*\Z", "\n", text.strip(), flags=re.DOTALL)
 
 
 def extract_diff(text: str) -> str:
     """
     Extract a unified diff from model output.
-    - Prefer ```diff fenced block
-    - Else accept raw text starting with 'diff --git'
-    - Else unwrap a single fence and retry
+
+    Requirements:
+    - Prefer a single fenced ```diff ... ``` block.
+    - Tolerate missing closing fence.
+    - If the response starts with 'diff --git', treat the whole response as diff.
+    - Normalize CRLF and ensure blank line between file diffs (helps git apply).
     """
     raw = text.strip()
 
-    m = re.search(r"```diff\s*\n(.*?)\n```", raw, re.DOTALL)
-    if m:
-        return m.group(1).strip() + "\n"
-
+    # Case 1: model returned pure diff without fences
     if raw.startswith("diff --git "):
-        return raw + "\n"
+        body = raw
+    else:
+        # Case 2: fenced diff with closing fence
+        m = re.search(r"```diff\s*\r?\n(.*?)\r?\n```", raw, re.DOTALL)
+        if m:
+            body = m.group(1).strip()
+        else:
+            # Case 3: fenced diff but missing closing fence
+            start = raw.find("```diff")
+            if start != -1:
+                nl = raw.find("\n", start)
+                if nl == -1:
+                    raise RuntimeError("Found ```diff but no content after it.")
+                body = raw[nl + 1 :].strip()
+                # Strip any later fence if present
+                end = body.rfind("```")
+                if end != -1:
+                    body = body[:end].strip()
+            else:
+                raise RuntimeError("Model response did not include a diff we could parse.")
 
-    unwrapped = _strip_outer_fence(raw)
-    if unwrapped.startswith("diff --git "):
-        return unwrapped + "\n"
+    body = _strip_trailing_commit_line(body)
+    # Normalize newlines
+    body = body.replace("\r\n", "\n").replace("\r", "\n").strip() + "\n"
 
-    start = raw.find("```diff")
-    if start != -1:
-        nl = raw.find("\n", start)
-        if nl != -1:
-            body = raw[nl + 1 :].strip()
-            end = body.rfind("```")
-            if end != -1:
-                body = body[:end].strip()
-            return body + "\n"
+    # Ensure there's a blank line between each "diff --git" header block
+    # Some models accidentally omit it; git apply can report "corrupt patch".
+    body = re.sub(r"\n(?=diff --git )", "\n\n", body)
 
-    raise RuntimeError("Model response did not include a diff we could parse.")
+    # Ensure patch begins at a diff header (strip leading noise lines)
+    first = body.find("diff --git ")
+    if first > 0:
+        body = body[first:]
+
+    return body
 
 
 def extract_commit_message(text: str) -> str:
@@ -132,14 +164,14 @@ def build_prompt(task_file: str, extra_context_files: list[str]) -> tuple[str, s
     sys_prompt = safe_read_text("agents/prompts/system.md", max_chars=50_000)
     task_txt = safe_read_text(task_file, max_chars=50_000)
 
-    ctx_parts = []
+    ctx_parts: list[str] = []
     ctx_parts.append("## Repo Tree (src/tradingbot)\n" + list_tree("src/tradingbot"))
     ctx_parts.append("## Repo Tree (tests)\n" + list_tree("tests"))
     ctx_parts.append("## Task File\n" + f"FILE: {task_file}\n" + task_txt)
 
     for f in DEFAULT_CONTEXT_FILES + extra_context_files:
         if (REPO_ROOT / f).exists():
-            ctx_parts.append(f"## FILE: {f}\n" + safe_read_text(f, max_chars=50_000))
+            ctx_parts.append(f"## FILE: {f}\n" + safe_read_text(f))
 
     context = "\n\n".join(ctx_parts)
     return sys_prompt, f"# Context\n{context}"
@@ -151,86 +183,38 @@ def git_current_branch() -> str:
 
 
 def git_checkout_new_branch(branch: str) -> None:
+    """
+    Create and checkout a new branch.
+    - If already on branch: no-op
+    - If branch exists locally: checkout
+    - Else: create and checkout
+    """
+    current = git_current_branch()
+    if current == branch:
+        return
+
     exists = subprocess.run(
-        ["git", "rev-parse", "--verify", branch],
+        ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
         cwd=str(REPO_ROOT),
-        text=True,
-        capture_output=True,
     ).returncode == 0
+
     if exists:
-        run(["git", "branch", "-D", branch], check=False)
-    run(["git", "checkout", "-b", branch])
+        run(["git", "checkout", branch])
+    else:
+        run(["git", "checkout", "-b", branch])
 
 
-def _normalize_patch_hunks(patch_text: str) -> str:
-    """
-    Recompute hunk header counts to avoid:
-      error: corrupt patch at line N
-    """
-    patch = patch_text.replace("\r\n", "\n").replace("\r", "\n")
-    patch = re.sub(r"(?m)^\s*COMMIT:\s.*$", "", patch).rstrip() + "\n"
-
-    lines = patch.splitlines(True)
-    out: list[str] = []
-    i = 0
-    hunk_re = re.compile(r"^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@")
-
-    while i < len(lines):
-        line = lines[i]
-        m = hunk_re.match(line)
-        if not m:
-            out.append(line)
-            i += 1
-            continue
-
-        old_start = int(m.group(1))
-        new_start = int(m.group(3))
-
-        body: list[str] = []
-        i += 1
-        while i < len(lines):
-            nxt = lines[i]
-            if nxt.startswith("diff --git ") or hunk_re.match(nxt):
-                break
-            if not (nxt.startswith(" ") or nxt.startswith("+") or nxt.startswith("-") or nxt.startswith("\\") or nxt == "\n"):
-                break
-            body.append(nxt)
-            i += 1
-
-        old_cnt = 0
-        new_cnt = 0
-        for b in body:
-            if b.startswith(" "):
-                old_cnt += 1
-                new_cnt += 1
-            elif b.startswith("-"):
-                old_cnt += 1
-            elif b.startswith("+"):
-                new_cnt += 1
-
-        out.append(f"@@ -{old_start},{old_cnt} +{new_start},{new_cnt} @@\n")
-        out.extend(body)
-
-    return "".join(out)
-
-
-def _save_patch_files(patch_text: str) -> None:
-    (REPO_ROOT / "_last_agent_patch.diff").write_text(patch_text, encoding="utf-8", newline="\n")
-    (REPO_ROOT / "_last_agent_patch_lf.diff").write_text(
-        patch_text.replace("\r\n", "\n").replace("\r", "\n"),
-        encoding="utf-8",
-        newline="\n",
-    )
+def git_worktree_clean() -> bool:
+    cp = subprocess.run(["git", "status", "--porcelain"], cwd=str(REPO_ROOT), text=True, capture_output=True)
+    return cp.returncode == 0 and cp.stdout.strip() == ""
 
 
 def git_apply_patch(patch_text: str) -> tuple[bool, str]:
-    normalized = _normalize_patch_hunks(patch_text)
-    _save_patch_files(normalized)
-
+    """Apply a unified diff patch. Returns (ok, output)."""
     proc = subprocess.run(
         ["git", "apply", "--whitespace=nowarn", "--reject", "-"],
         cwd=str(REPO_ROOT),
-        input=normalized,
+        input=patch_text,
         text=True,
         capture_output=True,
     )
@@ -240,7 +224,8 @@ def git_apply_patch(patch_text: str) -> tuple[bool, str]:
 
 
 def run_checks() -> tuple[bool, str]:
-    outputs = []
+    """Run ruff and pytest. Returns (ok, combined_output)."""
+    outputs: list[str] = []
     ok = True
 
     ruff = subprocess.run(["ruff", "check", "."], cwd=str(REPO_ROOT), text=True, capture_output=True)
@@ -265,11 +250,6 @@ def git_push(branch: str) -> None:
     run(["git", "push", "-u", "origin", branch])
 
 
-def _reset_worktree_hard() -> None:
-    subprocess.run(["git", "reset", "--hard"], cwd=str(REPO_ROOT), text=True, capture_output=True)
-    subprocess.run(["git", "clean", "-fd"], cwd=str(REPO_ROOT), text=True, capture_output=True)
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("task_file", help="Task markdown file, e.g. tasks/003_market_hours_guard.md")
@@ -291,6 +271,11 @@ def main() -> int:
         print("OPENAI_API_KEY is not set in your environment. (Do NOT paste it here.)", file=sys.stderr)
         return 2
 
+    if not git_worktree_clean():
+        print("Working tree is not clean. Commit/stash your changes before running the agent.", file=sys.stderr)
+        return 2
+
+    # Create branch
     branch = args.branch.strip()
     if not branch:
         base = Path(args.task_file).stem
@@ -302,21 +287,22 @@ def main() -> int:
     git_checkout_new_branch(branch)
 
     client = OpenAI()
-    sys_prompt, user_context = build_prompt(args.task_file, args.extra_context)
+
+    sys_prompt, user_prompt = build_prompt(args.task_file, args.extra_context)
 
     last_error = ""
     for i in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {i}/{args.max_iters} ===")
-        _reset_worktree_hard()
 
-        user_msg = f"{sys_prompt}\n\n{user_context}"
+        user_msg = user_prompt
         if last_error:
             user_msg += "\n\n# Previous attempt failed\n" + last_error
 
         resp = client.chat.completions.create(
             model=os.getenv("TRADINGBOT_AGENT_MODEL", "gpt-4.1-mini"),
             messages=[
-                {"role": "system", "content": "Follow STRICT DIFF MODE exactly. Output ONLY a ```diff fenced unified diff."},
+                {"role": "system", "content": "You are a careful coding agent. Follow the format strictly."},
+                {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": user_msg},
             ],
             temperature=0.2,
@@ -330,14 +316,22 @@ def main() -> int:
             last_error = f"Failed to parse model output: {e}\n\nMODEL_OUTPUT:\n{text}"
             continue
 
+        _save_last_patch(text, patch)
+
         ok, apply_out = git_apply_patch(patch)
         if not ok:
-            last_error = f"git apply failed:\n{apply_out}\n\nPATCH (saved to _last_agent_patch.diff and _last_agent_patch_lf.diff)"
+            last_error = f"git apply failed:\n{apply_out}\n\nPATCH:\n{patch}"
+            # reset any partial applies/rejects before next iteration
+            subprocess.run(["git", "reset", "--hard"], cwd=str(REPO_ROOT))
+            subprocess.run(["git", "clean", "-fd"], cwd=str(REPO_ROOT))
             continue
 
         checks_ok, checks_out = run_checks()
         if not checks_ok:
             last_error = f"Checks failed after applying patch:\n{checks_out}"
+            # keep diffs? no: reset so next iteration starts clean
+            subprocess.run(["git", "reset", "--hard"], cwd=str(REPO_ROOT))
+            subprocess.run(["git", "clean", "-fd"], cwd=str(REPO_ROOT))
             continue
 
         print("\n✅ Checks passed. Committing…")

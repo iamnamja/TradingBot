@@ -1,28 +1,69 @@
-# Task 003: Market hours guard (US equities, minimal + testable)
+# Task 003 — Market hours guard (US equities)
 
-Goal: add a reusable guard that determines whether US equities market is open.
+## Goal
+Add a simple, deterministic market-hours guard function for **US equities regular trading hours** and tests for it.
 
-Requirements:
-- Implement a function:
-    market_hours_guard(now: datetime, calendar_source=None) -> tuple[bool, str]
-- Rules (simple for now):
-  - Monday–Friday only
-  - 09:30 <= time < 16:00 America/New_York
-  - If closed, return False with a short reason string:
-      "market closed: weekend"
-      "market closed: before open"
-      "market closed: after close"
-- Handle timezone properly:
-  - If `now` is naive (no tzinfo), treat it as UTC, then convert to America/New_York.
-  - If `now` is aware, convert to America/New_York.
+## Requirements
 
-Implementation guidance (to reduce fragile diffs):
-- Create NEW module: src/tradingbot/utils/market_hours.py
-- Export it from src/tradingbot/utils/__init__.py (small edit)
-- Add NEW tests file: tests/test_market_hours_guard.py
-- Do NOT rewrite tests/test_smoke.py unless strictly necessary.
-- Do NOT duplicate the guard inside run.py; keep it in utils.
+### 1) Add function
+Create a new module:
 
-Acceptance:
-- ruff check . passes
-- pytest -q passes
+- `src/tradingbot/utils/market_hours.py`
+
+Implement:
+
+- `market_hours_guard(now: datetime, calendar_source=None) -> tuple[bool, str]`
+
+Rules:
+
+- Convert `now` to `America/New_York` using `zoneinfo.ZoneInfo`.
+- If `now` is **naive** (no tzinfo), treat it as **UTC** (assume UTC, then convert to NY).
+- If NY-local weekday is Sat/Sun => `(False, "market closed: weekend")`
+- Market open window is:
+  - open at **09:30:00**
+  - close at **16:00:00**
+  - open interval is **[09:30, 16:00)** (16:00 is closed)
+- Return reasons:
+  - before open: `"market closed: before open"`
+  - after close: `"market closed: after close"`
+  - open: `"market open"`
+
+No external calendar/holiday logic yet.
+
+### 2) Export from utils package
+Update existing:
+
+- `src/tradingbot/utils/__init__.py`
+
+to export:
+
+- `market_hours_guard`
+
+Important: **Preserve existing exports** (do not replace the file content with only this export).
+
+### 3) Tests
+Add a new test file:
+
+- `tests/test_market_hours_guard.py`
+
+Test at least:
+
+- Mon 09:29 NY => closed, before open
+- Mon 09:30 NY => open
+- Mon 15:59:59 NY => open
+- Mon 16:00 NY => closed, after close
+- Sat noon NY => closed, weekend
+- Naive datetime that equals 13:30 UTC on a Monday (i.e., 09:30 NY during EDT) => open
+
+Notes:
+- Prefer `datetime.fromisoformat()` with offsets for the NY cases.
+- Do NOT modify `tests/test_smoke.py` for this task.
+
+### 4) Non-goals / constraints
+- Do NOT modify `src/tradingbot/run.py` for this task.
+- Keep style compatible with ruff and the existing repo conventions.
+
+## Acceptance criteria
+- `ruff check .` passes
+- `pytest -q` passes
+- Function behavior matches rules above
