@@ -208,3 +208,10 @@ __marimo__/
 
 # Agent runner debug artifacts (keep during `git clean -fd`)
 _last_agent_patch*.diff
+_last_agent_model_output.txt
+_last_agent_file_bundle.txt
+_last_agent_patch.diff
+_last_agent_patch_lf.diff
+_last_agent_patch_fixed.diff
+_last_agent_patch_fixed_lf.diff
+*.rej
