@@ -1,125 +1,131 @@
 BEGIN_FILE_BUNDLE
-# FILE: src/tradingbot/indicators.py
-from typing import List, Optional
+# FILE: src/tradingbot/strategy/types.py
+from dataclasses import dataclass
+from typing import Dict
 
 
-def sma(values: List[float], window: int) -> List[Optional[float]]:
-    """Simple moving average. Returns list of same length with None for
-    positions where there isn't enough history."""
-    if window <= 0:
-        raise ValueError("window must be > 0")
-    n = len(values)
-    if n == 0:
-        return []
-    result: List[Optional[float]] = [None] * n
-    if window > n:
-        return result
-    # compute first window sum
-    window_sum = sum(values[:window])
-    result[window - 1] = window_sum / window
-    for i in range(window, n):
-        window_sum += values[i] - values[i - window]
-        result[i] = window_sum / window
-    return result
+@dataclass
+class Candidate:
+    symbol: str
+    score: float
+    reason: str
+    snapshot: Dict[str, float]
+# FILE: src/tradingbot/strategy/strategy_v1.py
+from __future__ import annotations
+
+from typing import List
+
+from .types import Candidate
 
 
-def rsi(values: List[float], window: int = 14) -> List[Optional[float]]:
-    """Relative Strength Index using Wilder's smoothing.
-    Returns a list of same length with None for indices that don't have enough history.
-    RSI values are in range [0, 100]. For flat periods (no gains and no losses) we return 50.0.
+class StrategyV1:
     """
-    if window <= 0:
-        raise ValueError("window must be > 0")
-    n = len(values)
-    if n == 0:
-        return []
-    # Need at least window+1 values to compute first RSI
-    if n <= window:
-        return [None] * n
-    # deltas length n-1, delta[i] = values[i+1] - values[i]
-    deltas = [values[i] - values[i - 1] for i in range(1, n)]
-    # initial average gains/losses from first `window` deltas
-    gains = [d if d > 0 else 0.0 for d in deltas[:window]]
-    losses = [-d if d < 0 else 0.0 for d in deltas[:window]]
-    avg_gain = sum(gains) / window
-    avg_loss = sum(losses) / window
+    Deterministic, long-only strategy (v1).
 
-    def compute_rsi_from_avgs(ag: float, al: float) -> float:
-        if ag == 0.0 and al == 0.0:
-            return 50.0
-        if al == 0.0:
-            return 100.0
-        rs = ag / al
-        return 100.0 - (100.0 / (1.0 + rs))
+    Rules (configurable via constructor or Settings if extended):
+    - BUY candidate if:
+      - last_close > SMA(20)
+      - RSI(14) between [rsi_lower, rsi_upper] (defaults 40..70)
 
-    result: List[Optional[float]] = [None] * n
-    # first RSI value sits at index `window`
-    result[window] = compute_rsi_from_avgs(avg_gain, avg_loss)
-    # subsequent values use Wilder smoothing
-    for idx in range(window + 1, n):
-        delta = deltas[idx - 1]
-        gain = delta if delta > 0 else 0.0
-        loss = -delta if delta < 0 else 0.0
-        avg_gain = (avg_gain * (window - 1) + gain) / window
-        avg_loss = (avg_loss * (window - 1) + loss) / window
-        result[idx] = compute_rsi_from_avgs(avg_gain, avg_loss)
-    return result
+    generate(...) expects `data.get_latest(symbol)` to return a mapping with keys:
+      - "close"
+      - "sma20"
+      - "rsi14"
 
+    The score is a simple heuristic combining distance above SMA and closeness
+    of RSI to the midpoint of the allowed RSI range.
+    """
 
-def trend_up(values: List[float], lookback: int = 5) -> bool:
-    """Simple trend check: return True if last value > value[-lookback].
-    If there isn't enough history, return False."""
-    if lookback <= 0:
-        raise ValueError("lookback must be > 0")
-    if len(values) < lookback:
-        return False
-    return values[-1] > values[-lookback]
-# FILE: tests/test_indicators.py
+    def __init__(self, rsi_lower: float = 40.0, rsi_upper: float = 70.0):
+        self.rsi_lower = float(rsi_lower)
+        self.rsi_upper = float(rsi_upper)
+
+    def generate(self, symbols: List[str], data: "DataClient", cfg: "Settings") -> List[Candidate]:
+        candidates: List[Candidate] = []
+        for sym in symbols:
+            info = data.get_latest(sym)
+            if not info:
+                continue
+            try:
+                close = float(info["close"])
+                sma20 = float(info["sma20"])
+                rsi = float(info["rsi14"])
+            except Exception:
+                # missing or invalid data for this symbol
+                continue
+
+            # Rule checks
+            if not (close > sma20):
+                continue
+            if not (self.rsi_lower <= rsi <= self.rsi_upper):
+                continue
+
+            # Score calculation
+            distance = (close - sma20) / sma20 if sma20 != 0 else 0.0
+
+            rsi_mid = (self.rsi_lower + self.rsi_upper) / 2.0
+            # Normalize RSI closeness to [0,1], where 1 is at midpoint and 0 at edges or beyond.
+            half_range = (self.rsi_upper - self.rsi_lower) / 2.0 or 1.0
+            rsi_score = 1.0 - (abs(rsi - rsi_mid) / half_range)
+            rsi_score = max(0.0, min(1.0, rsi_score))
+
+            score = max(0.0, distance * 0.7 + rsi_score * 0.3)
+
+            reason = f"Close {close:.2f} above SMA20 {sma20:.2f}, RSI {rsi:.1f}"
+            snapshot = {"close": close, "sma20": sma20, "rsi14": rsi}
+
+            candidates.append(Candidate(symbol=sym, score=score, reason=reason, snapshot=snapshot))
+
+        candidates.sort(key=lambda c: c.score, reverse=True)
+        return candidates
+# FILE: tests/test_strategy_v1.py
 import pytest
 
-from tradingbot.indicators import rsi, sma, trend_up
+from tradingbot.strategy.strategy_v1 import StrategyV1
 
 
-def test_sma_basic():
-    values = [1, 2, 3, 4, 5]
-    assert sma(values, 3) == [None, None, 2.0, 3.0, 4.0]
+class FakeDataClient:
+    def __init__(self, mapping):
+        # mapping: symbol -> dict with keys "close", "sma20", "rsi14"
+        self.mapping = mapping
+
+    def get_latest(self, symbol):
+        return self.mapping.get(symbol, {})
 
 
-def test_sma_window_one_and_short():
-    values = [5, 6, 7]
-    assert sma(values, 1) == [5.0, 6.0, 7.0]
-    assert sma(values, 5) == [None, None, None]
+class FakeSettings:
+    pass
 
 
-def test_rsi_all_increase():
-    # 1..15 (length 15) with window 14 -> there is exactly one RSI value at index 14
-    values = list(range(1, 16))
-    out = rsi(values, 14)
-    assert out[:14] == [None] * 14
-    assert out[14] == pytest.approx(100.0)
+def test_no_candidates_when_rules_fail():
+    data = FakeDataClient(
+        {
+            "AAA": {"close": 90, "sma20": 100, "rsi14": 50},  # close <= sma
+            "BBB": {"close": 110, "sma20": 100, "rsi14": 30},  # rsi too low
+            "CCC": {"close": 110, "sma20": 100, "rsi14": 80},  # rsi too high
+        }
+    )
+    strat = StrategyV1()
+    candidates = strat.generate(["AAA", "BBB", "CCC"], data, FakeSettings())
+    assert candidates == []
 
 
-def test_rsi_flat_series():
-    values = [1, 1, 1, 1, 1]
-    out = rsi(values, 3)
-    # first three positions have insufficient history
-    assert out[:3] == [None, None, None]
-    # with no gains and no losses RSI should be 50.0
-    assert out[3] == pytest.approx(50.0)
-    assert out[4] == pytest.approx(50.0)
-
-
-def test_rsi_short_series():
-    # not enough data to compute RSI
-    assert rsi([1, 2, 3], 5) == [None, None, None]
-
-
-def test_trend_up_behaviour():
-    assert trend_up([1, 2, 3, 4, 5], 5) is True
-    assert trend_up([5, 4, 3, 2, 1], 5) is False
-    # insufficient history returns False
-    assert trend_up([1, 2, 3], 5) is False
-    # explicit lookback
-    assert trend_up([1, 2, 3, 4, 3], 4) is False
-    assert trend_up([1, 2, 3, 4, 5], 3) is True
+def test_candidate_fields_filled_when_rules_pass():
+    data = FakeDataClient(
+        {
+            "GOOD": {"close": 120.0, "sma20": 100.0, "rsi14": 55.0},
+        }
+    )
+    strat = StrategyV1()
+    candidates = strat.generate(["GOOD"], data, FakeSettings())
+    assert len(candidates) == 1
+    c = candidates[0]
+    assert c.symbol == "GOOD"
+    assert isinstance(c.score, float)
+    assert c.score > 0
+    assert "Close" in c.reason
+    assert isinstance(c.snapshot, dict)
+    assert c.snapshot["close"] == 120.0
+    assert c.snapshot["sma20"] == 100.0
+    assert c.snapshot["rsi14"] == 55.0
 END_FILE_BUNDLE
