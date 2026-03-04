@@ -275,7 +275,7 @@ def main() -> int:
                     "If there are no changes, output an EMPTY bundle (just BEGIN_FILE_BUNDLE then END_FILE_BUNDLE)."
                 )
                 messages2 = list(messages) + [{"role": "user", "content": reminder}]
-                out2 = openai_chat(messages2)
+                out2 = openai_chat(cfg, messages2)
                 last_output_path.write_text(out2, encoding="utf-8", newline="\n")
                 try:
                     files = parse_file_bundle(out2)
@@ -318,8 +318,7 @@ def main() -> int:
     return 1
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+
 def parse_required_files(task_text: str) -> list[str]:
     """
     Extract required deliverable file paths from a task markdown.
@@ -375,3 +374,6 @@ def parse_required_files(task_text: str) -> list[str]:
     return out
 
 
+
+if __name__ == "__main__":
+    raise SystemExit(main())
