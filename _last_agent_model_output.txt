@@ -1,319 +1,125 @@
 BEGIN_FILE_BUNDLE
-# FILE: src/tradingbot/data/types.py
-from dataclasses import dataclass
-from datetime import datetime
+# FILE: src/tradingbot/indicators.py
+from typing import List, Optional
 
 
-@dataclass
-class Bar:
-    ts: datetime
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
-# FILE: src/tradingbot/data/client.py
-from typing import Protocol, List
-
-from .types import Bar
-
-
-class DataClient(Protocol):
-    """Protocol describing the minimal data client used by the bot."""
-
-    def get_latest_price(self, symbol: str) -> float:
-        """Return the latest trade price for a symbol."""
-        raise NotImplementedError
-
-    def get_bars(self, symbol: str, timeframe: str, limit: int) -> List[Bar]:
-        """Return recent bars for a symbol in the given timeframe."""
-        raise NotImplementedError
-# FILE: src/tradingbot/data/alpaca_client.py
-from __future__ import annotations
-
-from datetime import datetime, timezone
-from typing import Any, Iterable, List, Optional
-
-from .client import DataClient
-from .types import Bar
-
-# Import settings from top-level package. Tests should provide settings values.
-try:
-    from tradingbot import settings  # type: ignore
-except Exception:  # pragma: no cover - defensive: tests will provide/inject as needed
-    settings = None  # type: ignore
+def sma(values: List[float], window: int) -> List[Optional[float]]:
+    """Simple moving average. Returns list of same length with None for
+    positions where there isn't enough history."""
+    if window <= 0:
+        raise ValueError("window must be > 0")
+    n = len(values)
+    if n == 0:
+        return []
+    result: List[Optional[float]] = [None] * n
+    if window > n:
+        return result
+    # compute first window sum
+    window_sum = sum(values[:window])
+    result[window - 1] = window_sum / window
+    for i in range(window, n):
+        window_sum += values[i] - values[i - window]
+        result[i] = window_sum / window
+    return result
 
 
-def _to_datetime(value: Any) -> datetime:
-    """Try to coerce a variety of timestamp representations to a timezone-aware datetime.
-
-    Accepts datetime, int/float (seconds or milliseconds), and ISO strings.
+def rsi(values: List[float], window: int = 14) -> List[Optional[float]]:
+    """Relative Strength Index using Wilder's smoothing.
+    Returns a list of same length with None for indices that don't have enough history.
+    RSI values are in range [0, 100]. For flat periods (no gains and no losses) we return 50.0.
     """
-    if isinstance(value, datetime):
-        dt = value
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt
-    if isinstance(value, (int, float)):
-        # Heuristic: if value looks like milliseconds, divide.
-        if value > 1e12:
-            ts = value / 1000.0
-        else:
-            ts = float(value)
-        return datetime.fromtimestamp(ts, tz=timezone.utc)
-    if isinstance(value, str):
-        # Try ISO parse; handle trailing Z
-        s = value
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        try:
-            return datetime.fromisoformat(s)
-        except Exception:
-            # Fallback: try parsing as float epoch string
-            try:
-                num = float(value)
-                if num > 1e12:
-                    num = num / 1000.0
-                return datetime.fromtimestamp(num, tz=timezone.utc)
-            except Exception:
-                raise ValueError(f"Unrecognized timestamp format: {value!r}")
-    raise ValueError(f"Unsupported timestamp type: {type(value)}")
+    if window <= 0:
+        raise ValueError("window must be > 0")
+    n = len(values)
+    if n == 0:
+        return []
+    # Need at least window+1 values to compute first RSI
+    if n <= window:
+        return [None] * n
+    # deltas length n-1, delta[i] = values[i+1] - values[i]
+    deltas = [values[i] - values[i - 1] for i in range(1, n)]
+    # initial average gains/losses from first `window` deltas
+    gains = [d if d > 0 else 0.0 for d in deltas[:window]]
+    losses = [-d if d < 0 else 0.0 for d in deltas[:window]]
+    avg_gain = sum(gains) / window
+    avg_loss = sum(losses) / window
+
+    def compute_rsi_from_avgs(ag: float, al: float) -> float:
+        if ag == 0.0 and al == 0.0:
+            return 50.0
+        if al == 0.0:
+            return 100.0
+        rs = ag / al
+        return 100.0 - (100.0 / (1.0 + rs))
+
+    result: List[Optional[float]] = [None] * n
+    # first RSI value sits at index `window`
+    result[window] = compute_rsi_from_avgs(avg_gain, avg_loss)
+    # subsequent values use Wilder smoothing
+    for idx in range(window + 1, n):
+        delta = deltas[idx - 1]
+        gain = delta if delta > 0 else 0.0
+        loss = -delta if delta < 0 else 0.0
+        avg_gain = (avg_gain * (window - 1) + gain) / window
+        avg_loss = (avg_loss * (window - 1) + loss) / window
+        result[idx] = compute_rsi_from_avgs(avg_gain, avg_loss)
+    return result
 
 
-def _extract_field(obj: Any, *names: str):
-    """Return first matching attribute or key from obj for given names."""
-    for name in names:
-        # dict-like
-        try:
-            if isinstance(obj, dict) and name in obj:
-                return obj[name]
-        except Exception:
-            pass
-        # attribute-like
-        try:
-            if hasattr(obj, name):
-                return getattr(obj, name)
-        except Exception:
-            pass
-    raise AttributeError(f"None of the names {names!r} found on object {obj!r}")
+def trend_up(values: List[float], lookback: int = 5) -> bool:
+    """Simple trend check: return True if last value > value[-lookback].
+    If there isn't enough history, return False."""
+    if lookback <= 0:
+        raise ValueError("lookback must be > 0")
+    if len(values) < lookback:
+        return False
+    return values[-1] > values[-lookback]
+# FILE: tests/test_indicators.py
+import pytest
+
+from tradingbot.indicators import rsi, sma, trend_up
 
 
-class AlpacaDataClient(DataClient):
-    """Alpaca-backed data client.
-
-    Notes:
-    - This class will accept an injected `client` (useful for tests).
-    - If no client is provided, the implementation will attempt to import and
-      construct an alpaca-py data client using values from tradingbot.settings.
-      If alpaca-py is not available or settings are missing, construction will
-      raise a RuntimeError. Tests should inject a fake client to avoid network.
-    """
-
-    def __init__(self, *, client: Optional[Any] = None) -> None:
-        self._client = client
-        if self._client is None:
-            # Attempt lazy construction using alpaca-py if available.
-            if settings is None:
-                raise RuntimeError(
-                    "AlpacaDataClient requires either an injected client or tradingbot.settings to be available."
-                )
-            try:
-                # Import the alpaca data client class. Different versions may expose
-                # different names; tests should inject a client to avoid depending
-                # on this import.
-                from alpaca.data import AlpacaDataClient as _AlpacaImpl  # type: ignore
-            except Exception as exc:  # pragma: no cover - guarded if alpaca not installed
-                raise RuntimeError(
-                    "Failed to import alpaca-py data client. Please install alpaca-py or "
-                    "inject a client instance into AlpacaDataClient."
-                ) from exc
-
-            # Try to construct with commonly used keyword arguments; if that fails,
-            # raise a helpful error (tests should avoid this path).
-            try:
-                # Many builds accept key, secret, and base_url nomenclature.
-                self._client = _AlpacaImpl(
-                    api_key=getattr(settings, "ALPACA_API_KEY", None),
-                    secret_key=getattr(settings, "ALPACA_API_SECRET", None),
-                    base_url=getattr(settings, "ALPACA_BASE_URL", None),
-                )
-            except TypeError:
-                try:
-                    self._client = _AlpacaImpl(
-                        key=getattr(settings, "ALPACA_API_KEY", None),
-                        secret=getattr(settings, "ALPACA_API_SECRET", None),
-                        base_url=getattr(settings, "ALPACA_BASE_URL", None),
-                    )
-                except Exception as exc:  # pragma: no cover - defensive
-                    raise RuntimeError(
-                        "Failed to construct alpaca data client. Provide a `client=` for AlpacaDataClient "
-                        "or ensure alpaca-py version matches expectations."
-                    ) from exc
-
-    def get_latest_price(self, symbol: str) -> float:
-        client = self._client
-        # Try a few common method names for fetching latest price; tests can mock any of them.
-        if hasattr(client, "get_latest_trade"):
-            res = client.get_latest_trade(symbol)
-            # res may be dict-like or object with .price
-            try:
-                return float(_extract_field(res, "price", "p", "trade_price"))
-            except Exception:
-                raise RuntimeError("Unable to extract price from get_latest_trade result")
-        if hasattr(client, "get_last_trade"):
-            res = client.get_last_trade(symbol)
-            try:
-                return float(_extract_field(res, "price", "p", "trade_price"))
-            except Exception:
-                raise RuntimeError("Unable to extract price from get_last_trade result")
-        # As a last resort some clients expose `get_latest_quote`/`ask_price` etc.
-        if hasattr(client, "get_latest_quote"):
-            res = client.get_latest_quote(symbol)
-            try:
-                # Use midpoint of ask/bid if available
-                ask = _extract_field(res, "ask_price", "ask")
-                bid = _extract_field(res, "bid_price", "bid")
-                return float((float(ask) + float(bid)) / 2.0)
-            except Exception:
-                raise RuntimeError("Unable to extract price from get_latest_quote result")
-        raise NotImplementedError("Underlying client does not expose a supported latest-price method")
-
-    def get_bars(self, symbol: str, timeframe: str, limit: int) -> List[Bar]:
-        client = self._client
-        # Prefer a `get_bars` method signature; allow various shapes of return values.
-        if not hasattr(client, "get_bars"):
-            raise NotImplementedError("Underlying client does not expose get_bars")
-        # Call. Different alpaca clients accept different kwargs; try a couple of variants.
-        raw = None
-        try:
-            raw = client.get_bars(symbol, timeframe=timeframe, limit=limit)
-        except TypeError:
-            raw = client.get_bars(symbol, timeframe, limit)
-        # `raw` may be an iterable of objects or mapping. Normalize to list.
-        items: Iterable[Any]
-        if isinstance(raw, list):
-            items = raw
-        else:
-            try:
-                items = list(raw)
-            except TypeError:
-                # Single item
-                items = [raw]
-
-        bars: List[Bar] = []
-        for it in items:
-            # Extract common fields: timestamp can be named t, timestamp, ts, time
-            try:
-                ts_val = _extract_field(it, "t", "timestamp", "ts", "time")
-            except AttributeError:
-                # Sometimes the bar may be returned as a tuple-like (t,o,h,l,c,v)
-                # Attempt to unpack if it's a sequence of length >=6
-                if isinstance(it, (list, tuple)) and len(it) >= 6:
-                    ts_val, o, h, l, c, v = it[:6]
-                    bars.append(
-                        Bar(
-                            ts=_to_datetime(ts_val),
-                            open=float(o),
-                            high=float(h),
-                            low=float(l),
-                            close=float(c),
-                            volume=float(v),
-                        )
-                    )
-                    continue
-                raise
-            o = _extract_field(it, "o", "open")
-            h = _extract_field(it, "h", "high")
-            l = _extract_field(it, "l", "low")
-            c = _extract_field(it, "c", "close")
-            v = _extract_field(it, "v", "volume", "size")
-            bars.append(
-                Bar(
-                    ts=_to_datetime(ts_val),
-                    open=float(o),
-                    high=float(h),
-                    low=float(l),
-                    close=float(c),
-                    volume=float(v),
-                )
-            )
-        return bars
-# FILE: src/tradingbot/data/cache.py
-from __future__ import annotations
-
-from time import time
-from typing import Any, Callable, Dict, Optional, Tuple
-
-from .client import DataClient
-from .types import Bar
+def test_sma_basic():
+    values = [1, 2, 3, 4, 5]
+    assert sma(values, 3) == [None, None, 2.0, 3.0, 4.0]
 
 
-class CachedDataClient(DataClient):
-    """Simple in-memory TTL cache wrapper around a DataClient.
+def test_sma_window_one_and_short():
+    values = [5, 6, 7]
+    assert sma(values, 1) == [5.0, 6.0, 7.0]
+    assert sma(values, 5) == [None, None, None]
 
-    - Cache key includes method, symbol, timeframe, limit.
-    - TTL (seconds) configurable. Default 30 seconds.
-    - Clock can be injected for testing (e.g., a fake clock).
-    """
 
-    def __init__(
-        self,
-        client: DataClient,
-        ttl_seconds: int = 30,
-        clock: Optional[Callable[[], float]] = None,
-    ) -> None:
-        self._client = client
-        self._ttl = int(ttl_seconds)
-        self._clock = clock if clock is not None else time
-        # Mapping: key -> (expiry_ts, value)
-        self._cache: Dict[Tuple[Any, ...], Tuple[float, Any]] = {}
+def test_rsi_all_increase():
+    # 1..15 (length 15) with window 14 -> there is exactly one RSI value at index 14
+    values = list(range(1, 16))
+    out = rsi(values, 14)
+    assert out[:14] == [None] * 14
+    assert out[14] == pytest.approx(100.0)
 
-    def _make_key(self, method: str, symbol: str, timeframe: Optional[str], limit: Optional[int]):
-        return (method, symbol, timeframe, limit)
 
-    def _get_from_cache(self, key: Tuple[Any, ...]):
-        entry = self._cache.get(key)
-        if entry is None:
-            return None
-        expiry, val = entry
-        if self._clock() >= expiry:
-            # expired
-            try:
-                del self._cache[key]
-            except Exception:
-                pass
-            return None
-        return val
+def test_rsi_flat_series():
+    values = [1, 1, 1, 1, 1]
+    out = rsi(values, 3)
+    # first three positions have insufficient history
+    assert out[:3] == [None, None, None]
+    # with no gains and no losses RSI should be 50.0
+    assert out[3] == pytest.approx(50.0)
+    assert out[4] == pytest.approx(50.0)
 
-    def get_latest_price(self, symbol: str) -> float:
-        key = self._make_key("get_latest_price", symbol, None, None)
-        hit = self._get_from_cache(key)
-        if hit is not None:
-            return hit  # type: ignore[return-value]
-        val = self._client.get_latest_price(symbol)
-        self._cache[key] = (self._clock() + self._ttl, val)
-        return val
 
-    def get_bars(self, symbol: str, timeframe: str, limit: int):
-        key = self._make_key("get_bars", symbol, timeframe, limit)
-        hit = self._get_from_cache(key)
-        if hit is not None:
-            # Return a shallow copy to reduce accidental outside mutation of cached list
-            if isinstance(hit, list):
-                return list(hit)
-            return hit
-        val = self._client.get_bars(symbol, timeframe, limit)
-        # store as-is; callers receive shallow copies on hits for lists
-        self._cache[key] = (self._clock() + self._ttl, val)
-        # Return a shallow copy for caller safety
-        if isinstance(val, list):
-            return list(val)
-        return val
-# FILE: src/tradingbot/data/__init__.py
-from .client import DataClient
-from .types import Bar
-from .alpaca_client import AlpacaDataClient
-from .cache import CachedDataClient
+def test_rsi_short_series():
+    # not enough data to compute RSI
+    assert rsi([1, 2, 3], 5) == [None, None, None]
 
-__all__ = ["DataClient", "Bar", "AlpacaDataClient", "CachedDataClient"]
+
+def test_trend_up_behaviour():
+    assert trend_up([1, 2, 3, 4, 5], 5) is True
+    assert trend_up([5, 4, 3, 2, 1], 5) is False
+    # insufficient history returns False
+    assert trend_up([1, 2, 3], 5) is False
+    # explicit lookback
+    assert trend_up([1, 2, 3, 4, 3], 4) is False
+    assert trend_up([1, 2, 3, 4, 5], 3) is True
 END_FILE_BUNDLE
