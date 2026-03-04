@@ -322,7 +322,15 @@ def main() -> int:
         if ok:
             print("✅ Green.")
             if args.push:
+                # Stage everything (including deletions)
                 run(["git", "add", "-A"], check=True)
+
+                # If there is nothing staged, `git commit` exits 1. Treat as success.
+                staged = run(["git", "diff", "--cached", "--name-only"], check=True).stdout.strip()
+                if not staged:
+                    print("✅ Green. No changes to commit/push.")
+                    return 0
+
                 run(["git", "commit", "-m", f"{task_path.stem}: apply agent changes"], check=True)
                 run(["git", "push", "-u", "origin", branch], check=True)
                 print(f"Pushed branch: {branch}")
