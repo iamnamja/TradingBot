@@ -1,0 +1,70 @@
+BEGIN_FILE_BUNDLE
+# FILE: src/tradingbot/utils/market_hours.py
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
+
+
+def market_hours_guard(now: datetime, calendar_source=None) -> tuple[bool, str]:
+    """
+    Determine if the market is open based on the given datetime.
+
+    Behavior:
+    - Convert `now` to America/New_York
+    - If `now` is naive: treat it as UTC first, then convert to NY
+    - Weekend (Sat/Sun) => (False, "market closed: weekend")
+    - Before 09:30 NY => (False, "market closed: before open")
+    - At/after 16:00 NY => (False, "market closed: after close")
+    - Otherwise => (True, "market open")
+
+    The `calendar_source` parameter is accepted for API compatibility but not used.
+    """
+    if now.tzinfo is None:
+        # treat naive datetimes as UTC
+        now = now.replace(tzinfo=ZoneInfo("UTC"))
+    now_ny = now.astimezone(ZoneInfo("America/New_York"))
+
+    # 0 = Monday, ..., 5 = Saturday, 6 = Sunday
+    if now_ny.weekday() >= 5:
+        return False, "market closed: weekend"
+
+    current_time = now_ny.time()
+    open_time = time(9, 30)
+    close_time = time(16, 0)
+
+    if current_time < open_time:
+        return False, "market closed: before open"
+    if current_time >= close_time:
+        return False, "market closed: after close"
+    return True, "market open"
+# FILE: tests/test_market_hours_guard.py
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from tradingbot.utils.market_hours import market_hours_guard
+
+
+# Before open (NY): 2023-03-15 09:29 NY => closed before open
+dt_before_open = datetime(2023, 3, 15, 9, 29, tzinfo=ZoneInfo("America/New_York"))
+assert market_hours_guard(dt_before_open) == (False, "market closed: before open")
+
+# At open (NY): 2023-03-15 09:30 NY => open
+dt_at_open = datetime(2023, 3, 15, 9, 30, tzinfo=ZoneInfo("America/New_York"))
+assert market_hours_guard(dt_at_open) == (True, "market open")
+
+# Just before close (NY): 2023-03-15 15:59 NY => open
+dt_before_close = datetime(2023, 3, 15, 15, 59, tzinfo=ZoneInfo("America/New_York"))
+assert market_hours_guard(dt_before_close) == (True, "market open")
+
+# At close (NY): 2023-03-15 16:00 NY => closed after close
+dt_at_close = datetime(2023, 3, 15, 16, 0, tzinfo=ZoneInfo("America/New_York"))
+assert market_hours_guard(dt_at_close) == (False, "market closed: after close")
+
+# Weekend (Saturday) => closed
+dt_weekend = datetime(2023, 3, 18, 12, 0, tzinfo=ZoneInfo("America/New_York"))  # Saturday
+assert market_hours_guard(dt_weekend) == (False, "market closed: weekend")
+
+# Naive UTC conversion: naive datetime treated as UTC then converted to NY.
+# 2023-03-15 14:30 UTC => 10:30 NY (EDT) => open
+dt_naive_utc = datetime(2023, 3, 15, 14, 30)  # naive, interpreted as UTC
+assert market_hours_guard(dt_naive_utc) == (True, "market open")
+END_FILE_BUNDLE
