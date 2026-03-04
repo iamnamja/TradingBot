@@ -35,6 +35,10 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 SYSTEM_PROMPT_PATH = REPO_ROOT / "agents" / "prompts" / "system.md"
