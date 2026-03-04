@@ -25,6 +25,8 @@ class Settings:
     mode: str  # "paper" or "live"
     dry_run: bool
     symbols: List[str]
+    # Task 007: LLM advisor toggle. When False, system must not call external APIs.
+    llm_enabled: bool = False
 
     @property
     def effective_mode(self) -> str:
@@ -36,6 +38,7 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    # Loads variables from .env (if present) into os.environ
     load_dotenv()
 
     api_key = os.getenv("TRADINGBOT_ALPACA_API_KEY", "").strip()
@@ -50,17 +53,21 @@ def load_settings() -> Settings:
     symbols_raw = os.getenv("TRADINGBOT_SYMBOLS", "").strip()
     symbols = [s.strip().upper() for s in symbols_raw.split(",") if s.strip()] if symbols_raw else []
 
+    llm_enabled = _truthy(os.getenv("TRADINGBOT_LLM_ENABLED", "false"))
+
     return Settings(
         env=Env(alpaca_api_key=api_key, alpaca_api_secret=api_secret),
         mode=mode,
         dry_run=dry_run,
         symbols=symbols,
+        llm_enabled=llm_enabled,
     )
 
 
 def print_startup_summary(s: Settings) -> None:
     sym = ", ".join(s.symbols) if s.symbols else "(none configured)"
     print("Config:")
-    print(f"  mode:    {s.mode}")
-    print(f"  dry_run: {s.dry_run}")
-    print(f"  symbols: {sym}")
+    print(f"  mode:        {s.mode}")
+    print(f"  dry_run:     {s.dry_run}")
+    print(f"  symbols:     {sym}")
+    print(f"  llm_enabled: {s.llm_enabled}")
