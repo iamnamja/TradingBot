@@ -299,7 +299,7 @@ def main() -> int:
 
         try:
             files = parse_file_bundle(out)
-        except Exception as e:
+        except Exception:
             # Retry once with an explicit reminder about markers.
             reminder = (
                 "Your previous response was INVALID because it did not include the required "
