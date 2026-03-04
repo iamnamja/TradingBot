@@ -4,7 +4,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Tuple
+from typing import List, Tuple
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -31,7 +31,7 @@ DEFAULT_CONTEXT_FILES = [
 ]
 
 
-def run(cmd: list[str], cwd: Path = REPO_ROOT, check: bool = True) -> subprocess.CompletedProcess:
+def run(cmd: List[str], cwd: Path = REPO_ROOT, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=str(cwd), check=check, capture_output=True, text=True)
 
 
@@ -55,10 +55,10 @@ def safe_read_text(relpath: str, max_chars: int = 50_000) -> str:
 
 
 def list_tree(subdir: str, max_lines: int = 300) -> str:
-    base = (REPO_ROOT / subdir)
+    base = REPO_ROOT / subdir
     if not base.exists():
         return f"<<MISSING_DIR: {subdir}>>"
-    lines: list[str] = []
+    lines: List[str] = []
     for p in sorted(base.rglob("*")):
         rel = p.relative_to(REPO_ROOT).as_posix()
         if is_denied(rel) or p.is_dir():
@@ -70,90 +70,114 @@ def list_tree(subdir: str, max_lines: int = 300) -> str:
     return "\n".join(lines)
 
 
-def _unwrap_single_fence(text: str) -> str:
+def _strip_outer_fence(text: str) -> str:
     t = text.strip()
-    if not t.startswith("```"):
-        return t
-    first_nl = t.find("\n")
-    if first_nl == -1:
-        return t
-    body = t[first_nl + 1 :]
-    if body.rstrip().endswith("```"):
-        body = body.rstrip()[:-3]
-    return body.strip()
+    if t.startswith("```"):
+        nl = t.find("\n")
+        if nl != -1:
+            body = t[nl + 1 :]
+            if body.rstrip().endswith("```"):
+                body = body.rstrip()[:-3]
+            return body.strip()
+    return t
 
 
-def extract_commit_message(text: str) -> str:
-    m = re.search(r"^COMMIT:\s*(.+)\s*$", text, re.MULTILINE)
-    return m.group(1).strip() if m else "Apply task changes"
+def _strip_commit_lines(diff_text: str) -> str:
+    out_lines = []
+    for line in diff_text.splitlines():
+        if line.startswith("COMMIT:"):
+            continue
+        out_lines.append(line)
+    return "\n".join(out_lines).rstrip() + "\n"
 
 
-def extract_diff(text: str) -> str:
-    raw = text.strip()
-
-    if raw.startswith("diff --git "):
-        return raw + "\n"
-
-    m = re.search(r"```diff\s*\n(.*?)\n```", raw, re.DOTALL)
-    if m:
-        return m.group(1).strip() + "\n"
-
-    start = raw.find("```diff")
-    if start != -1:
-        nl = raw.find("\n", start)
-        if nl == -1:
-            raise RuntimeError("Found ```diff but no content after it.")
-        body = raw[nl + 1 :].strip()
-        if body.rstrip().endswith("```"):
-            body = body.rstrip()[:-3].strip()
-        commit_idx = body.find("\nCOMMIT:")
-        if commit_idx != -1:
-            body = body[:commit_idx].strip()
-        return body + "\n"
-
-    unwrapped = _unwrap_single_fence(raw)
-    if unwrapped.startswith("diff --git "):
-        return unwrapped + "\n"
-
-    raise RuntimeError("Model response did not include a diff we could parse.")
+def _ensure_diff_boundaries(diff_text: str) -> str:
+    t = diff_text.replace("\r\n", "\n").replace("\r", "\n")
+    # Ensure "diff --git" always begins a new line
+    t = re.sub(r"(?<!\n)(diff --git )", r"\n\1", t)
+    if not t.endswith("\n"):
+        t += "\n"
+    return t
 
 
-def normalize_diff(diff_text: str) -> str:
-    s = diff_text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
-    s = re.sub(r"\nCOMMIT:.*\Z", "\n", s, flags=re.DOTALL)
-
-    lines = s.split("\n")
-    out: list[str] = []
+def _strip_difflib_hint_lines(diff_text: str) -> str:
+    lines = diff_text.splitlines()
+    out: List[str] = []
     in_hunk = False
-
     for line in lines:
-        if line.startswith("FILE: ") or line.startswith("NOTE:"):
-            continue
-
-        if line.startswith("diff --git "):
-            in_hunk = False
-            out.append(line)
-            continue
         if line.startswith("@@"):
             in_hunk = True
             out.append(line)
             continue
-
+        if line.startswith("diff --git "):
+            in_hunk = False
+            out.append(line)
+            continue
         if in_hunk and line.startswith("?"):
             continue
-
         out.append(line)
+    return "\n".join(out).rstrip() + "\n"
 
-    return "\n".join(out).rstrip("\n") + "\n"
+
+def extract_diff(model_text: str) -> str:
+    raw = model_text.strip()
+
+    m = re.search(r"```diff\s*\n(.*?)\n```", raw, re.DOTALL)
+    if m:
+        body = m.group(1)
+    else:
+        unwrapped = _strip_outer_fence(raw)
+        if unwrapped.lstrip().startswith("diff --git "):
+            body = unwrapped
+        elif raw.startswith("diff --git "):
+            body = raw
+        else:
+            raise RuntimeError("Model response did not include a diff fenced block.")
+
+    body = _ensure_diff_boundaries(body)
+    body = _strip_commit_lines(body)
+    body = _strip_difflib_hint_lines(body)
+    body = _ensure_diff_boundaries(body)
+    return body
+
+
+def extract_commit_message(model_text: str) -> str:
+    m = re.search(r"^COMMIT:\s*(.+)\s*$", model_text, re.MULTILINE)
+    return (m.group(1).strip() if m else "Apply task changes")
+
+
+def build_prompt(task_file: str, extra_context_files: List[str]) -> str:
+    sys_prompt = safe_read_text("agents/prompts/system.md")
+    task_txt = safe_read_text(task_file)
+
+    ctx_parts: List[str] = []
+    ctx_parts.append("## Repo Tree (src/tradingbot)\n" + list_tree("src/tradingbot"))
+    ctx_parts.append("## Repo Tree (tests)\n" + list_tree("tests"))
+    ctx_parts.append(f"## Task File\nFILE: {task_file}\n" + task_txt)
+
+    for f in DEFAULT_CONTEXT_FILES + extra_context_files:
+        if (REPO_ROOT / f).exists():
+            ctx_parts.append(f"## FILE: {f}\n" + safe_read_text(f))
+
+    context = "\n\n".join(ctx_parts)
+    return f"{sys_prompt}\n\n# Context\n{context}"
 
 
 def git_current_branch() -> str:
-    cp = run(["git", "branch", "--show-current"])
-    return cp.stdout.strip()
+    return run(["git", "branch", "--show-current"]).stdout.strip()
 
 
-def git_checkout_branch_reset(branch: str) -> None:
-    run(["git", "checkout", "-B", branch])
+def git_checkout_new_branch(branch: str) -> None:
+    exists = subprocess.run(
+        ["git", "rev-parse", "--verify", branch],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+    ).returncode == 0
+    if exists:
+        run(["git", "checkout", branch])
+    else:
+        run(["git", "checkout", "-b", branch])
 
 
 def git_apply_patch(patch_text: str) -> Tuple[bool, str]:
@@ -169,13 +193,8 @@ def git_apply_patch(patch_text: str) -> Tuple[bool, str]:
     return ok, out.strip()
 
 
-def git_hard_clean() -> None:
-    subprocess.run(["git", "reset", "--hard"], cwd=str(REPO_ROOT), capture_output=True, text=True)
-    subprocess.run(["git", "clean", "-fd"], cwd=str(REPO_ROOT), capture_output=True, text=True)
-
-
 def run_checks() -> Tuple[bool, str]:
-    outputs: list[str] = []
+    outputs = []
     ok = True
 
     ruff = subprocess.run(["ruff", "check", "."], cwd=str(REPO_ROOT), text=True, capture_output=True)
@@ -200,34 +219,30 @@ def git_push(branch: str) -> None:
     run(["git", "push", "-u", "origin", branch])
 
 
-def build_messages(task_file: str, extra_context_files: list[str]) -> list[dict]:
-    sys_prompt = safe_read_text("agents/prompts/system.md", max_chars=50_000)
-    task_txt = safe_read_text(task_file, max_chars=50_000)
+def reset_worktree() -> None:
+    run(["git", "reset", "--hard", "HEAD"], check=False)
+    run(["git", "clean", "-fd"], check=False)
 
-    ctx_parts: list[str] = []
-    ctx_parts.append("## Repo Tree (src/tradingbot)\n" + list_tree("src/tradingbot"))
-    ctx_parts.append("## Repo Tree (tests)\n" + list_tree("tests"))
-    ctx_parts.append("## Task File\n" + f"FILE: {task_file}\n" + task_txt)
 
-    for f in DEFAULT_CONTEXT_FILES + extra_context_files:
-        if (REPO_ROOT / f).exists():
-            ctx_parts.append(f"## FILE: {f}\n" + safe_read_text(f))
-
-    context = "\n\n".join(ctx_parts)
-
-    return [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": f"# Context\n{context}"},
-    ]
+def touched_paths_from_diff(diff_text: str) -> List[str]:
+    paths: List[str] = []
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            parts = line.split()
+            if len(parts) >= 4:
+                b_path = parts[3]
+                if b_path.startswith("b/"):
+                    paths.append(b_path[2:])
+    return paths
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("task_file")
-    ap.add_argument("--branch", default="")
-    ap.add_argument("--max-iters", type=int, default=3)
-    ap.add_argument("--push", action="store_true")
-    ap.add_argument("--extra-context", nargs="*", default=[])
+    ap.add_argument("task_file", help="Task markdown file, e.g. tasks/003_market_hours_guard.md")
+    ap.add_argument("--branch", default="", help="Branch name. Default: auto from task filename.")
+    ap.add_argument("--max-iters", type=int, default=3, help="Max patch iterations.")
+    ap.add_argument("--push", action="store_true", help="Push branch to origin when green.")
+    ap.add_argument("--extra-context", nargs="*", default=[], help="Extra files to include as context.")
     args = ap.parse_args()
 
     if os.getenv("OPENAI_API_KEY", "").strip() == "":
@@ -238,51 +253,60 @@ def main() -> int:
         print(f"Task file not found: {args.task_file}", file=sys.stderr)
         return 2
 
-    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=str(REPO_ROOT), text=True, capture_output=True)
-    if dirty.stdout.strip():
-        print("Working tree is not clean. Commit/stash your changes before running the agent.", file=sys.stderr)
-        return 2
-
     branch = args.branch.strip()
     if not branch:
-        base_name = Path(args.task_file).stem
-        branch = f"agent-{base_name}".replace(" ", "-").lower()
+        base = Path(args.task_file).stem
+        branch = f"agent-{base}".replace(" ", "-").lower()
 
     start_branch = git_current_branch()
     print(f"Current branch: {start_branch}")
     print(f"Creating branch: {branch}")
-    git_checkout_branch_reset(branch)
+    git_checkout_new_branch(branch)
 
     client = OpenAI()
-    messages = build_messages(args.task_file, args.extra_context)
+    prompt = build_prompt(args.task_file, args.extra_context)
 
     last_error = ""
     for i in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {i}/{args.max_iters} ===")
-        git_hard_clean()
+        reset_worktree()
 
-        iter_messages = list(messages)
+        user_msg = prompt
         if last_error:
-            iter_messages.append({"role": "user", "content": f"# Previous attempt failed\n{last_error}"})
+            user_msg += "\n\n# Previous attempt failed\n" + last_error
 
         resp = client.chat.completions.create(
             model=os.getenv("TRADINGBOT_AGENT_MODEL", "gpt-4.1-mini"),
-            messages=iter_messages,
+            messages=[
+                {"role": "system", "content": "Follow STRICT DIFF MODE exactly. Output only ```diff ... ``` and optional COMMIT line."},
+                {"role": "user", "content": user_msg},
+            ],
             temperature=0.2,
         )
 
         text = resp.choices[0].message.content or ""
-        (REPO_ROOT / "_last_agent_model_output.txt").write_text(text, encoding="utf-8")
-
         try:
-            raw_diff = extract_diff(text)
+            patch = extract_diff(text)
             commit_msg = extract_commit_message(text)
-            patch = normalize_diff(raw_diff)
         except Exception as e:
             last_error = f"Failed to parse model output: {e}\n\nMODEL_OUTPUT:\n{text}"
             continue
 
-        (REPO_ROOT / "_last_agent_patch.diff").write_text(patch, encoding="utf-8")
+        # Task-003 guardrail: keep patch scoped to new module + tests.
+        if Path(args.task_file).name == "003_market_hours_guard.md":
+            allowed = {
+                "src/tradingbot/utils/market_hours.py",
+                "tests/test_market_hours_guard.py",
+                "tests/conftest.py",
+            }
+            touched = set(touched_paths_from_diff(patch))
+            extra = touched - allowed
+            if extra:
+                last_error = (
+                    "Patch touched disallowed files for Task 003. "
+                    f"Touched: {sorted(touched)}. Allowed only: {sorted(allowed)}."
+                )
+                continue
 
         ok, apply_out = git_apply_patch(patch)
         if not ok:
