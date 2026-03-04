@@ -6,10 +6,22 @@ from alpaca.trading.requests import MarketOrderRequest
 
 from tradingbot.config.settings import load_settings, print_startup_summary
 
+# NEW (Task 007 wiring)
+from tradingbot.llm.noop import NoopLLMAdvisor
+
 
 def main() -> None:
     s = load_settings()
     print_startup_summary(s)
+
+    # NEW (Task 007 wiring)
+    if s.llm_enabled:
+        # v1: still use noop until a real advisor is added
+        print("LLM advisor: ENABLED (using NoopLLMAdvisor for now)")
+    else:
+        print("LLM advisor: DISABLED (using NoopLLMAdvisor)")
+        
+    _llm_advisor = NoopLLMAdvisor()
 
     api_key = s.env.alpaca_api_key
     api_secret = s.env.alpaca_api_secret
@@ -22,7 +34,6 @@ def main() -> None:
     paper = s.effective_mode == "paper"
     dry_run = s.effective_dry_run
 
-    # TradingClient: paper=True uses Alpaca paper endpoints internally.
     trading = TradingClient(api_key, api_secret, paper=paper)
 
     acct = trading.get_account()
@@ -32,9 +43,13 @@ def main() -> None:
     print(f"  equity:      {acct.equity}")
     print(f"  buyingPower: {acct.buying_power}")
 
-    # Use config symbols if present; fallback to SPY
     symbol = (s.symbols[0] if s.symbols else "SPY")
     qty = 1
+
+    # (Optional) Example of where it will be used later:
+    # candidates = [...]  # deterministic strategy output
+    # decisions = _llm_advisor.review(candidates, context={"account": {"equity": acct.equity}})
+    # ... filter candidates based on decisions ...
 
     if dry_run:
         print(f"[DRY_RUN] Would submit market BUY: {qty} {symbol}")
