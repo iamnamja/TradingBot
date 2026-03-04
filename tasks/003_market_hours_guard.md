@@ -1,74 +1,28 @@
-# Task 003 — Market Hours Guard (Safe Patch)
+# Task 003: Market hours guard (US equities, minimal + testable)
 
-## Goal
-Add a simple "market hours guard" function that determines whether US equities markets are open, and integrate it into the main run flow so the bot exits early if markets are closed.
+Goal: add a reusable guard that determines whether US equities market is open.
 
-## Constraints (VERY IMPORTANT)
-- **DO NOT** edit `tests/test_smoke.py` (leave it exactly as-is).
-- Prefer **new files** over large edits.
-- Keep changes minimal and targeted.
-- All code must pass:
-  - `ruff check .`
-  - `pytest -q`
+Requirements:
+- Implement a function:
+    market_hours_guard(now: datetime, calendar_source=None) -> tuple[bool, str]
+- Rules (simple for now):
+  - Monday–Friday only
+  - 09:30 <= time < 16:00 America/New_York
+  - If closed, return False with a short reason string:
+      "market closed: weekend"
+      "market closed: before open"
+      "market closed: after close"
+- Handle timezone properly:
+  - If `now` is naive (no tzinfo), treat it as UTC, then convert to America/New_York.
+  - If `now` is aware, convert to America/New_York.
 
-## Required Implementation
+Implementation guidance (to reduce fragile diffs):
+- Create NEW module: src/tradingbot/utils/market_hours.py
+- Export it from src/tradingbot/utils/__init__.py (small edit)
+- Add NEW tests file: tests/test_market_hours_guard.py
+- Do NOT rewrite tests/test_smoke.py unless strictly necessary.
+- Do NOT duplicate the guard inside run.py; keep it in utils.
 
-### 1) Create market hours guard utility
-Create a new module:
-
-- `src/tradingbot/utils/market_hours.py`
-
-It must expose:
-
-```python
-def market_hours_guard(now: datetime, calendar_source=None) -> tuple[bool, str]:
-    ...
-```
-
-Behavior:
-- Convert `now` to **America/New_York**
-- **Open** if:
-  - Weekday is Mon–Fri
-  - Time is **>= 09:30** and **< 16:00** NY local time
-- Otherwise **closed**
-- Return `(True, "market open")` if open
-- Return `(False, "...")` if closed with one of these exact reasons:
-  - `"market closed: weekend"`
-  - `"market closed: before open"`
-  - `"market closed: after close"`
-
-If `now` is naive, treat it as **UTC** (set tzinfo=UTC) before converting to NY.
-
-### 2) Re-export from utils package
-Update `src/tradingbot/utils/__init__.py` to export:
-
-```python
-from .market_hours import market_hours_guard
-```
-
-(Keep file minimal; do not add unrelated code.)
-
-### 3) Integrate into run.py (minimal edit)
-Update `src/tradingbot/run.py` to:
-- import `market_hours_guard`
-- compute `now = datetime.now(tz=ZoneInfo("UTC"))`
-- call guard before placing orders
-- if closed, print `Market closed: <reason>` and exit with status 0
-
-Keep the rest of `run.py` behavior unchanged.
-
-### 4) Add dedicated tests (new file)
-Create a new test file:
-
-- `tests/test_market_hours_guard.py`
-
-Must include tests for:
-- Monday 09:29 NY => closed: before open
-- Monday 09:30 NY => open
-- Monday 15:59 NY => open
-- Monday 16:00 NY => closed: after close
-- Saturday noon NY => closed: weekend
-- Naive datetime 13:30 UTC => open (because 13:30 UTC == 09:30 NY during EDT)
-
-## Output
-Return a valid unified git patch as a single ` ```diff ` fenced block plus `COMMIT:` line, per `agents/prompts/system.md`.
+Acceptance:
+- ruff check . passes
+- pytest -q passes
