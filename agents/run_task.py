@@ -250,22 +250,47 @@ def main() -> int:
             continue
 
         last_output_path.write_text(out, encoding="utf-8", newline="\n")
-
         try:
             files = parse_file_bundle(out)
-            # Keep a copy of the interpreted bundle
-            pretty = [FILE_BUNDLE_BEGIN]
-            for p, c in files.items():
-                pretty.append(f"FILE: {p}")
-                pretty.append(c.rstrip("\n"))
-                pretty.append("END_FILE")
-            pretty.append(FILE_BUNDLE_END)
-            last_bundle_path.write_text("\n".join(pretty) + "\n", encoding="utf-8", newline="\n")
-
-            write_files(files)
         except Exception as e:
+            # If the model forgot the required markers, retry once with a stricter reminder.
+            msg = str(e)
             print(f"Failed to parse/write file bundle: {e}")
-            continue
+            if "BEGIN_FILE_BUNDLE" in msg or "markers" in msg:
+                reminder = (
+                    "
+
+Your previous response was INVALID because it did not include the required "
+                    "BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers and FILE/END_FILE blocks. "
+                    "Output ONLY a valid file bundle now. "
+                    "If there are no changes, output an EMPTY bundle (just BEGIN_FILE_BUNDLE then END_FILE_BUNDLE)."
+                )
+                messages2 = list(messages) + [{"role": "user", "content": reminder}]
+                out2 = chat(messages2, model=model)
+                last_output_path.write_text(out2, encoding="utf-8", newline="
+")
+                try:
+                    files = parse_file_bundle(out2)
+                except Exception as e2:
+                    print(f"Retry parse failed: {e2}")
+                    continue
+            else:
+                continue
+
+        # Keep a copy of the interpreted bundle
+        pretty = [FILE_BUNDLE_BEGIN]
+        for p, c in files.items():
+            pretty.append(f"FILE: {p}")
+            pretty.append(c.rstrip("
+"))
+            pretty.append("END_FILE")
+        pretty.append(FILE_BUNDLE_END)
+        last_bundle_path.write_text("
+".join(pretty) + "
+", encoding="utf-8", newline="
+")
+
+        write_files(files)
 
         ok, details = run_checks()
         if ok:
