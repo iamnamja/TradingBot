@@ -32,6 +32,7 @@ Rules:
 - Assume main is protected; changes must go through PRs.
 
 
-If no files need to change, output an EMPTY bundle:
-BEGIN_FILE_BUNDLE
-END_FILE_BUNDLE
+## IMPORTANT: Deliverables completeness
+- You MUST create/update every file listed under the task's **Deliverables** section.
+- If a task lists new files, you must output them in the file bundle even if no other changes are needed.
+- Keep ruff/pytest clean: no unused imports; if you re-export symbols from __init__.py, define __all__.
