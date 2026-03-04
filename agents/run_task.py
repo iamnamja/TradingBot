@@ -253,42 +253,36 @@ def main() -> int:
         try:
             files = parse_file_bundle(out)
         except Exception as e:
-            # If the model forgot the required markers, retry once with a stricter reminder.
             msg = str(e)
-            print(f"Failed to parse/write file bundle: {e}")
-            if "BEGIN_FILE_BUNDLE" in msg or "markers" in msg:
-                reminder = (
-                    "
+            print(f"Failed to parse/write file bundle: {msg}")
 
-Your previous response was INVALID because it did not include the required "
-                    "BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers and FILE/END_FILE blocks. "
-                    "Output ONLY a valid file bundle now. "
+            # If the model missed the required markers, ask once more with an explicit reminder.
+            if ("BEGIN_FILE_BUNDLE" in msg) or ("END_FILE_BUNDLE" in msg) or ("markers" in msg):
+                reminder = (
+                    "Your previous response was INVALID because it did not include the required "
+                    "BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers and FILE/END_FILE blocks.\n\n"
+                    "Output ONLY a valid file bundle now.\n"
                     "If there are no changes, output an EMPTY bundle (just BEGIN_FILE_BUNDLE then END_FILE_BUNDLE)."
                 )
                 messages2 = list(messages) + [{"role": "user", "content": reminder}]
                 out2 = chat(messages2, model=model)
-                last_output_path.write_text(out2, encoding="utf-8", newline="
-")
+                last_output_path.write_text(out2, encoding="utf-8", newline="\n")
                 try:
                     files = parse_file_bundle(out2)
                 except Exception as e2:
-                    print(f"Retry parse failed: {e2}")
+                    print(f"Failed to parse/write file bundle: {e2}")
                     continue
             else:
                 continue
 
-        # Keep a copy of the interpreted bundle
-        pretty = [FILE_BUNDLE_BEGIN]
-        for p, c in files.items():
-            pretty.append(f"FILE: {p}")
-            pretty.append(c.rstrip("
-"))
+        # Keep a human-readable copy of the last parsed bundle on disk for debugging.
+        pretty: list[str] = [FILE_BUNDLE_BEGIN]
+        for pth, content in files.items():
+            pretty.append(f"FILE: {pth}")
+            pretty.append(content.rstrip("\n"))
             pretty.append("END_FILE")
         pretty.append(FILE_BUNDLE_END)
-        last_bundle_path.write_text("
-".join(pretty) + "
-", encoding="utf-8", newline="
-")
+        last_bundle_path.write_text("\n".join(pretty) + "\n", encoding="utf-8", newline="\n")
 
         write_files(files)
 
