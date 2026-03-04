@@ -4,7 +4,11 @@ import os
 from dataclasses import dataclass
 from typing import List, Optional
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    def load_dotenv(*args, **kwargs):  # type: ignore[no-redef]
+        return False
 
 
 def _truthy(v: Optional[str]) -> bool:
