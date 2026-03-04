@@ -1,70 +1,319 @@
 BEGIN_FILE_BUNDLE
-# FILE: src/tradingbot/utils/market_hours.py
-from datetime import datetime, time
-from zoneinfo import ZoneInfo
-
-
-def market_hours_guard(now: datetime, calendar_source=None) -> tuple[bool, str]:
-    """
-    Determine if the market is open based on the given datetime.
-
-    Behavior:
-    - Convert `now` to America/New_York
-    - If `now` is naive: treat it as UTC first, then convert to NY
-    - Weekend (Sat/Sun) => (False, "market closed: weekend")
-    - Before 09:30 NY => (False, "market closed: before open")
-    - At/after 16:00 NY => (False, "market closed: after close")
-    - Otherwise => (True, "market open")
-
-    The `calendar_source` parameter is accepted for API compatibility but not used.
-    """
-    if now.tzinfo is None:
-        # treat naive datetimes as UTC
-        now = now.replace(tzinfo=ZoneInfo("UTC"))
-    now_ny = now.astimezone(ZoneInfo("America/New_York"))
-
-    # 0 = Monday, ..., 5 = Saturday, 6 = Sunday
-    if now_ny.weekday() >= 5:
-        return False, "market closed: weekend"
-
-    current_time = now_ny.time()
-    open_time = time(9, 30)
-    close_time = time(16, 0)
-
-    if current_time < open_time:
-        return False, "market closed: before open"
-    if current_time >= close_time:
-        return False, "market closed: after close"
-    return True, "market open"
-# FILE: tests/test_market_hours_guard.py
+# FILE: src/tradingbot/data/types.py
+from dataclasses import dataclass
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
-from tradingbot.utils.market_hours import market_hours_guard
 
 
-# Before open (NY): 2023-03-15 09:29 NY => closed before open
-dt_before_open = datetime(2023, 3, 15, 9, 29, tzinfo=ZoneInfo("America/New_York"))
-assert market_hours_guard(dt_before_open) == (False, "market closed: before open")
+@dataclass
+class Bar:
+    ts: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+# FILE: src/tradingbot/data/client.py
+from typing import Protocol, List
 
-# At open (NY): 2023-03-15 09:30 NY => open
-dt_at_open = datetime(2023, 3, 15, 9, 30, tzinfo=ZoneInfo("America/New_York"))
-assert market_hours_guard(dt_at_open) == (True, "market open")
+from .types import Bar
 
-# Just before close (NY): 2023-03-15 15:59 NY => open
-dt_before_close = datetime(2023, 3, 15, 15, 59, tzinfo=ZoneInfo("America/New_York"))
-assert market_hours_guard(dt_before_close) == (True, "market open")
 
-# At close (NY): 2023-03-15 16:00 NY => closed after close
-dt_at_close = datetime(2023, 3, 15, 16, 0, tzinfo=ZoneInfo("America/New_York"))
-assert market_hours_guard(dt_at_close) == (False, "market closed: after close")
+class DataClient(Protocol):
+    """Protocol describing the minimal data client used by the bot."""
 
-# Weekend (Saturday) => closed
-dt_weekend = datetime(2023, 3, 18, 12, 0, tzinfo=ZoneInfo("America/New_York"))  # Saturday
-assert market_hours_guard(dt_weekend) == (False, "market closed: weekend")
+    def get_latest_price(self, symbol: str) -> float:
+        """Return the latest trade price for a symbol."""
+        raise NotImplementedError
 
-# Naive UTC conversion: naive datetime treated as UTC then converted to NY.
-# 2023-03-15 14:30 UTC => 10:30 NY (EDT) => open
-dt_naive_utc = datetime(2023, 3, 15, 14, 30)  # naive, interpreted as UTC
-assert market_hours_guard(dt_naive_utc) == (True, "market open")
+    def get_bars(self, symbol: str, timeframe: str, limit: int) -> List[Bar]:
+        """Return recent bars for a symbol in the given timeframe."""
+        raise NotImplementedError
+# FILE: src/tradingbot/data/alpaca_client.py
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Iterable, List, Optional
+
+from .client import DataClient
+from .types import Bar
+
+# Import settings from top-level package. Tests should provide settings values.
+try:
+    from tradingbot import settings  # type: ignore
+except Exception:  # pragma: no cover - defensive: tests will provide/inject as needed
+    settings = None  # type: ignore
+
+
+def _to_datetime(value: Any) -> datetime:
+    """Try to coerce a variety of timestamp representations to a timezone-aware datetime.
+
+    Accepts datetime, int/float (seconds or milliseconds), and ISO strings.
+    """
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+    if isinstance(value, (int, float)):
+        # Heuristic: if value looks like milliseconds, divide.
+        if value > 1e12:
+            ts = value / 1000.0
+        else:
+            ts = float(value)
+        return datetime.fromtimestamp(ts, tz=timezone.utc)
+    if isinstance(value, str):
+        # Try ISO parse; handle trailing Z
+        s = value
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            # Fallback: try parsing as float epoch string
+            try:
+                num = float(value)
+                if num > 1e12:
+                    num = num / 1000.0
+                return datetime.fromtimestamp(num, tz=timezone.utc)
+            except Exception:
+                raise ValueError(f"Unrecognized timestamp format: {value!r}")
+    raise ValueError(f"Unsupported timestamp type: {type(value)}")
+
+
+def _extract_field(obj: Any, *names: str):
+    """Return first matching attribute or key from obj for given names."""
+    for name in names:
+        # dict-like
+        try:
+            if isinstance(obj, dict) and name in obj:
+                return obj[name]
+        except Exception:
+            pass
+        # attribute-like
+        try:
+            if hasattr(obj, name):
+                return getattr(obj, name)
+        except Exception:
+            pass
+    raise AttributeError(f"None of the names {names!r} found on object {obj!r}")
+
+
+class AlpacaDataClient(DataClient):
+    """Alpaca-backed data client.
+
+    Notes:
+    - This class will accept an injected `client` (useful for tests).
+    - If no client is provided, the implementation will attempt to import and
+      construct an alpaca-py data client using values from tradingbot.settings.
+      If alpaca-py is not available or settings are missing, construction will
+      raise a RuntimeError. Tests should inject a fake client to avoid network.
+    """
+
+    def __init__(self, *, client: Optional[Any] = None) -> None:
+        self._client = client
+        if self._client is None:
+            # Attempt lazy construction using alpaca-py if available.
+            if settings is None:
+                raise RuntimeError(
+                    "AlpacaDataClient requires either an injected client or tradingbot.settings to be available."
+                )
+            try:
+                # Import the alpaca data client class. Different versions may expose
+                # different names; tests should inject a client to avoid depending
+                # on this import.
+                from alpaca.data import AlpacaDataClient as _AlpacaImpl  # type: ignore
+            except Exception as exc:  # pragma: no cover - guarded if alpaca not installed
+                raise RuntimeError(
+                    "Failed to import alpaca-py data client. Please install alpaca-py or "
+                    "inject a client instance into AlpacaDataClient."
+                ) from exc
+
+            # Try to construct with commonly used keyword arguments; if that fails,
+            # raise a helpful error (tests should avoid this path).
+            try:
+                # Many builds accept key, secret, and base_url nomenclature.
+                self._client = _AlpacaImpl(
+                    api_key=getattr(settings, "ALPACA_API_KEY", None),
+                    secret_key=getattr(settings, "ALPACA_API_SECRET", None),
+                    base_url=getattr(settings, "ALPACA_BASE_URL", None),
+                )
+            except TypeError:
+                try:
+                    self._client = _AlpacaImpl(
+                        key=getattr(settings, "ALPACA_API_KEY", None),
+                        secret=getattr(settings, "ALPACA_API_SECRET", None),
+                        base_url=getattr(settings, "ALPACA_BASE_URL", None),
+                    )
+                except Exception as exc:  # pragma: no cover - defensive
+                    raise RuntimeError(
+                        "Failed to construct alpaca data client. Provide a `client=` for AlpacaDataClient "
+                        "or ensure alpaca-py version matches expectations."
+                    ) from exc
+
+    def get_latest_price(self, symbol: str) -> float:
+        client = self._client
+        # Try a few common method names for fetching latest price; tests can mock any of them.
+        if hasattr(client, "get_latest_trade"):
+            res = client.get_latest_trade(symbol)
+            # res may be dict-like or object with .price
+            try:
+                return float(_extract_field(res, "price", "p", "trade_price"))
+            except Exception:
+                raise RuntimeError("Unable to extract price from get_latest_trade result")
+        if hasattr(client, "get_last_trade"):
+            res = client.get_last_trade(symbol)
+            try:
+                return float(_extract_field(res, "price", "p", "trade_price"))
+            except Exception:
+                raise RuntimeError("Unable to extract price from get_last_trade result")
+        # As a last resort some clients expose `get_latest_quote`/`ask_price` etc.
+        if hasattr(client, "get_latest_quote"):
+            res = client.get_latest_quote(symbol)
+            try:
+                # Use midpoint of ask/bid if available
+                ask = _extract_field(res, "ask_price", "ask")
+                bid = _extract_field(res, "bid_price", "bid")
+                return float((float(ask) + float(bid)) / 2.0)
+            except Exception:
+                raise RuntimeError("Unable to extract price from get_latest_quote result")
+        raise NotImplementedError("Underlying client does not expose a supported latest-price method")
+
+    def get_bars(self, symbol: str, timeframe: str, limit: int) -> List[Bar]:
+        client = self._client
+        # Prefer a `get_bars` method signature; allow various shapes of return values.
+        if not hasattr(client, "get_bars"):
+            raise NotImplementedError("Underlying client does not expose get_bars")
+        # Call. Different alpaca clients accept different kwargs; try a couple of variants.
+        raw = None
+        try:
+            raw = client.get_bars(symbol, timeframe=timeframe, limit=limit)
+        except TypeError:
+            raw = client.get_bars(symbol, timeframe, limit)
+        # `raw` may be an iterable of objects or mapping. Normalize to list.
+        items: Iterable[Any]
+        if isinstance(raw, list):
+            items = raw
+        else:
+            try:
+                items = list(raw)
+            except TypeError:
+                # Single item
+                items = [raw]
+
+        bars: List[Bar] = []
+        for it in items:
+            # Extract common fields: timestamp can be named t, timestamp, ts, time
+            try:
+                ts_val = _extract_field(it, "t", "timestamp", "ts", "time")
+            except AttributeError:
+                # Sometimes the bar may be returned as a tuple-like (t,o,h,l,c,v)
+                # Attempt to unpack if it's a sequence of length >=6
+                if isinstance(it, (list, tuple)) and len(it) >= 6:
+                    ts_val, o, h, l, c, v = it[:6]
+                    bars.append(
+                        Bar(
+                            ts=_to_datetime(ts_val),
+                            open=float(o),
+                            high=float(h),
+                            low=float(l),
+                            close=float(c),
+                            volume=float(v),
+                        )
+                    )
+                    continue
+                raise
+            o = _extract_field(it, "o", "open")
+            h = _extract_field(it, "h", "high")
+            l = _extract_field(it, "l", "low")
+            c = _extract_field(it, "c", "close")
+            v = _extract_field(it, "v", "volume", "size")
+            bars.append(
+                Bar(
+                    ts=_to_datetime(ts_val),
+                    open=float(o),
+                    high=float(h),
+                    low=float(l),
+                    close=float(c),
+                    volume=float(v),
+                )
+            )
+        return bars
+# FILE: src/tradingbot/data/cache.py
+from __future__ import annotations
+
+from time import time
+from typing import Any, Callable, Dict, Optional, Tuple
+
+from .client import DataClient
+from .types import Bar
+
+
+class CachedDataClient(DataClient):
+    """Simple in-memory TTL cache wrapper around a DataClient.
+
+    - Cache key includes method, symbol, timeframe, limit.
+    - TTL (seconds) configurable. Default 30 seconds.
+    - Clock can be injected for testing (e.g., a fake clock).
+    """
+
+    def __init__(
+        self,
+        client: DataClient,
+        ttl_seconds: int = 30,
+        clock: Optional[Callable[[], float]] = None,
+    ) -> None:
+        self._client = client
+        self._ttl = int(ttl_seconds)
+        self._clock = clock if clock is not None else time
+        # Mapping: key -> (expiry_ts, value)
+        self._cache: Dict[Tuple[Any, ...], Tuple[float, Any]] = {}
+
+    def _make_key(self, method: str, symbol: str, timeframe: Optional[str], limit: Optional[int]):
+        return (method, symbol, timeframe, limit)
+
+    def _get_from_cache(self, key: Tuple[Any, ...]):
+        entry = self._cache.get(key)
+        if entry is None:
+            return None
+        expiry, val = entry
+        if self._clock() >= expiry:
+            # expired
+            try:
+                del self._cache[key]
+            except Exception:
+                pass
+            return None
+        return val
+
+    def get_latest_price(self, symbol: str) -> float:
+        key = self._make_key("get_latest_price", symbol, None, None)
+        hit = self._get_from_cache(key)
+        if hit is not None:
+            return hit  # type: ignore[return-value]
+        val = self._client.get_latest_price(symbol)
+        self._cache[key] = (self._clock() + self._ttl, val)
+        return val
+
+    def get_bars(self, symbol: str, timeframe: str, limit: int):
+        key = self._make_key("get_bars", symbol, timeframe, limit)
+        hit = self._get_from_cache(key)
+        if hit is not None:
+            # Return a shallow copy to reduce accidental outside mutation of cached list
+            if isinstance(hit, list):
+                return list(hit)
+            return hit
+        val = self._client.get_bars(symbol, timeframe, limit)
+        # store as-is; callers receive shallow copies on hits for lists
+        self._cache[key] = (self._clock() + self._ttl, val)
+        # Return a shallow copy for caller safety
+        if isinstance(val, list):
+            return list(val)
+        return val
+# FILE: src/tradingbot/data/__init__.py
+from .client import DataClient
+from .types import Bar
+from .alpaca_client import AlpacaDataClient
+from .cache import CachedDataClient
+
+__all__ = ["DataClient", "Bar", "AlpacaDataClient", "CachedDataClient"]
 END_FILE_BUNDLE
