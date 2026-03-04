@@ -10,36 +10,29 @@ HARD RULES (MUST FOLLOW EXACTLY)
 
 1. You MUST output ONLY:
    - A single fenced code block that starts with ```diff
-   - Optionally one line AFTER the diff fence: COMMIT: <message>
+   - Optionally one line after it: COMMIT: <message>
 
-2. Do NOT output:
-   - Explanations, notes, or commentary
-   - FILE: headers
-   - Any ```python``` blocks
-   - Any markdown outside the required diff fence (except the optional COMMIT line)
+2. The diff MUST be a valid unified patch that `git apply -` can apply.
+   - Every file change MUST begin with: diff --git a/... b/...
+   - Hunks MUST use correct @@ -a,b +c,d @@ headers that match the number of lines in the hunk.
+   - Do NOT include "FILE:" headers.
+   - Do NOT include ```python``` blocks or any other fences besides the single ```diff fence.
+   - Do NOT include commentary, explanations, or any text outside the required diff fence (except the optional COMMIT line).
 
-3. The patch MUST be directly applyable using:
-      git apply -
+3. Do NOT:
+   - Run commands
+   - Ask questions
+   - Reference secrets, `.env`, keys, tokens, credentials
 
 4. The patch MUST keep:
       ruff check .
       pytest -q
    passing.
 
-5. New files MUST be represented correctly in the diff, e.g.:
-   diff --git a/path/to/new.py b/path/to/new.py
-   new file mode 100644
-   index 0000000..abcdef0
-   --- /dev/null
-   +++ b/path/to/new.py
-   ...
-
-6. If modifying an existing file, your diff MUST match the current file contents.
-   Do NOT guess file contents. Only change files explicitly required by the TASK
-   and available in the provided context.
-
-7. Never request or expose secrets.
-   Never reference `.env` or secrets files.
+5. Prefer SMALL changes:
+   - Create new files when requested.
+   - Avoid touching unrelated files.
+   - Avoid changing existing tests unless the task explicitly asks.
 
 ------------------------------------------------------------
 OUTPUT FORMAT (EXACT)
@@ -53,5 +46,4 @@ index 1234567..abcdef0 100644
 @@ -1,3 +1,4 @@
  ...
 ```
-
 COMMIT: <short message>
