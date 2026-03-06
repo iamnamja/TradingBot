@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Agent task runner.
+"""TradingBot agent task runner.
 
 Reads a task markdown file, asks an LLM to output a deterministic file bundle,
 writes files, runs ruff+pytest, and optionally commits/pushes to an agent branch.
@@ -29,8 +29,14 @@ from typing import Dict, List, Tuple
 
 FILE_BUNDLE_BEGIN = "BEGIN_FILE_BUNDLE"
 FILE_BUNDLE_END = "END_FILE_BUNDLE"
-FILE_BEGIN_PREFIX = "FILE:"
 FILE_END = "END_FILE"
+
+DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
+FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
+IMPORT_RE = re.compile(
+    r"^\s*(?:from|import)\s+(tradingbot(?:\.[A-Za-z_][A-Za-z0-9_]*)+)",
+    re.MULTILINE,
+)
 
 
 class FileBundleError(ValueError):
@@ -54,6 +60,10 @@ def capture(cmd: List[str]) -> str:
     return cp.stdout.strip()
 
 
+def capture_result(cmd: List[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, check=False, text=True, capture_output=True)
+
+
 def ensure_clean_worktree() -> None:
     if capture(["git", "status", "--porcelain"]).strip():
         raise RuntimeError("Working tree is not clean. Commit/stash your changes before running the agent.")
@@ -71,12 +81,7 @@ def ensure_branch(branch: str) -> None:
 
 def normalize_newlines(s: str) -> str:
     s = s.replace("\r\n", "\n").replace("\r", "\n")
-    # Strip UTF-8 BOM if present
     return re.sub(r"^\ufeff", "", s)
-
-
-# Accept either "FILE:" or "# FILE:" as a header line (fallback for model mistakes).
-FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
 
 
 def parse_file_bundle(text: str) -> Dict[str, str]:
@@ -92,7 +97,7 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
     if not body.strip():
         return {}
 
-    if "FILE:" not in body:
+    if "FILE:" not in body and "# FILE:" not in body:
         raise FileBundleError("No FILE: headers found inside file bundle.")
 
     files: Dict[str, str] = {}
@@ -116,7 +121,7 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
         if i >= len(lines):
             raise FileBundleError(f"Missing END_FILE for {relpath}.")
 
-        i += 1  # consume END_FILE
+        i += 1
         files[relpath] = "\n".join(buf).rstrip("\n") + "\n"
 
     if not files:
@@ -130,9 +135,6 @@ def write_files(files: Dict[str, str]) -> None:
         p = Path(rel)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(data, encoding="utf-8", newline="\n")
-
-
-DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
 
 
 def parse_required_files(task_text: str) -> List[str]:
@@ -161,27 +163,105 @@ def parse_required_files(task_text: str) -> List[str]:
 
 
 def enforce_required_files(required: List[str], bundle: Dict[str, str]) -> Tuple[bool, str]:
-    missing: List[str] = []
-    for rf in required:
-        # If it's a deliverable, we require it to be in the bundle (so it gets created/updated).
-        if rf not in bundle:
-            missing.append(rf)
-
+    missing = [rf for rf in required if rf not in bundle]
     if not missing:
         return True, ""
     return False, "Missing required deliverables (must be created/updated): " + ", ".join(missing)
 
 
+def repo_map() -> str:
+    roots = [Path("src/tradingbot"), Path("tests"), Path("agents")]
+    out: List[str] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        out.append(f"[{root.as_posix()}]")
+        for path in sorted(root.rglob("*")):
+            if path.is_dir():
+                continue
+            rel = path.as_posix()
+            if "__pycache__" in rel or rel.endswith(".pyc"):
+                continue
+            out.append(rel)
+        out.append("")
+    return "\n".join(out).strip()
+
+
+def relevant_context(required: List[str]) -> str:
+    seen: set[str] = set()
+    lines: List[str] = []
+
+    candidates = [
+        Path("src/tradingbot/config/settings.py"),
+        Path("src/tradingbot/run.py"),
+        Path("tests/conftest.py"),
+    ]
+
+    for rf in required:
+        p = Path(rf)
+        candidates.append(p)
+        if p.parent != Path("."):
+            for sib in sorted(p.parent.glob("*.py")):
+                candidates.append(sib)
+
+    for p in candidates:
+        if not p.exists():
+            continue
+        rel = p.as_posix()
+        if rel in seen:
+            continue
+        seen.add(rel)
+        try:
+            content = p.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        snippet = "\n".join(content.splitlines()[:120])
+        lines.append(f"### {rel}\n{snippet}\n")
+    return "\n".join(lines).strip()
+
+
+def module_exists(module_name: str, bundle: Dict[str, str]) -> bool:
+    parts = module_name.split(".")
+    if not parts or parts[0] != "tradingbot":
+        return True
+
+    rel_parts = parts[1:]
+    if not rel_parts:
+        return True
+
+    file_candidate = Path("src") / Path(*parts).with_suffix(".py")
+    pkg_candidate = Path("src") / Path(*parts) / "__init__.py"
+
+    if file_candidate.exists() or pkg_candidate.exists():
+        return True
+
+    file_rel = file_candidate.as_posix()
+    pkg_rel = pkg_candidate.as_posix()
+    return file_rel in bundle or pkg_rel in bundle
+
+
+def validate_imports(bundle: Dict[str, str]) -> Tuple[bool, str]:
+    bad: List[str] = []
+    for rel, content in bundle.items():
+        for mod in IMPORT_RE.findall(content):
+            if not module_exists(mod, bundle):
+                bad.append(f"{rel}: imports missing module '{mod}'")
+    if not bad:
+        return True, ""
+    return False, "Invalid imports detected:\n" + "\n".join(sorted(set(bad)))
+
+
 def run_checks() -> Tuple[bool, str]:
     details: List[str] = []
-    try:
-        subprocess.run([sys.executable, "-m", "ruff", "check", "."], check=True, text=True)
-    except subprocess.CalledProcessError as e:
-        details.append("## ruff\n" + (e.stdout or "") + (e.stderr or ""))
-    try:
-        subprocess.run([sys.executable, "-m", "pytest", "-q"], check=True, text=True)
-    except subprocess.CalledProcessError as e:
-        details.append("## pytest\n" + (e.stdout or "") + (e.stderr or ""))
+
+    ruff = capture_result([sys.executable, "-m", "ruff", "check", "."])
+    if ruff.returncode != 0:
+        details.append("## ruff\n" + (ruff.stdout or "") + (ruff.stderr or ""))
+
+    pytest = capture_result([sys.executable, "-m", "pytest", "-q"])
+    if pytest.returncode != 0:
+        details.append("## pytest\n" + (pytest.stdout or "") + (pytest.stderr or ""))
+
     if details:
         return False, "\n".join(details).strip()
     return True, ""
@@ -206,12 +286,23 @@ def chat(messages: List[dict], model: str) -> str:
 
 
 def build_messages(task_text: str, required: List[str]) -> List[dict]:
+    extra = []
+
     if required:
-        req_list = "\n".join(f"- {p}" for p in required)
-        task_text = task_text.rstrip() + "\n\n## Required deliverables (must be satisfied)\n" + req_list + "\n"
+        extra.append("## Required deliverables (must be satisfied)")
+        extra.extend(f"- {p}" for p in required)
+        extra.append("")
+
+    extra.append("## Repository map")
+    extra.append(repo_map())
+    extra.append("")
+    extra.append("## Relevant file context")
+    extra.append(relevant_context(required) or "(none)")
+
+    user_task = task_text.rstrip() + "\n\n" + "\n".join(extra).rstrip() + "\n"
     return [
         {"role": "system", "content": load_system_prompt().strip()},
-        {"role": "user", "content": task_text},
+        {"role": "user", "content": user_task},
     ]
 
 
@@ -235,7 +326,7 @@ def main() -> int:
     required = parse_required_files(task_text)
 
     branch = f"agent-{task_path.stem}"
-    print(f"Current branch: {capture(['git','rev-parse','--abbrev-ref','HEAD'])}")
+    print(f"Current branch: {capture(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
     print(f"Creating branch: {branch}")
     ensure_branch(branch)
 
@@ -251,23 +342,26 @@ def main() -> int:
 
         try:
             files = parse_file_bundle(out)
-        except Exception:
+        except Exception as e:
             reminder = (
-                "Your previous response was INVALID. You MUST output ONLY a valid file bundle using literal lines "
-                "starting with 'FILE: '. Do NOT use commented headers like '# FILE:'. "
+                "Your previous response was INVALID.\n"
+                "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
+                "Do NOT use commented headers like '# FILE:'.\n\n"
                 "Required structure:\n"
                 "BEGIN_FILE_BUNDLE\n"
                 "FILE: path/to/file.ext\n"
                 "<full file contents>\n"
                 "END_FILE\n"
-                "END_FILE_BUNDLE\n"
-                "If there are no changes, output exactly:\nBEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE"
+                "END_FILE_BUNDLE\n\n"
+                "If there are no changes, output exactly:\n"
+                "BEGIN_FILE_BUNDLE\n"
+                "END_FILE_BUNDLE\n\n"
+                f"Parser error: {e}"
             )
             out2 = chat(messages + [{"role": "user", "content": reminder}], model=args.model)
             last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
             files = parse_file_bundle(out2)
 
-        # Save parsed bundle for debugging (always as canonical FILE:/END_FILE format)
         pretty: List[str] = [FILE_BUNDLE_BEGIN]
         for p, c in files.items():
             pretty.append(f"FILE: {p}")
@@ -279,8 +373,13 @@ def main() -> int:
         ok_req, req_msg = enforce_required_files(required, files)
         if not ok_req:
             print(f"❌ {req_msg}")
-            # Add a hard requirement reminder into the task for the next iteration
             task_text = task_text.rstrip() + "\n\nIMPORTANT: " + req_msg + "\n"
+            continue
+
+        ok_imports, import_msg = validate_imports(files)
+        if not ok_imports:
+            print(f"❌ {import_msg}")
+            task_text = task_text.rstrip() + "\n\nIMPORTANT: " + import_msg + "\n"
             continue
 
         write_files(files)
