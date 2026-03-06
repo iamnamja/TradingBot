@@ -38,17 +38,18 @@ Required behavior:
 - Return a list with the same length as `values`
 - `result[0]` must always be `None`
 - If `window <= 0`, return `[None] * len(values)`
-- If `window > len(values) - 1`, return `[None] * len(values)`
+- If `len(values) <= 1`, return `[None] * len(values)`
 
-For this task, once enough history exists, compute RSI using the sign of the most recent price change:
+For this task, once there is at least one delta, compute RSI using the sign of the most recent price change:
 - if `delta[i] > 0`, RSI at index `i` = `100.0`
 - if `delta[i] < 0`, RSI at index `i` = `0.0`
 - if `delta[i] == 0`, RSI at index `i` = `0.0`
 
-Window behavior:
-- For this simplified v1 task, treat `window` only as the minimum-history gate
-- Output `None` until there is enough history to start producing values
-- For this repository, the required examples below are the source of truth
+History gate clarification:
+- For this simplified v1 RSI, `window` does **not** delay the first output until `window` deltas exist
+- Output begins at index `1` whenever there is at least one delta
+- `window` is retained only for function signature compatibility and future extensibility
+- If `window > len(values) - 1`, return `[None] * len(values)`
 
 Required RSI examples:
 - `rsi([1, 2, 3, 4, 5], 14) == [None, None, None, None, None]`
@@ -84,6 +85,12 @@ Test style requirements:
 - Use:
   - `assert x`
   - `assert not x`
+
+Bundle requirement:
+- The output bundle must include both:
+  - `src/tradingbot/indicators.py`
+  - `tests/test_indicators.py`
+- Do not omit the test file on retry attempts
 
 ## Acceptance criteria
 - `ruff check .` and `pytest -q` pass
