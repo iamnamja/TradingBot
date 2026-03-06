@@ -3,18 +3,6 @@
 
 Reads a task markdown file, asks an LLM to output a deterministic file bundle,
 writes files, runs ruff+pytest, and optionally commits/pushes to an agent branch.
-
-File bundle format (MUST be exact):
-
-BEGIN_FILE_BUNDLE
-FILE: path/relative/to/repo.py
-<file contents>
-END_FILE
-END_FILE_BUNDLE
-
-Empty bundle is allowed:
-BEGIN_FILE_BUNDLE
-END_FILE_BUNDLE
 """
 
 from __future__ import annotations
@@ -51,17 +39,25 @@ def _load_dotenv_if_available() -> None:
     load_dotenv()
 
 
-def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, check=check, text=True, capture_output=False)
+def run(
+    cmd: List[str],
+    check: bool = True,
+    capture_output: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        check=check,
+        text=True,
+        capture_output=capture_output,
+    )
 
 
 def capture(cmd: List[str]) -> str:
-    cp = subprocess.run(cmd, check=True, text=True, capture_output=True)
-    return cp.stdout.strip()
+    return run(cmd, check=True, capture_output=True).stdout.strip()
 
 
 def capture_result(cmd: List[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, check=False, text=True, capture_output=True)
+    return run(cmd, check=False, capture_output=True)
 
 
 def ensure_clean_worktree() -> None:
@@ -109,7 +105,7 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
             i += 1
             continue
 
-        relpath = m.group(1).strip()
+        relpath = m.group(1).strip().replace("\\", "/")
         if not relpath:
             raise FileBundleError("Empty FILE: path.")
 
@@ -121,7 +117,7 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
         if i >= len(lines):
             raise FileBundleError(f"Missing END_FILE for {relpath}.")
 
-        i += 1
+        i += 1  # consume END_FILE
         files[relpath] = "\n".join(buf).rstrip("\n") + "\n"
 
     if not files:
@@ -131,8 +127,12 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
 
 
 def write_files(files: Dict[str, str]) -> None:
+    repo_root = Path(".").resolve()
     for rel, data in files.items():
-        p = Path(rel)
+        rel = rel.replace("\\", "/").lstrip("/")
+        p = (repo_root / rel).resolve()
+        if not str(p).startswith(str(repo_root)):
+            raise ValueError(f"Refusing to write outside repo root: {rel}")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(data, encoding="utf-8", newline="\n")
 
@@ -149,7 +149,7 @@ def parse_required_files(task_text: str) -> List[str]:
 
     req: List[str] = []
     for m in DELIVERABLE_PATH_RE.finditer(section):
-        path = m.group(1).strip()
+        path = m.group(1).strip().replace("\\", "/")
         if path.startswith(("src/", "tests/", "agents/")):
             req.append(path)
 
@@ -203,6 +203,9 @@ def relevant_context(required: List[str]) -> str:
         if p.parent != Path("."):
             for sib in sorted(p.parent.glob("*.py")):
                 candidates.append(sib)
+            parent_pkg = p.parent.parent / "__init__.py"
+            if parent_pkg.exists():
+                candidates.append(parent_pkg)
 
     for p in candidates:
         if not p.exists():
@@ -225,19 +228,13 @@ def module_exists(module_name: str, bundle: Dict[str, str]) -> bool:
     if not parts or parts[0] != "tradingbot":
         return True
 
-    rel_parts = parts[1:]
-    if not rel_parts:
-        return True
-
     file_candidate = Path("src") / Path(*parts).with_suffix(".py")
     pkg_candidate = Path("src") / Path(*parts) / "__init__.py"
 
     if file_candidate.exists() or pkg_candidate.exists():
         return True
 
-    file_rel = file_candidate.as_posix()
-    pkg_rel = pkg_candidate.as_posix()
-    return file_rel in bundle or pkg_rel in bundle
+    return file_candidate.as_posix() in bundle or pkg_candidate.as_posix() in bundle
 
 
 def validate_imports(bundle: Dict[str, str]) -> Tuple[bool, str]:
@@ -251,8 +248,28 @@ def validate_imports(bundle: Dict[str, str]) -> Tuple[bool, str]:
     return False, "Invalid imports detected:\n" + "\n".join(sorted(set(bad)))
 
 
+def missing_module_hints(import_msg: str) -> str:
+    mods = re.findall(r"module '([^']+)'", import_msg)
+    if not mods:
+        return ""
+    hints: List[str] = []
+    for mod in sorted(set(mods)):
+        parts = mod.split(".")
+        if parts[0] != "tradingbot":
+            continue
+        file_path = (Path("src") / Path(*parts).with_suffix(".py")).as_posix()
+        pkg_path = (Path("src") / Path(*parts) / "__init__.py").as_posix()
+        hints.append(
+            f"- Missing import target `{mod}`. Either change the import to an existing repo module, "
+            f"or create `{file_path}` (or package `{pkg_path}`) in the same bundle."
+        )
+    return "\n".join(hints)
+
+
 def run_checks() -> Tuple[bool, str]:
     details: List[str] = []
+
+    capture_result([sys.executable, "-m", "ruff", "check", ".", "--fix"])
 
     ruff = capture_result([sys.executable, "-m", "ruff", "check", "."])
     if ruff.returncode != 0:
@@ -286,7 +303,7 @@ def chat(messages: List[dict], model: str) -> str:
 
 
 def build_messages(task_text: str, required: List[str]) -> List[dict]:
-    extra = []
+    extra: List[str] = []
 
     if required:
         extra.append("## Required deliverables (must be satisfied)")
@@ -379,7 +396,14 @@ def main() -> int:
         ok_imports, import_msg = validate_imports(files)
         if not ok_imports:
             print(f"❌ {import_msg}")
-            task_text = task_text.rstrip() + "\n\nIMPORTANT: " + import_msg + "\n"
+            task_text = (
+                task_text.rstrip()
+                + "\n\nIMPORTANT: "
+                + import_msg
+                + "\n"
+                + missing_module_hints(import_msg)
+                + "\n"
+            )
             continue
 
         write_files(files)
@@ -401,7 +425,14 @@ def main() -> int:
 
         print("❌ Checks failed after applying changes:")
         print(details)
-        task_text = task_text.rstrip() + "\n\n# Last run failures\n" + details + "\n"
+        task_text = (
+            task_text.rstrip()
+            + "\n\n# Last run failures\n"
+            + details
+            + "\n\nIMPORTANT: Fix the reported failures exactly. Remove unused imports. "
+              "If pytest reports a missing module, either change the import to an existing repo module "
+              "or create the missing module in the bundle.\n"
+        )
 
     print("\n❌ Failed to reach green within max iterations.")
     print("Model output saved to: _last_agent_model_output.txt")
