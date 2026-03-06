@@ -82,7 +82,14 @@ If the task spec lists Deliverables (file paths), your bundle MUST include those
 - Do not include unused imports.
 - Your output must pass `ruff check .` with no F401 errors.
 - If a test does not use `pytest`, do not import `pytest`.
+- Do not write boolean test assertions as `assert x == True` or `assert x == False`; use `assert x` or `assert not x`.
 - If a missing protocol or support interface is needed to satisfy a task, create it in the correct package instead of importing a guessed path.
+
+### Semantic test failures
+If pytest shows that an expected value does not match an actual value, treat the expected example as the source of truth.
+- Change the implementation to satisfy the expected output exactly.
+- Do not “work around” the failure by weakening or removing tests unless the task explicitly says to change tests.
+- If a task marks an example as normative, that example must pass exactly.
 
 ### Stable reasons / strings
 If the task requires “stable reason strings”, treat those strings as part of the API:
@@ -97,7 +104,8 @@ If the task requires “stable reason strings”, treat those strings as part of
 5) Before finalizing, self-check:
    - every deliverable file is present in the bundle
    - every `tradingbot.*` import points to an existing module or one you created
-   - `ruff` would not fail on unused imports
+   - `ruff` would not fail on unused imports or boolean equality assertions
+   - if pytest provided an exact expected output example, your implementation matches it
 6) Output ONLY the file bundle.
 
 ## Common failure modes to avoid
@@ -107,3 +115,5 @@ If the task requires “stable reason strings”, treat those strings as part of
 - Inventing imports for modules not in the repo map.
 - Writing tests that import from `src.tradingbot...` instead of `tradingbot...`.
 - Adding unused imports that fail ruff.
+- Using `assert x == True` / `assert x == False` in tests.
+- Ignoring exact expected values from failing tests or normative task examples.
