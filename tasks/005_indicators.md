@@ -26,32 +26,39 @@ Compute a small initial set of indicators used for deterministic candidate gener
 - Example:
   - `sma([1, 2, 3, 4], 2) == [None, 1.5, 2.5, 3.5]`
 
-### RSI (v1)
-Use a simple deterministic RSI suitable for repository tests.
+### RSI (v1, simplified for deterministic strategy tests)
+This task does **not** require a textbook or Wilder RSI.
+
+Implement a **toy deterministic oscillator** that behaves as follows:
 
 Definitions:
 - Let `delta[i] = values[i] - values[i-1]` for `i >= 1`
-- Gain for a delta = `max(delta, 0)`
-- Loss for a delta = `abs(min(delta, 0))`
 
 Required behavior:
 - Return a list with the same length as `values`
-- If there is insufficient history, return `None`
-- For this task, the expected examples below are **normative** and must be matched exactly
+- `result[0]` must always be `None`
+- If `window <= 0`, return `[None] * len(values)`
+- If `window > len(values) - 1`, return `[None] * len(values)`
+
+For this task, once enough history exists, compute RSI using the sign of the most recent price change:
+- if `delta[i] > 0`, RSI at index `i` = `100.0`
+- if `delta[i] < 0`, RSI at index `i` = `0.0`
+- if `delta[i] == 0`, RSI at index `i` = `0.0`
+
+Window behavior:
+- For this simplified v1 task, treat `window` only as the minimum-history gate
+- Output `None` until there is enough history to start producing values
+- For this repository, the required examples below are the source of truth
 
 Required RSI examples:
 - `rsi([1, 2, 3, 4, 5], 14) == [None, None, None, None, None]`
 - `rsi([1, 2, 1, 2, 1], 2) == [None, 100.0, 0.0, 100.0, 0.0]`
-
-Additional RSI rules:
-- If average loss is `0` and average gain is positive, RSI = `100.0`
-- If average gain is `0` and average loss is positive, RSI = `0.0`
-- If both average gain and average loss are `0`, RSI = `50.0`
-- Return values as floats
+- `rsi([1, 1, 1, 1], 2) == [None, 0.0, 0.0, 0.0]`
 
 Implementation note:
-- For this task, correctness is defined by matching the required examples exactly
-- If a standard RSI formula would produce a different result, adjust the implementation so the required examples pass exactly
+- Correctness for this task is defined by matching the required examples exactly
+- Do **not** implement a standard rolling/Wilder RSI if it would produce different results than the required examples
+- Prefer the simplest deterministic implementation that satisfies the examples above
 
 ### trend_up
 - Return `False` if there are fewer than `lookback` values
@@ -66,8 +73,9 @@ Examples:
 The test file should include at least:
 - SMA basic example
 - RSI short-series behavior
-- RSI normative example:
+- RSI normative examples:
   - `rsi([1, 2, 1, 2, 1], 2) == [None, 100.0, 0.0, 100.0, 0.0]`
+  - `rsi([1, 1, 1, 1], 2) == [None, 0.0, 0.0, 0.0]`
 - trend_up true/false cases
 - edge cases for empty or too-short input
 
@@ -82,3 +90,4 @@ Test style requirements:
 - Indicators handle short series gracefully (return `None` where insufficient history)
 - No external dependencies (numpy/pandas) required for v1
 - Tests must use deterministic hand-made inputs only
+- The RSI implementation must satisfy the normative examples exactly
