@@ -86,15 +86,11 @@ If the task spec lists Deliverables (file paths), your bundle MUST include those
 - If a missing protocol or support interface is needed to satisfy a task, create it in the correct package instead of importing a guessed path.
 
 ### Semantic test failures
-If pytest shows that an expected value does not match an actual value, treat the expected example as the source of truth.
+If pytest shows that an expected value does not match an actual value, treat the expected value as the source of truth.
 - Change the implementation to satisfy the expected output exactly.
-- Do not “work around” the failure by weakening or removing tests unless the task explicitly says to change tests.
+- Do not “work around” the failure by weakening, removing, or rewriting tests unless the task explicitly says to change tests.
 - If a task marks an example as normative, that example must pass exactly.
-
-### Stable reasons / strings
-If the task requires “stable reason strings”, treat those strings as part of the API:
-- Use lowercase, descriptive, deterministic messages (e.g., `risk deny: max_trades_per_day`).
-- Do not change message wording between runs unless necessary.
+- If the same failure repeats across iterations, you must make a materially different implementation change rather than resubmitting similar logic.
 
 ## How to proceed
 1) Read the task spec carefully (Goal, Deliverables, Tests, Acceptance criteria).
