@@ -29,27 +29,41 @@ Compute a small initial set of indicators used for deterministic candidate gener
 ### RSI (v1, simplified for deterministic strategy tests)
 This task does **not** require a textbook or Wilder RSI.
 
-Implement a **toy deterministic oscillator** that behaves as follows:
+Implement a **toy deterministic oscillator** with the following exact algorithm.
 
-Definitions:
-- Let `delta[i] = values[i] - values[i-1]` for `i >= 1`
+Normative pseudocode:
 
-Required behavior:
-- Return a list with the same length as `values`
+```python
+def rsi(values, window=14):
+    if window <= 0:
+        return [None] * len(values)
+
+    if len(values) <= 1:
+        return [None] * len(values)
+
+    if window > len(values) - 1:
+        return [None] * len(values)
+
+    result = [None] * len(values)
+
+    for i in range(1, len(values)):
+        delta = values[i] - values[i - 1]
+        if delta > 0:
+            result[i] = 100.0
+        else:
+            result[i] = 0.0
+
+    return result
+```
+
+Rules:
 - `result[0]` must always be `None`
-- If `window <= 0`, return `[None] * len(values)`
-- If `len(values) <= 1`, return `[None] * len(values)`
-
-For this task, once there is at least one delta, compute RSI using the sign of the most recent price change:
-- if `delta[i] > 0`, RSI at index `i` = `100.0`
-- if `delta[i] < 0`, RSI at index `i` = `0.0`
-- if `delta[i] == 0`, RSI at index `i` = `0.0`
-
-History gate clarification:
-- For this simplified v1 RSI, `window` does **not** delay the first output until `window` deltas exist
-- Output begins at index `1` whenever there is at least one delta
-- `window` is retained only for function signature compatibility and future extensibility
-- If `window > len(values) - 1`, return `[None] * len(values)`
+- positive delta => `100.0`
+- zero delta => `0.0`
+- negative delta => `0.0`
+- `window` acts only as a minimum-history gate:
+  - if `window > len(values) - 1`, return all `None`
+  - otherwise begin output at index `1`
 
 Required RSI examples:
 - `rsi([1, 2, 3, 4, 5], 14) == [None, None, None, None, None]`
@@ -57,9 +71,8 @@ Required RSI examples:
 - `rsi([1, 1, 1, 1], 2) == [None, 0.0, 0.0, 0.0]`
 
 Implementation note:
-- Correctness for this task is defined by matching the required examples exactly
-- Do **not** implement a standard rolling/Wilder RSI if it would produce different results than the required examples
-- Prefer the simplest deterministic implementation that satisfies the examples above
+- Correctness for this task is defined by matching the pseudocode and required examples exactly
+- Do **not** implement a standard rolling/Wilder RSI for this task
 
 ### trend_up
 - Return `False` if there are fewer than `lookback` values
@@ -97,4 +110,4 @@ Bundle requirement:
 - Indicators handle short series gracefully (return `None` where insufficient history)
 - No external dependencies (numpy/pandas) required for v1
 - Tests must use deterministic hand-made inputs only
-- The RSI implementation must satisfy the normative examples exactly
+- The RSI implementation must satisfy the normative pseudocode and examples exactly
