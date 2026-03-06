@@ -25,6 +25,11 @@ IMPORT_RE = re.compile(
     r"^\s*(?:from|import)\s+(tradingbot(?:\.[A-Za-z_][A-Za-z0-9_]*)+)",
     re.MULTILINE,
 )
+TEST_FAIL_RE = re.compile(r"_{5,}\s*(.*?)\s*_{5,}")
+ASSERT_LINE_RE = re.compile(r"assert\s+(.+?)\s*==\s*(.+)")
+RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
+RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
+PYTEST_FILE_RE = re.compile(r"^(tests/[^\n:]+):(\d+):", re.MULTILINE)
 
 
 class FileBundleError(ValueError):
@@ -117,7 +122,7 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
         if i >= len(lines):
             raise FileBundleError(f"Missing END_FILE for {relpath}.")
 
-        i += 1  # consume END_FILE
+        i += 1
         files[relpath] = "\n".join(buf).rstrip("\n") + "\n"
 
     if not files:
@@ -266,9 +271,63 @@ def missing_module_hints(import_msg: str) -> str:
     return "\n".join(hints)
 
 
+def parse_semantic_failures(details: str) -> str:
+    lines: List[str] = []
+
+    # Point out unused imports / bool comparisons in tests explicitly.
+    for path, lineno in sorted(set(RUFF_UNUSED_IMPORT_RE.findall(details))):
+        lines.append(
+            f"- Ruff reports unused imports in `{path}` line {lineno}. Remove the unused imports."
+        )
+    for path, lineno in sorted(set(RUFF_BOOL_COMPARE_RE.findall(details))):
+        lines.append(
+            f"- Ruff reports boolean equality comparisons in `{path}` line {lineno}. "
+            "Use `assert x` or `assert not x` instead of `== True/False`."
+        )
+
+    # Extract pytest failure context.
+    fail_names = TEST_FAIL_RE.findall(details)
+    if fail_names:
+        for name in fail_names[:5]:
+            lines.append(f"- Pytest failure: `{name}`")
+
+    pytest_files = PYTEST_FILE_RE.findall(details)
+    for path, lineno in sorted(set(pytest_files)):
+        lines.append(f"- Modify the implementation to satisfy the failing expectation referenced by `{path}` line {lineno}. Do not change tests unless the task explicitly requires it.")
+
+    # Extract common `assert actual == expected` mismatch lines.
+    for m in ASSERT_LINE_RE.finditer(details):
+        actual = m.group(1).strip()
+        expected = m.group(2).strip()
+        lines.append(
+            f"- Assertion mismatch detected. Actual expression/value: `{actual}`. Expected: `{expected}`. "
+            "Change the implementation to make this exact expectation pass."
+        )
+
+    # Extract exact "assert [..] == [..]" lines from pytest output if present.
+    eq_lines = []
+    for line in details.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("E       assert ") and " == " in stripped:
+            eq_lines.append(stripped.replace("E       ", "", 1))
+    for line in eq_lines[:3]:
+        lines.append(f"- Pytest reported exact mismatch: `{line}`")
+
+    if not lines:
+        return ""
+    deduped: List[str] = []
+    seen = set()
+    for line in lines:
+        if line not in seen:
+            deduped.append(line)
+            seen.add(line)
+    return "\n".join(deduped)
+
+
 def run_checks() -> Tuple[bool, str]:
     details: List[str] = []
 
+    # Auto-fix easy lint issues first.
     capture_result([sys.executable, "-m", "ruff", "check", ".", "--fix"])
 
     ruff = capture_result([sys.executable, "-m", "ruff", "check", "."])
@@ -425,14 +484,19 @@ def main() -> int:
 
         print("❌ Checks failed after applying changes:")
         print(details)
+
+        semantic_hints = parse_semantic_failures(details)
         task_text = (
             task_text.rstrip()
             + "\n\n# Last run failures\n"
             + details
-            + "\n\nIMPORTANT: Fix the reported failures exactly. Remove unused imports. "
-              "If pytest reports a missing module, either change the import to an existing repo module "
-              "or create the missing module in the bundle.\n"
+            + "\n\nIMPORTANT: Fix the reported failures exactly. "
+              "Modify implementation files to satisfy failing tests. "
+              "Do not change tests unless the task explicitly requires it. "
+              "Remove unused imports and fix boolean test assertions if reported.\n"
         )
+        if semantic_hints:
+            task_text += "\n# Failure analysis hints\n" + semantic_hints + "\n"
 
     print("\n❌ Failed to reach green within max iterations.")
     print("Model output saved to: _last_agent_model_output.txt")
