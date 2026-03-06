@@ -8,6 +8,7 @@ writes files, runs ruff+pytest, and optionally commits/pushes to an agent branch
 from __future__ import annotations
 
 import argparse
+import difflib
 import os
 import re
 import subprocess
@@ -25,11 +26,11 @@ IMPORT_RE = re.compile(
     r"^\s*(?:from|import)\s+(tradingbot(?:\.[A-Za-z_][A-Za-z0-9_]*)+)",
     re.MULTILINE,
 )
-TEST_FAIL_RE = re.compile(r"_{5,}\s*(.*?)\s*_{5,}")
-ASSERT_LINE_RE = re.compile(r"assert\s+(.+?)\s*==\s*(.+)")
 RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
 RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
-PYTEST_FILE_RE = re.compile(r"^(tests/[^\n:]+):(\d+):", re.MULTILINE)
+PYTEST_TEST_NAME_RE = re.compile(r"_{5,}\s*(.*?)\s*_{5,}")
+PYTEST_TEST_FILE_RE = re.compile(r"^(tests/[^\n:]+):(\d+):", re.MULTILINE)
+PYTEST_EXACT_MISMATCH_RE = re.compile(r"^E\s+assert\s+(.+?)\s+==\s+(.+)$", re.MULTILINE)
 
 
 class FileBundleError(ValueError):
@@ -274,60 +275,62 @@ def missing_module_hints(import_msg: str) -> str:
 def parse_semantic_failures(details: str) -> str:
     lines: List[str] = []
 
-    # Point out unused imports / bool comparisons in tests explicitly.
     for path, lineno in sorted(set(RUFF_UNUSED_IMPORT_RE.findall(details))):
-        lines.append(
-            f"- Ruff reports unused imports in `{path}` line {lineno}. Remove the unused imports."
-        )
+        lines.append(f"- Ruff reports unused imports in `{path}` line {lineno}. Remove the unused imports.")
     for path, lineno in sorted(set(RUFF_BOOL_COMPARE_RE.findall(details))):
         lines.append(
             f"- Ruff reports boolean equality comparisons in `{path}` line {lineno}. "
             "Use `assert x` or `assert not x` instead of `== True/False`."
         )
 
-    # Extract pytest failure context.
-    fail_names = TEST_FAIL_RE.findall(details)
-    if fail_names:
-        for name in fail_names[:5]:
-            lines.append(f"- Pytest failure: `{name}`")
+    for name in PYTEST_TEST_NAME_RE.findall(details)[:5]:
+        lines.append(f"- Pytest failure: `{name}`")
 
-    pytest_files = PYTEST_FILE_RE.findall(details)
-    for path, lineno in sorted(set(pytest_files)):
-        lines.append(f"- Modify the implementation to satisfy the failing expectation referenced by `{path}` line {lineno}. Do not change tests unless the task explicitly requires it.")
-
-    # Extract common `assert actual == expected` mismatch lines.
-    for m in ASSERT_LINE_RE.finditer(details):
-        actual = m.group(1).strip()
-        expected = m.group(2).strip()
+    for path, lineno in sorted(set(PYTEST_TEST_FILE_RE.findall(details))):
         lines.append(
-            f"- Assertion mismatch detected. Actual expression/value: `{actual}`. Expected: `{expected}`. "
-            "Change the implementation to make this exact expectation pass."
+            f"- Modify implementation files to satisfy the failing expectation referenced by `{path}` line {lineno}. "
+            "Do not change tests unless the task explicitly requires it."
         )
 
-    # Extract exact "assert [..] == [..]" lines from pytest output if present.
-    eq_lines = []
-    for line in details.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("E       assert ") and " == " in stripped:
-            eq_lines.append(stripped.replace("E       ", "", 1))
-    for line in eq_lines[:3]:
-        lines.append(f"- Pytest reported exact mismatch: `{line}`")
+    for actual, expected in PYTEST_EXACT_MISMATCH_RE.findall(details)[:5]:
+        lines.append(
+            f"- Exact mismatch: actual `{actual.strip()}` vs expected `{expected.strip()}`. "
+            "Change the implementation so the expected value passes exactly."
+        )
 
-    if not lines:
-        return ""
+    for line in details.splitlines():
+        s = line.strip()
+        if s.startswith("E       assert ") and " == " in s:
+            pretty = s.replace("E       ", "", 1)
+            lines.append(
+                f"- Pytest reported exact assertion mismatch: `{pretty}`. "
+                "Use this exact expected value as the source of truth."
+            )
+
     deduped: List[str] = []
     seen = set()
     for line in lines:
-        if line not in seen:
+        if line and line not in seen:
             deduped.append(line)
             seen.add(line)
     return "\n".join(deduped)
 
 
+def bundle_similarity(a: Dict[str, str], b: Dict[str, str]) -> float:
+    if not a and not b:
+        return 1.0
+    keys = sorted(set(a) | set(b))
+    a_text = []
+    b_text = []
+    for k in keys:
+        a_text.append(f"FILE:{k}\n{a.get(k, '')}")
+        b_text.append(f"FILE:{k}\n{b.get(k, '')}")
+    return difflib.SequenceMatcher(None, "\n".join(a_text), "\n".join(b_text)).ratio()
+
+
 def run_checks() -> Tuple[bool, str]:
     details: List[str] = []
 
-    # Auto-fix easy lint issues first.
     capture_result([sys.executable, "-m", "ruff", "check", ".", "--fix"])
 
     ruff = capture_result([sys.executable, "-m", "ruff", "check", "."])
@@ -357,7 +360,7 @@ def chat(messages: List[dict], model: str) -> str:
     from openai import OpenAI  # type: ignore
 
     client = OpenAI(api_key=api_key)
-    resp = client.chat.completions.create(model=model, messages=messages, temperature=0.2)
+    resp = client.chat.completions.create(model=model, messages=messages, temperature=0.1)
     return (resp.choices[0].message.content or "").strip()
 
 
@@ -389,7 +392,7 @@ def main() -> int:
     ap.add_argument("task", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
     ap.add_argument("--model", default=os.getenv("TRADINGBOT_AGENT_MODEL", "gpt-4o-mini"))
-    ap.add_argument("--max-iters", type=int, default=3)
+    ap.add_argument("--max-iters", type=int, default=4)
     args = ap.parse_args()
 
     task_path = Path(args.task)
@@ -408,6 +411,8 @@ def main() -> int:
 
     last_output_path = Path("_last_agent_model_output.txt")
     last_bundle_path = Path("_last_agent_file_bundle.txt")
+
+    prev_files: Dict[str, str] | None = None
 
     for it in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {it}/{args.max_iters} ===")
@@ -450,6 +455,7 @@ def main() -> int:
         if not ok_req:
             print(f"❌ {req_msg}")
             task_text = task_text.rstrip() + "\n\nIMPORTANT: " + req_msg + "\n"
+            prev_files = files
             continue
 
         ok_imports, import_msg = validate_imports(files)
@@ -463,6 +469,7 @@ def main() -> int:
                 + missing_module_hints(import_msg)
                 + "\n"
             )
+            prev_files = files
             continue
 
         write_files(files)
@@ -493,10 +500,31 @@ def main() -> int:
             + "\n\nIMPORTANT: Fix the reported failures exactly. "
               "Modify implementation files to satisfy failing tests. "
               "Do not change tests unless the task explicitly requires it. "
-              "Remove unused imports and fix boolean test assertions if reported.\n"
+              "Use exact expected values from pytest output as the source of truth.\n"
         )
         if semantic_hints:
             task_text += "\n# Failure analysis hints\n" + semantic_hints + "\n"
+
+        if prev_files is not None:
+            sim = bundle_similarity(prev_files, files)
+            if sim > 0.98:
+                task_text += (
+                    "\n# Escalation\n"
+                    "Your latest bundle is materially unchanged from the previous attempt, but tests still fail. "
+                    "You must make a real implementation change in the most likely source file causing the failure. "
+                    "Do not resubmit the same logic. Prefer changing the implementation rather than the tests.\n"
+                )
+
+        if "tests/test_indicators.py" in details and "test_rsi" in details:
+            task_text += (
+                "\n# Targeted hint\n"
+                "Modify `src/tradingbot/indicators.py` so that "
+                "`rsi([1, 2, 1, 2, 1], 2)` returns exactly "
+                "`[None, 100.0, 0.0, 100.0, 0.0]`. "
+                "Do not change `tests/test_indicators.py`.\n"
+            )
+
+        prev_files = files
 
     print("\n❌ Failed to reach green within max iterations.")
     print("Model output saved to: _last_agent_model_output.txt")
