@@ -8,7 +8,7 @@ Create the first operational orchestrator entrypoint that wires together the exi
   - `class OrchestratorRunner`
   - method(s) to:
     - load project config
-    - load backlog/state
+    - read backlog/state
     - select next task
     - invoke the next-step flow
 
@@ -35,37 +35,52 @@ For v1, it is acceptable if the loop only executes a **single next-task cycle** 
 
 ## Required behavior
 
-### Construction and dependency injection
-`OrchestratorRunner` should accept its collaborators via constructor injection where practical.
-At minimum, it should be possible in tests to inject or override:
-- project adapter/config
-- backlog tracker
-- initial orchestrator state
+### Constructor contract
+`OrchestratorRunner` should accept enough constructor dependencies to be testable.
 
-Do not hardwire all collaborators inside methods if that makes testing brittle.
+At minimum, it must support:
+- a project config or project adapter
+- a backlog tracker
+- an initial orchestrator state
+
+If the first argument is a plain `ProjectConfig`, the runner must use it directly.
+
+If the first argument is an adapter object, the runner may read config from that adapter.
+
+Do **not** assume the first argument always has `.config`.
+
+### Backlog source of truth
+For v1, task selection should use the backlog tracker's task discovery method rather than relying only on persisted state.
+
+Normative rule:
+- `select_next_task()` should use the backlog tracker's task list / scan result
+- if no tasks are found there, it may fall back to state
+- tests may monkeypatch the backlog tracker discovery method
+
+This is the most important behavioral rule for this task.
 
 ### State handling
-If `OrchestratorState` is an immutable/frozen dataclass, tests and runner behavior must still work cleanly.
+If `OrchestratorState` is immutable/frozen, tests and runner behavior must still work cleanly.
 Acceptable patterns:
 - replace the whole state object instead of mutating frozen fields
 - or use non-frozen state models if that is already the project convention
 
 Tests must not rely on mutating a frozen dataclass field in place.
 
-### Task shape assumptions
+### Task identity
 The runner should work with real task objects from the backlog/state layer.
 Do not rely on raw `MagicMock.name` semantics for task identity.
 
 Use explicit task fields such as:
-- `task_id`
 - `name`
 - `path`
-or whatever the real state model already provides.
+- `order`
+- `status`
 
 ### Orchestrator flow
 The runner must:
 - load project config/adapter
-- read orchestrator state
+- read backlog/state
 - determine the next pending task
 - return or record what task would run next
 
@@ -79,12 +94,14 @@ This task does **not** need to execute the full dev-agent workflow yet if that w
 
 ### Return shape
 `run_next_task()` should return a structured result with deterministic primitive fields.
-Use plain strings / booleans / dicts, not MagicMock-dependent values.
 
 Suggested fields:
 - `task_name: str`
 - `status: str`
 - `message: str`
+
+If no pending task exists, return a deterministic no-op result such as:
+- `task_name = "none"`
 
 ## Test guidance
 
@@ -93,11 +110,11 @@ Tests should prefer simple fake task objects or real state/task dataclasses rath
 
 ### Normative examples
 Example 1:
-- state contains one pending task named `021_example`
+- backlog tracker discovery returns one pending task named `001_task.py`
 - `select_next_task()` returns that exact task object
 
 Example 2:
-- `run_next_task()` returns a dict whose `task_name` is the real task name string, not a mock object
+- `run_next_task()` returns a dict whose `task_name` is `001_task.py`
 
 Example 3:
 - if no pending tasks exist, runner returns a deterministic no-op result rather than failing
@@ -117,4 +134,6 @@ Do not hardcode TradingBot-specific task names in the engine.
 - runner can select and mark the next task deterministically
 - tests do not depend on mutating frozen dataclass fields
 - tests do not depend on `MagicMock.name` identity behavior
+- tests can pass either a `ProjectConfig` or adapter-compatible object without attribute errors
+- selection behavior follows the backlog discovery rule above
 - CLI returns success on happy path
