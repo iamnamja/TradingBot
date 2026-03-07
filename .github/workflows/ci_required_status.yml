@@ -30,13 +30,4 @@ jobs:
             DESC="CI failed"
           fi
 
-          curl -sS -X POST \
-            -H "Authorization: token ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${OWNER}/${REPO}/statuses/${SHA}" \
-            -d "$(jq -n \
-              --arg state "$STATE" \
-              --arg context "ci-required" \
-              --arg description "$DESC" \
-              --arg target_url "${{ github.event.workflow_run.html_url }}" \
-              '{state:$state, context:$context, description:$description, target_url:$target_url}')"
+          curl -sS -X POST             -H "Authorization: token ${GH_TOKEN}"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${OWNER}/${REPO}/statuses/${SHA}"             -d "$(jq -n               --arg state "$STATE"               --arg context "ci-required"               --arg description "$DESC"               --arg target_url "${{ github.event.workflow_run.html_url }}"               '{state:$state, context:$context, description:$description, target_url:$target_url}')"
