@@ -1,5 +1,5 @@
 from typing import Any, Dict
-from .project_config import ProjectConfig
+from .project_config import ProjectConfig, GenericProjectConfig
 
 class ProjectAdapter:
     def __init__(self, config: ProjectConfig):
@@ -26,4 +26,16 @@ class ProjectAdapter:
             protected_file_patterns=["*.pyc", "*.log"],
             artifact_path_patterns=["artifacts/*"],
             approval_required_file_patterns=["README.md", "CHANGELOG.md"],
+        )
+
+    @staticmethod
+    def get_generic_project_config() -> GenericProjectConfig:
+        return GenericProjectConfig(
+            tasks_directory="generic_tasks/",
+            lint_command="flake8 .",
+            test_command="pytest tests/test_generic.py",
+            branch_naming_pattern="feature/generic/*",
+            protected_file_patterns=["*.tmp"],
+            artifact_path_patterns=["generic_artifacts/*"],
+            approval_required_file_patterns=["README.md"],
         )

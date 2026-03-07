@@ -10,3 +10,7 @@ class ProjectConfig:
     protected_file_patterns: List[str]
     artifact_path_patterns: List[str]
     approval_required_file_patterns: List[str]
+
+@dataclass(frozen=True)
+class GenericProjectConfig(ProjectConfig):
+    pass
