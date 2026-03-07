@@ -10,7 +10,6 @@ class OrchestratorRunner:
         self.config = config if isinstance(config, ProjectConfig) else config.config
 
     def load_project_config(self) -> None:
-        # This method can be expanded to load additional configurations if needed
         pass
 
     def read_backlog(self) -> None:
@@ -21,20 +20,28 @@ class OrchestratorRunner:
         next_task = self.backlog_tracker.get_next_task(tasks)
         return next_task
 
-    def run_next_task(self) -> Dict[str, Union[str, None]]:
+    def run_next_task(self, dry_run: bool = False) -> Dict[str, Union[str, bool]]:
         self.read_backlog()
         next_task = self.select_next_task()
 
         if next_task:
-            # Create a new TaskMetadata instance with updated status
-            next_task = TaskMetadata(name=next_task.name, order=next_task.order, status=TaskStatus(status="running"))
-            return {
-                "task_name": next_task.name,
-                "status": "running",
-                "message": "Task is now running."
-            }
+            if dry_run:
+                return {
+                    "dry_run": True,
+                    "task_name": next_task.name,
+                    "status": "planned",
+                    "message": "Task is planned for execution."
+                }
+            else:
+                next_task = TaskMetadata(name=next_task.name, order=next_task.order, status=TaskStatus(status="running"))
+                return {
+                    "task_name": next_task.name,
+                    "status": "running",
+                    "message": "Task is now running."
+                }
         else:
             return {
+                "dry_run": dry_run,
                 "task_name": "none",
                 "status": "no_task",
                 "message": "No pending tasks available."
