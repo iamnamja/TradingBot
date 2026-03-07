@@ -36,36 +36,32 @@ For v1, it is acceptable if the loop only executes a **single next-task cycle** 
 ## Required behavior
 
 ### Constructor contract
-`OrchestratorRunner` should accept enough constructor dependencies to be testable.
+`OrchestratorRunner` must accept enough constructor dependencies to be testable.
 
 At minimum, it must support:
-- a project config or project adapter
+- a plain `ProjectConfig` or an adapter-like object
 - a backlog tracker
 - an initial orchestrator state
 
 If the first argument is a plain `ProjectConfig`, the runner must use it directly.
-
 If the first argument is an adapter object, the runner may read config from that adapter.
-
 Do **not** assume the first argument always has `.config`.
 
 ### Backlog source of truth
-For v1, task selection should use the backlog tracker's task discovery method rather than relying only on persisted state.
+For v1, task selection should use the backlog tracker's task discovery result as the primary source of truth.
 
 Normative rule:
-- `select_next_task()` should use the backlog tracker's task list / scan result
+- `select_next_task()` should use the backlog tracker discovery method / scan result
 - if no tasks are found there, it may fall back to state
 - tests may monkeypatch the backlog tracker discovery method
 
-This is the most important behavioral rule for this task.
+### Immutable state/task handling
+If `OrchestratorState`, `TaskMetadata`, or `TaskStatus` are frozen/immutable dataclasses, the runner must still work cleanly.
 
-### State handling
-If `OrchestratorState` is immutable/frozen, tests and runner behavior must still work cleanly.
+Do **not** mutate frozen dataclass fields in place.
 Acceptable patterns:
-- replace the whole state object instead of mutating frozen fields
-- or use non-frozen state models if that is already the project convention
-
-Tests must not rely on mutating a frozen dataclass field in place.
+- replace the whole task object with an updated copy
+- replace the whole state object with an updated copy
 
 ### Task identity
 The runner should work with real task objects from the backlog/state layer.

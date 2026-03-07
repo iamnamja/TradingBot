@@ -10,6 +10,7 @@ Enable the orchestrator to recover safely after interruption and continue from p
 - `tests/test_orchestrator_recovery.py`
 
 ## Required behavior
+
 ### Recovery scenarios
 Support at least:
 - previously running task found in state
@@ -24,6 +25,18 @@ The recovery logic should decide whether to:
 - mark blocked
 - require human review
 
+### Deterministic recovery contract
+The recovery layer should be a pure decision layer for v1.
+Do not perform live git/GitHub side effects in these unit tests.
+
+Inputs should be explicit structured values such as:
+- current state
+- parse/read error flags
+- branch presence flags
+- merge status flags
+
+Outputs should be deterministic structured decisions.
+
 ### Safety
 Do not assume interrupted work is safe to continue blindly.
 Prefer deterministic recovery decisions.
@@ -32,3 +45,4 @@ Prefer deterministic recovery decisions.
 - `ruff check .` passes
 - `pytest -q` passes
 - recovery decisions are deterministic for provided scenarios
+- tests do not require live git/GitHub access
