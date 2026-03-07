@@ -1,7 +1,7 @@
 import os
 import pytest
-from src.builder.orchestrator.backlog import BacklogTracker
-from src.builder.orchestrator.state import TaskStatus, TaskMetadata
+from builder.orchestrator.backlog import BacklogTracker
+from builder.orchestrator.state import TaskStatus, TaskMetadata
 
 @pytest.fixture
 def mock_tasks_directory(tmp_path):
