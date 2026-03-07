@@ -27,7 +27,7 @@ Reuse existing orchestrator modules rather than recreating them:
 Do not recreate these modules unless a minimal modification is truly required.
 
 ## Scope
-This task should implement a **single-task workflow**, not a forever loop.
+Implement a **single-task workflow**, not a forever loop.
 
 That means:
 - pick one next task
@@ -36,9 +36,7 @@ That means:
 - stop
 
 ## Backward-compatibility requirements
-This task extends the orchestrator runner built in earlier tasks.
-
-It must preserve the already-established runner contracts unless this task explicitly adds fields.
+This task extends the orchestrator runner built in earlier tasks and must preserve existing contracts unless this task explicitly adds fields.
 
 This is the most important rule in the task.
 
@@ -59,7 +57,7 @@ If a pending task exists in normal mode, existing tests may still expect:
 - `task_name` to be the selected task name
 - `status = "running"` for the immediate runner result
 
-Do **not** silently change that established immediate result to `"completed"` unless the task explicitly stages a second result object.
+Do **not** silently change that immediate result to `"completed"`.
 
 ## Required workflow
 The workflow should do all of the following in order:
@@ -75,7 +73,7 @@ The workflow should do all of the following in order:
 6. if unsuccessful:
    - run failure classification
    - run repair decision logic
-7. write audit events for major decisions
+7. optionally write audit events for major decisions
 8. return a structured orchestration result
 
 ## Execution contract
@@ -91,21 +89,28 @@ Acceptable patterns:
 - command-runner wrapper
 - callable collaborator
 
-## Audit-path contract
+## Audit integration contract
+The runner must treat audit logging as **optional/configurable**.
+
 This is the second most important rule in the task.
 
-The runner must **not** assume that `ProjectConfig` already contains an `audit_path` field.
+### Forbidden assumptions
+Do **not** assume:
+- `ProjectConfig.audit_path` already exists
+- `tasks_directory` is a valid log file path
+- any directory path can be opened in append mode as a file
 
+### Required behavior
+If no explicit audit sink/path is configured, the workflow must still run successfully.
 Acceptable approaches:
-- make audit logging optional when no audit path is configured
-- inject an audit writer/callback instead of a file path
-- derive a safe explicit file path only when configuration provides one
-- allow tests to stub/override audit behavior
+- skip audit writes when no audit path is configured
+- inject an audit callback/writer
+- use a dedicated optional file path only when explicitly provided by tests/config
 
-Do **not** write to `tasks/` as if it were a file.
-Do **not** assume any directory path is a valid appendable log file.
+The task must not fail because audit logging is unavailable.
 
-Tests must not fail because the runner attempts to open a directory path for audit logging.
+### Test guidance for audit
+Tests for this task should not require a real audit file path unless the test explicitly provides one.
 
 ## Structured result contract
 Workflow results must use deterministic primitive fields only.
@@ -118,11 +123,10 @@ Required fields in the workflow result:
 - `requires_approval: bool`
 
 Additional fields may be added, but existing fields from prior tasks must remain compatible.
-
 Do **not** return raw mock objects.
 
 ## Compatibility guidance for status values
-Because earlier runner tests already exist, prefer this interpretation:
+To avoid breaking earlier runner tests, prefer this interpretation:
 
 ### Immediate runner status
 The immediate return from `run_next_task()` in normal mode may still use:
@@ -136,7 +140,8 @@ Use a separate field for the higher-level decision, such as:
 - `outcome = "approval_required"`
 - `outcome = "noop"`
 
-This avoids breaking earlier tests that assert `status == "running"`.
+### Message field
+Preserve a deterministic `message` field for no-task behavior and other important workflow outcomes when helpful.
 
 ## No-task contract
 If no pending task exists, return a deterministic no-op result that includes:
@@ -147,12 +152,12 @@ If no pending task exists, return a deterministic no-op result that includes:
 - `requires_approval = False`
 - `message = "No pending tasks available."`
 
-In dry-run no-task mode, include:
+In dry-run no-task mode, also include:
 - `dry_run = True`
 
 ## Success-path contract
 If task execution succeeds and review/policy allow progress:
-- keep immediate runner `status = "running"` if needed for compatibility
+- keep immediate runner `status = "running"` for compatibility
 - use `outcome = "ready_for_pr"` or similarly explicit deterministic value
 - set `next_action` deterministically
 
@@ -186,3 +191,4 @@ Do not hardcode TradingBot-specific commands or task names in the workflow engin
 - output is deterministic and primitive-valued
 - implementation preserves the previously established runner contracts listed above
 - implementation does not assume `ProjectConfig.audit_path` exists
+- implementation does not treat `tasks_directory` as an audit log file path
