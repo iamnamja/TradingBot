@@ -26,6 +26,8 @@ For this task, `deliverables` means the files that are **in scope / allowed to c
 
 It does **not** mean that every deliverable must have changed.
 
+This is the most important rule in the task.
+
 ### Required checks
 The checker must detect:
 - whether at least one changed file is within the allowed deliverables set
@@ -40,14 +42,15 @@ A result is mergeable if:
 - there are no unexpected non-artifact changed files
 
 ### Runtime artifacts
-Artifact-path matches such as `logs/...` should:
+Artifact-path matches such as `logs/...`, `*.tmp`, or `*.cache` should:
 - appear in `warnings`
 - not block mergeability by themselves
 - be ignored for scope-compliance purposes
 
 ### Missing deliverables
-If none of the changed files are in the deliverables set, report:
-- `Missing deliverables: ...`
+Only report `Missing deliverables: ...` if **none** of the changed files are within the allowed deliverables set.
+
+Do **not** report missing deliverables merely because some in-scope deliverables did not change.
 
 This message must list filenames in sorted alphabetical order.
 
@@ -57,6 +60,11 @@ If changed files include non-artifact files outside the deliverables set, report
 
 This message must list filenames in sorted alphabetical order.
 
+### Warnings ordering
+When reporting runtime artifacts in `warnings`:
+- preserve the order in which the artifact files appear in `changed_files`
+- do **not** sort warnings alphabetically
+
 ### Verdict
 Return a structured verdict that includes:
 - `mergeable: bool`
@@ -64,8 +72,8 @@ Return a structured verdict that includes:
 - `warnings: list[str]`
 
 ### Deterministic output
-When rendering filenames into reasons or warnings:
-- sort them alphabetically first
+- sort filenames alphabetically in `reasons`
+- preserve `changed_files` order for `warnings`
 
 ## Normative examples
 
@@ -73,6 +81,7 @@ When rendering filenames into reasons or warnings:
 - `deliverables = ["file1.py", "file2.py"]`
 - `changed_files = ["file1.py"]`
 - `mergeable = True`
+- `reasons = []`
 
 ### Example 2: missing deliverables + unexpected change
 - `deliverables = ["file1.py", "file2.py"]`
@@ -86,7 +95,16 @@ When rendering filenames into reasons or warnings:
 - `deliverables = ["file1.py"]`
 - `changed_files = ["file1.py", "logs/error.log"]`
 - `mergeable = True`
-- `warnings` include artifact detection
+- `warnings` include:
+  - `Detected runtime artifact: logs/error.log`
+
+### Example 4: multiple warnings preserve input order
+- `deliverables = ["file1.py"]`
+- `changed_files = ["file1.py", "logs/error.log", "temp.cache"]`
+- `mergeable = True`
+- `warnings` must equal:
+  - `Detected runtime artifact: logs/error.log`
+  - `Detected runtime artifact: temp.cache`
 
 ## Portability requirement
 Allow configurable patterns for:
