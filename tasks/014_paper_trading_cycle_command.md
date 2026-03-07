@@ -6,7 +6,7 @@ Provide one command that runs a real end-to-end paper-trading cycle using:
 - real account state loader
 - existing strategy / LLM / risk / execution / audit pipeline
 
-This is the milestone for the **first manual paper-money test**.
+This is the milestone for the first manual paper-money test.
 
 ## Deliverables
 - `src/tradingbot/paper/run_paper_cycle.py`
@@ -15,8 +15,20 @@ This is the milestone for the **first manual paper-money test**.
 
 - `tests/test_run_paper_cycle.py`
 
+## Existing repo dependencies (NOT deliverables)
+This task must reuse existing code from:
+- cycle runner under `src/tradingbot/cycle`
+- Alpaca broker adapter under `src/tradingbot/brokers`
+- portfolio loader under `src/tradingbot/portfolio`
+- planner modules under `src/tradingbot/planner`
+- strategy modules under `src/tradingbot/strategy`
+- risk modules under `src/tradingbot/risk`
+- execution modules under `src/tradingbot/execution`
+
+Do not recreate those modules unless modification is truly required.
+
 ## Required repo alignment
-This task must wire together the existing pieces from:
+This task must wire together existing pieces from:
 - Task 010 cycle runner
 - Task 011 Alpaca broker adapter
 - Task 012 portfolio/account state loader
@@ -47,7 +59,8 @@ Required behavior:
 At minimum, the command should make it easy to see:
 - market-hours result
 - candidate count
-- approved/risk-passed count
+- approved count or llm-reviewed count
+- risk-passed count
 - order intents created
 - execution results
 - audit file path
@@ -56,17 +69,26 @@ At minimum, the command should make it easy to see:
 For this task, a small configured symbol list is sufficient.
 Do not implement universe discovery here.
 
-## Test requirements
+## Testing guidance
 `tests/test_run_paper_cycle.py` must:
 - not hit real external services
-- mock the initialized components
+- patch or mock the initialized components inside `run_paper_cycle.py`
 - verify:
   - paper-mode guard works
   - command returns success code on happy path
-  - command prints/returns a useful summary shape
+  - command prints or returns a useful summary shape
+
+### Important test guidance
+- Patch symbols where they are imported and used inside:
+  - `tradingbot.paper.run_paper_cycle`
+- Do not patch deep external import paths if the module under test imports those symbols locally
+- Tests should avoid writing real audit artifacts into repo-root `logs/`
+  - patch the cycle runner or audit writer if needed
+  - or use a temp directory
 
 ## Acceptance criteria
 - `ruff check .` passes
 - `pytest -q` passes
 - command refuses to run in live mode
+- tests do not make live external calls
 - command is ready to be used for the first manual paper-trading cycle once real paper credentials are configured
