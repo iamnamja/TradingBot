@@ -1,0 +1,1 @@
+{"timestamp": "2026-03-07T16:20:45.145553+00:00", "market_hours_guard": {"is_open": true, "reason": "market open"}, "candidates": [], "llm_decisions": [{"symbol": "AAPL", "action": "approve", "reason": "good candidate"}], "risk_decisions": [], "executed_intents": [], "errors": []}
