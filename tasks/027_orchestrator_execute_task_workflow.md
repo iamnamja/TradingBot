@@ -90,32 +90,49 @@ Acceptable patterns:
 - callable collaborator
 
 ## Audit integration contract
-The runner must treat audit logging as **optional/configurable**.
+Audit logging must be treated as optional/configurable.
 
 This is the second most important rule in the task.
 
 ### Forbidden assumptions
 Do **not** assume:
-- `ProjectConfig.audit_path` already exists
+- `ProjectConfig.audit_path` exists
 - `tasks_directory` is a valid log file path
 - any directory path can be opened in append mode as a file
+
+### Explicit prohibition
+The implementation must not do either of these:
+- `log_selected_task(..., self.config.audit_path)` unless that field actually exists
+- `log_selected_task(..., self.config.tasks_directory)` as a fallback
+
+Both patterns are incorrect for this repository.
 
 ### Required behavior
 If no explicit audit sink/path is configured, the workflow must still run successfully.
 Acceptable approaches:
 - skip audit writes when no audit path is configured
 - inject an audit callback/writer
+- guard every audit write behind an explicit configured file-path check
 - use a dedicated optional file path only when explicitly provided by tests/config
-
-The task must not fail because audit logging is unavailable.
 
 ### Test guidance for audit
 Tests for this task should not require a real audit file path unless the test explicitly provides one.
 
+## Implementation guidance for runner refactor
+To avoid repeated hidden regressions, the task should treat this as a runner refactor, not just a small patch.
+
+The implementation should:
+- update `runner.py`
+- keep `cli.py` compatible with the updated runner
+- add/update `tests/test_orchestrator_execute_workflow.py`
+
+The agent must not leave old helper methods in place that still reference nonexistent `audit_path` or misuse `tasks_directory`.
+If helper methods such as `process_execution_result()` exist, they must also be updated consistently.
+
 ## Structured result contract
 Workflow results must use deterministic primitive fields only.
 
-Required fields in the workflow result:
+Required fields in workflow results:
 - `task_name: str`
 - `status: str`
 - `outcome: str`
@@ -186,6 +203,9 @@ Do not hardcode TradingBot-specific commands or task names in the workflow engin
 ## Acceptance criteria
 - `ruff check .` passes
 - `pytest -q` passes
+- `src/builder/orchestrator/runner.py` is updated consistently, including helper methods
+- `src/builder/orchestrator/cli.py` remains compatible with the updated runner
+- `tests/test_orchestrator_execute_workflow.py` is created/updated
 - tests cover the workflow branches above
 - implementation uses injected collaborators rather than hardcoded shell behavior
 - output is deterministic and primitive-valued
