@@ -58,6 +58,14 @@ Simulation mode must not:
 
 Tests should verify the mutation boundary through injected collaborators.
 
+### Compatibility with Task 027
+Simulation should build on the workflow fields introduced in 027:
+- `outcome`
+- `next_action`
+- `requires_approval`
+
+It must not reinterpret immediate runner `status/message` as the sole stop-signal.
+
 ### Test guidance
 Tests must cover at least:
 - empty backlog
@@ -67,9 +75,6 @@ Tests must cover at least:
 
 Do not assert on mock repr strings.
 Do not require live git/GitHub access.
-
-## Portability requirement
-Do not hardcode TradingBot-specific task names or assumptions.
 
 ## Acceptance criteria
 - `ruff check .` passes
