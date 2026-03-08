@@ -6,10 +6,12 @@ Wire the existing orchestrator components into a real single-task execution work
 This task should move the orchestrator from “can select a task” to “can run one task workflow end to end in a controlled way.”
 
 ## Deliverables
-- updates to:
-  - `src/builder/orchestrator/runner.py`
-  - `src/builder/orchestrator/cli.py`
+You must create or update all of the following in the same change:
+- `src/builder/orchestrator/runner.py`
+- `src/builder/orchestrator/cli.py`
 - `tests/test_orchestrator_execute_workflow.py`
+
+If any one of these three files is not changed, the task is incomplete.
 
 ## Existing repo dependencies (NOT deliverables)
 Reuse existing orchestrator modules rather than recreating them:
@@ -73,10 +75,6 @@ Required pattern:
   - `next_action`
   - `requires_approval`
 
-In other words:
-- `status/message` remain the immediate runner state
-- `outcome/next_action/requires_approval` express workflow judgment
-
 ## Required workflow
 The workflow should do all of the following in order:
 
@@ -107,36 +105,14 @@ Acceptable patterns:
 - command-runner wrapper
 - callable collaborator
 
-## Default success-path expectations
-The default happy-path test should succeed **without** requiring the test to patch review as mergeable.
-
-That means the task implementation/tests should align so that:
-- the default execution result for the happy path produces changed files that are acceptable to the review checker
-- the default workflow outcome for the basic success test is:
-  - `outcome = "ready_for_pr"`
-
-Do **not** let the default success path accidentally fall into `review_blocked` because of mismatched fake deliverables/changed files.
-
-## Failure message contract
-If execution fails and classification/repair logic produces a human-review path, the returned `message` must still preserve the underlying failure text when available.
-
-Example:
-- failure text = `"Execution failed"`
-- returned message should include `"Execution failed"`
-
-Do **not** discard the original failure text and replace it with only a generic message.
-
 ## Audit integration contract
 Audit logging must be treated as optional/configurable.
-
-This is the second most important rule in the task.
 
 ### Forbidden assumptions
 Do **not** assume:
 - `ProjectConfig.audit_path` exists
 - `tasks_directory` is a valid log file path
 - empty string `""` is a valid log file path
-- any directory path can be opened in append mode as a file
 
 ### Required behavior
 If no explicit audit sink/path is configured, the workflow must still run successfully.
@@ -145,25 +121,50 @@ Acceptable approaches:
 - skip audit writes when no audit path is configured
 - inject an audit callback/writer
 - guard every audit write behind an explicit configured file-path check
-- use a dedicated optional file path only when explicitly provided by tests/config
 
-### Explicit implementation rule
 The implementation must not call audit helpers with:
-- `self.config.audit_path` unless that attribute is known to exist
+- `self.config.audit_path` unless that attribute actually exists
 - `self.config.tasks_directory`
 - `""`
 
-If helper methods such as `process_execution_result()` exist, they must also obey this rule.
+## CLI deliverable requirement
+`src/builder/orchestrator/cli.py` must be updated in a visible way for this task.
 
-## Implementation guidance for runner refactor
-The task should be treated as a **runner refactor**.
+Required CLI change:
+- add support for a single-run execute mode that calls the updated runner workflow once
+- print a concise summary that includes:
+  - `task_name`
+  - `status`
+  - `outcome`
 
-The implementation must update consistently across:
-- `runner.py`
-- `cli.py`
-- `tests/test_orchestrator_execute_workflow.py`
+Tests do not need to deeply test CLI parsing, but the file must be updated so the task is not considered incomplete.
 
-It must not leave stale helper code that still references nonexistent `audit_path` or passes invalid file paths to audit functions.
+## Test deliverable requirement
+`tests/test_orchestrator_execute_workflow.py` must be created or updated and must contain tests for at least:
+- no pending task
+- no pending task in dry-run
+- execution success + review success
+- execution success + review blocked
+- execution failure + classified repair action
+
+The test file must be materially updated; a placeholder file is not acceptable.
+
+## Default success-path expectations
+The default happy-path test should succeed **without** requiring the test to patch review as mergeable.
+
+That means the task implementation/tests should align so that:
+- the default execution result for the happy path produces changed files that are acceptable to the review checker
+- the default workflow outcome for the basic success test is:
+  - `outcome = "ready_for_pr"`
+
+Do **not** let the default success path accidentally fall into `review_blocked`.
+
+## Failure message contract
+If execution fails and classification/repair logic produces a human-review path, the returned `message` must still preserve the underlying failure text when available.
+
+Example:
+- failure text = `"Execution failed"`
+- returned message should include `"Execution failed"`
 
 ## Structured result contract
 Workflow results must use deterministic primitive fields only.
@@ -175,9 +176,6 @@ Required fields:
 - `outcome: str`
 - `next_action: str`
 - `requires_approval: bool`
-
-Additional fields may be added, but existing fields from prior tasks must remain compatible.
-Do **not** return raw mock objects.
 
 ## No-task contract
 If no pending task exists, return a deterministic no-op result that includes:
@@ -202,9 +200,9 @@ If task execution succeeds and review/policy allow progress:
 ## Review-blocked contract
 If execution succeeds but review blocks:
 - `status = "running"`
-- keep the immediate message compatible
+- `message = "Task is now running."`
 - `outcome = "review_blocked"`
-- `next_action` reflects review/approval handling
+- `next_action` reflects review or approval handling
 - `requires_approval = True`
 
 ## Failure-path contract
@@ -214,30 +212,12 @@ If task execution fails:
 - preserve original failure text in `message`
 - return deterministic fields reflecting the chosen next action
 
-## Test guidance
-Tests must cover at least:
-- no pending task
-- no pending task in dry-run
-- execution success + review success
-- execution success + review blocked
-- execution failure + classified repair action
-- approval-required result
-
-Tests must use injected fakes/mocks for execution/review/policy/repair decisions.
-Do not depend on live git/GitHub calls.
-Do not require a real audit file path unless the test explicitly provides one.
-
-## Deliverable discipline
-The agent must update all listed deliverables.
-It must not leave `cli.py` untouched if the runner interface changes.
-It must create/update `tests/test_orchestrator_execute_workflow.py` in the same iteration.
-
 ## Acceptance criteria
 - `ruff check .` passes
 - `pytest -q` passes
 - `src/builder/orchestrator/runner.py` is updated consistently, including helper methods
-- `src/builder/orchestrator/cli.py` is updated if needed to remain compatible with the runner
-- `tests/test_orchestrator_execute_workflow.py` is created/updated
+- `src/builder/orchestrator/cli.py` is updated with the execute-once summary behavior
+- `tests/test_orchestrator_execute_workflow.py` is created/updated with the required cases
 - implementation preserves the previously established runner contracts listed above
 - implementation does not assume `ProjectConfig.audit_path` exists
 - implementation does not treat `tasks_directory` or `""` as an audit log file path
