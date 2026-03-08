@@ -37,14 +37,19 @@ That means:
 - return a structured result
 - stop
 
-## Repository fact you must respect
+## Repository facts you must respect
 Current tests instantiate the runner with:
 - `ProjectAdapter.get_tradingbot_default_config()`
 
 That `ProjectConfig` does **not** define `audit_path`.
 
+Also, current tests patch the runner using:
+- `runner.run_review = MagicMock(...)`
+- `runner.execute_task = MagicMock(...)`
+
 This is the most important rule in the task:
-- the implementation must work cleanly with that existing config object
+- the implementation must work with those existing patch points
+- the implementation must not bypass `runner.run_review` by directly instantiating `ReviewChecker` inside `run_next_task()`
 - the implementation must not assume `config.audit_path` exists
 
 ## Backward-compatibility requirements
@@ -88,10 +93,10 @@ The workflow should do all of the following in order:
 
 1. determine the next pending task
 2. represent the task as running
-3. invoke the task execution step through an injected collaborator or command wrapper
+3. invoke the task execution step through an injected collaborator or runner method
 4. inspect the execution result
 5. if successful:
-   - run review/compliance evaluation
+   - run review/compliance evaluation through `self.run_review(...)`
    - apply policy
    - decide whether the result is mergeable or requires approval
 6. if unsuccessful:
@@ -99,6 +104,16 @@ The workflow should do all of the following in order:
    - run repair decision logic
 7. optionally write audit events for major decisions
 8. return a structured orchestration result
+
+## Review hook contract (CRITICAL)
+The implementation must expose and use a runner-level review hook.
+
+Required behavior:
+- `run_next_task()` must call `self.run_review(...)`
+- default `self.run_review(...)` may delegate to `ReviewChecker`
+- tests must be able to patch `runner.run_review = MagicMock(...)` and have that directly affect the workflow outcome
+
+Do NOT hardwire review evaluation inside the workflow in a way that ignores the patched runner method.
 
 ## Execution contract
 The runner must **not** directly shell out to hardcoded commands inside business logic.
@@ -138,14 +153,16 @@ A good implementation pattern is:
 - that helper should no-op when no valid audit sink/path exists
 
 ## CLI deliverable requirement
-`src/builder/orchestrator/cli.py` must be updated in a visible way for this task.
+`src/builder/orchestrator/cli.py` must be updated in a visible, behavioral way for this task.
 
 Required CLI change:
-- add support for a single-run execute mode that calls the updated runner workflow once
+- add or update a single-run execute command/path that calls the updated runner workflow once
 - print a concise summary that includes:
   - `task_name`
   - `status`
   - `outcome`
+
+A trivial formatting-only or comment-only edit is not acceptable.
 
 ## Test deliverable requirement
 `tests/test_orchestrator_execute_workflow.py` must be created or updated and must contain tests for at least:
@@ -161,7 +178,7 @@ The test file must be materially updated; a placeholder file is not acceptable.
 The default happy-path test should succeed **without** requiring the test to patch review as mergeable.
 
 That means the task implementation/tests should align so that:
-- the default execution result for the happy path produces changed files that are acceptable to the review checker
+- the default execution result for the happy path produces changed files that are acceptable to the default review logic
 - the default workflow outcome for the basic success test is:
   - `outcome = "ready_for_pr"`
 
@@ -226,4 +243,5 @@ If task execution fails:
 - `tests/test_orchestrator_execute_workflow.py` is created/updated with the required cases
 - implementation preserves the previously established runner contracts listed above
 - implementation works with `ProjectAdapter.get_tradingbot_default_config()` without attribute errors
+- implementation uses `self.run_review(...)` as the review evaluation hook
 - implementation does not treat `tasks_directory` or `""` as an audit log file path
