@@ -31,6 +31,9 @@ RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTIL
 PYTEST_TEST_NAME_RE = re.compile(r"_{5,}\s*(.*?)\s*_{5,}")
 PYTEST_TEST_FILE_RE = re.compile(r"^(tests/[^\n:]+):(\d+):", re.MULTILINE)
 PYTEST_EXACT_MISMATCH_RE = re.compile(r"^E\s+assert\s+(.+?)\s+==\s+(.+)$", re.MULTILINE)
+MISSING_ATTR_RE = re.compile(r"AttributeError: '([^']+)' object has no attribute '([^']+)'")
+PATH_ERROR_RE = re.compile(r"(?:PermissionError|FileNotFoundError): .*?: '([^']*)'")
+MISSING_DELIVERABLES_RE = re.compile(r"Missing required deliverables.*?:\s*(.+)")
 
 
 class FileBundleError(ValueError):
@@ -168,11 +171,52 @@ def parse_required_files(task_text: str) -> List[str]:
     return out
 
 
-def enforce_required_files(required: List[str], bundle: Dict[str, str]) -> Tuple[bool, str]:
+def task_requires_material_update(task_text: str) -> bool:
+    lower = normalize_newlines(task_text).lower()
+    phrases = [
+        "must create or update all",
+        "must create or update",
+        "must be created/updated",
+        "must be updated",
+        "must change",
+        "must be materially updated",
+        "if any one of these three files is not changed, the task is incomplete",
+    ]
+    return any(p in lower for p in phrases)
+
+
+def existing_file_contents(paths: List[str]) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for p in paths:
+        path = Path(p)
+        if path.exists() and path.is_file():
+            out[p] = path.read_text(encoding="utf-8", errors="replace")
+    return out
+
+
+def enforce_required_files(
+    required: List[str],
+    bundle: Dict[str, str],
+    baseline: Dict[str, str] | None = None,
+    *,
+    require_material_update: bool = False,
+) -> Tuple[bool, str]:
     missing = [rf for rf in required if rf not in bundle]
-    if not missing:
-        return True, ""
-    return False, "Missing required deliverables (must be created/updated): " + ", ".join(missing)
+    if missing:
+        return False, "Missing required deliverables (must be created/updated): " + ", ".join(missing)
+
+    if require_material_update and baseline is not None:
+        unchanged: List[str] = []
+        for rf in required:
+            if rf in baseline and baseline[rf] == bundle[rf]:
+                unchanged.append(rf)
+        if unchanged:
+            return (
+                False,
+                "Required deliverables were included but not materially updated: " + ", ".join(unchanged),
+            )
+
+    return True, ""
 
 
 def repo_map() -> str:
@@ -201,6 +245,8 @@ def relevant_context(required: List[str]) -> str:
         Path("src/tradingbot/config/settings.py"),
         Path("src/tradingbot/run.py"),
         Path("tests/conftest.py"),
+        Path("agents/prompts/system.md"),
+        Path("system.md"),
     ]
 
     for rf in required:
@@ -224,7 +270,7 @@ def relevant_context(required: List[str]) -> str:
             content = p.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        snippet = "\n".join(content.splitlines()[:120])
+        snippet = "\n".join(content.splitlines()[:140])
         lines.append(f"### {rel}\n{snippet}\n")
     return "\n".join(lines).strip()
 
@@ -283,7 +329,7 @@ def parse_semantic_failures(details: str) -> str:
             "Use `assert x` or `assert not x` instead of `== True/False`."
         )
 
-    for name in PYTEST_TEST_NAME_RE.findall(details)[:5]:
+    for name in PYTEST_TEST_NAME_RE.findall(details)[:8]:
         lines.append(f"- Pytest failure: `{name}`")
 
     for path, lineno in sorted(set(PYTEST_TEST_FILE_RE.findall(details))):
@@ -292,10 +338,32 @@ def parse_semantic_failures(details: str) -> str:
             "Do not change tests unless the task explicitly requires it."
         )
 
-    for actual, expected in PYTEST_EXACT_MISMATCH_RE.findall(details)[:5]:
+    for actual, expected in PYTEST_EXACT_MISMATCH_RE.findall(details)[:8]:
         lines.append(
             f"- Exact mismatch: actual `{actual.strip()}` vs expected `{expected.strip()}`. "
             "Change the implementation so the expected value passes exactly."
+        )
+
+    for cls, attr in sorted(set(MISSING_ATTR_RE.findall(details))):
+        lines.append(
+            f"- AttributeError detected: `{cls}` has no `{attr}`. "
+            "Do not guess or fabricate optional config fields; guard the access, inject the collaborator, "
+            "or skip the behavior when the field/path is not explicitly configured."
+        )
+
+    for bad_path in sorted(set(PATH_ERROR_RE.findall(details))):
+        shown = bad_path if bad_path else "<empty string>"
+        lines.append(
+            f"- File-path misuse detected: `{shown}` was treated like a writable file. "
+            "Do not substitute directory paths or empty strings for optional file paths. "
+            "If no valid file path is configured, skip the write or inject an in-memory callback/writer."
+        )
+
+    m = MISSING_DELIVERABLES_RE.search(details)
+    if m:
+        lines.append(
+            "- Required deliverables are still missing. Materially update every listed deliverable in the same bundle; "
+            "do not leave one untouched while only changing another file."
         )
 
     for line in details.splitlines():
@@ -347,9 +415,14 @@ def run_checks() -> Tuple[bool, str]:
 
 
 def load_system_prompt() -> str:
-    p = Path("agents/prompts/system.md")
-    if p.exists():
-        return p.read_text(encoding="utf-8", errors="replace")
+    candidates = [
+        Path("agents/prompts/system.md"),
+        Path("system.md"),
+        Path("agents/prompts/system_prompt.md"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return p.read_text(encoding="utf-8", errors="replace")
     return "You are an engineering agent. Output ONLY a valid file bundle."
 
 
@@ -403,6 +476,7 @@ def main() -> int:
 
     task_text = task_path.read_text(encoding="utf-8", errors="replace")
     required = parse_required_files(task_text)
+    require_material_update = task_requires_material_update(task_text)
 
     branch = f"agent-{task_path.stem}"
     print(f"Current branch: {capture(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
@@ -416,6 +490,7 @@ def main() -> int:
 
     for it in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {it}/{args.max_iters} ===")
+        baseline = existing_file_contents(required)
         messages = build_messages(task_text, required)
 
         out = chat(messages, model=args.model)
@@ -451,7 +526,12 @@ def main() -> int:
         pretty.append(FILE_BUNDLE_END)
         last_bundle_path.write_text("\n".join(pretty) + "\n", encoding="utf-8", newline="\n")
 
-        ok_req, req_msg = enforce_required_files(required, files)
+        ok_req, req_msg = enforce_required_files(
+            required,
+            files,
+            baseline,
+            require_material_update=require_material_update,
+        )
         if not ok_req:
             print(f"❌ {req_msg}")
             task_text = task_text.rstrip() + "\n\nIMPORTANT: " + req_msg + "\n"
@@ -512,23 +592,15 @@ def main() -> int:
                     "\n# Escalation\n"
                     "Your latest bundle is materially unchanged from the previous attempt, but tests still fail. "
                     "You must make a real implementation change in the most likely source file causing the failure. "
-                    "Do not resubmit the same logic. Prefer changing the implementation rather than the tests.\n"
+                    "Do not resubmit the same logic. Prefer changing the implementation rather than the tests. "
+                    "If helper methods exist, update them consistently instead of patching only one call site.\n"
                 )
-
-        if "tests/test_indicators.py" in details and "test_rsi" in details:
-            task_text += (
-                "\n# Targeted hint\n"
-                "Modify `src/tradingbot/indicators.py` so that "
-                "`rsi([1, 2, 1, 2, 1], 2)` returns exactly "
-                "`[None, 100.0, 0.0, 100.0, 0.0]`. "
-                "Do not change `tests/test_indicators.py`.\n"
-            )
 
         prev_files = files
 
     print("\n❌ Failed to reach green within max iterations.")
-    print("Model output saved to: _last_agent_model_output.txt")
-    print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+    print(f"Model output saved to: {last_output_path}")
+    print(f"Parsed file bundle saved to: {last_bundle_path}")
     return 1
 
 
