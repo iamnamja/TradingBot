@@ -14,7 +14,7 @@ def main() -> int:
     dry_run = "--dry-run" in sys.argv
     result = runner.run_next_task(dry_run=dry_run)
     
-    print(f"Task Name: {result['task_name']}, Status: {result['status']}, Message: {result['message']}")
+    print(f"Task Name: {result['task_name']}, Status: {result['status']}, Message: {result['message']}, Outcome: {result.get('outcome', 'noop')}")
     
     return 0 if result['status'] == "running" else 1
 
