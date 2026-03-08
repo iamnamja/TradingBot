@@ -43,14 +43,15 @@ Current tests instantiate the runner with:
 
 That `ProjectConfig` does **not** define `audit_path`.
 
-Also, current tests patch the runner using:
-- `runner.run_review = MagicMock(...)`
+Current tests also patch runner methods directly:
 - `runner.execute_task = MagicMock(...)`
+- `runner.run_review = MagicMock(...)`
+- `runner.apply_policy = MagicMock(...)`
 
 This is the most important rule in the task:
 - the implementation must work with those existing patch points
-- the implementation must not bypass `runner.run_review` by directly instantiating `ReviewChecker` inside `run_next_task()`
 - the implementation must not assume `config.audit_path` exists
+- the implementation must not break when patched methods return partial dictionaries
 
 ## Backward-compatibility requirements
 This task extends the orchestrator runner built in earlier tasks and must preserve existing contracts unless this task explicitly adds fields.
@@ -97,7 +98,7 @@ The workflow should do all of the following in order:
 4. inspect the execution result
 5. if successful:
    - run review/compliance evaluation through `self.run_review(...)`
-   - apply policy
+   - apply policy through `self.apply_policy(...)`
    - decide whether the result is mergeable or requires approval
 6. if unsuccessful:
    - run failure classification
@@ -113,7 +114,43 @@ Required behavior:
 - default `self.run_review(...)` may delegate to `ReviewChecker`
 - tests must be able to patch `runner.run_review = MagicMock(...)` and have that directly affect the workflow outcome
 
-Do NOT hardwire review evaluation inside the workflow in a way that ignores the patched runner method.
+### Explicit recursion rule
+Do NOT implement:
+
+    def run_review(...):
+        return self.run_review(...)
+
+That is recursion and is invalid.
+
+Correct pattern:
+- `run_review(...)` is the public hook
+- it delegates to a differently named helper such as `_default_review(...)`
+- or it directly contains the default logic without calling itself
+
+## Execution result normalization (CRITICAL)
+Patched test doubles may return either:
+- `{"success": True/False, ...}`
+or
+- `{"status": "success"/"failure", ...}`
+
+The runner must normalize both forms.
+
+Required behavior:
+- treat `success=True` as success
+- treat `status == "success"` as success
+- treat `success=False` as failure
+- treat `status == "failure"` as failure
+
+Do not assume both keys always exist.
+
+### Missing-key rule
+Patched execution results may omit optional keys.
+Use safe defaults:
+- `output = execution_result.get("output", "")`
+- `failure_text = execution_result.get("failure_text", "")`
+- `changed_files = execution_result.get("changed_files", [])`
+
+Do not crash on missing `output`.
 
 ## Execution contract
 The runner must **not** directly shell out to hardcoded commands inside business logic.
@@ -152,6 +189,9 @@ A good implementation pattern is:
 - centralize optional audit behind a small helper like `_maybe_audit(...)`
 - that helper should no-op when no valid audit sink/path exists
 
+If you call a generic audit helper such as `log_event(...)`, you must import it correctly.
+Do not introduce `F821 undefined name` failures.
+
 ## CLI deliverable requirement
 `src/builder/orchestrator/cli.py` must be updated in a visible, behavioral way for this task.
 
@@ -173,6 +213,13 @@ A trivial formatting-only or comment-only edit is not acceptable.
 - execution failure + classified repair action
 
 The test file must be materially updated; a placeholder file is not acceptable.
+
+### Material-update rule for this test file
+To satisfy the deliverable requirement, update the test file in a visible way such as:
+- adding a new test case
+- adding assertions for `outcome`, `next_action`, or `requires_approval`
+- adding a test for normalized execution results (`success` vs `status`)
+- adding a test that patched `runner.run_review` controls outcome
 
 ## Default success-path expectations
 The default happy-path test should succeed **without** requiring the test to patch review as mergeable.
@@ -244,4 +291,5 @@ If task execution fails:
 - implementation preserves the previously established runner contracts listed above
 - implementation works with `ProjectAdapter.get_tradingbot_default_config()` without attribute errors
 - implementation uses `self.run_review(...)` as the review evaluation hook
+- implementation normalizes `success` / `status` execution-result shapes safely
 - implementation does not treat `tasks_directory` or `""` as an audit log file path
