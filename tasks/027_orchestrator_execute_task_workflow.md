@@ -77,12 +77,6 @@ In other words:
 - `status/message` remain the immediate runner state
 - `outcome/next_action/requires_approval` express workflow judgment
 
-Do **not** change the immediate message to:
-- "Task completed but review is blocked."
-- or other workflow-stage text
-
-That text may go in a different field if needed.
-
 ## Required workflow
 The workflow should do all of the following in order:
 
@@ -114,8 +108,6 @@ Acceptable patterns:
 - callable collaborator
 
 ## Default success-path expectations
-This is the second most important rule in the task.
-
 The default happy-path test should succeed **without** requiring the test to patch review as mergeable.
 
 That means the task implementation/tests should align so that:
@@ -132,27 +124,36 @@ Example:
 - failure text = `"Execution failed"`
 - returned message should include `"Execution failed"`
 
-Do **not** discard the original failure text and replace it with only a generic message like:
-- "Unknown failure requires human review."
-
-A generic suffix/prefix is fine, but the original failure text must remain visible.
+Do **not** discard the original failure text and replace it with only a generic message.
 
 ## Audit integration contract
 Audit logging must be treated as optional/configurable.
+
+This is the second most important rule in the task.
 
 ### Forbidden assumptions
 Do **not** assume:
 - `ProjectConfig.audit_path` exists
 - `tasks_directory` is a valid log file path
+- empty string `""` is a valid log file path
 - any directory path can be opened in append mode as a file
 
 ### Required behavior
 If no explicit audit sink/path is configured, the workflow must still run successfully.
+
 Acceptable approaches:
 - skip audit writes when no audit path is configured
 - inject an audit callback/writer
 - guard every audit write behind an explicit configured file-path check
 - use a dedicated optional file path only when explicitly provided by tests/config
+
+### Explicit implementation rule
+The implementation must not call audit helpers with:
+- `self.config.audit_path` unless that attribute is known to exist
+- `self.config.tasks_directory`
+- `""`
+
+If helper methods such as `process_execution_result()` exist, they must also obey this rule.
 
 ## Implementation guidance for runner refactor
 The task should be treated as a **runner refactor**.
@@ -162,7 +163,7 @@ The implementation must update consistently across:
 - `cli.py`
 - `tests/test_orchestrator_execute_workflow.py`
 
-If helper methods such as `process_execution_result()` exist, they must also be updated consistently.
+It must not leave stale helper code that still references nonexistent `audit_path` or passes invalid file paths to audit functions.
 
 ## Structured result contract
 Workflow results must use deterministic primitive fields only.
@@ -231,18 +232,12 @@ The agent must update all listed deliverables.
 It must not leave `cli.py` untouched if the runner interface changes.
 It must create/update `tests/test_orchestrator_execute_workflow.py` in the same iteration.
 
-## Portability requirement
-Do not hardcode TradingBot-specific commands or task names in the workflow engine.
-
 ## Acceptance criteria
 - `ruff check .` passes
 - `pytest -q` passes
 - `src/builder/orchestrator/runner.py` is updated consistently, including helper methods
 - `src/builder/orchestrator/cli.py` is updated if needed to remain compatible with the runner
 - `tests/test_orchestrator_execute_workflow.py` is created/updated
-- tests cover the workflow branches above
-- implementation uses injected collaborators rather than hardcoded shell behavior
-- output is deterministic and primitive-valued
 - implementation preserves the previously established runner contracts listed above
 - implementation does not assume `ProjectConfig.audit_path` exists
-- implementation does not treat `tasks_directory` as an audit log file path
+- implementation does not treat `tasks_directory` or `""` as an audit log file path

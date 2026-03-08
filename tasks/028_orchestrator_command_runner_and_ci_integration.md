@@ -25,10 +25,13 @@ Introduce a reusable command-runner layer that:
 - can be stubbed or mocked in tests
 - returns structured results
 
-Suggested structured result fields:
+Required structured result fields:
 - `returncode: int`
 - `stdout: str`
 - `stderr: str`
+
+Optional:
+- `timed_out: bool`
 
 ### Merge-manager integration
 `MergeManager` should use the command runner rather than hardcoded or fake inline behavior.
@@ -56,6 +59,19 @@ The merge manager must not merge if:
 - review/policy says approval is required
 - review checker says not mergeable
 
+### Output contract
+Merge-manager methods must return deterministic primitive-valued results, not raw command-runner objects.
+
+Example fields:
+- `status`
+- `can_merge`
+- `reason`
+- `pr_url`
+
+### Command construction contract
+Tests should be able to verify which command would be run, without requiring a real git/GitHub environment.
+Do not hardcode repo names or branch names into the merge manager.
+
 ### Test guidance
 Tests must not require live GitHub or git access.
 Use mocked command-runner responses.
@@ -66,12 +82,11 @@ Tests must cover at least:
 - CI failed
 - CI passed + merge allowed
 - merge blocked by approval requirement
-
-## Portability requirement
-Do not hardcode repo names or branch names into the merge manager.
+- sync-main command invocation
 
 ## Acceptance criteria
 - `ruff check .` passes
 - `pytest -q` passes
 - command execution is abstracted behind a reusable runner
 - merge decisions respect CI state distinctions and safety checks
+- merge-manager outputs are deterministic and primitive-valued

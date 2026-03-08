@@ -29,12 +29,16 @@ When the workflow reaches a state that requires human approval, the orchestrator
 - return a deterministic result indicating approval is required
 
 ### Required checkpoint fields
-A checkpoint should contain deterministic fields such as:
+A checkpoint should contain deterministic primitive fields such as:
 - `task_name`
 - `reason`
 - `source`
 - `requested_action`
 - `status`
+
+Optional:
+- `message`
+- `requires_approval`
 
 ### Source values
 The approval request should identify what triggered it, for example:
@@ -48,9 +52,23 @@ This is the most important rule in the task.
 The orchestrator must not continue automatically past an approval-required outcome.
 It must stop cleanly and return control.
 
+### Runner compatibility
+This task must preserve the runner’s immediate-state contract from earlier tasks.
+If approval is required, the runner may keep:
+- `status = "running"`
+- `message = "Task is now running."`
+
+and surface approval via separate workflow/checkpoint fields:
+- `outcome = "approval_required"`
+- `next_action = "await_approval"`
+- `requires_approval = True`
+
+Do not break previously established runner fields to introduce approval flow.
+
 ### Audit integration
-The approval checkpoint should be auditable.
-If audit logging is used, tests must use temp paths and not dirty the repo.
+The approval checkpoint may be auditable, but audit logging must remain optional/configurable.
+Do not assume a file path exists.
+Do not dirty the repo in tests.
 
 ### Test guidance
 Tests must cover at least:
@@ -66,3 +84,4 @@ Do not require live git/GitHub access.
 - `pytest -q` passes
 - orchestrator stops cleanly when approval is required
 - approval checkpoint output is deterministic and structured
+- runner compatibility is preserved
