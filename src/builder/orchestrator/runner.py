@@ -1,6 +1,9 @@
+from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
+from .approval import create_approval_checkpoint
 from .audit import (
+    log_approval_checkpoint,
     log_classification_result,
     log_repair_decision,
     log_review_verdict,
@@ -28,10 +31,12 @@ class OrchestratorRunner:
     def load_project_config(self) -> None:
         pass
 
+    def _state_file_path(self) -> str:
+        return str(Path(self.config.tasks_directory) / "state.json")
+
     def read_backlog(self) -> None:
-        self.state = OrchestratorState(
-            tasks=self.backlog_tracker.load_state(self.config.tasks_directory)
-        )
+        state_file = self._state_file_path()
+        self.state = OrchestratorState(tasks=self.backlog_tracker.load_state(state_file))
 
     def select_next_task(self) -> Optional[TaskMetadata]:
         tasks = self.backlog_tracker.scan_tasks()
@@ -86,7 +91,6 @@ class OrchestratorRunner:
         return self.process_execution_result(execution_result, running_task)
 
     def execute_task(self, task: TaskMetadata) -> dict[str, Any]:
-        # Simulate task execution for the default happy path.
         return {
             "success": True,
             "output": "Task executed successfully",
@@ -120,6 +124,14 @@ class OrchestratorRunner:
                 }
 
             log_review_verdict("blocked", None)
+            checkpoint = create_approval_checkpoint(
+                task_name=task.name,
+                reason="review_blocked",
+                source="merge_gate",
+                requested_action="requires_approval",
+            )
+            checkpoint["status"] = "pending_approval"
+            log_approval_checkpoint(checkpoint, None)
             return {
                 "task_name": task.name,
                 "status": "running",
@@ -150,5 +162,5 @@ class OrchestratorRunner:
             "message": f"Execution failed: {failure_text}" if failure_text else "Execution failed.",
             "outcome": "repair_required",
             "next_action": next_action,
-            "requires_approval": True,
+            "requires_approval": repair_action.get("requires_approval", True),
         }
