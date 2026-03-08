@@ -37,10 +37,18 @@ That means:
 - return a structured result
 - stop
 
+## Repository fact you must respect
+Current tests instantiate the runner with:
+- `ProjectAdapter.get_tradingbot_default_config()`
+
+That `ProjectConfig` does **not** define `audit_path`.
+
+This is the most important rule in the task:
+- the implementation must work cleanly with that existing config object
+- the implementation must not assume `config.audit_path` exists
+
 ## Backward-compatibility requirements
 This task extends the orchestrator runner built in earlier tasks and must preserve existing contracts unless this task explicitly adds fields.
-
-This is the most important rule in the task.
 
 ### Existing no-task contract
 If no pending task exists in normal mode, `run_next_task()` must continue to return at least:
@@ -100,11 +108,6 @@ Instead, inject or wrap the execution step so tests can simulate:
 - review blocker
 - approval-required outcome
 
-Acceptable patterns:
-- executor object
-- command-runner wrapper
-- callable collaborator
-
 ## Audit integration contract
 Audit logging must be treated as optional/configurable.
 
@@ -122,10 +125,17 @@ Acceptable approaches:
 - inject an audit callback/writer
 - guard every audit write behind an explicit configured file-path check
 
+### Explicit implementation rule
 The implementation must not call audit helpers with:
-- `self.config.audit_path` unless that attribute actually exists
+- `self.config.audit_path`
 - `self.config.tasks_directory`
 - `""`
+
+If helper methods such as `process_execution_result()` or `_handle_success()` exist, they must also obey this rule.
+
+A good implementation pattern is:
+- centralize optional audit behind a small helper like `_maybe_audit(...)`
+- that helper should no-op when no valid audit sink/path exists
 
 ## CLI deliverable requirement
 `src/builder/orchestrator/cli.py` must be updated in a visible way for this task.
@@ -136,8 +146,6 @@ Required CLI change:
   - `task_name`
   - `status`
   - `outcome`
-
-Tests do not need to deeply test CLI parsing, but the file must be updated so the task is not considered incomplete.
 
 ## Test deliverable requirement
 `tests/test_orchestrator_execute_workflow.py` must be created or updated and must contain tests for at least:
@@ -156,8 +164,6 @@ That means the task implementation/tests should align so that:
 - the default execution result for the happy path produces changed files that are acceptable to the review checker
 - the default workflow outcome for the basic success test is:
   - `outcome = "ready_for_pr"`
-
-Do **not** let the default success path accidentally fall into `review_blocked`.
 
 ## Failure message contract
 If execution fails and classification/repair logic produces a human-review path, the returned `message` must still preserve the underlying failure text when available.
@@ -219,5 +225,5 @@ If task execution fails:
 - `src/builder/orchestrator/cli.py` is updated with the execute-once summary behavior
 - `tests/test_orchestrator_execute_workflow.py` is created/updated with the required cases
 - implementation preserves the previously established runner contracts listed above
-- implementation does not assume `ProjectConfig.audit_path` exists
+- implementation works with `ProjectAdapter.get_tradingbot_default_config()` without attribute errors
 - implementation does not treat `tasks_directory` or `""` as an audit log file path
