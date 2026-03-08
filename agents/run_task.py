@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TradingBot agent task runner.
+"""Generic agent task runner.
 
 Reads a task markdown file, asks an LLM to output a deterministic file bundle,
 writes files, runs ruff+pytest, and optionally commits/pushes to an agent branch.
@@ -22,18 +22,17 @@ FILE_END = "END_FILE"
 
 DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
 FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
-IMPORT_RE = re.compile(
-    r"^\s*(?:from|import)\s+(tradingbot(?:\.[A-Za-z_][A-Za-z0-9_]*)+)",
-    re.MULTILINE,
-)
+
 RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
 RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
 PYTEST_TEST_NAME_RE = re.compile(r"_{5,}\s*(.*?)\s*_{5,}")
 PYTEST_TEST_FILE_RE = re.compile(r"^(tests/[^\n:]+):(\d+):", re.MULTILINE)
 PYTEST_EXACT_MISMATCH_RE = re.compile(r"^E\s+assert\s+(.+?)\s+==\s+(.+)$", re.MULTILINE)
 MISSING_ATTR_RE = re.compile(r"AttributeError: '([^']+)' object has no attribute '([^']+)'")
-PATH_ERROR_RE = re.compile(r"(?:PermissionError|FileNotFoundError): .*?: '([^']*)'")
+PATH_ERROR_RE = re.compile(r"(?:PermissionError|FileNotFoundError|IsADirectoryError): .*?: '([^']*)'")
+MODULE_NOT_FOUND_RE = re.compile(r"ModuleNotFoundError: No module named '([^']+)'")
 MISSING_DELIVERABLES_RE = re.compile(r"Missing required deliverables.*?:\s*(.+)")
+UNCHANGED_DELIVERABLES_RE = re.compile(r"Required deliverables were included but not materially updated:\s*(.+)")
 
 
 class FileBundleError(ValueError):
@@ -159,7 +158,7 @@ def parse_required_files(task_text: str) -> List[str]:
     req: List[str] = []
     for m in DELIVERABLE_PATH_RE.finditer(section):
         path = m.group(1).strip().replace("\\", "/")
-        if path.startswith(("src/", "tests/", "agents/")):
+        if "/" in path and not path.startswith(("http://", "https://")):
             req.append(path)
 
     seen = set()
@@ -181,6 +180,7 @@ def task_requires_material_update(task_text: str) -> bool:
         "must change",
         "must be materially updated",
         "if any one of these three files is not changed, the task is incomplete",
+        "if any one of these",
     ]
     return any(p in lower for p in phrases)
 
@@ -219,8 +219,29 @@ def enforce_required_files(
     return True, ""
 
 
+def package_roots() -> List[str]:
+    roots: List[str] = []
+    src = Path("src")
+    if src.exists():
+        for child in sorted(src.iterdir()):
+            if child.is_dir() and (child / "__init__.py").exists():
+                roots.append(child.name)
+    return roots
+
+
+def import_regex_for_roots() -> re.Pattern[str]:
+    roots = package_roots()
+    if not roots:
+        return re.compile(r"$^")
+    escaped = "|".join(re.escape(r) for r in roots)
+    return re.compile(
+        rf"^\s*(?:from|import)\s+(({escaped})(?:\.[A-Za-z_][A-Za-z0-9_]*)+)",
+        re.MULTILINE,
+    )
+
+
 def repo_map() -> str:
-    roots = [Path("src/tradingbot"), Path("tests"), Path("agents")]
+    roots = [Path("src"), Path("tests"), Path("agents"), Path("tasks")]
     out: List[str] = []
     for root in roots:
         if not root.exists():
@@ -242,11 +263,11 @@ def relevant_context(required: List[str]) -> str:
     lines: List[str] = []
 
     candidates = [
-        Path("src/tradingbot/config/settings.py"),
-        Path("src/tradingbot/run.py"),
         Path("tests/conftest.py"),
         Path("agents/prompts/system.md"),
         Path("system.md"),
+        Path("agents/run_task.py"),
+        Path("run_task.py"),
     ]
 
     for rf in required:
@@ -255,12 +276,11 @@ def relevant_context(required: List[str]) -> str:
         if p.parent != Path("."):
             for sib in sorted(p.parent.glob("*.py")):
                 candidates.append(sib)
-            parent_pkg = p.parent.parent / "__init__.py"
-            if parent_pkg.exists():
-                candidates.append(parent_pkg)
+        if p.suffix == ".md":
+            candidates.append(p)
 
     for p in candidates:
-        if not p.exists():
+        if not p.exists() or not p.is_file():
             continue
         rel = p.as_posix()
         if rel in seen:
@@ -270,14 +290,14 @@ def relevant_context(required: List[str]) -> str:
             content = p.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        snippet = "\n".join(content.splitlines()[:140])
+        snippet = "\n".join(content.splitlines()[:160])
         lines.append(f"### {rel}\n{snippet}\n")
     return "\n".join(lines).strip()
 
 
 def module_exists(module_name: str, bundle: Dict[str, str]) -> bool:
     parts = module_name.split(".")
-    if not parts or parts[0] != "tradingbot":
+    if len(parts) < 2:
         return True
 
     file_candidate = Path("src") / Path(*parts).with_suffix(".py")
@@ -291,8 +311,9 @@ def module_exists(module_name: str, bundle: Dict[str, str]) -> bool:
 
 def validate_imports(bundle: Dict[str, str]) -> Tuple[bool, str]:
     bad: List[str] = []
+    import_re = import_regex_for_roots()
     for rel, content in bundle.items():
-        for mod in IMPORT_RE.findall(content):
+        for mod, _root in import_re.findall(content):
             if not module_exists(mod, bundle):
                 bad.append(f"{rel}: imports missing module '{mod}'")
     if not bad:
@@ -307,7 +328,7 @@ def missing_module_hints(import_msg: str) -> str:
     hints: List[str] = []
     for mod in sorted(set(mods)):
         parts = mod.split(".")
-        if parts[0] != "tradingbot":
+        if len(parts) < 2:
             continue
         file_path = (Path("src") / Path(*parts).with_suffix(".py")).as_posix()
         pkg_path = (Path("src") / Path(*parts) / "__init__.py").as_posix()
@@ -329,7 +350,7 @@ def parse_semantic_failures(details: str) -> str:
             "Use `assert x` or `assert not x` instead of `== True/False`."
         )
 
-    for name in PYTEST_TEST_NAME_RE.findall(details)[:8]:
+    for name in PYTEST_TEST_NAME_RE.findall(details)[:10]:
         lines.append(f"- Pytest failure: `{name}`")
 
     for path, lineno in sorted(set(PYTEST_TEST_FILE_RE.findall(details))):
@@ -338,7 +359,7 @@ def parse_semantic_failures(details: str) -> str:
             "Do not change tests unless the task explicitly requires it."
         )
 
-    for actual, expected in PYTEST_EXACT_MISMATCH_RE.findall(details)[:8]:
+    for actual, expected in PYTEST_EXACT_MISMATCH_RE.findall(details)[:10]:
         lines.append(
             f"- Exact mismatch: actual `{actual.strip()}` vs expected `{expected.strip()}`. "
             "Change the implementation so the expected value passes exactly."
@@ -347,9 +368,14 @@ def parse_semantic_failures(details: str) -> str:
     for cls, attr in sorted(set(MISSING_ATTR_RE.findall(details))):
         lines.append(
             f"- AttributeError detected: `{cls}` has no `{attr}`. "
-            "Do not guess or fabricate optional config fields; guard the access, inject the collaborator, "
-            "or skip the behavior when the field/path is not explicitly configured."
+            "Do not fabricate optional fields or guessed config members. "
+            "Guard the access with `getattr(..., None)` or skip the behavior when the field is not configured."
         )
+        if attr.endswith("path"):
+            lines.append(
+                f"- Because `{attr}` is missing, do not call helper functions that require it. "
+                "Branch before the helper call and no-op that integration when the path is not configured."
+            )
 
     for bad_path in sorted(set(PATH_ERROR_RE.findall(details))):
         shown = bad_path if bad_path else "<empty string>"
@@ -359,11 +385,22 @@ def parse_semantic_failures(details: str) -> str:
             "If no valid file path is configured, skip the write or inject an in-memory callback/writer."
         )
 
+    for mod in sorted(set(MODULE_NOT_FOUND_RE.findall(details))):
+        lines.append(
+            f"- ModuleNotFoundError detected for `{mod}`. Use an existing repo module or create that module/package in the same bundle."
+        )
+
     m = MISSING_DELIVERABLES_RE.search(details)
     if m:
         lines.append(
             "- Required deliverables are still missing. Materially update every listed deliverable in the same bundle; "
             "do not leave one untouched while only changing another file."
+        )
+
+    m2 = UNCHANGED_DELIVERABLES_RE.search(details)
+    if m2:
+        lines.append(
+            "- Required deliverables were included but unchanged. Materially edit every listed deliverable, not just the main implementation file."
         )
 
     for line in details.splitlines():
@@ -593,7 +630,8 @@ def main() -> int:
                     "Your latest bundle is materially unchanged from the previous attempt, but tests still fail. "
                     "You must make a real implementation change in the most likely source file causing the failure. "
                     "Do not resubmit the same logic. Prefer changing the implementation rather than the tests. "
-                    "If helper methods exist, update them consistently instead of patching only one call site.\n"
+                    "If helper methods exist, update them consistently instead of patching only one call site. "
+                    "If the failure mentions an optional config field or invalid file path, remove the call or guard it before invoking the helper.\n"
                 )
 
         prev_files = files
