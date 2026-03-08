@@ -48,8 +48,6 @@ class OrchestratorRunner:
         if not effective_changed:
             return {"mergeable": False}
 
-        # Use a permissive default review so the default success path reaches
-        # ready_for_pr, while still keeping this as a real hook that tests can patch.
         checker = ReviewChecker(
             deliverables=effective_changed,
             changed_files=effective_changed,
@@ -80,6 +78,9 @@ class OrchestratorRunner:
                 "task_name": next_task.name,
                 "status": "planned",
                 "message": "Task is planned for execution.",
+                "outcome": "noop",
+                "next_action": "none",
+                "requires_approval": False,
             }
 
         running_task = TaskMetadata(
@@ -153,7 +154,9 @@ class OrchestratorRunner:
             "task_name": task.name,
             "status": "failed",
             "message": f"Execution failed: {failure_text}" if failure_text else "Execution failed.",
-            "outcome": repair_action.get("action", "repair_required"),
+            # Keep the workflow outcome stable for failure cases while using
+            # the repair action shape only to drive the next action.
+            "outcome": "repair_required",
             "next_action": next_action,
             "requires_approval": repair_action.get("requires_approval", True),
         }
