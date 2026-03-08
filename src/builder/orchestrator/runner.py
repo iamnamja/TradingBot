@@ -38,12 +38,6 @@ class OrchestratorRunner:
         return self.backlog_tracker.get_next_task(tasks)
 
     def run_review(self, changed_files: list[str]) -> dict[str, Any]:
-        """Runner-level review hook.
-
-        Default behavior should allow the happy path to proceed when there are
-        changed files. Tests can patch this method directly to force blocked
-        outcomes.
-        """
         effective_changed = list(changed_files or [])
         if not effective_changed:
             return {"mergeable": False}
@@ -154,9 +148,7 @@ class OrchestratorRunner:
             "task_name": task.name,
             "status": "failed",
             "message": f"Execution failed: {failure_text}" if failure_text else "Execution failed.",
-            # Keep the workflow outcome stable for failure cases while using
-            # the repair action shape only to drive the next action.
             "outcome": "repair_required",
             "next_action": next_action,
-            "requires_approval": repair_action.get("requires_approval", True),
+            "requires_approval": True,
         }
