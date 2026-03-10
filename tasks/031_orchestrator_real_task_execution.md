@@ -21,6 +21,7 @@ Do not break or change the observable behavior of existing orchestrator features
 The following public APIs must remain backward compatible:
 
 - `ProjectAdapter(config=...)`
+- `ProjectAdapter.translate_to_orchestrator_behavior()`
 - `ProjectAdapter.get_tradingbot_default_config()`
 - `ProjectAdapter.get_generic_project_config()`
 - `OrchestratorRunner(config, backlog_tracker, initial_state)`
@@ -76,24 +77,26 @@ If the agent changes `runner.py`, it must materially update `tests/test_orchestr
 
 3. `ProjectAdapter(config=...)` must still work.
 
-4. `ProjectAdapter.get_tradingbot_default_config()` must still exist.
+4. `ProjectAdapter.translate_to_orchestrator_behavior()` must still exist.
 
-5. `ProjectAdapter.get_generic_project_config()` must still exist.
+5. `ProjectAdapter.get_tradingbot_default_config()` must still exist.
 
-6. `OrchestratorRunner.__init__` must keep the existing constructor signature:
+6. `ProjectAdapter.get_generic_project_config()` must still exist.
+
+7. `OrchestratorRunner.__init__` must keep the existing constructor signature:
    - `config`
    - `backlog_tracker`
    - `initial_state`
 
-7. `OrchestratorRunner.select_next_task()` must still exist.
+8. `OrchestratorRunner.select_next_task()` must still exist.
 
-8. `OrchestratorRunner.simulate_backlog()` must still exist and keep current behavior.
+9. `OrchestratorRunner.simulate_backlog()` must still exist and keep current behavior.
 
-9. `run_next_task(dry_run=True)` must preserve the current dry-run response contract, including existing keys expected by tests.
+10. `run_next_task(dry_run=True)` must preserve the current dry-run response contract, including existing keys expected by tests.
 
-10. `run_next_task()` when no pending tasks exist must preserve the current no-task response contract, including existing keys expected by tests.
+11. `run_next_task()` when no pending tasks exist must preserve the current no-task response contract, including existing keys expected by tests.
 
-11. `execute_task()` must support two modes:
+12. `execute_task()` must support two modes:
 
 ### Legacy/default mode
 
@@ -105,13 +108,13 @@ This means the default path must NOT try to run a subprocess like `default_task_
 
 If an explicit real task-runner command is configured, `execute_task()` may invoke it and return a structured result.
 
-12. Real execution mode must capture:
+13. Real execution mode must capture:
    - stdout
    - stderr
    - returncode
    - resolved task file path
 
-13. The real execution result must look like:
+14. The real execution result must look like:
 
 {
     "success": bool,
@@ -134,6 +137,7 @@ The following ownership rules are mandatory:
 The following constructor/API rules are mandatory:
 
 - `ProjectAdapter(config=...)` must continue to work.
+- `ProjectAdapter.translate_to_orchestrator_behavior()` must continue to work.
 - `OrchestratorRunner(config, backlog_tracker, initial_state)` must continue to work.
 - `run_next_task()`, `select_next_task()`, and `simulate_backlog()` must continue to exist.
 
@@ -157,6 +161,7 @@ The following typing rules are mandatory:
 ## Required implementation guidance
 
 - Do not remove `simulate_backlog()`.
+- Do not remove `translate_to_orchestrator_behavior()`.
 - Do not change the constructor signature of `OrchestratorRunner`.
 - Do not remove `ProjectAdapter.get_generic_project_config()`.
 - Do not remove `ProjectAdapter(config=...)`.
@@ -184,6 +189,7 @@ A material update means at least one new assertion, changed expectation, or new 
 - task-runner configuration
 - backward compatibility
 - exact legacy runner contract
+- adapter behavior translation
 - cross-platform real execution behavior
 
 Re-outputting the same test file or changing whitespace/comments only is insufficient.
@@ -192,6 +198,7 @@ Also required:
 
 - all pre-existing orchestrator tests continue to pass
 - `simulate_backlog()` remains available and passing
+- `translate_to_orchestrator_behavior()` remains available and passing
 - `tests/test_project_adapter.py` continues to pass
 - `tests/test_multi_project_adapters.py` continues to pass
 - `tests/test_orchestrator_real_execution.py` continues to pass
@@ -199,6 +206,25 @@ Also required:
 ## Normative compatibility examples
 
 The following behaviors are required and must remain true after this task.
+
+### Adapter compatibility
+
+`ProjectAdapter.translate_to_orchestrator_behavior()` must remain implemented.
+
+It must continue returning a dictionary representation of the config used by existing tests.
+
+Do not remove or rename this method.
+
+### Exact method preservation
+
+The following methods must remain implemented and callable:
+
+- `ProjectAdapter.translate_to_orchestrator_behavior()`
+- `OrchestratorRunner.select_next_task()`
+- `OrchestratorRunner.run_next_task(dry_run=False)`
+- `OrchestratorRunner.simulate_backlog()`
+
+Do not replace these methods with a reduced interface.
 
 ### Runner behavior compatibility
 
@@ -355,6 +381,18 @@ If self-referential type annotations are used, make them safe for runtime import
 The real execution test must use a cross-platform-safe command, such as invoking the current Python interpreter with a short `-c` command.
 
 Do not use plain `echo` as the subprocess executable on Windows.
+
+### Exact real command invocation rule
+
+If the real execution test uses Python, the configured command must be represented in a subprocess-safe way.
+
+Do not pass a full shell string like:
+
+`python -c 'print("Hello World")'`
+
+as a single executable token.
+
+Use a command form that is safe for `subprocess.run(...)`, such as a list of executable plus arguments, or another implementation that correctly splits command arguments cross-platform.
 
 ## Guardrails
 
