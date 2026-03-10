@@ -160,7 +160,9 @@ Unit tests verify:
 - a configured real task-runner command can be invoked
 - failed command execution yields `success=False`
 - dry-run does not execute the command
-- If `project_adapter.py` or `project_config.py` changes, both `tests/test_project_adapter.py` and `tests/test_multi_project_adapters py` must be materially updated in the same bundle.
+- If `project_adapter.py` or `project_config.py` changes, both `tests/test_project_adapter.py` and `tests/test_multi_project_adapters.py` must be materially updated in the same bundle.
+
+A material update means at least one new assertion, test case, or changed expectation relevant to task-runner configuration or backward compatibility. Re-outputting the same test file or changing whitespace/comments only is insufficient.
 
 Also required:
 
@@ -172,6 +174,56 @@ Also required:
 ## Normative compatibility examples
 
 The following behaviors are required and must remain true after this task.
+### Runner behavior compatibility
+
+The following methods must remain implemented on `OrchestratorRunner`:
+
+- `select_next_task()`
+- `run_next_task(dry_run=False)`
+- `simulate_backlog()`
+
+`run_next_task()` must preserve existing behavior used by prior tests.
+
+When a pending task exists in the legacy/default path:
+
+- `task_name` must be the selected task name such as `"001_task.py"`
+- it must not return placeholder values like `"mock_task"`
+
+When no pending task exists:
+
+- `task_name == "none"`
+- `status == "no_task"`
+- `message == "No pending tasks available."`
+- `outcome == "noop"`
+
+When `dry_run=True` and a task exists:
+
+- `dry_run is True`
+- `task_name` must still be the selected real task name such as `"001_task.py"`
+- `status == "planned"`
+- `message == "Task is planned for execution."`
+- `outcome == "noop"`
+
+Do not replace the old result contract with a smaller dictionary.
+Preserve existing keys such as:
+
+- `task_name`
+- `status`
+- `message`
+- `dry_run`
+- `outcome`
+- `next_action`
+- `requires_approval`
+
+### Simulation compatibility
+
+`simulate_backlog()` must remain implemented and must return the existing simulation contract expected by tests, including keys such as:
+
+- `processed_tasks`
+- `stopped_reason`
+- `final_status`
+- `approval_required`
+- `planned_actions`
 
 ### Project adapter compatibility
 
@@ -231,6 +283,10 @@ Do not introduce forward-reference NameError issues in annotations.
 If self-referential type annotations are used, make them safe for runtime import and test collection.
 
 ### Real execution test portability requirement
+
+The real execution test must not rely on plain `echo` as a subprocess executable on Windows.
+
+If a real command is used in tests, it must use a cross-platform-safe invocation, for example via the current Python interpreter.
 
 The real execution test must be portable across platforms.
 
