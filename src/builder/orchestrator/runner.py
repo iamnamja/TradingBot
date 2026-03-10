@@ -172,7 +172,10 @@ class OrchestratorRunner:
 
         repair_action = repair_workflow.determine_repair_action()
 
-        log_classification_result(classification_result["category"], None)
+        log_classification_result(
+            classification_result["category"],
+            None,
+        )
 
         log_repair_decision(
             repair_action.get("action", "repair_required"),
@@ -204,8 +207,10 @@ class OrchestratorRunner:
         approval_required = False
         planned_actions: List[str] = []
 
+        tasks = self.backlog_tracker.scan_tasks()
+
         while True:
-            next_task = self.select_next_task()
+            next_task = self.backlog_tracker.get_next_task(tasks)
 
             if not next_task:
                 break
@@ -219,8 +224,24 @@ class OrchestratorRunner:
                 next_task,
             )
 
+            tasks = [
+                TaskMetadata(
+                    name=task.name,
+                    order=task.order,
+                    status=TaskStatus(
+                        status="completed"
+                        if task.name == next_task.name
+                        else task.status.status
+                    ),
+                )
+                for task in tasks
+            ]
+
             if result["status"] == "failed":
-                stopped_reason = execution_result.get("failure_text", "Execution failed")
+                stopped_reason = execution_result.get(
+                    "failure_text",
+                    "Execution failed",
+                )
                 final_status = "failed"
                 break
 
