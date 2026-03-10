@@ -25,14 +25,24 @@ FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
 
 RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
 RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
+RUFF_UNDEFINED_NAME_RE = re.compile(r"F821 Undefined name `([^`]+)`", re.MULTILINE)
+
 PYTEST_TEST_NAME_RE = re.compile(r"_{5,}\s*(.*?)\s*_{5,}")
 PYTEST_TEST_FILE_RE = re.compile(r"^(tests/[^\n:]+):(\d+):", re.MULTILINE)
 PYTEST_EXACT_MISMATCH_RE = re.compile(r"^E\s+assert\s+(.+?)\s+==\s+(.+)$", re.MULTILINE)
+
 MISSING_ATTR_RE = re.compile(r"AttributeError: '([^']+)' object has no attribute '([^']+)'")
 PATH_ERROR_RE = re.compile(r"(?:PermissionError|FileNotFoundError|IsADirectoryError): .*?: '([^']*)'")
 MODULE_NOT_FOUND_RE = re.compile(r"ModuleNotFoundError: No module named '([^']+)'")
+NAME_ERROR_RE = re.compile(r"NameError: name '([^']+)' is not defined")
+KEY_ERROR_RE = re.compile(r"KeyError: '([^']+)'")
+CTOR_TYPE_ERROR_RE = re.compile(r"TypeError: ([A-Za-z_][A-Za-z0-9_]*)\.__init__\(\) takes .*", re.MULTILINE)
+TAKES_NO_ARGS_RE = re.compile(r"TypeError: ([A-Za-z_][A-Za-z0-9_]*)\(\) takes no arguments")
 MISSING_DELIVERABLES_RE = re.compile(r"Missing required deliverables.*?:\s*(.+)")
 UNCHANGED_DELIVERABLES_RE = re.compile(r"Required deliverables were included but not materially updated:\s*(.+)")
+GENERIC_TASKS_ASSERT_RE = re.compile(r"assert 'tasks/' == 'generic_tasks/'")
+DEFAULT_TASK_RUNNER_RE = re.compile(r"default_task_runner")
+WIN_ECHO_RE = re.compile(r"FileNotFoundError: \[WinError 2\].*?\n", re.MULTILINE)
 
 
 class FileBundleError(ValueError):
@@ -339,86 +349,160 @@ def missing_module_hints(import_msg: str) -> str:
     return "\n".join(hints)
 
 
+def _append_unique(lines: List[str], line: str) -> None:
+    if line and line not in lines:
+        lines.append(line)
+
+
 def parse_semantic_failures(details: str) -> str:
     lines: List[str] = []
 
     for path, lineno in sorted(set(RUFF_UNUSED_IMPORT_RE.findall(details))):
-        lines.append(f"- Ruff reports unused imports in `{path}` line {lineno}. Remove the unused imports.")
+        _append_unique(lines, f"- Ruff reports unused imports in `{path}` line {lineno}. Remove the unused imports.")
     for path, lineno in sorted(set(RUFF_BOOL_COMPARE_RE.findall(details))):
-        lines.append(
+        _append_unique(
+            lines,
             f"- Ruff reports boolean equality comparisons in `{path}` line {lineno}. "
-            "Use `assert x` or `assert not x` instead of `== True/False`."
+            "Use `assert x` or `assert not x` instead of `== True/False`.",
         )
 
+    undefined_names = set(RUFF_UNDEFINED_NAME_RE.findall(details)) | set(NAME_ERROR_RE.findall(details))
+    for name in sorted(undefined_names):
+        _append_unique(
+            lines,
+            f"- Missing name/import detected for `{name}`. Restore the required import or symbol reference only; "
+            "do not redesign the surrounding interface to work around this error.",
+        )
+        if name in {"Optional", "TaskMetadata", "ProjectConfig"}:
+            _append_unique(
+                lines,
+                f"- `{name}` was previously part of the working implementation. Re-import it and preserve the existing public API shape.",
+            )
+
     for name in PYTEST_TEST_NAME_RE.findall(details)[:10]:
-        lines.append(f"- Pytest failure: `{name}`")
+        _append_unique(lines, f"- Pytest failure: `{name}`")
 
     for path, lineno in sorted(set(PYTEST_TEST_FILE_RE.findall(details))):
-        lines.append(
+        _append_unique(
+            lines,
             f"- Modify implementation files to satisfy the failing expectation referenced by `{path}` line {lineno}. "
-            "Do not change tests unless the task explicitly requires it."
+            "Do not change tests unless the task explicitly requires it.",
         )
 
     for actual, expected in PYTEST_EXACT_MISMATCH_RE.findall(details)[:10]:
-        lines.append(
+        _append_unique(
+            lines,
             f"- Exact mismatch: actual `{actual.strip()}` vs expected `{expected.strip()}`. "
-            "Change the implementation so the expected value passes exactly."
+            "Change the implementation so the expected value passes exactly.",
         )
 
     for cls, attr in sorted(set(MISSING_ATTR_RE.findall(details))):
-        lines.append(
+        _append_unique(
+            lines,
             f"- AttributeError detected: `{cls}` has no `{attr}`. "
-            "Do not fabricate optional fields or guessed config members. "
-            "Guard the access with `getattr(..., None)` or skip the behavior when the field is not configured."
+            "Restore the previous public method/field if older tests expect it. "
+            "Do not fabricate optional fields or guessed config members.",
         )
+        if attr in {"simulate_backlog", "select_next_task"}:
+            _append_unique(
+                lines,
+                f"- `{attr}` is part of the older runner contract. Restore that method with backward-compatible behavior.",
+            )
         if attr.endswith("path"):
-            lines.append(
-                f"- Because `{attr}` is missing, do not call helper functions that require it. "
-                "Branch before the helper call and no-op that integration when the path is not configured."
+            _append_unique(
+                lines,
+                f"- Because `{attr}` is missing, do not call helpers that require it. "
+                "Branch before the helper call and no-op that integration when the path is not configured.",
             )
 
     for bad_path in sorted(set(PATH_ERROR_RE.findall(details))):
         shown = bad_path if bad_path else "<empty string>"
-        lines.append(
+        _append_unique(
+            lines,
             f"- File-path misuse detected: `{shown}` was treated like a writable file. "
             "Do not substitute directory paths or empty strings for optional file paths. "
-            "If no valid file path is configured, skip the write or inject an in-memory callback/writer."
+            "If no valid file path is configured, skip the write or inject an in-memory callback/writer.",
         )
 
     for mod in sorted(set(MODULE_NOT_FOUND_RE.findall(details))):
-        lines.append(
-            f"- ModuleNotFoundError detected for `{mod}`. Use an existing repo module or create that module/package in the same bundle."
+        _append_unique(
+            lines,
+            f"- ModuleNotFoundError detected for `{mod}`. Use an existing repo module or create that module/package in the same bundle.",
+        )
+
+    for key in sorted(set(KEY_ERROR_RE.findall(details))):
+        if key in {"task_name", "status", "message", "dry_run", "outcome", "next_action", "requires_approval", "processed_tasks"}:
+            _append_unique(
+                lines,
+                f"- Result-contract regression detected: missing key `{key}`. "
+                "Restore the existing result dictionary shape and keep prior keys present.",
+            )
+
+    for cls in sorted(set(CTOR_TYPE_ERROR_RE.findall(details))):
+        _append_unique(
+            lines,
+            f"- Constructor signature regression detected for `{cls}`. Restore the previous `__init__` call shape expected by existing tests.",
+        )
+
+    for cls in sorted(set(TAKES_NO_ARGS_RE.findall(details))):
+        _append_unique(
+            lines,
+            f"- `{cls}(...)` previously accepted constructor arguments. Restore that initializer rather than replacing the class with a no-arg version.",
+        )
+
+    if DEFAULT_TASK_RUNNER_RE.search(details):
+        _append_unique(
+            lines,
+            "- Placeholder runner command detected (`default_task_runner`). Real execution must be opt-in. "
+            "Preserve the legacy/mock default path unless an explicit command is configured.",
+        )
+
+    if "FileNotFoundError" in details and "subprocess" in details:
+        _append_unique(
+            lines,
+            "- Subprocess launch failed. Do not execute placeholder or guessed commands in the default path. "
+            "Keep real execution opt-in and preserve the mocked default behavior.",
+        )
+
+    if "FileNotFoundError" in details and ("['echo'," in details or " echo " in details):
+        _append_unique(
+            lines,
+            "- Windows note: `echo` is a shell builtin, not a standalone executable. "
+            "For real execution tests, use cross-platform subprocess handling or a Python executable path.",
+        )
+
+    if GENERIC_TASKS_ASSERT_RE.search(details) or "get_generic_project_config" in details:
+        _append_unique(
+            lines,
+            "- Generic adapter regression detected. Preserve `ProjectAdapter.get_generic_project_config()` and keep its existing `generic_tasks/` semantics.",
         )
 
     m = MISSING_DELIVERABLES_RE.search(details)
     if m:
-        lines.append(
+        _append_unique(
+            lines,
             "- Required deliverables are still missing. Materially update every listed deliverable in the same bundle; "
-            "do not leave one untouched while only changing another file."
+            "do not leave one untouched while only changing another file.",
         )
 
     m2 = UNCHANGED_DELIVERABLES_RE.search(details)
     if m2:
-        lines.append(
-            "- Required deliverables were included but unchanged. Materially edit every listed deliverable, not just the main implementation file."
+        _append_unique(
+            lines,
+            "- Required deliverables were included but unchanged. Materially edit every listed deliverable, not just the main implementation file.",
         )
 
     for line in details.splitlines():
         s = line.strip()
         if s.startswith("E       assert ") and " == " in s:
             pretty = s.replace("E       ", "", 1)
-            lines.append(
+            _append_unique(
+                lines,
                 f"- Pytest reported exact assertion mismatch: `{pretty}`. "
-                "Use this exact expected value as the source of truth."
+                "Use this exact expected value as the source of truth.",
             )
 
-    deduped: List[str] = []
-    seen = set()
-    for line in lines:
-        if line and line not in seen:
-            deduped.append(line)
-            seen.add(line)
-    return "\n".join(deduped)
+    return "\n".join(lines)
 
 
 def bundle_similarity(a: Dict[str, str], b: Dict[str, str]) -> float:
@@ -631,7 +715,8 @@ def main() -> int:
                     "You must make a real implementation change in the most likely source file causing the failure. "
                     "Do not resubmit the same logic. Prefer changing the implementation rather than the tests. "
                     "If helper methods exist, update them consistently instead of patching only one call site. "
-                    "If the failure mentions an optional config field or invalid file path, remove the call or guard it before invoking the helper.\n"
+                    "If the failure mentions an optional config field or invalid file path, remove the call or guard it before invoking the helper. "
+                    "If the failure indicates an API regression, restore the previous public interface rather than inventing a replacement.\n"
                 )
 
         prev_files = files
