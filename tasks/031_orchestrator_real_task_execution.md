@@ -49,6 +49,20 @@ Create or update these exact files, and every listed existing file must be mater
 - tests/test_project_adapter.py
 - tests/test_multi_project_adapters.py
 
+## Bundle completeness requirement
+
+The bundle is incomplete unless **all seven deliverables** are present.
+
+This task must not be completed with only implementation-file changes.
+
+In particular:
+
+- `tests/test_project_adapter.py` must always appear in the bundle
+- `tests/test_multi_project_adapters.py` must always appear in the bundle
+- `tests/test_orchestrator_real_execution.py` must always appear in the bundle
+
+If the agent changes `project_adapter.py` or `project_config.py`, it must also materially update both adapter-related test files in the same bundle.
+
 ## Required behavior
 
 1. Add task-runner configuration to the project config layer.
@@ -160,7 +174,8 @@ Unit tests verify:
 - a configured real task-runner command can be invoked
 - failed command execution yields `success=False`
 - dry-run does not execute the command
-- If `project_adapter.py` or `project_config.py` changes, both `tests/test_project_adapter.py` and `tests/test_multi_project_adapters.py` must be materially updated in the same bundle.
+
+If `project_adapter.py` or `project_config.py` changes, both `tests/test_project_adapter.py` and `tests/test_multi_project_adapters.py` must be materially updated in the same bundle.
 
 A material update means at least one new assertion, test case, or changed expectation relevant to task-runner configuration or backward compatibility. Re-outputting the same test file or changing whitespace/comments only is insufficient.
 
@@ -174,6 +189,7 @@ Also required:
 ## Normative compatibility examples
 
 The following behaviors are required and must remain true after this task.
+
 ### Runner behavior compatibility
 
 The following methods must remain implemented on `OrchestratorRunner`:
@@ -205,6 +221,7 @@ When `dry_run=True` and a task exists:
 - `outcome == "noop"`
 
 Do not replace the old result contract with a smaller dictionary.
+
 Preserve existing keys such as:
 
 - `task_name`
@@ -284,15 +301,12 @@ If self-referential type annotations are used, make them safe for runtime import
 
 ### Real execution test portability requirement
 
-The real execution test must not rely on plain `echo` as a subprocess executable on Windows.
-
-If a real command is used in tests, it must use a cross-platform-safe invocation, for example via the current Python interpreter.
-
 The real execution test must be portable across platforms.
 
 Do not assume plain `echo` is directly executable on Windows.
 
-If the test uses a real command, it must use a cross-platform-safe strategy such as:
+If a real command is used in tests, it must use a cross-platform-safe strategy such as:
+
 - an explicit Python executable invocation, or
 - platform-safe subprocess handling
 
