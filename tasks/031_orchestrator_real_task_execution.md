@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a real execution bridge to the orchestrator so it can invoke the project task runner for a selected task file, while preserving all existing orchestrator behavior and tests.
+Add a real execution bridge to the orchestrator so it can invoke the project task runner for a selected task file, while preserving all existing orchestrator behavior, public APIs, and tests.
 
 ## Why
 
@@ -14,16 +14,13 @@ This task must be implemented as a backward-compatible extension.
 
 Do not break or change the observable behavior of existing orchestrator features unless the new real-execution path is explicitly being used.
 
-In particular:
+In particular, the following public APIs must remain backward compatible:
 
-- `simulate_backlog()` must remain present and keep its existing behavior.
-- Existing tests from tasks 021–030 must continue to pass without being rewritten for new defaults.
-- Existing success-path runner tests must still return the same default status / message / outcome they returned before this task.
-- Existing failure-path tests must preserve current failure wording, including:
-
-  Execution failed: Execution failed
-
-- `ProjectConfig` must remain backward compatible with existing constructor calls in the test suite.
+- `OrchestratorRunner.__init__(config, backlog_tracker, initial_state)`
+- `OrchestratorRunner.run_next_task(dry_run=False)`
+- `OrchestratorRunner.simulate_backlog()`
+- `ProjectAdapter.get_tradingbot_default_config()`
+- `ProjectAdapter.get_generic_project_config()`
 
 ## Scope
 
@@ -44,29 +41,27 @@ Create or update these exact files:
 - src/builder/orchestrator/cli.py
 - tests/test_orchestrator_real_execution.py
 - tests/test_project_adapter.py
+- tests/test_multi_project_adapters.py
 
 ## Required behavior
 
 1. Add task-runner configuration to the project config layer.
-
 2. `ProjectConfig` must remain backward compatible:
-
    - adding `task_runner_command` is allowed
    - but it must be optional or have a safe default
    - existing tests that construct `ProjectConfig(...)` without that field must still work
-
-3. The project adapter must define a task-runner command template for the TradingBot default config.
-
-4. `OrchestratorRunner.execute_task()` must support a real command-execution path.
-
-5. Dry-run mode must not execute the task runner.
-
-6. The existing simulation path from task 030 must remain intact.
-
-7. The existing default runner behavior used by older tests must remain intact unless the new real-execution configuration is explicitly exercised.
-
-8. Real execution must capture:
-
+3. `ProjectAdapter.get_tradingbot_default_config()` must remain present.
+4. `ProjectAdapter.get_generic_project_config()` must remain present.
+5. `OrchestratorRunner.__init__` must keep the existing three-argument constructor signature:
+   - `config`
+   - `backlog_tracker`
+   - `initial_state`
+6. `OrchestratorRunner.simulate_backlog()` must remain present and continue working.
+7. `OrchestratorRunner.execute_task()` must support a real command-execution path.
+8. Dry-run mode must not execute the task runner.
+9. The existing simulation path from task 030 must remain intact.
+10. The existing default runner behavior used by older tests must remain intact unless the new real-execution configuration is explicitly exercised.
+11. Real execution must capture:
    - stdout
    - stderr
    - returncode
@@ -86,11 +81,14 @@ Execution must return a structured dictionary like:
 ## Required implementation guidance
 
 - Do not remove `simulate_backlog()`.
+- Do not change the constructor signature of `OrchestratorRunner`.
+- Do not remove `ProjectAdapter.get_generic_project_config()`.
 - Do not make review behavior stricter by default in this task.
 - Do not change the existing success-path semantics of `run_next_task()` for tests that do not explicitly exercise the real execution bridge.
 - Do not change the existing failure message contract unless a new test explicitly requires it.
 - Avoid introducing unused variables or dead code.
 - Keep the real execution path explicit and testable.
+- Extend existing classes; do not replace them with incompatible interfaces.
 
 ## Acceptance criteria
 
@@ -106,6 +104,7 @@ Also required:
 - all pre-existing orchestrator tests continue to pass
 - `simulate_backlog()` remains available and passing
 - `tests/test_project_adapter.py` continues to pass without requiring constructor changes in the test
+- `tests/test_multi_project_adapters.py` continues to pass
 
 ## Guardrails
 
@@ -113,3 +112,5 @@ Also required:
 - Do not hardcode project-specific behavior in core orchestrator classes
 - Do not parse task output here beyond minimal structural normalization
 - Do not break backward compatibility in `ProjectConfig`
+- Do not break backward compatibility in `ProjectAdapter`
+- Do not break backward compatibility in `OrchestratorRunner`
