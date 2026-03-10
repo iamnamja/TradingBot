@@ -179,7 +179,12 @@ Unit tests verify:
 
 `tests/test_project_adapter.py`, `tests/test_multi_project_adapters.py`, and `tests/test_orchestrator_real_execution.py` must all be materially updated in the same bundle.
 
-A material update means at least one new assertion, changed expectation, or new test case relevant to task-runner configuration, backward compatibility, or cross-platform real execution behavior.
+A material update means at least one new assertion, changed expectation, or new test case relevant to:
+
+- task-runner configuration
+- backward compatibility
+- exact legacy runner contract
+- cross-platform real execution behavior
 
 Re-outputting the same test file or changing whitespace/comments only is insufficient.
 
@@ -205,6 +210,23 @@ The following methods must remain implemented on `OrchestratorRunner`:
 
 `run_next_task()` must preserve existing behavior used by prior tests.
 
+### Exact legacy runner contract
+
+In the default legacy/mock path, `OrchestratorRunner` must preserve the existing workflow contract used by prior tests.
+
+`select_next_task()` must:
+
+- call `backlog_tracker.scan_tasks()`
+- pass the scanned tasks to `backlog_tracker.get_next_task(...)`
+- return that selected task
+
+`run_next_task()` must:
+
+- use `select_next_task()`
+- not hardcode `"001_task.py"`
+- not invent placeholder task names
+- not omit existing result keys
+
 ### Legacy execution behavior must match prior tests exactly
 
 When a pending task exists in the legacy/default path:
@@ -213,6 +235,7 @@ When a pending task exists in the legacy/default path:
 - `status == "running"`
 - `message == "Task is now running."`
 - `outcome == "ready_for_pr"`
+- `next_action == "merge"`
 
 Do not return placeholder values such as:
 
@@ -258,9 +281,9 @@ Preserve existing keys such as:
 - `next_action`
 - `requires_approval`
 
-### Simulation compatibility
+### Exact simulation compatibility
 
-`simulate_backlog()` must remain implemented and must return the existing simulation contract expected by tests, including keys such as:
+`simulate_backlog()` must remain implemented and must return a dictionary with the existing keys expected by tests:
 
 - `processed_tasks`
 - `stopped_reason`
@@ -325,20 +348,13 @@ Do not introduce forward-reference NameError issues in annotations.
 
 If self-referential type annotations are used, make them safe for runtime import and test collection.
 
-### Real execution test portability requirement
+### Exact real execution test portability rule
 
-The real execution test must be portable across platforms.
+`tests/test_orchestrator_real_execution.py` must be materially updated to avoid plain `echo`.
 
-Do not assume plain `echo` is directly executable on Windows.
+The real execution test must use a cross-platform-safe command, such as invoking the current Python interpreter with a short `-c` command.
 
-If a real command is used in tests, it must use a cross-platform-safe strategy such as:
-
-- an explicit Python executable invocation, or
-- platform-safe subprocess handling
-
-The test must not fail only because the command is a Windows shell builtin.
-
-The real execution test must not use plain `echo` as the subprocess executable on Windows.
+Do not use plain `echo` as the subprocess executable on Windows.
 
 ## Guardrails
 
