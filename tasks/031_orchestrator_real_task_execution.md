@@ -80,11 +80,13 @@ Create or update these exact files:
 11. `execute_task()` must support two modes:
 
 ### Legacy/default mode
+
 If no explicit real task-runner command is configured, preserve the current legacy/mock behavior so existing tests continue to pass.
 
 This means the default path must NOT try to run a subprocess like `default_task_runner`.
 
 ### Real execution mode
+
 If an explicit real task-runner command is configured, `execute_task()` may invoke it and return a structured result.
 
 12. Real execution mode must capture:
@@ -103,6 +105,38 @@ If an explicit real task-runner command is configured, `execute_task()` may invo
     "returncode": int,
     "task_file": str
 }
+
+## Ownership and typing constraints
+
+The following ownership rules are mandatory:
+
+- `ProjectConfig` is a data container only.
+- Do NOT move `get_tradingbot_default_config()` onto `ProjectConfig`.
+- Do NOT move `get_generic_project_config()` onto `ProjectConfig`.
+- Those factory methods must remain on `ProjectAdapter`.
+
+The following constructor/API rules are mandatory:
+
+- `ProjectAdapter(config=...)` must continue to work.
+- `OrchestratorRunner(config, backlog_tracker, initial_state)` must continue to work.
+- `run_next_task()`, `select_next_task()`, and `simulate_backlog()` must continue to exist.
+
+The following default-config rules are mandatory:
+
+- `ProjectAdapter.get_tradingbot_default_config().task_runner_command is None`
+- `ProjectAdapter.get_generic_project_config().task_runner_command is None`
+
+The following execution rules are mandatory:
+
+- If `task_runner_command is None`, preserve the existing mock/default execution path.
+- Do not execute a subprocess in the default path.
+- Do not use `"default_task_runner"` as a fallback command.
+
+The following typing rules are mandatory:
+
+- Do not introduce runtime NameError issues from type annotations.
+- If a type annotation refers to the enclosing class, use a safe forward reference or `from __future__ import annotations`.
+- The implementation must pass `ruff` and test collection on import.
 
 ## Required implementation guidance
 
@@ -192,7 +226,20 @@ Do not use `"default_task_runner"` as a default.
 ### Typing / implementation requirement
 
 Do not introduce forward-reference NameError issues in annotations.
+
 If self-referential type annotations are used, make them safe for runtime import and test collection.
+
+### Real execution test portability requirement
+
+The real execution test must be portable across platforms.
+
+Do not assume plain `echo` is directly executable on Windows.
+
+If the test uses a real command, it must use a cross-platform-safe strategy such as:
+- an explicit Python executable invocation, or
+- platform-safe subprocess handling
+
+The test must not fail only because the command is a Windows shell builtin.
 
 ## Guardrails
 
