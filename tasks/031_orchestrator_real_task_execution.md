@@ -134,6 +134,66 @@ Also required:
 - `tests/test_project_adapter.py` continues to pass
 - `tests/test_multi_project_adapters.py` continues to pass
 
+## Normative compatibility examples
+
+The following behaviors are required and must remain true after this task.
+
+### Project adapter compatibility
+
+`ProjectAdapter.get_tradingbot_default_config()` must return a config where:
+
+- `tasks_directory == "tasks/"`
+- `lint_command == "ruff check ."`
+- `test_command == "pytest -q"`
+- `task_runner_command is None`
+
+`ProjectAdapter.get_generic_project_config()` must return a config where:
+
+- `tasks_directory == "generic_tasks/"`
+- `lint_command == "flake8 ."`
+- `test_command == "pytest tests/test_generic.py"`
+- `task_runner_command is None`
+
+`ProjectAdapter(config=project_config)` must still be valid.
+
+### Runner API compatibility
+
+The following methods must still exist:
+
+- `select_next_task()`
+- `run_next_task(dry_run=False)`
+- `simulate_backlog()`
+
+### Existing result-contract examples
+
+When there are no pending tasks, `run_next_task()` must still return values compatible with existing tests, including:
+
+- `task_name == "none"`
+- `status == "no_task"`
+- `message == "No pending tasks available."`
+- `outcome == "noop"`
+
+When `dry_run=True`, existing dry-run keys must still be present, including:
+
+- `dry_run`
+- `task_name`
+- `status`
+- `message`
+- `outcome`
+
+### Execution mode requirement
+
+The real execution bridge must be opt-in.
+
+If `task_runner_command is None`, preserve the legacy/mock behavior and do not execute a subprocess.
+
+Do not use `"default_task_runner"` as a default.
+
+### Typing / implementation requirement
+
+Do not introduce forward-reference NameError issues in annotations.
+If self-referential type annotations are used, make them safe for runtime import and test collection.
+
 ## Guardrails
 
 - Do not remove simulation mode
