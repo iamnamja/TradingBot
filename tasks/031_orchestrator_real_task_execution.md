@@ -39,7 +39,7 @@ Implement an optional real execution bridge inside the orchestrator that:
 
 ## Deliverables
 
-Create or update these exact files:
+Create or update these exact files, and every listed existing file must be materially updated in the same bundle:
 
 - src/builder/orchestrator/runner.py
 - src/builder/orchestrator/project_config.py
@@ -160,6 +160,7 @@ Unit tests verify:
 - a configured real task-runner command can be invoked
 - failed command execution yields `success=False`
 - dry-run does not execute the command
+- If `project_adapter.py` or `project_config.py` changes, both `tests/test_project_adapter.py` and `tests/test_multi_project_adapters py` must be materially updated in the same bundle.
 
 Also required:
 
