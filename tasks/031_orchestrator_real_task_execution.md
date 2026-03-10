@@ -63,6 +63,8 @@ In particular:
 
 If the agent changes `project_adapter.py` or `project_config.py`, it must also materially update both adapter-related test files in the same bundle.
 
+If the agent changes `runner.py`, it must materially update `tests/test_orchestrator_real_execution.py` in the same bundle.
+
 ## Required behavior
 
 1. Add task-runner configuration to the project config layer.
@@ -175,9 +177,11 @@ Unit tests verify:
 - failed command execution yields `success=False`
 - dry-run does not execute the command
 
-If `project_adapter.py` or `project_config.py` changes, both `tests/test_project_adapter.py` and `tests/test_multi_project_adapters.py` must be materially updated in the same bundle.
+`tests/test_project_adapter.py`, `tests/test_multi_project_adapters.py`, and `tests/test_orchestrator_real_execution.py` must all be materially updated in the same bundle.
 
-A material update means at least one new assertion, test case, or changed expectation relevant to task-runner configuration or backward compatibility. Re-outputting the same test file or changing whitespace/comments only is insufficient.
+A material update means at least one new assertion, changed expectation, or new test case relevant to task-runner configuration, backward compatibility, or cross-platform real execution behavior.
+
+Re-outputting the same test file or changing whitespace/comments only is insufficient.
 
 Also required:
 
@@ -185,6 +189,7 @@ Also required:
 - `simulate_backlog()` remains available and passing
 - `tests/test_project_adapter.py` continues to pass
 - `tests/test_multi_project_adapters.py` continues to pass
+- `tests/test_orchestrator_real_execution.py` continues to pass
 
 ## Normative compatibility examples
 
@@ -200,10 +205,19 @@ The following methods must remain implemented on `OrchestratorRunner`:
 
 `run_next_task()` must preserve existing behavior used by prior tests.
 
+### Legacy execution behavior must match prior tests exactly
+
 When a pending task exists in the legacy/default path:
 
-- `task_name` must be the selected task name such as `"001_task.py"`
-- it must not return placeholder values like `"mock_task"`
+- `task_name == "001_task.py"` for the selected task in existing tests
+- `status == "running"`
+- `message == "Task is now running."`
+- `outcome == "ready_for_pr"`
+
+Do not return placeholder values such as:
+
+- `"mock_task"`
+- `status == "mocked"`
 
 When no pending task exists:
 
@@ -212,12 +226,24 @@ When no pending task exists:
 - `message == "No pending tasks available."`
 - `outcome == "noop"`
 
+Do not hardcode a task name when no task exists.
+
+### Dry-run behavior must match prior tests exactly
+
 When `dry_run=True` and a task exists:
 
 - `dry_run is True`
-- `task_name` must still be the selected real task name such as `"001_task.py"`
+- `task_name == "001_task.py"` for the selected task in existing tests
 - `status == "planned"`
 - `message == "Task is planned for execution."`
+- `outcome == "noop"`
+
+When `dry_run=True` and no task exists:
+
+- `dry_run is True`
+- `task_name == "none"`
+- `status == "no_task"`
+- `message == "No pending tasks available."`
 - `outcome == "noop"`
 
 Do not replace the old result contract with a smaller dictionary.
@@ -311,6 +337,8 @@ If a real command is used in tests, it must use a cross-platform-safe strategy s
 - platform-safe subprocess handling
 
 The test must not fail only because the command is a Windows shell builtin.
+
+The real execution test must not use plain `echo` as the subprocess executable on Windows.
 
 ## Guardrails
 
