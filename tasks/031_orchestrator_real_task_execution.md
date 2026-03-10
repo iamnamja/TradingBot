@@ -43,6 +43,7 @@ Create or update these exact files:
 - src/builder/orchestrator/project_adapter.py
 - src/builder/orchestrator/cli.py
 - tests/test_orchestrator_real_execution.py
+- tests/test_project_adapter.py
 
 ## Required behavior
 
