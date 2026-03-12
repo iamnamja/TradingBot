@@ -40,7 +40,7 @@ Implement an optional real execution bridge inside the orchestrator that:
 
 ## Deliverables
 
-Create or update these exact files, and every listed existing file must be materially updated in the same bundle:
+Create or update these exact files, and every listed existing file must be included in the same bundle:
 
 - `src/builder/orchestrator/runner.py`
 - `src/builder/orchestrator/project_config.py`
@@ -52,9 +52,7 @@ Create or update these exact files, and every listed existing file must be mater
 
 ## Bundle completeness requirement
 
-The bundle is incomplete unless **all seven deliverables** are present.
-
-This task must not be completed with only implementation-file changes.
+The bundle is incomplete unless all seven deliverables are present.
 
 In particular:
 
@@ -66,7 +64,37 @@ If the agent changes `project_adapter.py` or `project_config.py`, it must also m
 
 If the agent changes `runner.py`, it must materially update `tests/test_orchestrator_real_execution.py` in the same bundle.
 
-If the agent changes `cli.py`, it must still include `cli.py` in the bundle, but a task-complete solution is allowed even when the material behavior fixes are concentrated in `runner.py` and tests.
+## Critical anti-truncation rule
+
+The solution is invalid unless the final `src/builder/orchestrator/runner.py` in the bundle visibly contains all of the following literal method headers:
+
+- `def select_next_task(`
+- `def run_next_task(`
+- `def execute_task(`
+- `def process_execution_result(`
+- `def simulate_backlog(`
+
+The solution is also invalid unless `runner.py` visibly contains a final simulation return dictionary with these keys:
+
+- `processed_tasks`
+- `stopped_reason`
+- `final_status`
+- `approval_required`
+- `planned_actions`
+
+A partial or truncated `runner.py` is invalid even if the parser accepts the bundle.
+
+## Important CLI relaxation
+
+`src/builder/orchestrator/cli.py` must still be included in the bundle and must remain backward compatible.
+
+However, this task is NOT blocked solely because `cli.py` is unchanged or only minimally changed.
+
+If the actual compatibility fixes are in `runner.py`, `project_config.py`, `project_adapter.py`, and the listed test files, that is sufficient.
+
+Do not force unnecessary churn in `cli.py`.
+
+Including the current compatible `cli.py` in the bundle is acceptable.
 
 ## Required behavior
 
@@ -76,7 +104,7 @@ If the agent changes `cli.py`, it must still include `cli.py` in the bundle, but
    - adding `task_runner_command` is allowed
    - it must be optional or have a safe default value
    - existing constructor calls without that field must still work
-   - do not make `ProjectConfig` frozen/immutable if existing tests mutate config fields after construction
+   - do not make `ProjectConfig` frozen or immutable if existing tests mutate config fields after construction
 
 3. `ProjectAdapter(config=...)` must still work.
 
@@ -130,6 +158,45 @@ If an explicit real task-runner command is configured, `execute_task()` may invo
     "task_file": str
 }
 
+## Exact compatibility rules that must now pass
+
+### Simulation sequencing
+
+When `simulate_backlog()` encounters an approval-blocked task, that task must still be appended to `processed_tasks` before the simulation stops.
+
+Example required behavior:
+- task 1 succeeds
+- task 2 becomes approval-blocked
+- returned `processed_tasks` must be `["001_task.py", "002_task.py"]`
+
+### Mocked success path
+
+If `execute_task()` returns a mocked success payload with `success=True`, and `changed_files` is empty or missing, existing tests must still reach:
+
+- `outcome == "ready_for_pr"`
+- `next_action == "merge"`
+
+Do not default a mocked success path to `review_blocked` merely because `changed_files` is empty or omitted.
+
+If `run_review(...)` is called on a mocked success path where `changed_files` is empty or omitted, preserve the legacy success contract instead of forcing a review-blocked outcome.
+
+### Mocked failure path
+
+If a mocked failure payload does not include `failure_text` but does include `stderr`, preserve the failure message contract expected by tests.
+
+For example:
+
+{
+    "success": False,
+    "stderr": "Execution failed"
+}
+
+must still allow:
+
+- `message == "Execution failed: Execution failed"`
+
+Do not reduce the failure message to a generic `"Execution failed."` when `stderr` already contains the specific error text.
+
 ## Ownership and typing constraints
 
 The following ownership rules are mandatory:
@@ -178,21 +245,6 @@ The following typing rules are mandatory:
 - Keep the real execution path explicit and testable.
 - Extend existing classes; do not replace them with incompatible interfaces.
 
-## Exact CLI requirement
-
-`src/builder/orchestrator/cli.py` must still be present in the bundle and must remain backward compatible.
-
-A CLI update is welcome if it is a real runtime change, such as:
-
-- different printed execution summary fields
-- different exit-code handling
-- new mode selection wired to runner behavior
-- simulation / real-execution output changes
-
-However, the task is not blocked solely because the best fix lives in `runner.py`.
-
-Do not force unnecessary churn in `cli.py` once the real compatibility defects are in `runner.py`.
-
 ## Acceptance criteria
 
 Unit tests verify:
@@ -226,212 +278,6 @@ Also required:
 - `tests/test_project_adapter.py` continues to pass
 - `tests/test_multi_project_adapters.py` continues to pass
 - `tests/test_orchestrator_real_execution.py` continues to pass
-
-## Normative compatibility examples
-
-### Exact method preservation
-
-The following methods must remain implemented and callable:
-
-- `ProjectAdapter.translate_to_orchestrator_behavior()`
-- `OrchestratorRunner.select_next_task()`
-- `OrchestratorRunner.run_next_task(dry_run=False)`
-- `OrchestratorRunner.simulate_backlog()`
-
-### Exact legacy runner contract
-
-In the default legacy/mock path, `OrchestratorRunner` must preserve the existing workflow contract used by prior tests.
-
-`select_next_task()` must:
-
-- call `backlog_tracker.scan_tasks()`
-- pass the scanned tasks to `backlog_tracker.get_next_task(...)`
-- return that selected task
-
-`run_next_task()` must:
-
-- use `select_next_task()`
-- not hardcode `"001_task.py"`
-- not invent placeholder task names
-- not omit existing result keys
-
-### Legacy execution behavior must match prior tests exactly
-
-When a pending task exists in the legacy/default path:
-
-- `task_name == "001_task.py"` for the selected task in existing tests
-- `status == "running"`
-- `message == "Task is now running."`
-- `outcome == "ready_for_pr"`
-- `next_action == "merge"`
-
-When no pending task exists:
-
-- `task_name == "none"`
-- `status == "no_task"`
-- `message == "No pending tasks available."`
-- `outcome == "noop"`
-
-### Dry-run behavior must match prior tests exactly
-
-When `dry_run=True` and a task exists:
-
-- `dry_run is True`
-- `task_name == "001_task.py"` for the selected task in existing tests
-- `status == "planned"`
-- `message == "Task is planned for execution."`
-- `outcome == "noop"`
-
-When `dry_run=True` and no task exists:
-
-- `dry_run is True`
-- `task_name == "none"`
-- `status == "no_task"`
-- `message == "No pending tasks available."`
-- `outcome == "noop"`
-
-Preserve existing keys such as:
-
-- `task_name`
-- `status`
-- `message`
-- `dry_run`
-- `outcome`
-- `next_action`
-- `requires_approval`
-
-### Exact simulation compatibility
-
-`simulate_backlog()` must remain implemented and must return a dictionary with the existing keys expected by tests:
-
-- `processed_tasks`
-- `stopped_reason`
-- `final_status`
-- `approval_required`
-- `planned_actions`
-
-### Exact simulate_backlog implementation requirement
-
-The solution is invalid unless `src/builder/orchestrator/runner.py` contains a literal `def simulate_backlog(` method in the final bundle.
-
-It must not merely mention simulation in comments or docs.
-
-It must be actual executable code in `runner.py`.
-
-### Exact simulation sequencing rule
-
-When `simulate_backlog()` encounters an approval-blocked task, that task must still be appended to `processed_tasks` before the simulation stops.
-
-For example, if the first task succeeds and the second task becomes approval-blocked, the returned `processed_tasks` must include both tasks before stopping.
-
-### Exact legacy success-path compatibility
-
-If `execute_task()` returns a mocked success payload with `success=True`, existing success-path tests must still be able to reach:
-
-- `outcome == "ready_for_pr"`
-- `next_action == "merge"`
-
-Do not default a mocked success path to `review_blocked` merely because `changed_files` is empty or omitted.
-
-If the implementation needs changed files for review logic, preserve backward compatibility for legacy/mock test payloads.
-
-If `run_review(...)` is called on a mocked success path where `changed_files` is empty or omitted, preserve the legacy success contract instead of forcing a review-blocked outcome.
-
-### Exact failure-message compatibility
-
-If a mocked failure payload does not include `failure_text` but does include `stderr`, preserve the failure message contract expected by tests.
-
-For example, a failure payload like:
-
-{
-    "success": False,
-    "stderr": "Execution failed"
-}
-
-must still allow:
-
-- `message == "Execution failed: Execution failed"`
-
-Do not reduce the failure message to a generic `"Execution failed."` when a specific error string is already available in `stderr`.
-
-### Exact runner completeness requirement
-
-The bundle is not acceptable unless `src/builder/orchestrator/runner.py` contains the full final implementation.
-
-A partial or truncated `runner.py` is invalid even if the bundle parses.
-
-In particular, the final `runner.py` must include:
-
-- `select_next_task()`
-- `run_next_task(...)`
-- `simulate_backlog()`
-- the full `process_execution_result(...)` implementation
-- the full failure-path return logic
-
-Do not leave `runner.py` ending early after helper calls or with missing return logic.
-
-### Project adapter compatibility
-
-`ProjectAdapter.get_tradingbot_default_config()` must return a config where:
-
-- `tasks_directory == "tasks/"`
-- `lint_command == "ruff check ."`
-- `test_command == "pytest -q"`
-- `task_runner_command is None`
-
-`ProjectAdapter.get_generic_project_config()` must return a config where:
-
-- `tasks_directory == "generic_tasks/"`
-- `lint_command == "flake8 ."`
-- `test_command == "pytest tests/test_generic.py"`
-- `task_runner_command is None`
-
-`ProjectAdapter(config=project_config)` must still be valid.
-
-### Exact default-vs-real test separation rule
-
-`tests/test_orchestrator_real_execution.py` must explicitly separate:
-
-- legacy/default-mode expectations when `task_runner_command is None`
-- real-execution expectations when `task_runner_command` is explicitly configured
-
-A test that expects subprocess failure must explicitly opt into real execution mode.
-
-A test that uses the default config path must not expect subprocess execution when `task_runner_command is None`.
-
-### Exact simulation preservation rule
-
-The generated solution is not acceptable unless `simulate_backlog()` remains implemented and passing.
-
-Do not replace the runner with a reduced implementation that omits simulation behavior.
-
-### Exact config mutability rule
-
-Existing tests may assign to `config.task_runner_command` after construction.
-
-Do not make `ProjectConfig` immutable or frozen in a way that breaks:
-
-`config.task_runner_command = ...`
-
-### Exact real execution test portability rule
-
-`tests/test_orchestrator_real_execution.py` must be materially updated to avoid plain `echo`.
-
-The real execution test must use a cross-platform-safe command, such as invoking the current Python interpreter with a short `-c` command.
-
-Do not use plain `echo` as the subprocess executable on Windows.
-
-### Exact real command invocation rule
-
-If the real execution test uses Python, the configured command must be represented in a subprocess-safe way.
-
-Do not pass a full shell string like:
-
-`python -c 'print("Hello World")'`
-
-as a single executable token.
-
-Use a command form that is safe for `subprocess.run(...)`, such as a list of executable plus arguments, or another implementation that correctly splits command arguments cross-platform.
 
 ## Guardrails
 
