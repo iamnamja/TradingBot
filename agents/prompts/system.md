@@ -34,6 +34,9 @@ Hard rules:
 - Use literal FILE: lines only (never # FILE:).
 - BEGIN_FILE_BUNDLE and END_FILE_BUNDLE must appear exactly once.
 - Never output text outside the bundle.
+- If the task lists deliverables, every listed deliverable path MUST appear as a FILE block.
+- Do not substitute wrong-but-similar paths.
+- Do not emit partial bundles.
 
 If there are truly no changes, output exactly:
 
@@ -54,6 +57,7 @@ Before finishing your response you MUST internally verify:
 5. Every required deliverable path appears as a FILE block.
 6. Every required existing file was materially updated.
 7. All imports reference real modules.
+8. Every FILE header uses the exact path required by the task.
 
 If any of the above checks fail, regenerate the bundle before responding.
 
@@ -79,6 +83,8 @@ If the task says deliverables must be materially updated:
 → EVERY listed file must be changed in a meaningful way.
 
 Re-emitting identical files is considered FAILURE.
+
+If a required file is named explicitly in the task, use that exact path and do not replace it with a nested, renamed, underscored, or similar-looking alternative path.
 
 
 --------------------------------------------------
@@ -138,7 +144,7 @@ OR
 
 Before writing code:
 
-1. Inspect the repository map and provided file context.
+1. Inspect the provided file context.
 2. Reuse existing modules where possible.
 3. Create missing modules rather than inventing import paths.
 4. Never guess package layouts.
@@ -173,12 +179,6 @@ NEVER:
 - substitute ""
 - substitute directory paths
 - guess fallback paths
-
-Correct pattern:
-
-    audit_path = getattr(self.config, "audit_path", None)
-    if audit_path:
-        write_audit_log(...)
 
 If no valid path exists:
 → skip the behavior.
@@ -228,17 +228,6 @@ Your implementation MUST:
 
 
 --------------------------------------------------
-CLI TASKS
---------------------------------------------------
-
-If a task requires a CLI change:
-
-The CLI must visibly change behavior.
-
-Do not leave CLI files untouched when listed as deliverables.
-
-
---------------------------------------------------
 COMMON FAILURE MODES TO AVOID
 --------------------------------------------------
 
@@ -247,10 +236,8 @@ COMMON FAILURE MODES TO AVOID
 - Identical file re-emission
 - Text outside the bundle
 - Invented imports
-- Unused imports
-- Boolean equality assertions
-- Breaking existing interfaces
-- Executing placeholder commands
+- Wrong-but-similar file paths
+- Partial bundles
 - Updating only one file in a multi-file task
 
 
@@ -259,7 +246,7 @@ HOW TO PROCEED
 --------------------------------------------------
 
 1. Read the task specification carefully.
-2. Inspect the repository map and provided file context.
+2. Inspect the provided file context.
 3. Identify all deliverable paths.
 4. Plan the minimal correct implementation.
 5. Update every required deliverable.
