@@ -66,7 +66,7 @@ If the agent changes `project_adapter.py` or `project_config.py`, it must also m
 
 If the agent changes `runner.py`, it must materially update `tests/test_orchestrator_real_execution.py` in the same bundle.
 
-If the agent changes `cli.py`, it must also materially update at least one test file in the same bundle in a way that makes the CLI behavior change understandable and justified.
+If the agent changes `cli.py`, it must still include `cli.py` in the bundle, but a task-complete solution is allowed even when the material behavior fixes are concentrated in `runner.py` and tests.
 
 ## Required behavior
 
@@ -178,55 +178,20 @@ The following typing rules are mandatory:
 - Keep the real execution path explicit and testable.
 - Extend existing classes; do not replace them with incompatible interfaces.
 
-## Exact CLI material-change requirement
+## Exact CLI requirement
 
-`src/builder/orchestrator/cli.py` must be materially updated in this task.
+`src/builder/orchestrator/cli.py` must still be present in the bundle and must remain backward compatible.
 
-A valid CLI material update must do at least one of the following:
+A CLI update is welcome if it is a real runtime change, such as:
 
-- add a real execution-mode option that is actually wired into `OrchestratorRunner.run_next_task(...)`
-- add or update real CLI output so execution results from the real execution bridge are surfaced
-- update argument parsing so the real execution bridge can be triggered intentionally while preserving existing behavior by default
-- update CLI dependency wiring so the runner uses the preserved backward-compatible constructor and execution path explicitly
-- change the printed execution summary, exit handling, or mode-selection branch in a way that is directly tied to real task execution support
+- different printed execution summary fields
+- different exit-code handling
+- new mode selection wired to runner behavior
+- simulation / real-execution output changes
 
-Invalid `cli.py` updates include:
+However, the task is not blocked solely because the best fix lives in `runner.py`.
 
-- import-only changes
-- formatting-only edits
-- whitespace-only edits
-- comment-only edits
-- re-emitting the same logic
-- touching the file without changing CLI behavior
-- adding a flag that is parsed but never used
-- renaming variables without changing behavior
-
-The final bundle must include a meaningful behavior change in `src/builder/orchestrator/cli.py`.
-
-### Exact CLI non-stall rule
-
-A `cli.py` change is only valid if a reviewer can point to a changed runtime branch or changed runtime output.
-
-The following are strongly preferred because they are easy to verify as material:
-
-- change printed CLI summary fields
-- change CLI exit-code behavior
-- add a new parsed option that actually changes runner invocation behavior
-- add a simulation or real-execution output branch that changes printed output
-
-If the model is unsure how to materially change `cli.py`, it should prefer changing printed output and/or exit-code behavior in an observable way.
-
-## Exact test alignment for CLI
-
-At least one updated test or assertion in the bundle must indirectly validate the new CLI-related behavior, execution-mode wiring, or CLI-visible output contract.
-
-It is acceptable for this validation to live in one of these files:
-
-- `tests/test_orchestrator_real_execution.py`
-- `tests/test_project_adapter.py`
-- `tests/test_multi_project_adapters.py`
-
-But the bundle must make the `cli.py` material change understandable and justified.
+Do not force unnecessary churn in `cli.py` once the real compatibility defects are in `runner.py`.
 
 ## Acceptance criteria
 
@@ -248,7 +213,6 @@ A material update means at least one new assertion, changed expectation, or new 
 - exact legacy runner contract
 - adapter behavior translation
 - cross-platform real execution behavior
-- CLI wiring or CLI-visible behavior related to real execution or dry-run routing
 - simulation compatibility
 - config mutability compatibility
 
@@ -262,7 +226,6 @@ Also required:
 - `tests/test_project_adapter.py` continues to pass
 - `tests/test_multi_project_adapters.py` continues to pass
 - `tests/test_orchestrator_real_execution.py` continues to pass
-- `src/builder/orchestrator/cli.py` is materially updated with a real behavior-preserving CLI-path change tied to real task execution flow
 
 ## Normative compatibility examples
 
@@ -354,6 +317,12 @@ The solution is invalid unless `src/builder/orchestrator/runner.py` contains a l
 It must not merely mention simulation in comments or docs.
 
 It must be actual executable code in `runner.py`.
+
+### Exact simulation sequencing rule
+
+When `simulate_backlog()` encounters an approval-blocked task, that task must still be appended to `processed_tasks` before the simulation stops.
+
+For example, if the first task succeeds and the second task becomes approval-blocked, the returned `processed_tasks` must include both tasks before stopping.
 
 ### Exact legacy success-path compatibility
 
