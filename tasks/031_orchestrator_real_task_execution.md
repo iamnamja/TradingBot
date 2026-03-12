@@ -42,13 +42,13 @@ Implement an optional real execution bridge inside the orchestrator that:
 
 Create or update these exact files, and every listed existing file must be materially updated in the same bundle:
 
-- src/builder/orchestrator/runner.py
-- src/builder/orchestrator/project_config.py
-- src/builder/orchestrator/project_adapter.py
-- src/builder/orchestrator/cli.py
-- tests/test_orchestrator_real_execution.py
-- tests/test_project_adapter.py
-- tests/test_multi_project_adapters.py
+- `src/builder/orchestrator/runner.py`
+- `src/builder/orchestrator/project_config.py`
+- `src/builder/orchestrator/project_adapter.py`
+- `src/builder/orchestrator/cli.py`
+- `tests/test_orchestrator_real_execution.py`
+- `tests/test_project_adapter.py`
+- `tests/test_multi_project_adapters.py`
 
 ## Bundle completeness requirement
 
@@ -65,6 +65,8 @@ In particular:
 If the agent changes `project_adapter.py` or `project_config.py`, it must also materially update both adapter-related test files in the same bundle.
 
 If the agent changes `runner.py`, it must materially update `tests/test_orchestrator_real_execution.py` in the same bundle.
+
+If the agent changes `cli.py`, the bundle must make it obvious why `cli.py` changed by also including at least one test assertion or execution-path check that indirectly validates the CLI wiring, execution mode selection, or CLI-visible output behavior.
 
 ## Required behavior
 
@@ -173,6 +175,42 @@ The following typing rules are mandatory:
 - Keep the real execution path explicit and testable.
 - Extend existing classes; do not replace them with incompatible interfaces.
 
+## Exact CLI material-change requirement
+
+`src/builder/orchestrator/cli.py` must be materially updated in this task.
+
+A valid CLI material update must do at least one of the following:
+
+- add a real execution-mode option, such as `--dry-run` or another explicit mode switch, that is actually wired into `OrchestratorRunner.run_next_task(...)`
+- add or update real CLI output so execution results from the real execution bridge are surfaced
+- update argument parsing so the real execution bridge can be triggered intentionally while preserving existing behavior by default
+- update CLI dependency wiring so the runner uses the preserved backward-compatible constructor and execution path explicitly
+
+Invalid `cli.py` updates include:
+
+- import-only changes
+- formatting-only edits
+- whitespace-only edits
+- comment-only edits
+- re-emitting the same logic
+- touching the file without changing CLI behavior
+- adding a flag that is parsed but never used
+- renaming variables without changing behavior
+
+The final bundle must include a meaningful behavior change in `src/builder/orchestrator/cli.py`.
+
+## Exact test alignment for CLI
+
+At least one updated test or assertion in the bundle must indirectly validate the new CLI-related behavior, execution-mode wiring, or CLI-visible output contract.
+
+It is acceptable for this validation to live in one of these files:
+
+- `tests/test_orchestrator_real_execution.py`
+- `tests/test_project_adapter.py`
+- `tests/test_multi_project_adapters.py`
+
+But the bundle must make the `cli.py` material change understandable and justified.
+
 ## Acceptance criteria
 
 Unit tests verify:
@@ -191,6 +229,7 @@ A material update means at least one new assertion, changed expectation, or new 
 - exact legacy runner contract
 - adapter behavior translation
 - cross-platform real execution behavior
+- CLI wiring or CLI-visible behavior related to real execution or dry-run routing
 
 Re-outputting the same test file or changing whitespace/comments only is insufficient.
 
@@ -393,6 +432,18 @@ Do not pass a full shell string like:
 as a single executable token.
 
 Use a command form that is safe for `subprocess.run(...)`, such as a list of executable plus arguments, or another implementation that correctly splits command arguments cross-platform.
+
+### Exact CLI example requirement
+
+A compliant solution should make it obvious why `cli.py` changed.
+
+Examples of acceptable material CLI changes include:
+
+- wiring `--dry-run` through to `runner.run_next_task(dry_run=True)`
+- surfacing `status`, `message`, or execution-result fields in printed CLI output
+- adding an explicit execution-mode argument that selects legacy/default vs real execution behavior without changing the default behavior
+
+A non-compliant solution would leave `cli.py` behavior effectively unchanged.
 
 ## Guardrails
 
