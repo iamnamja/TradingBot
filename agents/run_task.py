@@ -136,9 +136,17 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
 
         i += 1
         buf: List[str] = []
-        while i < len(lines) and lines[i].strip("\n") != FILE_END:
+        while i < len(lines):
+            if lines[i].strip("\n") == FILE_END:
+                break
+            if FILE_HEADER_RE.match(lines[i]):
+                raise FileBundleError(
+                    f"Nested FILE header encountered before END_FILE for {relpath}. "
+                    f"Every FILE block must be closed with END_FILE before the next FILE header."
+                )
             buf.append(lines[i])
             i += 1
+
         if i >= len(lines):
             raise FileBundleError(f"Missing END_FILE for {relpath}.")
 
@@ -584,6 +592,7 @@ def build_messages(task_text: str, required: List[str], extra_directives: str = 
         extra.append("")
         extra.append("## Output requirements")
         extra.append("You MUST emit FILE blocks for every required deliverable path listed above.")
+        extra.append("Every FILE block must be closed by END_FILE before the next FILE header.")
         extra.append("If a deliverable is an existing file, materially update it in the bundle.")
         extra.append("Do not omit test files named in the task.")
         extra.append("Do not substitute similar or nested alternative paths.")
@@ -617,15 +626,16 @@ def request_and_parse_bundle(messages: List[dict], model: str, last_output_path:
         reminder = (
             "Your previous response was INVALID.\n"
             "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
-            "Do NOT use commented headers like '# FILE:'.\n\n"
+            "Do NOT use commented headers like '# FILE:'.\n"
+            "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n\n"
             "Required structure:\n"
             "BEGIN_FILE_BUNDLE\n"
             "FILE: path/to/file.ext\n"
             "<full file contents>\n"
             "END_FILE\n"
-            "END_FILE_BUNDLE\n\n"
-            "If there are no changes, output exactly:\n"
-            "BEGIN_FILE_BUNDLE\n"
+            "FILE: another/path.py\n"
+            "<full file contents>\n"
+            "END_FILE\n"
             "END_FILE_BUNDLE\n\n"
             f"Parser error: {e}"
         )
