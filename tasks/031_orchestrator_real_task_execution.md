@@ -66,7 +66,7 @@ If the agent changes `project_adapter.py` or `project_config.py`, it must also m
 
 If the agent changes `runner.py`, it must materially update `tests/test_orchestrator_real_execution.py` in the same bundle.
 
-If the agent changes `cli.py`, the bundle must also include at least one material test-file change that makes the CLI wiring change understandable and justified.
+If the agent changes `cli.py`, it must also materially update at least one test file in the same bundle in a way that makes the CLI behavior change understandable and justified.
 
 ## Required behavior
 
@@ -203,6 +203,19 @@ Invalid `cli.py` updates include:
 
 The final bundle must include a meaningful behavior change in `src/builder/orchestrator/cli.py`.
 
+### Exact CLI non-stall rule
+
+A `cli.py` change is only valid if a reviewer can point to a changed runtime branch or changed runtime output.
+
+The following are strongly preferred because they are easy to verify as material:
+
+- change printed CLI summary fields
+- change CLI exit-code behavior
+- add a new parsed option that actually changes runner invocation behavior
+- add a simulation or real-execution output branch that changes printed output
+
+If the model is unsure how to materially change `cli.py`, it should prefer changing printed output and/or exit-code behavior in an observable way.
+
 ## Exact test alignment for CLI
 
 At least one updated test or assertion in the bundle must indirectly validate the new CLI-related behavior, execution-mode wiring, or CLI-visible output contract.
@@ -334,6 +347,14 @@ Preserve existing keys such as:
 - `approval_required`
 - `planned_actions`
 
+### Exact simulate_backlog implementation requirement
+
+The solution is invalid unless `src/builder/orchestrator/runner.py` contains a literal `def simulate_backlog(` method in the final bundle.
+
+It must not merely mention simulation in comments or docs.
+
+It must be actual executable code in `runner.py`.
+
 ### Exact legacy success-path compatibility
 
 If `execute_task()` returns a mocked success payload with `success=True`, existing success-path tests must still be able to reach:
@@ -344,6 +365,8 @@ If `execute_task()` returns a mocked success payload with `success=True`, existi
 Do not default a mocked success path to `review_blocked` merely because `changed_files` is empty or omitted.
 
 If the implementation needs changed files for review logic, preserve backward compatibility for legacy/mock test payloads.
+
+If `run_review(...)` is called on a mocked success path where `changed_files` is empty or omitted, preserve the legacy success contract instead of forcing a review-blocked outcome.
 
 ### Exact failure-message compatibility
 
