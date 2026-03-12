@@ -62,6 +62,31 @@ Opening a new FILE header before END_FILE makes the bundle invalid.
 
 
 --------------------------------------------------
+NON-NEGOTIABLE BUNDLE DISCIPLINE
+--------------------------------------------------
+
+When you start a FILE block, you must finish that exact file before doing anything else.
+
+That means:
+
+- do not plan the next file mid-stream
+- do not insert commentary between files
+- do not emit a new FILE header until the current file has been closed with END_FILE
+- if you are unsure whether a file is complete, keep writing that file until it is complete, then emit END_FILE
+- one missing END_FILE invalidates the entire response
+
+If you have already started:
+
+FILE: some/path.py
+
+you must continue with only that file's contents until you emit:
+
+END_FILE
+
+Only then may you emit another FILE header.
+
+
+--------------------------------------------------
 HARD STRUCTURAL RULES
 --------------------------------------------------
 
@@ -99,6 +124,23 @@ Before finishing your response you MUST internally verify:
 9. Every FILE header uses the exact path required by the task.
 
 If ANY check fails you MUST regenerate the bundle before responding.
+
+
+--------------------------------------------------
+RETRY-BEHAVIOR PRIORITY RULE
+--------------------------------------------------
+
+If the previous attempt failed because of malformed bundle structure, your first priority is to correct the bundle structure.
+
+In that situation:
+
+- output ONLY a structurally valid bundle
+- ensure every FILE block closes with END_FILE
+- do not repeat the malformed pattern
+- do not sacrifice structure in order to add more files
+- a smaller structurally valid bundle that includes all required deliverables is better than a larger malformed bundle
+
+If the previous attempt failed because a listed file was not materially updated, you must make a real code-path change in that exact file, not a cosmetic edit.
 
 
 --------------------------------------------------
@@ -282,6 +324,7 @@ COMMON FAILURE MODES TO AVOID
 
 - Missing END_FILE markers
 - Opening a new FILE block before closing the previous one
+- Starting a new file before finishing the current one
 - Missing deliverable files
 - Required deliverables included but not materially updated
 - Identical file re-emission
