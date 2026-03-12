@@ -32,16 +32,16 @@ END_FILE_BUNDLE
 CRITICAL FILE-BUNDLE RULE
 --------------------------------------------------
 
-Each file must be emitted as a **fully closed block**.
+Each file must be emitted as a fully closed block.
 
-After every `FILE:` header you MUST output:
+After every FILE header you MUST output:
 
 1. the complete file contents
-2. a literal line `END_FILE`
+2. a literal line: END_FILE
 
-Only AFTER `END_FILE` may you start another `FILE:` header.
+Only AFTER END_FILE may you start another FILE header.
 
-Example of VALID structure:
+VALID structure:
 
 BEGIN_FILE_BUNDLE
 FILE: a.py
@@ -52,13 +52,13 @@ FILE: b.py
 END_FILE
 END_FILE_BUNDLE
 
-Example of INVALID structure:
+INVALID structure:
 
 FILE: a.py
 <contents>
 FILE: b.py
 
-Opening a new `FILE:` header before `END_FILE` makes the bundle invalid.
+Opening a new FILE header before END_FILE makes the bundle invalid.
 
 
 --------------------------------------------------
@@ -69,7 +69,7 @@ HARD STRUCTURAL RULES
 - FILE blocks MUST contain the FULL final file contents.
 - Each FILE block MUST end with a literal END_FILE.
 - You MUST close a FILE block before opening another FILE block.
-- Use literal `FILE:` lines only (never `# FILE:`).
+- Use literal FILE: lines only, never # FILE:.
 - BEGIN_FILE_BUNDLE and END_FILE_BUNDLE must appear exactly once.
 - Never output text outside the bundle.
 - If the task lists deliverables, every listed deliverable path MUST appear as a FILE block.
@@ -98,7 +98,7 @@ Before finishing your response you MUST internally verify:
 8. All imports reference real modules.
 9. Every FILE header uses the exact path required by the task.
 
-If ANY check fails you MUST regenerate the bundle.
+If ANY check fails you MUST regenerate the bundle before responding.
 
 
 --------------------------------------------------
@@ -125,6 +125,8 @@ Re-emitting identical files is considered FAILURE.
 
 If a required file is named explicitly in the task, use that exact path and do not replace it with a nested, renamed, underscored, or similar-looking alternative path.
 
+If a task requires a listed file to be materially updated, you must make a real code or test change in that exact file. A token edit, whitespace-only edit, comment-only edit, or cosmetic reformat does not satisfy the requirement.
+
 
 --------------------------------------------------
 MATERIAL CHANGE REQUIREMENT
@@ -141,6 +143,8 @@ A valid material update includes:
 - structural refactor
 - new tests or updated tests
 - changed configuration logic
+- changed execution summary or result handling
+- changed runner wiring or argument handling
 
 INVALID updates include:
 
@@ -150,7 +154,7 @@ INVALID updates include:
 - re-emitting identical code
 
 If a task explicitly says a file must be updated:
-→ that file must change behavior.
+→ that file must change behavior or code flow.
 
 
 --------------------------------------------------
@@ -167,6 +171,8 @@ If multiple deliverables are listed:
 If an interface changes:
 
 - update tests and callers listed in deliverables.
+
+If a task lists a CLI file as a deliverable, the CLI file must be materially changed in a real code path related to runner construction, invocation, argument handling, execution result handling, or printed execution summary. Do not leave the CLI effectively unchanged.
 
 
 --------------------------------------------------
@@ -235,6 +241,8 @@ Never replace the default path unless the task explicitly requires it.
 
 Default behavior must remain safe and deterministic.
 
+If a real execution command is configured as a template or shell-like command, preserve compatibility with existing tests and platform-safe invocation patterns.
+
 
 --------------------------------------------------
 TEST ALIGNMENT RULES
@@ -249,6 +257,8 @@ Modify the implementation — NOT the test — unless the task explicitly instru
 If failures repeat across iterations:
 
 → make a materially different implementation change.
+
+If a required deliverable test file is listed in the task, you MUST materially update that test file in the same bundle.
 
 
 --------------------------------------------------
@@ -273,6 +283,7 @@ COMMON FAILURE MODES TO AVOID
 - Missing END_FILE markers
 - Opening a new FILE block before closing the previous one
 - Missing deliverable files
+- Required deliverables included but not materially updated
 - Identical file re-emission
 - Text outside the bundle
 - Invented imports
