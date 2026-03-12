@@ -169,6 +169,8 @@ Example required behavior:
 - task 2 becomes approval-blocked
 - returned `processed_tasks` must be `["001_task.py", "002_task.py"]`
 
+This is mandatory. A solution that returns only `["001_task.py"]` in that scenario is invalid.
+
 ### Mocked success path
 
 If `execute_task()` returns a mocked success payload with `success=True`, and `changed_files` is empty or missing, existing tests must still reach:
@@ -217,6 +219,27 @@ INVALID:
 - `config.task_runner_command = "default_task_runner"`
 
 If `--real-execution` is supported in `cli.py`, it may only enable behavior when a real configured command already exists. It must not invent a command.
+
+## Exact implementation patch guidance for runner.py
+
+The remaining failing cases shown by the current bundle must be fixed directly in `src/builder/orchestrator/runner.py`.
+
+A valid fix should do all of the following:
+
+1. In `run_review(...)`:
+   - if `changed_files` is empty or missing on the legacy/mock path, return `{"mergeable": True}`
+   - do not block review solely because no changed files were supplied by a mocked execution payload
+
+2. In `process_execution_result(...)` failure handling:
+   - set `failure_text = execution_result.get("failure_text") or execution_result.get("stderr") or execution_result.get("output") or ""`
+   - then use that resolved text in the returned message
+
+3. In `simulate_backlog()`:
+   - append the current task name to `processed_tasks`
+   - then, if review is blocked, stop only after that append has already happened
+   - preserve `approval_required=True` and blocked/failure semantics, but keep the processed task list complete
+
+These are the current failing compatibility gaps and must be fixed.
 
 ## Ownership and typing constraints
 
