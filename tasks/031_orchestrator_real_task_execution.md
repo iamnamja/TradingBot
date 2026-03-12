@@ -213,6 +213,20 @@ The following constructor/API rules are mandatory:
 - `OrchestratorRunner(config, backlog_tracker, initial_state)` must continue to work.
 - `run_next_task()`, `select_next_task()`, and `simulate_backlog()` must continue to exist.
 
+### Exact config mutability and dataclass rule
+
+Both `ProjectConfig` and any subclass such as `GenericProjectConfig` must remain mutable.
+
+Do NOT use `@dataclass(frozen=True)` on `ProjectConfig`.
+Do NOT use `@dataclass(frozen=True)` on `GenericProjectConfig`.
+Do NOT mix frozen and non-frozen dataclasses in this module.
+
+The following must continue to work in tests:
+
+`config.task_runner_command = ...`
+
+A solution that makes either config class frozen is invalid.
+
 The following default-config rules are mandatory:
 
 - `ProjectAdapter.get_tradingbot_default_config().task_runner_command is None`
@@ -244,6 +258,20 @@ The following typing rules are mandatory:
 - Avoid introducing unused variables or dead code.
 - Keep the real execution path explicit and testable.
 - Extend existing classes; do not replace them with incompatible interfaces.
+
+### Exact run_next_task signature rule
+
+`run_next_task` must preserve its existing public signature:
+
+`run_next_task(dry_run=False)`
+
+Do NOT add new required parameters.
+Do NOT add new optional parameters such as `real_execution` if callers and tests do not expect them.
+Do NOT change CLI wiring to call `run_next_task(..., real_execution=...)`.
+
+If a real-execution mode is needed, derive it from config or preserve it behind existing-compatible interfaces.
+
+A solution that changes the public call shape of `run_next_task()` is invalid.
 
 ## Acceptance criteria
 
