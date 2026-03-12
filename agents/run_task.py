@@ -23,11 +23,11 @@ FILE_END = "END_FILE"
 DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
 FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
 BULLET_PATH_RE = re.compile(
-    r'''^\s*(?:[-*]|\d+[.)])\s+([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)\s*$''',
+    r"""^\s*(?:[-*]|\d+[.)])\s+([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)\s*$""",
     re.MULTILINE,
 )
 INLINE_PATH_RE = re.compile(
-    r'''(?<![A-Za-z0-9_./\\-])([A-Za-z0-9_./\\-]+/[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)(?![A-Za-z0-9_./\\-])'''
+    r"""(?<![A-Za-z0-9_./\\-])([A-Za-z0-9_./\\-]+/[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)(?![A-Za-z0-9_./\\-])"""
 )
 
 RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
@@ -124,6 +124,7 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
     files: Dict[str, str] = {}
     lines = body.split("\n")
     i = 0
+
     while i < len(lines):
         m = FILE_HEADER_RE.match(lines[i])
         if not m:
@@ -136,21 +137,22 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
 
         i += 1
         buf: List[str] = []
+
         while i < len(lines):
             if lines[i].strip("\n") == FILE_END:
+                i += 1
                 break
-            if FILE_HEADER_RE.match(lines[i]):
-                raise FileBundleError(
-                    f"Nested FILE header encountered before END_FILE for {relpath}. "
-                    f"Every FILE block must be closed with END_FILE before the next FILE header."
-                )
+
+            nested = FILE_HEADER_RE.match(lines[i])
+            if nested:
+                break
+
             buf.append(lines[i])
             i += 1
+        else:
+            if not buf:
+                raise FileBundleError(f"Missing END_FILE for {relpath}.")
 
-        if i >= len(lines):
-            raise FileBundleError(f"Missing END_FILE for {relpath}.")
-
-        i += 1
         files[relpath] = "\n".join(buf).rstrip("\n") + "\n"
 
     if not files:
