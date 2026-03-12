@@ -22,6 +22,13 @@ FILE_END = "END_FILE"
 
 DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
 FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
+BULLET_PATH_RE = re.compile(
+    r"""^\s*(?:[-*]|\d+[.)])\s+([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)\s*$""",
+    re.MULTILINE,
+)
+INLINE_PATH_RE = re.compile(
+    r"""(?<![A-Za-z0-9_./\\-])([A-Za-z0-9_./\\-]+/[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)(?![A-Za-z0-9_./\\-])"""
+)
 
 RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
 RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
@@ -155,18 +162,45 @@ def write_files(files: Dict[str, str]) -> None:
         p.write_text(data, encoding="utf-8", newline="\n")
 
 
+def _deliverables_section(task_text: str) -> str:
+    text = normalize_newlines(task_text)
+    lines = text.splitlines()
+
+    start_idx = 0
+    found = False
+    for i, line in enumerate(lines):
+        if re.match(r"^\s*#{1,6}\s+deliverables\s*$", line, re.IGNORECASE):
+            start_idx = i + 1
+            found = True
+            break
+
+    if not found:
+        return text
+
+    end_idx = len(lines)
+    for j in range(start_idx, len(lines)):
+        if re.match(r"^\s*#{1,6}\s+\S", lines[j]):
+            end_idx = j
+            break
+
+    return "\n".join(lines[start_idx:end_idx])
+
+
 def parse_required_files(task_text: str) -> List[str]:
-    task_text = normalize_newlines(task_text)
-    lower = task_text.lower()
-
-    idx = lower.find("## deliverables")
-    if idx == -1:
-        idx = lower.find("# deliverables")
-
-    section = task_text if idx == -1 else task_text[idx:]
-
+    section = _deliverables_section(task_text)
     req: List[str] = []
+
     for m in DELIVERABLE_PATH_RE.finditer(section):
+        path = m.group(1).strip().replace("\\", "/")
+        if "/" in path and not path.startswith(("http://", "https://")):
+            req.append(path)
+
+    for m in BULLET_PATH_RE.finditer(section):
+        path = m.group(1).strip().replace("\\", "/")
+        if "/" in path and not path.startswith(("http://", "https://")):
+            req.append(path)
+
+    for m in INLINE_PATH_RE.finditer(section):
         path = m.group(1).strip().replace("\\", "/")
         if "/" in path and not path.startswith(("http://", "https://")):
             req.append(path)
@@ -191,6 +225,7 @@ def task_requires_material_update(task_text: str) -> bool:
         "must be materially updated",
         "if any one of these three files is not changed, the task is incomplete",
         "if any one of these",
+        "materially updated in the same bundle",
     ]
     return any(p in lower for p in phrases)
 
@@ -286,8 +321,15 @@ def relevant_context(required: List[str]) -> str:
         if p.parent != Path("."):
             for sib in sorted(p.parent.glob("*.py")):
                 candidates.append(sib)
-        if p.suffix == ".md":
-            candidates.append(p)
+            for sib in sorted(p.parent.glob("*.md")):
+                candidates.append(sib)
+
+    for impl_root in [Path("src"), Path("tests")]:
+        if impl_root.exists():
+            for path in sorted(impl_root.rglob("*.py")):
+                if len(candidates) > 100:
+                    break
+                candidates.append(path)
 
     for p in candidates:
         if not p.exists() or not p.is_file():
@@ -349,160 +391,120 @@ def missing_module_hints(import_msg: str) -> str:
     return "\n".join(hints)
 
 
-def _append_unique(lines: List[str], line: str) -> None:
-    if line and line not in lines:
-        lines.append(line)
-
-
 def parse_semantic_failures(details: str) -> str:
     lines: List[str] = []
 
     for path, lineno in sorted(set(RUFF_UNUSED_IMPORT_RE.findall(details))):
-        _append_unique(lines, f"- Ruff reports unused imports in `{path}` line {lineno}. Remove the unused imports.")
+        lines.append(f"- Ruff reports unused imports in `{path}` line {lineno}. Remove the unused imports.")
     for path, lineno in sorted(set(RUFF_BOOL_COMPARE_RE.findall(details))):
-        _append_unique(
-            lines,
+        lines.append(
             f"- Ruff reports boolean equality comparisons in `{path}` line {lineno}. "
-            "Use `assert x` or `assert not x` instead of `== True/False`.",
+            "Use `assert x` or `assert not x` instead of `== True/False`."
         )
-
-    undefined_names = set(RUFF_UNDEFINED_NAME_RE.findall(details)) | set(NAME_ERROR_RE.findall(details))
-    for name in sorted(undefined_names):
-        _append_unique(
-            lines,
-            f"- Missing name/import detected for `{name}`. Restore the required import or symbol reference only; "
-            "do not redesign the surrounding interface to work around this error.",
-        )
-        if name in {"Optional", "TaskMetadata", "ProjectConfig"}:
-            _append_unique(
-                lines,
-                f"- `{name}` was previously part of the working implementation. Re-import it and preserve the existing public API shape.",
-            )
 
     for name in PYTEST_TEST_NAME_RE.findall(details)[:10]:
-        _append_unique(lines, f"- Pytest failure: `{name}`")
+        lines.append(f"- Pytest failure: `{name}`")
 
     for path, lineno in sorted(set(PYTEST_TEST_FILE_RE.findall(details))):
-        _append_unique(
-            lines,
+        lines.append(
             f"- Modify implementation files to satisfy the failing expectation referenced by `{path}` line {lineno}. "
-            "Do not change tests unless the task explicitly requires it.",
+            "Do not change tests unless the task explicitly requires it."
         )
 
     for actual, expected in PYTEST_EXACT_MISMATCH_RE.findall(details)[:10]:
-        _append_unique(
-            lines,
+        lines.append(
             f"- Exact mismatch: actual `{actual.strip()}` vs expected `{expected.strip()}`. "
-            "Change the implementation so the expected value passes exactly.",
+            "Change the implementation so the expected value passes exactly."
         )
 
     for cls, attr in sorted(set(MISSING_ATTR_RE.findall(details))):
-        _append_unique(
-            lines,
+        lines.append(
             f"- AttributeError detected: `{cls}` has no `{attr}`. "
-            "Restore the previous public method/field if older tests expect it. "
-            "Do not fabricate optional fields or guessed config members.",
+            "Do not fabricate optional fields or guessed config members. "
+            "Guard the access with `getattr(..., None)` or skip the behavior when the field is not configured."
         )
-        if attr in {"simulate_backlog", "select_next_task"}:
-            _append_unique(
-                lines,
-                f"- `{attr}` is part of the older runner contract. Restore that method with backward-compatible behavior.",
-            )
-        if attr.endswith("path"):
-            _append_unique(
-                lines,
-                f"- Because `{attr}` is missing, do not call helpers that require it. "
-                "Branch before the helper call and no-op that integration when the path is not configured.",
-            )
 
     for bad_path in sorted(set(PATH_ERROR_RE.findall(details))):
         shown = bad_path if bad_path else "<empty string>"
-        _append_unique(
-            lines,
+        lines.append(
             f"- File-path misuse detected: `{shown}` was treated like a writable file. "
             "Do not substitute directory paths or empty strings for optional file paths. "
-            "If no valid file path is configured, skip the write or inject an in-memory callback/writer.",
+            "If no valid file path is configured, skip the write or inject an in-memory callback/writer."
         )
 
     for mod in sorted(set(MODULE_NOT_FOUND_RE.findall(details))):
-        _append_unique(
-            lines,
-            f"- ModuleNotFoundError detected for `{mod}`. Use an existing repo module or create that module/package in the same bundle.",
+        lines.append(
+            f"- ModuleNotFoundError detected for `{mod}`. Use an existing repo module or create that module/package in the same bundle."
         )
 
-    for key in sorted(set(KEY_ERROR_RE.findall(details))):
-        if key in {"task_name", "status", "message", "dry_run", "outcome", "next_action", "requires_approval", "processed_tasks"}:
-            _append_unique(
-                lines,
-                f"- Result-contract regression detected: missing key `{key}`. "
-                "Restore the existing result dictionary shape and keep prior keys present.",
-            )
-
-    for cls in sorted(set(CTOR_TYPE_ERROR_RE.findall(details))):
-        _append_unique(
-            lines,
-            f"- Constructor signature regression detected for `{cls}`. Restore the previous `__init__` call shape expected by existing tests.",
-        )
-
-    for cls in sorted(set(TAKES_NO_ARGS_RE.findall(details))):
-        _append_unique(
-            lines,
-            f"- `{cls}(...)` previously accepted constructor arguments. Restore that initializer rather than replacing the class with a no-arg version.",
+    if GENERIC_TASKS_ASSERT_RE.search(details):
+        lines.append(
+            "- A test expects `get_generic_project_config()` to return `generic_tasks/`. Preserve that exact compatibility."
         )
 
     if DEFAULT_TASK_RUNNER_RE.search(details):
-        _append_unique(
-            lines,
-            "- Placeholder runner command detected (`default_task_runner`). Real execution must be opt-in. "
-            "Preserve the legacy/mock default path unless an explicit command is configured.",
+        lines.append(
+            "- The task requires `task_runner_command` to default to `None`. Do not use `default_task_runner` as a fallback."
         )
 
-    if "FileNotFoundError" in details and "subprocess" in details:
-        _append_unique(
-            lines,
-            "- Subprocess launch failed. Do not execute placeholder or guessed commands in the default path. "
-            "Keep real execution opt-in and preserve the mocked default behavior.",
+    if WIN_ECHO_RE.search(details):
+        lines.append(
+            "- A Windows subprocess failure suggests the real-execution test is using an unsafe command. "
+            "Use a subprocess-safe Python invocation instead of plain `echo`."
         )
 
-    if "FileNotFoundError" in details and ("['echo'," in details or " echo " in details):
-        _append_unique(
-            lines,
-            "- Windows note: `echo` is a shell builtin, not a standalone executable. "
-            "For real execution tests, use cross-platform subprocess handling or a Python executable path.",
+    for undefined_name in sorted(set(RUFF_UNDEFINED_NAME_RE.findall(details))):
+        lines.append(
+            f"- Ruff reports undefined name `{undefined_name}`. Add the missing import or remove the invalid reference."
         )
 
-    if GENERIC_TASKS_ASSERT_RE.search(details) or "get_generic_project_config" in details:
-        _append_unique(
-            lines,
-            "- Generic adapter regression detected. Preserve `ProjectAdapter.get_generic_project_config()` and keep its existing `generic_tasks/` semantics.",
+    for missing_name in sorted(set(NAME_ERROR_RE.findall(details))):
+        lines.append(
+            f"- Runtime NameError for `{missing_name}`. Fix imports or use safe forward references in type annotations."
         )
 
-    m = MISSING_DELIVERABLES_RE.search(details)
-    if m:
-        _append_unique(
-            lines,
+    for missing_key in sorted(set(KEY_ERROR_RE.findall(details))):
+        lines.append(
+            f"- KeyError for `{missing_key}`. Preserve the legacy result contract and include that key when tests expect it."
+        )
+
+    for cls in sorted(set(CTOR_TYPE_ERROR_RE.findall(details))):
+        lines.append(
+            f"- Constructor signature mismatch for `{cls}`. Preserve the existing backward-compatible constructor signature."
+        )
+
+    for cls in sorted(set(TAKES_NO_ARGS_RE.findall(details))):
+        lines.append(
+            f"- `{cls}` must still accept constructor arguments expected by the existing tests."
+        )
+
+    if MISSING_DELIVERABLES_RE.search(details):
+        lines.append(
             "- Required deliverables are still missing. Materially update every listed deliverable in the same bundle; "
-            "do not leave one untouched while only changing another file.",
+            "do not leave one untouched while only changing another file."
         )
 
-    m2 = UNCHANGED_DELIVERABLES_RE.search(details)
-    if m2:
-        _append_unique(
-            lines,
-            "- Required deliverables were included but unchanged. Materially edit every listed deliverable, not just the main implementation file.",
+    if UNCHANGED_DELIVERABLES_RE.search(details):
+        lines.append(
+            "- Required deliverables were included but unchanged. Materially edit every listed deliverable, not just the main implementation file."
         )
 
     for line in details.splitlines():
         s = line.strip()
         if s.startswith("E       assert ") and " == " in s:
             pretty = s.replace("E       ", "", 1)
-            _append_unique(
-                lines,
+            lines.append(
                 f"- Pytest reported exact assertion mismatch: `{pretty}`. "
-                "Use this exact expected value as the source of truth.",
+                "Use this exact expected value as the source of truth."
             )
 
-    return "\n".join(lines)
+    deduped: List[str] = []
+    seen = set()
+    for line in lines:
+        if line and line not in seen:
+            deduped.append(line)
+            seen.add(line)
+    return "\n".join(deduped)
 
 
 def bundle_similarity(a: Dict[str, str], b: Dict[str, str]) -> float:
@@ -565,6 +567,11 @@ def build_messages(task_text: str, required: List[str]) -> List[dict]:
         extra.append("## Required deliverables (must be satisfied)")
         extra.extend(f"- {p}" for p in required)
         extra.append("")
+        extra.append("## Output requirements")
+        extra.append("You MUST emit FILE blocks for every required deliverable path listed above.")
+        extra.append("If a deliverable is an existing file, materially update it in the bundle.")
+        extra.append("Do not omit test files named in the task.")
+        extra.append("")
 
     extra.append("## Repository map")
     extra.append(repo_map())
@@ -608,6 +615,7 @@ def main() -> int:
     last_bundle_path = Path("_last_agent_file_bundle.txt")
 
     prev_files: Dict[str, str] | None = None
+    consecutive_missing_required = 0
 
     for it in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {it}/{args.max_iters} ===")
@@ -655,9 +663,18 @@ def main() -> int:
         )
         if not ok_req:
             print(f"❌ {req_msg}")
+            consecutive_missing_required += 1
             task_text = task_text.rstrip() + "\n\nIMPORTANT: " + req_msg + "\n"
+            if consecutive_missing_required >= 2 and required:
+                task_text += (
+                    "\nIMPORTANT: Your next response MUST contain FILE blocks for every one of these exact paths:\n"
+                    + "\n".join(f"- {p}" for p in required)
+                    + "\nDo not omit any of them.\n"
+                )
             prev_files = files
             continue
+
+        consecutive_missing_required = 0
 
         ok_imports, import_msg = validate_imports(files)
         if not ok_imports:
@@ -715,8 +732,7 @@ def main() -> int:
                     "You must make a real implementation change in the most likely source file causing the failure. "
                     "Do not resubmit the same logic. Prefer changing the implementation rather than the tests. "
                     "If helper methods exist, update them consistently instead of patching only one call site. "
-                    "If the failure mentions an optional config field or invalid file path, remove the call or guard it before invoking the helper. "
-                    "If the failure indicates an API regression, restore the previous public interface rather than inventing a replacement.\n"
+                    "If the failure mentions an optional config field or invalid file path, remove the call or guard it before invoking the helper.\n"
                 )
 
         prev_files = files
