@@ -48,8 +48,8 @@ TAKES_NO_ARGS_RE = re.compile(r"TypeError: ([A-Za-z_][A-Za-z0-9_]*)\(\) takes no
 MISSING_DELIVERABLES_RE = re.compile(r"Missing required deliverables.*?:\s*(.+)")
 UNCHANGED_DELIVERABLES_RE = re.compile(r"Required deliverables were included but not materially updated:\s*(.+)")
 GENERIC_TASKS_ASSERT_RE = re.compile(r"assert 'tasks/' == 'generic_tasks/'")
-DEFAULT_TASK_RUNNER_RE = re.compile(r"default_task_runner")
 WIN_ECHO_RE = re.compile(r"FileNotFoundError: \[WinError 2\].*?\n", re.MULTILINE)
+DEFAULT_TASK_RUNNER_RE = re.compile(r"default_task_runner")
 
 
 class FileBundleError(ValueError):
@@ -293,14 +293,12 @@ def repo_map() -> str:
             continue
         out.append(f"[{root.as_posix()}]")
         for path in sorted(root.rglob("*")):
-            if path.is_dir():
-                continue
             rel = path.as_posix()
-            if "__pycache__" in rel or rel.endswith(".pyc"):
-                continue
-            out.append(rel)
-        out.append("")
-    return "\n".join(out).strip()
+            if path.is_dir():
+                out.append(rel + "/")
+            else:
+                out.append(rel)
+    return "\n".join(out[:1200])
 
 
 def relevant_context(required: List[str]) -> str:
@@ -327,7 +325,7 @@ def relevant_context(required: List[str]) -> str:
     for impl_root in [Path("src"), Path("tests")]:
         if impl_root.exists():
             for path in sorted(impl_root.rglob("*.py")):
-                if len(candidates) > 100:
+                if len(candidates) > 80:
                     break
                 candidates.append(path)
 
@@ -478,13 +476,15 @@ def parse_semantic_failures(details: str) -> str:
             f"- `{cls}` must still accept constructor arguments expected by the existing tests."
         )
 
-    if MISSING_DELIVERABLES_RE.search(details):
+    m = MISSING_DELIVERABLES_RE.search(details)
+    if m:
         lines.append(
             "- Required deliverables are still missing. Materially update every listed deliverable in the same bundle; "
             "do not leave one untouched while only changing another file."
         )
 
-    if UNCHANGED_DELIVERABLES_RE.search(details):
+    m2 = UNCHANGED_DELIVERABLES_RE.search(details)
+    if m2:
         lines.append(
             "- Required deliverables were included but unchanged. Materially edit every listed deliverable, not just the main implementation file."
         )
@@ -586,6 +586,36 @@ def build_messages(task_text: str, required: List[str]) -> List[dict]:
     ]
 
 
+def request_and_parse_bundle(messages: List[dict], model: str, last_output_path: Path) -> Dict[str, str]:
+    out = chat(messages, model=model)
+    last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
+
+    try:
+        return parse_file_bundle(out)
+    except Exception as e:
+        reminder = (
+            "Your previous response was INVALID.\n"
+            "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
+            "Do NOT use commented headers like '# FILE:'.\n\n"
+            "Required structure:\n"
+            "BEGIN_FILE_BUNDLE\n"
+            "FILE: path/to/file.ext\n"
+            "<full file contents>\n"
+            "END_FILE\n"
+            "END_FILE_BUNDLE\n\n"
+            "If there are no changes, output exactly:\n"
+            "BEGIN_FILE_BUNDLE\n"
+            "END_FILE_BUNDLE\n\n"
+            f"Parser error: {e}"
+        )
+        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model)
+        last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+        try:
+            return parse_file_bundle(out2)
+        except Exception as e2:
+            raise FileBundleError(f"Model returned malformed file bundle after retry: {e2}") from e2
+
+
 def main() -> int:
     _load_dotenv_if_available()
 
@@ -622,30 +652,13 @@ def main() -> int:
         baseline = existing_file_contents(required)
         messages = build_messages(task_text, required)
 
-        out = chat(messages, model=args.model)
-        last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
-
         try:
-            files = parse_file_bundle(out)
-        except Exception as e:
-            reminder = (
-                "Your previous response was INVALID.\n"
-                "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
-                "Do NOT use commented headers like '# FILE:'.\n\n"
-                "Required structure:\n"
-                "BEGIN_FILE_BUNDLE\n"
-                "FILE: path/to/file.ext\n"
-                "<full file contents>\n"
-                "END_FILE\n"
-                "END_FILE_BUNDLE\n\n"
-                "If there are no changes, output exactly:\n"
-                "BEGIN_FILE_BUNDLE\n"
-                "END_FILE_BUNDLE\n\n"
-                f"Parser error: {e}"
-            )
-            out2 = chat(messages + [{"role": "user", "content": reminder}], model=args.model)
-            last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
-            files = parse_file_bundle(out2)
+            files = request_and_parse_bundle(messages, args.model, last_output_path)
+        except FileBundleError as e:
+            print(f"❌ {e}")
+            print(f"Model output saved to: {last_output_path}")
+            print(f"Parsed file bundle saved to: {last_bundle_path}")
+            return 1
 
         pretty: List[str] = [FILE_BUNDLE_BEGIN]
         for p, c in files.items():
