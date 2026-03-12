@@ -76,6 +76,7 @@ If the agent changes `cli.py`, the bundle must also include at least one materia
    - adding `task_runner_command` is allowed
    - it must be optional or have a safe default value
    - existing constructor calls without that field must still work
+   - do not make `ProjectConfig` frozen/immutable if existing tests mutate config fields after construction
 
 3. `ProjectAdapter(config=...)` must still work.
 
@@ -105,6 +106,8 @@ If the agent changes `cli.py`, the bundle must also include at least one materia
 If no explicit real task-runner command is configured, preserve the current legacy/mock behavior so existing tests continue to pass.
 
 This means the default path must NOT try to run a subprocess like `default_task_runner`.
+
+This also means tests that exercise the default config path must continue to see the legacy/mock success behavior unless they explicitly opt into real execution mode.
 
 ### Real execution mode
 
@@ -212,22 +215,6 @@ It is acceptable for this validation to live in one of these files:
 
 But the bundle must make the `cli.py` material change understandable and justified.
 
-## Exact anti-stall requirement for this task
-
-This task is not complete unless `src/builder/orchestrator/cli.py` changes in a way that a reviewer could identify as a real code-path change.
-
-A compliant `cli.py` update must satisfy **both** of these:
-
-1. it changes executable logic in `cli.py`
-2. that executable logic is tied to real execution support, dry-run routing, mode selection, execution-result display, or exit-code behavior
-
-A non-compliant solution includes any `cli.py` update that leaves the runtime behavior effectively identical.
-
-If the agent is unsure how to materially update `cli.py`, it should prefer:
-- surfacing additional execution-result fields in CLI output
-- explicitly wiring dry-run vs real-execution mode selection
-- adjusting CLI exit behavior based on execution result while preserving current default compatibility
-
 ## Acceptance criteria
 
 Unit tests verify:
@@ -236,6 +223,8 @@ Unit tests verify:
 - a configured real task-runner command can be invoked
 - failed command execution yields `success=False`
 - dry-run does not execute the command
+- `simulate_backlog()` remains implemented and passing
+- default config remains mutable enough for tests that assign `config.task_runner_command = ...`
 
 `tests/test_project_adapter.py`, `tests/test_multi_project_adapters.py`, and `tests/test_orchestrator_real_execution.py` must all be materially updated in the same bundle.
 
@@ -247,6 +236,8 @@ A material update means at least one new assertion, changed expectation, or new 
 - adapter behavior translation
 - cross-platform real execution behavior
 - CLI wiring or CLI-visible behavior related to real execution or dry-run routing
+- simulation compatibility
+- config mutability compatibility
 
 Re-outputting the same test file or changing whitespace/comments only is insufficient.
 
@@ -262,16 +253,6 @@ Also required:
 
 ## Normative compatibility examples
 
-The following behaviors are required and must remain true after this task.
-
-### Adapter compatibility
-
-`ProjectAdapter.translate_to_orchestrator_behavior()` must remain implemented.
-
-It must continue returning a dictionary representation of the config used by existing tests.
-
-Do not remove or rename this method.
-
 ### Exact method preservation
 
 The following methods must remain implemented and callable:
@@ -280,18 +261,6 @@ The following methods must remain implemented and callable:
 - `OrchestratorRunner.select_next_task()`
 - `OrchestratorRunner.run_next_task(dry_run=False)`
 - `OrchestratorRunner.simulate_backlog()`
-
-Do not replace these methods with a reduced interface.
-
-### Runner behavior compatibility
-
-The following methods must remain implemented on `OrchestratorRunner`:
-
-- `select_next_task()`
-- `run_next_task(dry_run=False)`
-- `simulate_backlog()`
-
-`run_next_task()` must preserve existing behavior used by prior tests.
 
 ### Exact legacy runner contract
 
@@ -320,19 +289,12 @@ When a pending task exists in the legacy/default path:
 - `outcome == "ready_for_pr"`
 - `next_action == "merge"`
 
-Do not return placeholder values such as:
-
-- `"mock_task"`
-- `status == "mocked"`
-
 When no pending task exists:
 
 - `task_name == "none"`
 - `status == "no_task"`
 - `message == "No pending tasks available."`
 - `outcome == "noop"`
-
-Do not hardcode a task name when no task exists.
 
 ### Dry-run behavior must match prior tests exactly
 
@@ -351,8 +313,6 @@ When `dry_run=True` and no task exists:
 - `status == "no_task"`
 - `message == "No pending tasks available."`
 - `outcome == "noop"`
-
-Do not replace the old result contract with a smaller dictionary.
 
 Preserve existing keys such as:
 
@@ -392,44 +352,30 @@ Preserve existing keys such as:
 
 `ProjectAdapter(config=project_config)` must still be valid.
 
-### Runner API compatibility
+### Exact default-vs-real test separation rule
 
-The following methods must still exist:
+`tests/test_orchestrator_real_execution.py` must explicitly separate:
 
-- `select_next_task()`
-- `run_next_task(dry_run=False)`
-- `simulate_backlog()`
+- legacy/default-mode expectations when `task_runner_command is None`
+- real-execution expectations when `task_runner_command` is explicitly configured
 
-### Existing result-contract examples
+A test that expects subprocess failure must explicitly opt into real execution mode.
 
-When there are no pending tasks, `run_next_task()` must still return values compatible with existing tests, including:
+A test that uses the default config path must not expect subprocess execution when `task_runner_command is None`.
 
-- `task_name == "none"`
-- `status == "no_task"`
-- `message == "No pending tasks available."`
-- `outcome == "noop"`
+### Exact simulation preservation rule
 
-When `dry_run=True`, existing dry-run keys must still be present, including:
+The generated solution is not acceptable unless `simulate_backlog()` remains implemented and passing.
 
-- `dry_run`
-- `task_name`
-- `status`
-- `message`
-- `outcome`
+Do not replace the runner with a reduced implementation that omits simulation behavior.
 
-### Execution mode requirement
+### Exact config mutability rule
 
-The real execution bridge must be opt-in.
+Existing tests may assign to `config.task_runner_command` after construction.
 
-If `task_runner_command is None`, preserve the legacy/mock behavior and do not execute a subprocess.
+Do not make `ProjectConfig` immutable or frozen in a way that breaks:
 
-Do not use `"default_task_runner"` as a default.
-
-### Typing / implementation requirement
-
-Do not introduce forward-reference NameError issues in annotations.
-
-If self-referential type annotations are used, make them safe for runtime import and test collection.
+`config.task_runner_command = ...`
 
 ### Exact real execution test portability rule
 
@@ -450,20 +396,6 @@ Do not pass a full shell string like:
 as a single executable token.
 
 Use a command form that is safe for `subprocess.run(...)`, such as a list of executable plus arguments, or another implementation that correctly splits command arguments cross-platform.
-
-### Exact CLI example requirement
-
-A compliant solution should make it obvious why `cli.py` changed.
-
-Examples of acceptable material CLI changes include:
-
-- wiring `--dry-run` through to `runner.run_next_task(dry_run=True)`
-- surfacing `status`, `message`, or execution-result fields in printed CLI output
-- adding an explicit execution-mode argument that selects legacy/default vs real execution behavior without changing the default behavior
-- adjusting CLI exit-code behavior based on the result returned by `run_next_task(...)`
-- adding a printed execution summary that includes fields from the real execution bridge
-
-A non-compliant solution would leave `cli.py` behavior effectively unchanged.
 
 ## Guardrails
 
