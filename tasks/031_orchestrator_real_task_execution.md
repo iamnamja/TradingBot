@@ -66,7 +66,7 @@ If the agent changes `project_adapter.py` or `project_config.py`, it must also m
 
 If the agent changes `runner.py`, it must materially update `tests/test_orchestrator_real_execution.py` in the same bundle.
 
-If the agent changes `cli.py`, the bundle must make it obvious why `cli.py` changed by also including at least one test assertion or execution-path check that indirectly validates the CLI wiring, execution mode selection, or CLI-visible output behavior.
+If the agent changes `cli.py`, the bundle must also include at least one material test-file change that makes the CLI wiring change understandable and justified.
 
 ## Required behavior
 
@@ -181,10 +181,11 @@ The following typing rules are mandatory:
 
 A valid CLI material update must do at least one of the following:
 
-- add a real execution-mode option, such as `--dry-run` or another explicit mode switch, that is actually wired into `OrchestratorRunner.run_next_task(...)`
+- add a real execution-mode option that is actually wired into `OrchestratorRunner.run_next_task(...)`
 - add or update real CLI output so execution results from the real execution bridge are surfaced
 - update argument parsing so the real execution bridge can be triggered intentionally while preserving existing behavior by default
 - update CLI dependency wiring so the runner uses the preserved backward-compatible constructor and execution path explicitly
+- change the printed execution summary, exit handling, or mode-selection branch in a way that is directly tied to real task execution support
 
 Invalid `cli.py` updates include:
 
@@ -210,6 +211,22 @@ It is acceptable for this validation to live in one of these files:
 - `tests/test_multi_project_adapters.py`
 
 But the bundle must make the `cli.py` material change understandable and justified.
+
+## Exact anti-stall requirement for this task
+
+This task is not complete unless `src/builder/orchestrator/cli.py` changes in a way that a reviewer could identify as a real code-path change.
+
+A compliant `cli.py` update must satisfy **both** of these:
+
+1. it changes executable logic in `cli.py`
+2. that executable logic is tied to real execution support, dry-run routing, mode selection, execution-result display, or exit-code behavior
+
+A non-compliant solution includes any `cli.py` update that leaves the runtime behavior effectively identical.
+
+If the agent is unsure how to materially update `cli.py`, it should prefer:
+- surfacing additional execution-result fields in CLI output
+- explicitly wiring dry-run vs real-execution mode selection
+- adjusting CLI exit behavior based on execution result while preserving current default compatibility
 
 ## Acceptance criteria
 
@@ -241,6 +258,7 @@ Also required:
 - `tests/test_project_adapter.py` continues to pass
 - `tests/test_multi_project_adapters.py` continues to pass
 - `tests/test_orchestrator_real_execution.py` continues to pass
+- `src/builder/orchestrator/cli.py` is materially updated with a real behavior-preserving CLI-path change tied to real task execution flow
 
 ## Normative compatibility examples
 
@@ -442,6 +460,8 @@ Examples of acceptable material CLI changes include:
 - wiring `--dry-run` through to `runner.run_next_task(dry_run=True)`
 - surfacing `status`, `message`, or execution-result fields in printed CLI output
 - adding an explicit execution-mode argument that selects legacy/default vs real execution behavior without changing the default behavior
+- adjusting CLI exit-code behavior based on the result returned by `run_next_task(...)`
+- adding a printed execution summary that includes fields from the real execution bridge
 
 A non-compliant solution would leave `cli.py` behavior effectively unchanged.
 
