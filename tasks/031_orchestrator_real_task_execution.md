@@ -197,6 +197,27 @@ must still allow:
 
 Do not reduce the failure message to a generic `"Execution failed."` when `stderr` already contains the specific error text.
 
+## Exact forbidden fallbacks
+
+The following implementation choices are invalid in this task:
+
+- In `run_review()`, returning `{"mergeable": False}` merely because `changed_files` is empty on a mocked success path
+- In `process_execution_result()`, building the failure message only from `failure_text` and ignoring `stderr`
+- In `simulate_backlog()`, stopping before appending the approval-blocked task to `processed_tasks`
+- In `cli.py`, setting `config.task_runner_command = "default_task_runner"`
+- In `cli.py`, inventing any fallback task runner command string when no real command is configured
+
+### Invalid examples
+
+INVALID:
+
+- `if not effective_changed: return {"mergeable": False}`
+- `message = f"Execution failed: {failure_text}" if failure_text else "Execution failed."`
+- returning from `simulate_backlog()` before appending the current approval-blocked task name
+- `config.task_runner_command = "default_task_runner"`
+
+If `--real-execution` is supported in `cli.py`, it may only enable behavior when a real configured command already exists. It must not invent a command.
+
 ## Ownership and typing constraints
 
 The following ownership rules are mandatory:
