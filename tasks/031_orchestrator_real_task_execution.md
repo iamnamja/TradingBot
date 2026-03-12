@@ -334,6 +334,50 @@ Preserve existing keys such as:
 - `approval_required`
 - `planned_actions`
 
+### Exact legacy success-path compatibility
+
+If `execute_task()` returns a mocked success payload with `success=True`, existing success-path tests must still be able to reach:
+
+- `outcome == "ready_for_pr"`
+- `next_action == "merge"`
+
+Do not default a mocked success path to `review_blocked` merely because `changed_files` is empty or omitted.
+
+If the implementation needs changed files for review logic, preserve backward compatibility for legacy/mock test payloads.
+
+### Exact failure-message compatibility
+
+If a mocked failure payload does not include `failure_text` but does include `stderr`, preserve the failure message contract expected by tests.
+
+For example, a failure payload like:
+
+{
+    "success": False,
+    "stderr": "Execution failed"
+}
+
+must still allow:
+
+- `message == "Execution failed: Execution failed"`
+
+Do not reduce the failure message to a generic `"Execution failed."` when a specific error string is already available in `stderr`.
+
+### Exact runner completeness requirement
+
+The bundle is not acceptable unless `src/builder/orchestrator/runner.py` contains the full final implementation.
+
+A partial or truncated `runner.py` is invalid even if the bundle parses.
+
+In particular, the final `runner.py` must include:
+
+- `select_next_task()`
+- `run_next_task(...)`
+- `simulate_backlog()`
+- the full `process_execution_result(...)` implementation
+- the full failure-path return logic
+
+Do not leave `runner.py` ending early after helper calls or with missing return logic.
+
 ### Project adapter compatibility
 
 `ProjectAdapter.get_tradingbot_default_config()` must return a config where:
