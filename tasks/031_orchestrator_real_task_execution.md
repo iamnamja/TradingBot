@@ -158,6 +158,37 @@ If an explicit real task-runner command is configured, `execute_task()` may invo
     "task_file": str
 }
 
+## Exact legacy contract that must not be changed
+
+The existing legacy runner contract must be preserved exactly.
+
+When a pending task exists on the legacy/mock success path:
+
+- `task_name == "001_task.py"` for the selected task in existing tests
+- `status == "running"`
+- `message == "Task is now running."`
+- `outcome == "ready_for_pr"`
+- `next_action == "merge"`
+
+When review is blocked after a successful task execution:
+
+- `task_name == "001_task.py"`
+- `status == "running"`
+- `message == "Task is now running."`
+- `requires_approval == True`
+
+When no pending task exists:
+
+- `task_name == "none"`
+- `status == "no_task"`
+- `message == "No pending tasks available."`
+- `outcome == "noop"`
+
+A solution is invalid if it changes these legacy values to alternatives such as:
+
+- `status == "succeeded"`
+- `message == "Execution succeeded."`
+
 ## Exact compatibility rules that must now pass
 
 ### Simulation sequencing
@@ -170,6 +201,35 @@ Example required behavior:
 - returned `processed_tasks` must be `["001_task.py", "002_task.py"]`
 
 This is mandatory. A solution that returns only `["001_task.py"]` in that scenario is invalid.
+
+### Exact simulation behavior that must be preserved
+
+`simulate_backlog()` must remain implemented and must preserve legacy simulation semantics.
+
+It must return a dictionary with:
+
+- `processed_tasks`
+- `stopped_reason`
+- `final_status`
+- `approval_required`
+- `planned_actions`
+
+When `simulate_backlog()` encounters an approval-blocked task, that task must still be appended to `processed_tasks` before the simulation stops.
+
+Example required behavior:
+- task 1 succeeds
+- task 2 becomes approval-blocked
+- returned `processed_tasks` must be `["001_task.py", "002_task.py"]`
+- `stopped_reason == "Approval required"`
+- `final_status == "blocked"`
+- `approval_required == True`
+
+When simulation stops because execution failed:
+- `stopped_reason == "Execution failed"`
+- `final_status == "failed"`
+- `approval_required == False`
+
+A solution is invalid if `simulate_backlog()` skips `run_review(...)` on successful executions.
 
 ### Mocked success path
 
@@ -206,8 +266,11 @@ The following implementation choices are invalid in this task:
 - In `run_review()`, returning `{"mergeable": False}` merely because `changed_files` is empty on a mocked success path
 - In `process_execution_result()`, building the failure message only from `failure_text` and ignoring `stderr`
 - In `simulate_backlog()`, stopping before appending the approval-blocked task to `processed_tasks`
+- In `simulate_backlog()`, not calling `run_review(...)` after successful execution
 - In `cli.py`, setting `config.task_runner_command = "default_task_runner"`
 - In `cli.py`, inventing any fallback task runner command string when no real command is configured
+- In `runner.py`, changing legacy success `status` from `"running"` to `"succeeded"` or similar
+- In tests, rewriting legacy expectations away from `"running"` / `"Task is now running."`
 
 ### Invalid examples
 
@@ -217,6 +280,7 @@ INVALID:
 - `message = f"Execution failed: {failure_text}" if failure_text else "Execution failed."`
 - returning from `simulate_backlog()` before appending the current approval-blocked task name
 - `config.task_runner_command = "default_task_runner"`
+- `return {"status": "succeeded", "message": "Execution succeeded."}` on the legacy success path
 
 If `--real-execution` is supported in `cli.py`, it may only enable behavior when a real configured command already exists. It must not invent a command.
 
@@ -234,12 +298,43 @@ A valid fix should do all of the following:
    - set `failure_text = execution_result.get("failure_text") or execution_result.get("stderr") or execution_result.get("output") or ""`
    - then use that resolved text in the returned message
 
-3. In `simulate_backlog()`:
+3. In `run_next_task(...)` success handling:
+   - preserve `status == "running"`
+   - preserve `message == "Task is now running."`
+   - do not rename the legacy success state to `"succeeded"`
+
+4. In `simulate_backlog()`:
    - append the current task name to `processed_tasks`
-   - then, if review is blocked, stop only after that append has already happened
-   - preserve `approval_required=True` and blocked/failure semantics, but keep the processed task list complete
+   - call `run_review(...)` after successful execution
+   - if review is blocked, set:
+     - `stopped_reason = "Approval required"`
+     - `final_status = "blocked"`
+     - `approval_required = True`
+   - if execution fails, set:
+     - `stopped_reason = "Execution failed"`
+     - `final_status = "failed"`
+     - `approval_required = False`
 
 These are the current failing compatibility gaps and must be fixed.
+
+## Exact test mutation constraints
+
+`tests/test_orchestrator_real_execution.py` may add new real-execution coverage, but it must NOT rewrite the existing legacy expectations away from:
+
+- `status == "running"`
+- `message == "Task is now running."`
+
+`tests/test_project_adapter.py` and `tests/test_multi_project_adapters.py` must be materially updated, but they must not be changed in a way that weakens or removes the existing compatibility expectations.
+
+## Exact real execution portability rule
+
+Do not use plain `echo` as the subprocess executable in real-execution tests or examples.
+
+A plain command like `echo` is not portable on Windows in this context.
+
+Real-execution coverage must use a cross-platform-safe command, such as a Python invocation using the current interpreter.
+
+A solution is invalid if it introduces or preserves real-execution tests that rely on plain `echo`.
 
 ## Ownership and typing constraints
 
