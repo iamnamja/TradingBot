@@ -281,6 +281,9 @@ INVALID:
 - returning from `simulate_backlog()` before appending the current approval-blocked task name
 - `config.task_runner_command = "default_task_runner"`
 - `return {"status": "succeeded", "message": "Execution succeeded."}` on the legacy success path
+- `requires_approval = not changed_files`
+- `if execution_result.get("requires_approval"): ...`
+- `command = f"{self.config.task_runner_command} {task.name}"`
 
 If `--real-execution` is supported in `cli.py`, it may only enable behavior when a real configured command already exists. It must not invent a command.
 
@@ -315,7 +318,58 @@ A valid fix should do all of the following:
      - `final_status = "failed"`
      - `approval_required = False`
 
+5. In `process_execution_result(...)` success handling:
+   - do NOT set `requires_approval` based only on whether `changed_files` is empty
+   - `requires_approval` must be derived from the review result, not from empty `changed_files`
+   - if `run_review(...)` returns `{"mergeable": True}`, then `requires_approval == False`
+   - if `run_review(...)` returns `{"mergeable": False}`, then:
+     - `outcome == "review_blocked"`
+     - `next_action == "requires_approval"`
+     - `requires_approval == True`
+
+6. In `simulate_backlog()`:
+   - do not inspect `execution_result.get("requires_approval")`
+   - derive approval-blocked simulation behavior from `run_review(...)` or from the processed task result, not from the raw execution payload
+
+7. In `execute_task()` real execution mode:
+   - resolve the task file path as `Path(self.config.tasks_directory) / task.name`
+   - if invoking Python in tests, pass the resolved task file path, not just `task.name`
+
 These are the current failing compatibility gaps and must be fixed.
+
+
+## Real execution test guidance to prevent the next likely failure
+
+`tests/test_orchestrator_real_execution.py` must be updated in a way that is portable and deterministic.
+
+A solution is preferred if it verifies real execution behavior by mocking `subprocess.run` and asserting:
+
+- the subprocess was invoked
+- the resolved task file path is `Path(tasks_directory) / task.name`
+- stdout/stderr/returncode are normalized correctly
+- success/failure mapping is correct
+
+This is preferred because setting only:
+
+`config.task_runner_command = "python"`
+
+and then expecting success from `python tasks/001_task.py` is fragile unless the target task file is guaranteed to be a valid runnable script.
+
+If real-execution tests do not mock `subprocess.run`, they must use a known cross-platform-safe invocation that is guaranteed to succeed in the test environment.
+
+### Additional invalid examples for tests
+
+INVALID:
+
+- `config.task_runner_command = "python"` followed by an assumption that `python tasks/001_task.py` will succeed without mocking
+- tests that rely on a task markdown file or backlog task file being executable as a standalone Python program when that is not guaranteed
+- tests that use plain `echo` as the subprocess executable
+
+A valid real-execution test should prefer one of these patterns:
+
+- patch `subprocess.run` and assert the resolved path and normalized return structure
+- or use a safe Python `-c` based command only if the runner implementation explicitly supports that invocation style
+
 
 ## Exact test mutation constraints
 
