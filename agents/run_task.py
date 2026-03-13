@@ -538,14 +538,21 @@ def load_system_prompt() -> str:
 
 
 def chat(messages: List[dict], model: str) -> str:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("Missing OPENAI_API_KEY in environment.")
-    from openai import OpenAI  # type: ignore
+        raise RuntimeError("Missing ANTHROPIC_API_KEY in environment.")
+    import anthropic  # type: ignore
 
-    client = OpenAI(api_key=api_key)
-    resp = client.chat.completions.create(model=model, messages=messages, temperature=0.1)
-    return (resp.choices[0].message.content or "").strip()
+    client = anthropic.Anthropic(api_key=api_key)
+    system = next((m["content"] for m in messages if m["role"] == "system"), "")
+    user_msgs = [m for m in messages if m["role"] != "system"]
+    resp = client.messages.create(
+        model=model,
+        max_tokens=16000,
+        system=system,
+        messages=user_msgs,
+    )
+    return (resp.content[0].text or "").strip()
 
 
 def build_messages(task_text: str, required: List[str], extra_directives: str = "") -> List[dict]:
@@ -624,7 +631,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("task", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
-    ap.add_argument("--model", default=os.getenv("TRADINGBOT_AGENT_MODEL", "gpt-4o-mini"))
+    ap.add_argument("--model", default=os.getenv("TRADINGBOT_AGENT_MODEL", "claude-sonnet-4-5"))
     ap.add_argument("--max-iters", type=int, default=4)
     args = ap.parse_args()
 
