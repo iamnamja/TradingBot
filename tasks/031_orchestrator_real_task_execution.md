@@ -290,6 +290,9 @@ INVALID:
 - `requires_approval = not changed_files`
 - `if execution_result.get("requires_approval"): ...`
 - `command = f"{self.config.task_runner_command} {task.name}"`
+- returning success-path outcome values when `success is False`
+- returning only `{"success": True, "changed_files": [...]}` from `execute_task()` in the real-execution test path
+- leaving `output = execution_result.get("output", "")` unused in `runner.py`
 
 If `--real-execution` is supported in `cli.py`, it may only enable behavior when a real configured command already exists. It must not invent a command.
 
@@ -383,8 +386,41 @@ A valid fix should do all of the following:
    - remove unused local variables such as `output` if they are not used
    - the implementation must pass `ruff` without relying on unsafe fixes
 
-These are the current failing compatibility gaps and must be fixed.
+14. In `process_execution_result(...)` review handling:
+   - `mergeable = self.run_review(...).get("mergeable", True)`
+   - `requires_approval` must be `not mergeable`
+   - do not assign `requires_approval = mergeable`
 
+15. In `process_execution_result(...)` failure handling:
+   - if `success is False`, the returned result must preserve:
+     - `status == "failed"`
+     - `outcome == "repair_required"`
+     - `next_action == "require_human_review"`
+   - do not reuse success-path outcome values on the failure path
+
+16. In `simulate_backlog()` approval-sequence compatibility:
+   - for the approval test scenario, the function must still return:
+     - `processed_tasks == ["001_task.py", "002_task.py"]`
+     - `stopped_reason == "Approval required"`
+     - `final_status == "blocked"`
+     - `approval_required == True`
+   - do not stop after only the first task in that scenario
+
+17. In `execute_task()` compatibility with `tests/test_orchestrator_real_execution.py`:
+   - when the test patches `subprocess.run`, the implementation must return the structured execution payload with:
+     - `success`
+     - `status`
+     - `stdout`
+     - `stderr`
+     - `returncode`
+     - `task_file`
+   - do not return a reduced mock payload when the real-execution test is explicitly exercising `execute_task()`
+
+18. Remove unused locals such as:
+   - `output = execution_result.get("output", "")`
+   if they are not used
+
+These are the current failing compatibility gaps and must be fixed.
 
 ## Real execution test guidance to prevent the next likely failure
 
@@ -417,7 +453,6 @@ A valid real-execution test should prefer one of these patterns:
 
 - patch `subprocess.run` and assert the resolved path and normalized return structure
 - or use a safe Python `-c` based command only if the runner implementation explicitly supports that invocation style
-
 
 ## Exact test mutation constraints
 
