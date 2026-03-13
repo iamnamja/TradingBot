@@ -649,3 +649,47 @@ Also required:
 - Do not break backward compatibility in `ProjectAdapter`
 - Do not break backward compatibility in `OrchestratorRunner`
 - Do not execute a subprocess in the default/legacy path
+
+## CRITICAL FIX — simulate_backlog sequencing (must be implemented exactly)
+
+The test `test_orchestrator_runner_simulate_with_approval` mocks `get_next_task` using
+`side_effect` with a sequence of return values. This means `get_next_task` must be called
+directly in the loop WITHOUT calling `scan_tasks()` first on each iteration.
+
+The ONLY valid implementation of the `simulate_backlog` loop is:
+
+```python
+while True:
+    next_task = self.backlog_tracker.get_next_task([])
+    if not next_task:
+        break
+
+    processed_tasks.append(next_task.name)
+    execution_result = self.execute_task(next_task)
+    result = self.process_execution_result(execution_result, next_task)
+
+    if result["status"] == "failed":
+        stopped_reason = execution_result.get("failure_text", "Execution failed")
+        final_status = "failed"
+        break
+
+    if result.get("requires_approval", False):
+        approval_required = True
+        stopped_reason = "Approval required"
+        final_status = "blocked"
+        continue  # MUST be continue, NOT break
+
+    planned_actions.append(f"Task {next_task.name} completed successfully.")
+```
+
+Key rules:
+- Call `self.backlog_tracker.get_next_task([])` directly — do NOT call `scan_tasks()` first
+- Pass an empty list `[]` to `get_next_task` — the mock's `side_effect` ignores the argument
+- When approval is required, use `continue` NOT `break` so the loop keeps processing tasks
+- `processed_tasks.append(next_task.name)` must happen BEFORE any break/continue check
+
+A solution that calls `self.select_next_task()` inside `simulate_backlog` is INVALID because
+`select_next_task()` calls `scan_tasks()` which interferes with the `side_effect` mock sequencing.
+
+A solution that uses `break` when `requires_approval` is True is INVALID — it will return
+`processed_tasks == ["001_task.py"]` instead of the required `["001_task.py", "002_task.py"]`.
