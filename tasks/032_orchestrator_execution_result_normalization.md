@@ -200,3 +200,130 @@ All pre-existing orchestrator tests must continue to pass.
 The normalized result dict must be JSON-serializable. All fields must be primitive types (str, int, bool, list of str). This is required for audit logging in later tasks.
 
 Do not include non-serializable objects (exceptions, file handles, etc.) in the normalized result.
+
+## CRITICAL — process_execution_result must be implemented exactly
+
+The agent must NOT simplify `process_execution_result`. The full implementation must be preserved, routing through `FailureClassifier`, `RepairWorkflow`, and audit log calls.
+
+### Success path — review approved
+Must return exactly:
+```python
+{
+    "task_name": task.name,
+    "status": "running",
+    "message": "Task is now running.",
+    "outcome": "ready_for_pr",
+    "next_action": "merge",
+    "requires_approval": False,
+}
+```
+
+### Success path — review blocked
+Must return exactly:
+```python
+{
+    "task_name": task.name,
+    "status": "running",
+    "message": "Task is now running.",
+    "outcome": "review_blocked",
+    "next_action": "requires_approval",   # NOT "merge"
+    "requires_approval": True,            # NOT False
+}
+```
+
+### Failure path
+Must route through `FailureClassifier` and `RepairWorkflow`. Must return:
+```python
+{
+    "task_name": task.name,
+    "status": "failed",
+    "message": f"Execution failed: {failure_text}" if failure_text else "Execution failed.",
+    "outcome": "repair_required",
+    "next_action": next_action,           # from repair_action, fallback "require_human_review"
+    "requires_approval": repair_action.get("requires_approval", True),  # True by default
+}
+```
+
+Do NOT simplify the failure path to return `requires_approval: False`.
+Do NOT skip `FailureClassifier` or `RepairWorkflow`.
+Do NOT hardcode `next_action = "require_human_review"` without going through `repair_action`.
+
+### Required imports in runner.py
+
+`runner.py` must import ALL of these — do not remove any:
+```python
+from .approval import create_approval_checkpoint
+from .audit import (
+    log_approval_checkpoint,
+    log_classification_result,
+    log_repair_decision,
+    log_review_verdict,
+    log_selected_task,
+)
+from .execution_result import normalize_execution_result
+from .failures import FailureClassifier
+from .repair import RepairWorkflow
+```
+
+## CRITICAL — simulate_backlog with normalization
+
+`simulate_backlog` must call `normalize_execution_result` before `process_execution_result`.
+The only valid implementation:
+
+```python
+while True:
+    next_task = self.backlog_tracker.get_next_task([])
+    if not next_task:
+        break
+
+    processed_tasks.append(next_task.name)
+    execution_result = self.execute_task(next_task)
+    normalized_result = normalize_execution_result(execution_result)
+    result = self.process_execution_result(normalized_result, next_task)
+
+    if result["status"] == "failed":
+        stopped_reason = normalized_result.get("failure_text", "Execution failed")
+        final_status = "failed"
+        break
+
+    if result.get("requires_approval", False):
+        approval_required = True
+        stopped_reason = "Approval required"
+        final_status = "blocked"
+        continue  # MUST be continue, NOT break
+
+    planned_actions.append(f"Task {next_task.name} completed successfully.")
+```
+
+## CRITICAL — stopped_reason contract
+
+When the backlog completes normally (no failure, no approval required):
+- `stopped_reason` must be `""` (empty string)
+- `final_status` must be `"completed"`
+
+Do NOT set `stopped_reason = "All tasks completed"` or any other non-empty string on clean completion.
+
+The only times `stopped_reason` is non-empty:
+- `"Execution failed"` when a task fails
+- `"Approval required"` when approval is needed
+
+## CRITICAL — normalize_execution_result integration in run_next_task
+
+`run_next_task()` must call `normalize_execution_result` between `execute_task` and `process_execution_result`:
+
+```python
+execution_result = self.execute_task(running_task)
+normalized_result = normalize_execution_result(execution_result)
+return self.process_execution_result(normalized_result, running_task)
+```
+
+The default mock path in `execute_task` (no `task_runner_command`) must return:
+```python
+{
+    "success": True,
+    "output": "Task executed successfully",
+    "changed_files": ["file1.py"],
+}
+```
+
+This passes through `normalize_execution_result` cleanly and preserves the legacy success contract.
