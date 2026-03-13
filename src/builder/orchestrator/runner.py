@@ -99,7 +99,7 @@ class OrchestratorRunner:
     def execute_task(self, task: TaskMetadata) -> dict[str, Any]:
         return {
             "success": True,
-            "output": "Task executed successfully",
+            "output": "Task executed successfully",  # no trailing period — matches test expectations
             "changed_files": ["file1.py"],
         }
 
@@ -207,9 +207,9 @@ class OrchestratorRunner:
         approval_required = False
         planned_actions: List[str] = []
 
-        tasks = self.backlog_tracker.scan_tasks()
-
+        # Fix: get fresh task list each iteration rather than mutating a stale list
         while True:
+            tasks = self.backlog_tracker.scan_tasks()
             next_task = self.backlog_tracker.get_next_task(tasks)
 
             if not next_task:
@@ -224,19 +224,6 @@ class OrchestratorRunner:
                 next_task,
             )
 
-            tasks = [
-                TaskMetadata(
-                    name=task.name,
-                    order=task.order,
-                    status=TaskStatus(
-                        status="completed"
-                        if task.name == next_task.name
-                        else task.status.status
-                    ),
-                )
-                for task in tasks
-            ]
-
             if result["status"] == "failed":
                 stopped_reason = execution_result.get(
                     "failure_text",
@@ -249,6 +236,7 @@ class OrchestratorRunner:
                 approval_required = True
                 stopped_reason = "Approval required"
                 final_status = "blocked"
+                # Continue processing remaining tasks even when approval is required
                 continue
 
             planned_actions.append(
