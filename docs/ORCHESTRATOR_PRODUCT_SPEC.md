@@ -1,11 +1,19 @@
 # Orchestrator Product Specification
 
 ## Purpose
-The orchestrator is a reusable software-delivery engine that can take a backlog of task specifications, execute them safely through coding agents, review the results, classify failures, manage pull requests and CI, and continue iteratively with strong controls.
 
-The TradingBot repository is the first client project for this orchestrator, but the orchestrator must be designed to support future software projects as well.
+The orchestrator is a reusable software-delivery engine that takes a backlog of task specifications, executes them safely through coding agents, reviews the results, classifies failures, manages pull requests and CI, and continues iteratively with strong controls.
+
+TradingBot is the first client project. The orchestrator must be designed to support future software projects with minimal changes.
+
+## Agent
+
+The orchestrator uses **Claude Sonnet** (via Anthropic API) as the coding agent. The agent reads task markdown specs and produces a deterministic file bundle. The runner applies the bundle, runs ruff + pytest, and retries up to 4 times.
+
+The task spec is the primary control surface. Precise specs with exact contracts and forbidden patterns produce green results in 1 iteration.
 
 ## Product goals
+
 - automate the current human-in-the-loop task workflow
 - preserve safety and branch discipline
 - reduce manual triage of failures
@@ -13,14 +21,17 @@ The TradingBot repository is the first client project for this orchestrator, but
 - provide clear auditability for every decision
 
 ## Non-goals
+
 - no direct work on `main`
 - no autonomous live-trading enablement
 - no silent weakening of tests, CI, or approval controls
 - no project-specific hardcoding in the core engine
 
 ## Core capabilities
+
 - backlog/task discovery
 - state tracking
+- execution result normalization
 - result review/compliance checking
 - failure classification
 - PR/CI/merge management
@@ -28,11 +39,31 @@ The TradingBot repository is the first client project for this orchestrator, but
 - project adapter/config abstraction
 - looped orchestration across tasks
 - decision journaling
-- resumable execution
+- resumable execution after approval checkpoints
 - dry-run simulation
 
+## Current implementation status
+
+| Capability | Status | Task |
+|-----------|--------|------|
+| Backlog/state tracking | ✅ | 015–020 |
+| Review/compliance checking | ✅ | 016 |
+| Failure classification | ✅ | 017 |
+| PR/CI/merge management | ✅ | 018 |
+| Repair workflow | ✅ | 019 |
+| Project adapter foundation | ✅ | 020 |
+| Real task execution bridge | ✅ | 031 |
+| Execution result normalization | 🔄 | 032 |
+| Real review + compliance gate | 🔄 | 033 |
+| Branch/worktree guardrails | 🔄 | 034 |
+| PR creation workflow | 🔄 | 035 |
+| Resume after approval | 🔄 | 036 |
+| Persistent backlog state | 🔄 | 037 |
+| Run loop CLI | 🔄 | 038 |
+| End-to-end integration harness | 🔄 | 039 |
+| Multi-project hardening | 🔄 | 040 |
+
 ## Safety model
-The orchestrator should be able to act automatically only inside defined safety boundaries.
 
 ### Always automatic
 - clean-worktree check
@@ -60,21 +91,47 @@ The orchestrator should be able to act automatically only inside defined safety 
 - broad adapter/policy changes
 
 ## High-level architecture
-### Core engine
-Generic, reusable modules under:
-- `src/builder/orchestrator/`
 
-### Project layer
-Project-specific behavior through:
-- project config schema
-- project adapters
-- policy config
+```
+src/builder/orchestrator/
+    runner.py           — main orchestration loop
+    backlog.py          — task discovery and state
+    state.py            — OrchestratorState model
+    execution_result.py — normalization layer (task 032)
+    review.py           — compliance checker
+    policy.py           — policy engine (task 033)
+    git_guardrails.py   — branch/worktree safety (task 034)
+    merge.py            — PR creation (task 035)
+    command_runner.py   — safe subprocess abstraction (task 035)
+    approval.py         — checkpoint management
+    audit.py            — decision logging
+    failures.py         — failure classifier
+    repair.py           — repair workflow
+    project_config.py   — config schema
+    project_adapter.py  — project adapters
+    cli.py              — CLI entry point
+```
 
-### Audit layer
-Decision logs, action logs, and resumable state.
+## Invariants that must never change
+
+These contracts are fixed across all tasks. Any task that breaks them is invalid:
+
+### runner.py invariants
+- `OrchestratorRunner.__init__(config, backlog_tracker, initial_state)` — signature never changes
+- `run_next_task(dry_run=False)` — signature never changes
+- `simulate_backlog()` — signature and return keys never change
+- Legacy success: `status="running"`, `message="Task is now running."`, `outcome="ready_for_pr"`
+- Empty `changed_files` → `run_review` returns `{"mergeable": True}`
+- `simulate_backlog` calls `get_next_task([])` directly, uses `continue` not `break` on approval
+
+### config invariants
+- `ProjectConfig` is never `@dataclass(frozen=True)`
+- Optional config fields always accessed via `getattr(self.config, "field", default)`
+- `get_tradingbot_default_config()` and `get_generic_project_config()` remain on `ProjectAdapter`
 
 ## Success criteria
-The orchestrator is considered production-usable when it can:
+
+The orchestrator is production-usable when it can:
 - run a task loop end to end
 - stop safely on risky situations
 - resume after interruption
