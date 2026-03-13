@@ -2,7 +2,7 @@
 Tests for execution result normalization layer.
 """
 
-from src.builder.orchestrator.execution_result import normalize_execution_result
+from builder.orchestrator.execution_result import normalize_execution_result
 
 
 def test_normalize_success_case():
