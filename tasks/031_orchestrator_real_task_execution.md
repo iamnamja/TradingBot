@@ -271,6 +271,10 @@ The following implementation choices are invalid in this task:
 - In `cli.py`, inventing any fallback task runner command string when no real command is configured
 - In `runner.py`, changing legacy success `status` from `"running"` to `"succeeded"` or similar
 - In tests, rewriting legacy expectations away from `"running"` / `"Task is now running."`
+- In `run_review()`, returning `{"mergeable": False}` when `changed_files` is empty on the legacy/mock path
+- In `execute_task()`, returning the reduced mock payload when `subprocess.run` is patched by real-execution tests
+- In `tests/test_orchestrator_real_execution.py`, patching `subprocess.run` while still calling `run_next_task()` under a config where `task_runner_command is None`
+- In `tests/test_orchestrator_real_execution.py`, using `run_next_task()` instead of directly testing `execute_task()` for the structured execution payload contract
 
 ### Invalid examples
 
@@ -445,6 +449,24 @@ A valid fix should do all of the following:
      - `next_action == "require_human_review"`
    - do not allow success-path outcome values on the failure path
 
+22. In `run_review(...)`:
+   - if `changed_files` is empty or missing on the legacy/mock path, return `{"mergeable": True}`
+   - do not return `{"mergeable": False}` in that case
+
+23. In `execute_task()`:
+   - preserve the legacy default/mock path only for the true legacy branch
+   - when the real-execution tests explicitly exercise `execute_task()` and patch `subprocess.run`, return the full structured payload:
+     - `success`
+     - `status`
+     - `stdout`
+     - `stderr`
+     - `returncode`
+     - `task_file`
+
+24. In `tests/test_orchestrator_real_execution.py`:
+   - materially update the tests so they directly call `runner.execute_task(task)` for structured execution-result assertions
+   - do not rely on `run_next_task()` plus a patched `subprocess.run` when `task_runner_command is None`
+
 These are the current failing compatibility gaps and must be fixed.
 
 ## Real execution test guidance to prevent the next likely failure
@@ -480,6 +502,8 @@ INVALID:
 - `config.task_runner_command = "python"` followed by an assumption that `python tasks/001_task.py` will succeed without mocking
 - tests that rely on a task markdown file or backlog task file being executable as a standalone Python program when that is not guaranteed
 - tests that use plain `echo` as the subprocess executable
+- patching `subprocess.run` while still calling `run_next_task()` under a config where `task_runner_command is None`
+- using `run_next_task()` instead of directly testing `execute_task()` for the structured execution payload contract
 
 A valid real-execution test should prefer one of these patterns:
 
