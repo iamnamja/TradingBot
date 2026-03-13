@@ -1,9 +1,20 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 import subprocess
 
+from .approval import create_approval_checkpoint
+from .audit import (
+    log_approval_checkpoint,
+    log_classification_result,
+    log_repair_decision,
+    log_review_verdict,
+    log_selected_task,
+)
 from .backlog import BacklogTracker
+from .execution_result import normalize_execution_result
+from .failures import FailureClassifier
 from .project_adapter import ProjectAdapter, ProjectConfig
+from .repair import RepairWorkflow
 from .review import ReviewChecker
 from .state import OrchestratorState, TaskMetadata, TaskStatus
 
@@ -84,8 +95,8 @@ class OrchestratorRunner:
         )
 
         execution_result = self.execute_task(running_task)
-
-        return self.process_execution_result(execution_result, running_task)
+        normalized_result = normalize_execution_result(execution_result)
+        return self.process_execution_result(normalized_result, running_task)
 
     def execute_task(self, task: TaskMetadata) -> dict[str, Any]:
         task_runner_command = getattr(self.config, "task_runner_command", None)
@@ -106,35 +117,68 @@ class OrchestratorRunner:
                 "task_file": str(task_file_path),
             }
 
-        return {"success": True, "changed_files": []}
+        return {
+            "success": True,
+            "output": "Task executed successfully",
+            "changed_files": [],
+        }
 
     def process_execution_result(
         self, execution_result: dict[str, Any], task: TaskMetadata
-    ) -> dict[str, Union[str, bool]]:
-        success = execution_result.get("success", False)
+    ) -> dict[str, Any]:
+        audit_path = getattr(self.config, "audit_path", None)
+        log_selected_task(task.name, audit_path)
 
-        if not success:
-            failure_text = (
-                execution_result.get("failure_text")
-                or execution_result.get("stderr")
-                or ""
+        if not execution_result.get("success", False):
+            failure_text = execution_result.get("failure_text", "")
+            changed_files = execution_result.get("changed_files", [])
+            runner_output = execution_result.get("output", "")
+
+            classifier = FailureClassifier()
+            classification_result = classifier.classify(
+                runner_output, failure_text, changed_files
             )
+            log_classification_result(
+                classification_result.get("category", "unknown"), audit_path
+            )
+
+            repair_workflow = RepairWorkflow(
+                failure_classification=classification_result.get("category", "unknown"),
+                changed_files=changed_files,
+            )
+            repair_action = repair_workflow.determine_repair_action()
+            log_repair_decision(repair_action.get("action", "unknown"), audit_path)
+
+            next_action = repair_action.get("action", "require_human_review")
+            requires_approval = repair_action.get("requires_approval", True)
+
             message = f"Execution failed: {failure_text}" if failure_text else "Execution failed."
+
             return {
                 "task_name": task.name,
                 "status": "failed",
                 "message": message,
                 "outcome": "repair_required",
-                "next_action": "require_human_review",
-                "requires_approval": True,
+                "next_action": next_action,
+                "requires_approval": requires_approval,
             }
 
         changed_files = execution_result.get("changed_files", [])
         review_result = self.run_review(changed_files)
-        mergeable = review_result.get("mergeable", True)
-        requires_approval = not mergeable
+        log_review_verdict(
+            "approved" if review_result.get("mergeable", False) else "blocked",
+            audit_path,
+        )
 
-        if requires_approval:
+        if not review_result.get("mergeable", False):
+            checkpoint = create_approval_checkpoint(
+                task_name=task.name,
+                reason="Review blocked",
+                source="review",
+                requested_action="approve",
+            )
+            log_approval_checkpoint(checkpoint, audit_path)
+
             return {
                 "task_name": task.name,
                 "status": "running",
@@ -153,12 +197,12 @@ class OrchestratorRunner:
             "requires_approval": False,
         }
 
-    def simulate_backlog(self) -> Dict[str, Any]:
-        processed_tasks: List[str] = []
-        planned_actions: List[str] = []
+    def simulate_backlog(self) -> dict[str, Any]:
+        processed_tasks = []
         stopped_reason = ""
         final_status = "completed"
         approval_required = False
+        planned_actions = []
 
         while True:
             next_task = self.backlog_tracker.get_next_task([])
@@ -167,12 +211,12 @@ class OrchestratorRunner:
 
             processed_tasks.append(next_task.name)
             execution_result = self.execute_task(next_task)
-            result = self.process_execution_result(execution_result, next_task)
+            normalized_result = normalize_execution_result(execution_result)
+            result = self.process_execution_result(normalized_result, next_task)
 
             if result["status"] == "failed":
-                stopped_reason = execution_result.get("failure_text", "Execution failed")
+                stopped_reason = normalized_result.get("failure_text", "Execution failed")
                 final_status = "failed"
-                approval_required = False
                 break
 
             if result.get("requires_approval", False):
