@@ -276,6 +276,9 @@ The following implementation choices are invalid in this task:
 
 INVALID:
 
+- `message = "Execution succeeded."` on the legacy success path
+- `requires_approval = self.run_review(... )["mergeable"]`
+- `if requires_approval:` immediately after assigning `requires_approval = mergeable`
 - `if not effective_changed: return {"mergeable": False}`
 - `message = f"Execution failed: {failure_text}" if failure_text else "Execution failed."`
 - returning from `simulate_backlog()` before appending the current approval-blocked task name
@@ -334,6 +337,31 @@ A valid fix should do all of the following:
 7. In `execute_task()` real execution mode:
    - resolve the task file path as `Path(self.config.tasks_directory) / task.name`
    - if invoking Python in tests, pass the resolved task file path, not just `task.name`
+
+8. In `process_execution_result(...)` on the success path:
+   - the returned `message` must remain exactly `"Task is now running."`
+   - do not return `"Execution succeeded."` on the legacy success path
+   - remove unused local variables such as `output` if they are no longer needed
+
+9. In `simulate_backlog()` review handling:
+   - `mergeable = self.run_review(...).get("mergeable", True)`
+   - approval is required only when `mergeable is False`
+   - do not assign `approval_required` from the raw `mergeable` value without inversion
+   - when `mergeable is True`, append `f"Task {next_task.name} completed successfully."` to `planned_actions`
+   - when `mergeable is False`, append the current task to `processed_tasks`, then stop with:
+     - `stopped_reason = "Approval required"`
+     - `final_status = "blocked"`
+     - `approval_required = True`
+
+10. In `process_execution_result(...)`:
+   - if `run_review(...)` returns `{"mergeable": False}`, then:
+     - `outcome == "review_blocked"`
+     - `next_action == "requires_approval"`
+     - `requires_approval == True`
+   - if `run_review(...)` returns `{"mergeable": True}`, then:
+     - `outcome == "ready_for_pr"`
+     - `next_action == "merge"`
+     - `requires_approval == False`
 
 These are the current failing compatibility gaps and must be fixed.
 
