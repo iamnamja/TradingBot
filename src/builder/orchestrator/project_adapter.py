@@ -14,6 +14,7 @@ class ProjectAdapter:
             "protected_file_patterns": self.config.protected_file_patterns,
             "artifact_path_patterns": self.config.artifact_path_patterns,
             "approval_required_file_patterns": self.config.approval_required_file_patterns,
+            "task_runner_command": getattr(self.config, "task_runner_command", None),
         }
 
     @staticmethod
@@ -26,6 +27,7 @@ class ProjectAdapter:
             protected_file_patterns=["*.pyc", "*.log"],
             artifact_path_patterns=["artifacts/*"],
             approval_required_file_patterns=["README.md", "CHANGELOG.md"],
+            task_runner_command=None,
         )
 
     @staticmethod
@@ -38,4 +40,5 @@ class ProjectAdapter:
             protected_file_patterns=["*.tmp"],
             artifact_path_patterns=["generic_artifacts/*"],
             approval_required_file_patterns=["README.md"],
+            task_runner_command=None,
         )

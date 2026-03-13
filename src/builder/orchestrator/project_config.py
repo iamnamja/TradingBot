@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
-@dataclass(frozen=True)
+@dataclass
 class ProjectConfig:
     tasks_directory: str
     lint_command: str
@@ -10,7 +10,8 @@ class ProjectConfig:
     protected_file_patterns: List[str]
     artifact_path_patterns: List[str]
     approval_required_file_patterns: List[str]
+    task_runner_command: Optional[str] = None
 
-@dataclass(frozen=True)
+@dataclass
 class GenericProjectConfig(ProjectConfig):
     pass

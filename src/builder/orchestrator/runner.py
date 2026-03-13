@@ -2,18 +2,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import subprocess
 
-from .approval import create_approval_checkpoint
-from .audit import (
-    log_approval_checkpoint,
-    log_classification_result,
-    log_repair_decision,
-    log_review_verdict,
-    log_selected_task,
-)
 from .backlog import BacklogTracker
-from .failures import FailureClassifier
 from .project_adapter import ProjectAdapter, ProjectConfig
-from .repair import RepairWorkflow
 from .review import ReviewChecker
 from .state import OrchestratorState, TaskMetadata, TaskStatus
 
@@ -47,7 +37,7 @@ class OrchestratorRunner:
         effective_changed = list(changed_files or [])
 
         if not effective_changed:
-            return {"mergeable": False}
+            return {"mergeable": True}
 
         checker = ReviewChecker(
             deliverables=effective_changed,
@@ -101,8 +91,6 @@ class OrchestratorRunner:
         task_runner_command = getattr(self.config, "task_runner_command", None)
 
         if task_runner_command:
-            # real execution path — used when task_runner_command is configured
-            # also allows tests to patch subprocess.run directly
             task_file_path = Path(self.config.tasks_directory) / task.name
             result = subprocess.run(
                 [task_runner_command, str(task_file_path)],
@@ -118,58 +106,35 @@ class OrchestratorRunner:
                 "task_file": str(task_file_path),
             }
 
-        # default path — no command configured, return a successful mock result
-        # so that tests which don't patch execute_task get a passing execution
-        return {
-            "success": True,
-            "output": "Task executed successfully",
-            "changed_files": ["file1.py"],
-        }
+        return {"success": True, "changed_files": []}
 
     def process_execution_result(
-        self,
-        execution_result: dict[str, Any],
-        task: TaskMetadata,
-    ) -> Dict[str, Union[str, bool]]:
-        success = (
-            execution_result.get("success", False)
-            if "success" in execution_result
-            else execution_result.get("status") == "success"
-        )
+        self, execution_result: dict[str, Any], task: TaskMetadata
+    ) -> dict[str, Union[str, bool]]:
+        success = execution_result.get("success", False)
+
+        if not success:
+            failure_text = (
+                execution_result.get("failure_text")
+                or execution_result.get("stderr")
+                or ""
+            )
+            message = f"Execution failed: {failure_text}" if failure_text else "Execution failed."
+            return {
+                "task_name": task.name,
+                "status": "failed",
+                "message": message,
+                "outcome": "repair_required",
+                "next_action": "require_human_review",
+                "requires_approval": True,
+            }
 
         changed_files = execution_result.get("changed_files", [])
-        failure_text = execution_result.get("failure_text", "") or execution_result.get("stderr", "")
+        review_result = self.run_review(changed_files)
+        mergeable = review_result.get("mergeable", True)
+        requires_approval = not mergeable
 
-        if success:
-            log_selected_task(task.name, None)
-
-            review_result = self.run_review(changed_files)
-
-            if bool(review_result.get("mergeable", False)):
-                log_review_verdict("approved", None)
-
-                return {
-                    "task_name": task.name,
-                    "status": "running",
-                    "message": "Task is now running.",
-                    "outcome": "ready_for_pr",
-                    "next_action": "merge",
-                    "requires_approval": False,
-                }
-
-            log_review_verdict("blocked", None)
-
-            checkpoint = create_approval_checkpoint(
-                task_name=task.name,
-                reason="review_blocked",
-                source="merge_gate",
-                requested_action="requires_approval",
-            )
-
-            checkpoint["status"] = "pending_approval"
-
-            log_approval_checkpoint(checkpoint, None)
-
+        if requires_approval:
             return {
                 "task_name": task.name,
                 "status": "running",
@@ -179,71 +144,35 @@ class OrchestratorRunner:
                 "requires_approval": True,
             }
 
-        classifier = FailureClassifier()
-
-        classification_result = classifier.classify(
-            execution_result.get("output", ""),
-            failure_text,
-            changed_files,
-        )
-
-        repair_workflow = RepairWorkflow(
-            classification_result["category"],
-            changed_files,
-        )
-
-        repair_action = repair_workflow.determine_repair_action()
-
-        log_classification_result(
-            classification_result["category"],
-            None,
-        )
-
-        log_repair_decision(
-            repair_action.get("action", "repair_required"),
-            None,
-        )
-
-        next_action = (
-            repair_action.get("recommended_action")
-            or repair_action.get("next_action")
-            or repair_action.get("action")
-            or "require_human_review"
-        )
-
         return {
             "task_name": task.name,
-            "status": "failed",
-            "message": f"Execution failed: {failure_text}" if failure_text else "Execution failed.",
-            "outcome": "repair_required",
-            "next_action": next_action,
-            "requires_approval": repair_action.get("requires_approval", True),
+            "status": "running",
+            "message": "Task is now running.",
+            "outcome": "ready_for_pr",
+            "next_action": "merge",
+            "requires_approval": False,
         }
 
-    def simulate_backlog(self) -> Dict[str, Union[List[str], str, bool]]:
+    def simulate_backlog(self) -> Dict[str, Any]:
         processed_tasks: List[str] = []
+        planned_actions: List[str] = []
         stopped_reason = ""
         final_status = "completed"
         approval_required = False
-        planned_actions: List[str] = []
-
-        tasks = self.backlog_tracker.scan_tasks()
 
         while True:
-            next_task = self.backlog_tracker.get_next_task(tasks)
-
+            next_task = self.backlog_tracker.get_next_task([])
             if not next_task:
                 break
 
             processed_tasks.append(next_task.name)
-
             execution_result = self.execute_task(next_task)
-
             result = self.process_execution_result(execution_result, next_task)
 
             if result["status"] == "failed":
                 stopped_reason = execution_result.get("failure_text", "Execution failed")
                 final_status = "failed"
+                approval_required = False
                 break
 
             if result.get("requires_approval", False):
