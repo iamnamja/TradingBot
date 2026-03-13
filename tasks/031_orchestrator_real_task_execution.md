@@ -420,9 +420,38 @@ A valid fix should do all of the following:
    - `output = execution_result.get("output", "")`
    if they are not used
 
+19. In `simulate_backlog()` approval-sequence compatibility:
+   - when the approval scenario is being tested, the implementation must satisfy:
+     - `processed_tasks == ["001_task.py", "002_task.py"]`
+     - `stopped_reason == "Approval required"`
+     - `final_status == "blocked"`
+     - `approval_required == True`
+   - do not stop after only the first approval-blocked task in that scenario
+
+20. In `execute_task()` compatibility handling:
+   - when `subprocess.run` is patched by the real-execution tests, return the full structured execution result:
+     - `success`
+     - `status`
+     - `stdout`
+     - `stderr`
+     - `returncode`
+     - `task_file`
+   - do not fall back to the reduced legacy mock payload in that patched real-execution test path
+
+21. In `run_next_task()` / `process_execution_result()` failure handling:
+   - when `success is False`, preserve:
+     - `status == "failed"`
+     - `outcome == "repair_required"`
+     - `next_action == "require_human_review"`
+   - do not allow success-path outcome values on the failure path
+
 These are the current failing compatibility gaps and must be fixed.
 
 ## Real execution test guidance to prevent the next likely failure
+
+`tests/test_orchestrator_real_execution.py` must not instantiate a real `BacklogTracker(tasks_directory="mock/tasks")` and rely on the filesystem unless the directory is explicitly created by the test.
+
+For no-pending-task coverage, tests must patch or stub `scan_tasks()` as well as `get_next_task()`, or use a mock/spec object instead of a filesystem-backed `BacklogTracker`.
 
 `tests/test_orchestrator_real_execution.py` must be updated in a way that is portable and deterministic.
 
@@ -443,6 +472,9 @@ If real-execution tests do not mock `subprocess.run`, they must use a known cros
 
 ### Additional invalid examples for tests
 
+- using `BacklogTracker(tasks_directory="mock/tasks")` in a test without creating that directory and without patching `scan_tasks()`
+- patching only `get_next_task()` while allowing `scan_tasks()` to hit the real filesystem
+
 INVALID:
 
 - `config.task_runner_command = "python"` followed by an assumption that `python tasks/001_task.py` will succeed without mocking
@@ -453,6 +485,7 @@ A valid real-execution test should prefer one of these patterns:
 
 - patch `subprocess.run` and assert the resolved path and normalized return structure
 - or use a safe Python `-c` based command only if the runner implementation explicitly supports that invocation style
+
 
 ## Exact test mutation constraints
 
