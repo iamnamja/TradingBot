@@ -22,35 +22,17 @@ FILE_END = "END_FILE"
 
 DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
 FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
-BULLET_PATH_RE = re.compile(
-    r"""^\s*(?:[-*]|\d+[.)])\s+([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)\s*$""",
-    re.MULTILINE,
-)
-INLINE_PATH_RE = re.compile(
-    r"""(?<![A-Za-z0-9_./\\-])([A-Za-z0-9_./\\-]+/[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)(?![A-Za-z0-9_./\\-])"""
-)
 
 RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
 RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
-RUFF_UNDEFINED_NAME_RE = re.compile(r"F821 Undefined name `([^`]+)`", re.MULTILINE)
-
 PYTEST_TEST_NAME_RE = re.compile(r"_{5,}\s*(.*?)\s*_{5,}")
 PYTEST_TEST_FILE_RE = re.compile(r"^(tests/[^\n:]+):(\d+):", re.MULTILINE)
 PYTEST_EXACT_MISMATCH_RE = re.compile(r"^E\s+assert\s+(.+?)\s+==\s+(.+)$", re.MULTILINE)
-
 MISSING_ATTR_RE = re.compile(r"AttributeError: '([^']+)' object has no attribute '([^']+)'")
 PATH_ERROR_RE = re.compile(r"(?:PermissionError|FileNotFoundError|IsADirectoryError): .*?: '([^']*)'")
 MODULE_NOT_FOUND_RE = re.compile(r"ModuleNotFoundError: No module named '([^']+)'")
-NAME_ERROR_RE = re.compile(r"NameError: name '([^']+)' is not defined")
-KEY_ERROR_RE = re.compile(r"KeyError: '([^']+)'")
-CTOR_TYPE_ERROR_RE = re.compile(r"TypeError: ([A-Za-z_][A-Za-z0-9_]*)\.__init__\(\) takes .*", re.MULTILINE)
-TAKES_NO_ARGS_RE = re.compile(r"TypeError: ([A-Za-z_][A-Za-z0-9_]*)\(\) takes no arguments")
 MISSING_DELIVERABLES_RE = re.compile(r"Missing required deliverables.*?:\s*(.+)")
 UNCHANGED_DELIVERABLES_RE = re.compile(r"Required deliverables were included but not materially updated:\s*(.+)")
-GENERIC_TASKS_ASSERT_RE = re.compile(r"assert 'tasks/' == 'generic_tasks/'")
-WIN_ECHO_RE = re.compile(r"FileNotFoundError: \[WinError 2\].*?\n", re.MULTILINE)
-DEFAULT_TASK_RUNNER_RE = re.compile(r"default_task_runner")
-RUNNER_METHOD_HEADER_RE = re.compile(r"^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILINE)
 
 
 class FileBundleError(ValueError):
@@ -163,45 +145,18 @@ def write_files(files: Dict[str, str]) -> None:
         p.write_text(data, encoding="utf-8", newline="\n")
 
 
-def _deliverables_section(task_text: str) -> str:
-    text = normalize_newlines(task_text)
-    lines = text.splitlines()
-
-    start_idx = 0
-    found = False
-    for i, line in enumerate(lines):
-        if re.match(r"^\s*#{1,6}\s+deliverables\s*$", line, re.IGNORECASE):
-            start_idx = i + 1
-            found = True
-            break
-
-    if not found:
-        return text
-
-    end_idx = len(lines)
-    for j in range(start_idx, len(lines)):
-        if re.match(r"^\s*#{1,6}\s+\S", lines[j]):
-            end_idx = j
-            break
-
-    return "\n".join(lines[start_idx:end_idx])
-
-
 def parse_required_files(task_text: str) -> List[str]:
-    section = _deliverables_section(task_text)
+    task_text = normalize_newlines(task_text)
+    lower = task_text.lower()
+
+    idx = lower.find("## deliverables")
+    if idx == -1:
+        idx = lower.find("# deliverables")
+
+    section = task_text if idx == -1 else task_text[idx:]
+
     req: List[str] = []
-
     for m in DELIVERABLE_PATH_RE.finditer(section):
-        path = m.group(1).strip().replace("\\", "/")
-        if "/" in path and not path.startswith(("http://", "https://")):
-            req.append(path)
-
-    for m in BULLET_PATH_RE.finditer(section):
-        path = m.group(1).strip().replace("\\", "/")
-        if "/" in path and not path.startswith(("http://", "https://")):
-            req.append(path)
-
-    for m in INLINE_PATH_RE.finditer(section):
         path = m.group(1).strip().replace("\\", "/")
         if "/" in path and not path.startswith(("http://", "https://")):
             req.append(path)
@@ -226,93 +181,8 @@ def task_requires_material_update(task_text: str) -> bool:
         "must be materially updated",
         "if any one of these three files is not changed, the task is incomplete",
         "if any one of these",
-        "materially updated in the same bundle",
     ]
     return any(p in lower for p in phrases)
-
-
-def task_allows_unchanged_cli(task_text: str) -> bool:
-    lower = normalize_newlines(task_text).lower()
-    phrases = [
-        "not blocked solely because `cli.py` is unchanged",
-        "not blocked solely because cli.py is unchanged",
-        "not blocked solely because `cli.py` is unchanged or only minimally changed",
-        "including the current compatible `cli.py` in the bundle is acceptable",
-        "including the current compatible cli.py in the bundle is acceptable",
-        "do not force unnecessary churn in `cli.py`",
-        "do not force unnecessary churn in cli.py",
-        "this task is not blocked solely because `cli.py` is unchanged",
-    ]
-    return any(p in lower for p in phrases)
-
-
-def parse_required_runner_methods(task_text: str) -> List[str]:
-    lower = normalize_newlines(task_text).lower()
-    methods: List[str] = []
-    for method in [
-        "select_next_task",
-        "run_next_task",
-        "execute_task",
-        "process_execution_result",
-        "simulate_backlog",
-        "translate_to_orchestrator_behavior",
-    ]:
-        if method in lower:
-            methods.append(method)
-    seen = set()
-    out: List[str] = []
-    for method in methods:
-        if method not in seen:
-            out.append(method)
-            seen.add(method)
-    return out
-
-
-def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> Tuple[bool, str]:
-    """Cheap preflight checks to catch structural regressions before ruff/pytest."""
-    issues: List[str] = []
-
-    runner_path = "src/builder/orchestrator/runner.py"
-    runner = bundle.get(runner_path, "")
-    if runner:
-        defined_methods = set(RUNNER_METHOD_HEADER_RE.findall(runner))
-        for method in parse_required_runner_methods(task_text):
-            if method in {
-                "select_next_task",
-                "run_next_task",
-                "execute_task",
-                "process_execution_result",
-                "simulate_backlog",
-            } and method not in defined_methods:
-                issues.append(f"`{runner_path}` is missing required method `{method}`.")
-
-        lower_task = normalize_newlines(task_text).lower()
-        if "processed_tasks" in lower_task and "simulate_backlog" in defined_methods:
-            for key in ["processed_tasks", "stopped_reason", "final_status", "approval_required", "planned_actions"]:
-                if key not in runner:
-                    issues.append(f"`{runner_path}` appears to be missing simulation return key `{key}`.")
-
-    project_config_path = "src/builder/orchestrator/project_config.py"
-    project_config = bundle.get(project_config_path, "")
-    if project_config and "@dataclass(frozen=True)" in project_config:
-        issues.append(
-            f"`{project_config_path}` uses frozen dataclasses, but the task requires mutable config objects."
-        )
-
-    cli_path = "src/builder/orchestrator/cli.py"
-    cli = bundle.get(cli_path, "")
-    if cli and "default_task_runner" in cli:
-        issues.append(
-            f"`{cli_path}` invents `default_task_runner`, but the task requires no fallback command."
-        )
-    if cli and "run_next_task(" in cli and "real_execution=" in cli:
-        issues.append(
-            f"`{cli_path}` calls `run_next_task(..., real_execution=...)`, but the task requires the legacy public signature."
-        )
-
-    if issues:
-        return False, "Static bundle contract violations detected:\n" + "\n".join(f"- {x}" for x in issues)
-    return True, ""
 
 
 def existing_file_contents(paths: List[str]) -> Dict[str, str]:
@@ -381,12 +251,14 @@ def repo_map() -> str:
             continue
         out.append(f"[{root.as_posix()}]")
         for path in sorted(root.rglob("*")):
-            rel = path.as_posix()
             if path.is_dir():
-                out.append(rel + "/")
-            else:
-                out.append(rel)
-    return "\n".join(out[:1200])
+                continue
+            rel = path.as_posix()
+            if "__pycache__" in rel or rel.endswith(".pyc"):
+                continue
+            out.append(rel)
+        out.append("")
+    return "\n".join(out).strip()
 
 
 def relevant_context(required: List[str]) -> str:
@@ -407,15 +279,8 @@ def relevant_context(required: List[str]) -> str:
         if p.parent != Path("."):
             for sib in sorted(p.parent.glob("*.py")):
                 candidates.append(sib)
-            for sib in sorted(p.parent.glob("*.md")):
-                candidates.append(sib)
-
-    for impl_root in [Path("src"), Path("tests")]:
-        if impl_root.exists():
-            for path in sorted(impl_root.rglob("*.py")):
-                if len(candidates) > 80:
-                    break
-                candidates.append(path)
+        if p.suffix == ".md":
+            candidates.append(p)
 
     for p in candidates:
         if not p.exists() or not p.is_file():
@@ -514,6 +379,11 @@ def parse_semantic_failures(details: str) -> str:
                 "Do not fabricate optional fields or guessed config members. "
                 "Guard the access with `getattr(..., None)` or skip the behavior when the field is not configured."
             )
+        if attr.endswith("path"):
+            lines.append(
+                f"- Because `{attr}` is missing, do not call helper functions that require it. "
+                "Branch before the helper call and no-op that integration when the path is not configured."
+            )
 
     for bad_path in sorted(set(PATH_ERROR_RE.findall(details))):
         shown = bad_path if bad_path else "<empty string>"
@@ -526,47 +396,6 @@ def parse_semantic_failures(details: str) -> str:
     for mod in sorted(set(MODULE_NOT_FOUND_RE.findall(details))):
         lines.append(
             f"- ModuleNotFoundError detected for `{mod}`. Use an existing repo module or create that module/package in the same bundle."
-        )
-
-    if GENERIC_TASKS_ASSERT_RE.search(details):
-        lines.append(
-            "- A test expects `get_generic_project_config()` to return `generic_tasks/`. Preserve that exact compatibility."
-        )
-
-    if DEFAULT_TASK_RUNNER_RE.search(details):
-        lines.append(
-            "- The task requires `task_runner_command` to default to `None`. Do not use `default_task_runner` as a fallback."
-        )
-
-    if WIN_ECHO_RE.search(details):
-        lines.append(
-            "- A Windows subprocess failure suggests the real-execution test is using an unsafe command. "
-            "Use a subprocess-safe Python invocation instead of plain `echo`."
-        )
-
-    for undefined_name in sorted(set(RUFF_UNDEFINED_NAME_RE.findall(details))):
-        lines.append(
-            f"- Ruff reports undefined name `{undefined_name}`. Add the missing import or remove the invalid reference."
-        )
-
-    for missing_name in sorted(set(NAME_ERROR_RE.findall(details))):
-        lines.append(
-            f"- Runtime NameError for `{missing_name}`. Fix imports or use safe forward references in type annotations."
-        )
-
-    for missing_key in sorted(set(KEY_ERROR_RE.findall(details))):
-        lines.append(
-            f"- KeyError for `{missing_key}`. Preserve the legacy result contract and include that key when tests expect it."
-        )
-
-    for cls in sorted(set(CTOR_TYPE_ERROR_RE.findall(details))):
-        lines.append(
-            f"- Constructor signature mismatch for `{cls}`. Preserve the existing backward-compatible constructor signature."
-        )
-
-    for cls in sorted(set(TAKES_NO_ARGS_RE.findall(details))):
-        lines.append(
-            f"- `{cls}` must still accept constructor arguments expected by the existing tests."
         )
 
     m = MISSING_DELIVERABLES_RE.search(details)
@@ -653,60 +482,41 @@ def chat(messages: List[dict], model: str) -> str:
     return (resp.choices[0].message.content or "").strip()
 
 
-def build_messages(task_text: str, required: List[str]) -> List[dict]:
+def build_messages(task_text: str, required: List[str], extra_directives: str = "") -> List[dict]:
     extra: List[str] = []
 
     if required:
         extra.append("## Required deliverables (must be satisfied)")
         extra.extend(f"- {p}" for p in required)
         extra.append("")
+        extra.append("## Exact FILE headers that MUST appear")
+        for p in required:
+            extra.append(f"FILE: {p}")
+        extra.append("")
         extra.append("## Output requirements")
         extra.append("You MUST emit FILE blocks for every required deliverable path listed above.")
+        extra.append("Every FILE block must be closed by END_FILE before the next FILE header.")
         extra.append("If a deliverable is an existing file, materially update it in the bundle.")
         extra.append("Do not omit test files named in the task.")
+        extra.append("Do not substitute similar or nested alternative paths.")
         extra.append("")
 
-    extra.append("## Repository map")
-    extra.append(repo_map())
-    extra.append("")
     extra.append("## Relevant file context")
     extra.append(relevant_context(required) or "(none)")
+    extra.append("")
+    extra.append("## Repository map")
+    extra.append(repo_map())
+
+    if extra_directives.strip():
+        extra.append("")
+        extra.append("## Iteration-specific directives")
+        extra.append(extra_directives.strip())
 
     user_task = task_text.rstrip() + "\n\n" + "\n".join(extra).rstrip() + "\n"
     return [
         {"role": "system", "content": load_system_prompt().strip()},
         {"role": "user", "content": user_task},
     ]
-
-
-def request_and_parse_bundle(messages: List[dict], model: str, last_output_path: Path) -> Dict[str, str]:
-    out = chat(messages, model=model)
-    last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
-
-    try:
-        return parse_file_bundle(out)
-    except Exception as e:
-        reminder = (
-            "Your previous response was INVALID.\n"
-            "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
-            "Do NOT use commented headers like '# FILE:'.\n\n"
-            "Required structure:\n"
-            "BEGIN_FILE_BUNDLE\n"
-            "FILE: path/to/file.ext\n"
-            "<full file contents>\n"
-            "END_FILE\n"
-            "END_FILE_BUNDLE\n\n"
-            "If there are no changes, output exactly:\n"
-            "BEGIN_FILE_BUNDLE\n"
-            "END_FILE_BUNDLE\n\n"
-            f"Parser error: {e}"
-        )
-        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model)
-        last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
-        try:
-            return parse_file_bundle(out2)
-        except Exception as e2:
-            raise FileBundleError(f"Model returned malformed file bundle after retry: {e2}") from e2
 
 
 def main() -> int:
@@ -739,20 +549,40 @@ def main() -> int:
     last_bundle_path = Path("_last_agent_file_bundle.txt")
 
     prev_files: Dict[str, str] | None = None
-    consecutive_missing_required = 0
+    extra_directives = ""
 
     for it in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {it}/{args.max_iters} ===")
         baseline = existing_file_contents(required)
-        messages = build_messages(task_text, required)
+        messages = build_messages(task_text, required, extra_directives)
+
+        out = chat(messages, model=args.model)
+        last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
         try:
-            files = request_and_parse_bundle(messages, args.model, last_output_path)
-        except FileBundleError as e:
-            print(f"❌ {e}")
-            print(f"Model output saved to: {last_output_path}")
-            print(f"Parsed file bundle saved to: {last_bundle_path}")
-            return 1
+            files = parse_file_bundle(out)
+        except Exception as e:
+            reminder = (
+                "Your previous response was INVALID.\n"
+                "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
+                "Do NOT use commented headers like '# FILE:'.\n"
+                "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n"
+                "There must be an END_FILE before any later FILE header.\n"
+                "Do not open a new FILE block until the previous FILE block is closed.\n\n"
+                "Required structure:\n"
+                "BEGIN_FILE_BUNDLE\n"
+                "FILE: path/to/file.ext\n"
+                "<full file contents>\n"
+                "END_FILE\n"
+                "FILE: another/path.py\n"
+                "<full file contents>\n"
+                "END_FILE\n"
+                "END_FILE_BUNDLE\n\n"
+                f"Parser error: {e}"
+            )
+            out2 = chat(messages + [{"role": "user", "content": reminder}], model=args.model)
+            last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+            files = parse_file_bundle(out2)
 
         pretty: List[str] = [FILE_BUNDLE_BEGIN]
         for p, c in files.items():
@@ -771,23 +601,16 @@ def main() -> int:
         )
         if not ok_req:
             print(f"❌ {req_msg}")
-            consecutive_missing_required += 1
             task_text = task_text.rstrip() + "\n\nIMPORTANT: " + req_msg + "\n"
-            if consecutive_missing_required >= 2 and required:
-                task_text += (
-                    "\nIMPORTANT: Your next response MUST contain FILE blocks for every one of these exact paths:\n"
-                    + "\n".join(f"- {p}" for p in required)
-                    + "\nDo not omit any of them.\n"
-                )
+            extra_directives = req_msg
             prev_files = files
             continue
-
-        consecutive_missing_required = 0
 
         ok_static, static_msg = validate_static_bundle_contracts(files, task_text)
         if not ok_static:
             print(f"❌ {static_msg}")
             task_text = task_text.rstrip() + "\n\nIMPORTANT: " + static_msg + "\n"
+            extra_directives = static_msg
             prev_files = files
             continue
 
@@ -802,6 +625,7 @@ def main() -> int:
                 + missing_module_hints(import_msg)
                 + "\n"
             )
+            extra_directives = import_msg + "\n" + missing_module_hints(import_msg)
             prev_files = files
             continue
 
@@ -837,6 +661,9 @@ def main() -> int:
         )
         if semantic_hints:
             task_text += "\n# Failure analysis hints\n" + semantic_hints + "\n"
+            extra_directives = semantic_hints
+        else:
+            extra_directives = details
 
         if prev_files is not None:
             sim = bundle_similarity(prev_files, files)
