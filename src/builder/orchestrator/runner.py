@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+import subprocess
 
 from .approval import create_approval_checkpoint
 from .audit import (
@@ -45,6 +46,7 @@ class OrchestratorRunner:
     def run_review(self, changed_files: list[str]) -> dict[str, Any]:
         effective_changed = list(changed_files or [])
 
+        # empty changed_files means review is blocked, not mergeable
         if not effective_changed:
             return {"mergeable": False}
 
@@ -97,9 +99,25 @@ class OrchestratorRunner:
         return self.process_execution_result(execution_result, running_task)
 
     def execute_task(self, task: TaskMetadata) -> dict[str, Any]:
+        task_runner_command = getattr(self.config, "task_runner_command", None)
+        if task_runner_command:
+            task_file_path = Path(self.config.tasks_directory) / task.name
+            result = subprocess.run(
+                [task_runner_command, str(task_file_path)],
+                capture_output=True,
+                text=True,
+            )
+            return {
+                "success": result.returncode == 0,
+                "status": "success" if result.returncode == 0 else "failure",
+                "stdout": result.stdout.strip(),
+                "stderr": result.stderr.strip(),
+                "returncode": result.returncode,
+                "task_file": str(task_file_path),
+            }
         return {
             "success": True,
-            "output": "Task executed successfully",  # no trailing period — matches test expectations
+            "output": "Task executed successfully",
             "changed_files": ["file1.py"],
         }
 
@@ -114,9 +132,8 @@ class OrchestratorRunner:
             else execution_result.get("status") == "success"
         )
 
-        output = execution_result.get("output", "")
         changed_files = execution_result.get("changed_files", [])
-        failure_text = execution_result.get("failure_text", "")
+        failure_text = execution_result.get("failure_text", "") or execution_result.get("stderr", "")
 
         if success:
             log_selected_task(task.name, None)
@@ -160,7 +177,7 @@ class OrchestratorRunner:
         classifier = FailureClassifier()
 
         classification_result = classifier.classify(
-            output,
+            execution_result.get("output", ""),
             failure_text,
             changed_files,
         )
@@ -192,9 +209,7 @@ class OrchestratorRunner:
         return {
             "task_name": task.name,
             "status": "failed",
-            "message": f"Execution failed: {failure_text}"
-            if failure_text
-            else "Execution failed.",
+            "message": f"Execution failed: {failure_text}" if failure_text else "Execution failed.",
             "outcome": "repair_required",
             "next_action": next_action,
             "requires_approval": repair_action.get("requires_approval", True),
@@ -207,9 +222,9 @@ class OrchestratorRunner:
         approval_required = False
         planned_actions: List[str] = []
 
-        # Fix: get fresh task list each iteration rather than mutating a stale list
+        tasks = self.backlog_tracker.scan_tasks()
+
         while True:
-            tasks = self.backlog_tracker.scan_tasks()
             next_task = self.backlog_tracker.get_next_task(tasks)
 
             if not next_task:
@@ -219,16 +234,10 @@ class OrchestratorRunner:
 
             execution_result = self.execute_task(next_task)
 
-            result = self.process_execution_result(
-                execution_result,
-                next_task,
-            )
+            result = self.process_execution_result(execution_result, next_task)
 
             if result["status"] == "failed":
-                stopped_reason = execution_result.get(
-                    "failure_text",
-                    "Execution failed",
-                )
+                stopped_reason = execution_result.get("failure_text", "Execution failed")
                 final_status = "failed"
                 break
 
@@ -236,12 +245,9 @@ class OrchestratorRunner:
                 approval_required = True
                 stopped_reason = "Approval required"
                 final_status = "blocked"
-                # Continue processing remaining tasks even when approval is required
                 continue
 
-            planned_actions.append(
-                f"Task {next_task.name} completed successfully."
-            )
+            planned_actions.append(f"Task {next_task.name} completed successfully.")
 
         return {
             "processed_tasks": processed_tasks,
