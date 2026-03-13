@@ -276,6 +276,9 @@ The following implementation choices are invalid in this task:
 
 INVALID:
 
+- breaking out of `simulate_backlog()` after the first approval-blocked task when the required processed sequence is `["001_task.py", "002_task.py"]`
+- returning `planned_actions == []` on the fully successful simulation path
+- leaving an unused local like `output = execution_result.get("output", "")` in `runner.py`
 - `message = "Execution succeeded."` on the legacy success path
 - `requires_approval = self.run_review(... )["mergeable"]`
 - `if requires_approval:` immediately after assigning `requires_approval = mergeable`
@@ -362,6 +365,23 @@ A valid fix should do all of the following:
      - `outcome == "ready_for_pr"`
      - `next_action == "merge"`
      - `requires_approval == False`
+
+11. In `simulate_backlog()` approval-flow compatibility:
+   - when the review function is mocked to return `{"mergeable": False}` for the approval scenario tests, the simulation must still satisfy:
+     - `processed_tasks == ["001_task.py", "002_task.py"]`
+     - `stopped_reason == "Approval required"`
+     - `final_status == "blocked"`
+     - `approval_required == True`
+   - do not stop after only the first task in that scenario
+
+12. In `simulate_backlog()`:
+   - preserve success-path planned actions for mergeable tasks:
+     - append `f"Task {next_task.name} completed successfully."` to `planned_actions`
+   - do not leave `planned_actions` empty on the successful simulation path
+
+13. In `process_execution_result(...)` and related helpers:
+   - remove unused local variables such as `output` if they are not used
+   - the implementation must pass `ruff` without relying on unsafe fixes
 
 These are the current failing compatibility gaps and must be fixed.
 
