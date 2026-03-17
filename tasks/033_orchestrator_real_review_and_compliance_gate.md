@@ -28,7 +28,7 @@ Update:
 
 \- `src/builder/orchestrator/policy.py`
 
-\- `tests/test\_orchestrator\_real\_review\_gate.py`
+\- `tests/test_orchestrator_real_review_gate.py`
 
 
 
@@ -42,9 +42,9 @@ Review must determine:
 
 \- mergeable
 
-\- review\_blocked
+\- review_blocked
 
-\- approval\_required
+\- approval_required
 
 
 
@@ -52,7 +52,7 @@ Policy engine must check changed files against approval rules.
 
 
 
-Execution result must only become `ready\_for\_pr` if:
+Execution result must only become `ready_for_pr` if:
 
 
 
