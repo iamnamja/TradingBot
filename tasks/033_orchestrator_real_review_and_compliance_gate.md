@@ -28,7 +28,7 @@ Update:
 
 \- `src/builder/orchestrator/policy.py`
 
-\- `tests/test_orchestrator_real_review_gate.py`
+\- `tests/test\_orchestrator\_real\_review\_gate.py`
 
 
 
@@ -225,3 +225,104 @@ PolicyEngine(
 ```
 
 Both keyword arguments must be accepted. Do NOT use `approval_required_patterns` or any other name.
+
+## CRITICAL — run_review must use PolicyEngine
+
+`run_review` must wire `PolicyEngine` to check `approval_required_file_patterns` from config:
+
+```python
+def run_review(self, changed_files: list[str]) -> dict[str, Any]:
+    effective_changed = list(changed_files or [])
+
+    if not effective_changed:
+        return {"mergeable": True}
+
+    # Check policy — approval_required_file_patterns blocks merge
+    approval_patterns = getattr(
+        self.config, "approval_required_file_patterns", []
+    )
+    policy = PolicyEngine(
+        approval_required_file_patterns=approval_patterns,
+        protected_file_patterns=getattr(self.config, "protected_file_patterns", []),
+    )
+    if policy.requires_approval(effective_changed):
+        return {"mergeable": False}
+
+    checker = ReviewChecker(
+        deliverables=effective_changed,
+        changed_files=effective_changed,
+    )
+    result = checker.evaluate()
+    if "mergeable" not in result:
+        return {"mergeable": True}
+    return result
+```
+
+This means:
+- `changed_files=[]` → `{"mergeable": True}` (legacy mock path preserved)
+- `changed_files=["README.md"]` with `approval_required_file_patterns=["README.md"]` → `{"mergeable": False}` → `review_blocked`
+- `changed_files=["file1.py"]` with no matching patterns → `{"mergeable": True}` → `ready_for_pr`
+
+## CRITICAL — execute_task default mock return must use empty changed_files
+
+`test_execute_task_without_real_command` expects `result["changed_files"] == []`.
+
+When `task_runner_command` is None, return exactly:
+```python
+{
+    "success": True,
+    "output": "Task executed successfully",
+    "changed_files": [],
+}
+```
+
+Do NOT return `"changed_files": ["file1.py"]` — this breaks the test.
+
+The legacy tests that need `ready_for_pr` on the mock path work because `run_review([])` returns `{"mergeable": True}`.
+
+## CRITICAL — next_action must be "merge" not "create_pr"
+
+Tests expect `next_action == "merge"` on the ready_for_pr path. Do NOT change this to `"create_pr"`.
+
+The ready_for_pr return must be exactly:
+```python
+{
+    "task_name": task.name,
+    "status": "running",
+    "message": "Task is now running.",
+    "outcome": "ready_for_pr",
+    "next_action": "merge",          # NOT "create_pr"
+    "requires_approval": False,
+}
+```
+
+## CRITICAL — PolicyEngine.requires_approval signature
+
+`PolicyEngine` must have a `requires_approval(changed_files: list[str]) -> bool` method:
+
+```python
+def requires_approval(self, changed_files: list[str]) -> bool:
+    """Returns True if any changed file matches any approval-required pattern."""
+    for pattern in self.approval_required_file_patterns:
+        for f in changed_files:
+            if pattern in f or f.endswith(pattern):
+                return True
+    return False
+```
+
+## CRITICAL — test_missing_deliverables behavior
+
+`test_missing_deliverables` passes `changed_files=["other_file.py"]` and `deliverables_updated=[]` and expects `outcome == "review_blocked"`.
+
+This means `ReviewChecker` must return `{"mergeable": False}` when `deliverables_updated` is empty but `changed_files` is non-empty. Update `ReviewChecker.evaluate()` to check this:
+
+```python
+def evaluate(self) -> dict[str, Any]:
+    # If deliverables list is provided but empty, block merge
+    if hasattr(self, 'deliverables') and self.deliverables is not None:
+        if len(self.deliverables) == 0 and len(self.changed_files) > 0:
+            return {"mergeable": False, "reason": "no_deliverables_updated"}
+    ...
+```
+
+Or alternatively: pass `deliverables_updated` from the normalized result into `ReviewChecker` so it can check whether deliverables were actually updated.
