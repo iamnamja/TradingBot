@@ -380,3 +380,117 @@ Always call `.strip()` on subprocess output:
 ```
 
 Tests expect `"Task executed successfully"` not `"Task executed successfully\n"`.
+
+## CRITICAL — guardrails must not run when task_runner_command is None
+
+Existing tests do not set up a real git environment. Guardrails must ONLY run when `task_runner_command` is configured (real execution mode).
+
+```python
+def run_next_task(self, dry_run: bool = False) -> Dict[str, Union[str, bool]]:
+    self.read_backlog()
+    next_task = self.select_next_task()
+
+    if not next_task:
+        return { ... no_task response ... }
+
+    if dry_run:
+        return { ... dry_run response ... }
+
+    # Only run guardrails in real execution mode
+    task_runner_command = getattr(self.config, "task_runner_command", None)
+    skip_guardrails = getattr(self, "skip_guardrails", False)
+
+    if task_runner_command and not skip_guardrails:
+        guardrails = GitGuardrails(
+            branch_naming_pattern=self.config.branch_naming_pattern
+        )
+        safe, reason = guardrails.check()
+        if not safe:
+            return {
+                "task_name": "none",
+                "status": "blocked",
+                "message": f"Git guardrail failed: {reason}",
+                "outcome": "guardrail_failed",
+                "next_action": "fix_git_state",
+                "requires_approval": False,
+            }
+
+    # ... rest of execution
+```
+
+This means:
+- Tests without `task_runner_command` → guardrails never run → existing tests pass
+- Tests with `task_runner_command` and mocked `subprocess.run` → guardrails run on mocked git
+- `runner.skip_guardrails = True` → guardrails skipped even with real command
+
+## CRITICAL — execute_task real path must return full structured dict
+
+When `task_runner_command` is configured, `execute_task` must return ALL of:
+
+```python
+{
+    "success": result.returncode == 0,
+    "status": "success" if result.returncode == 0 else "failure",
+    "stdout": result.stdout.strip(),
+    "stderr": result.stderr.strip(),
+    "returncode": result.returncode,
+    "task_file": str(task_file_path),
+    "changed_files": [],
+}
+```
+
+Note: `changed_files` must be included even on the real path — default to `[]`.
+
+## CRITICAL — execute_task mock path must return changed_files: []
+
+When `task_runner_command` is None:
+
+```python
+return {
+    "success": True,
+    "output": "Task executed successfully",
+    "changed_files": [],
+}
+```
+
+The `test_execute_task_without_real_command` test expects `result["changed_files"] == []`.
+
+Do NOT return `"changed_files": ["file1.py"]` on the mock path.
+
+The legacy `ready_for_pr` path still works because `run_review([])` returns `{"mergeable": True}`.
+
+## CRITICAL — simulate_backlog must use BacklogTracker.scan_tasks for real dirs
+
+`test_simulate_bypasses_guardrails` creates a real temp directory with one task file and expects `len(processed_tasks) == 1`. This means `simulate_backlog` must be able to discover tasks from the real filesystem when `BacklogTracker` is backed by a real directory.
+
+The `simulate_backlog` loop calls `get_next_task([])` which works with mocked trackers. For real `BacklogTracker` instances, `get_next_task([])` with an empty list will return `None` because there are no tasks in the list.
+
+To support both mocked and real backlog trackers, `simulate_backlog` must call `select_next_task()` which goes through `scan_tasks()` properly:
+
+```python
+# In simulate_backlog, use select_next_task() which calls scan_tasks internally
+while True:
+    next_task = self.select_next_task()
+    if not next_task:
+        break
+    ...
+```
+
+BUT this breaks the `side_effect` mock pattern. The solution: detect which path to use based on whether `get_next_task` has a `side_effect` set:
+
+Actually the correct fix is simpler: the test sets up a real `BacklogTracker` with a real dir. Call `self.backlog_tracker.get_next_task(self.backlog_tracker.scan_tasks())` inside simulate_backlog:
+
+```python
+while True:
+    tasks = self.backlog_tracker.scan_tasks()
+    next_task = self.backlog_tracker.get_next_task(tasks)
+    if not next_task:
+        break
+    ...
+```
+
+This works for BOTH cases:
+- Mock with `side_effect`: `scan_tasks()` returns whatever it's mocked to, `get_next_task` uses `side_effect`
+- Real `BacklogTracker`: `scan_tasks()` scans the real dir, `get_next_task` picks the first pending
+
+Update the `simulate_backlog` loop to use `scan_tasks()` before `get_next_task` on each iteration.
