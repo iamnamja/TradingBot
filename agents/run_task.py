@@ -64,6 +64,27 @@ def _load_dotenv_if_available() -> None:
     load_dotenv()
 
 
+
+def default_provider() -> str:
+    provider = os.getenv("TRADINGBOT_AGENT_PROVIDER", "").strip().lower()
+    if provider:
+        return provider
+    if os.getenv("OPENAI_API_KEY", "").strip():
+        return "openai"
+    if os.getenv("ANTHROPIC_API_KEY", "").strip():
+        return "anthropic"
+    return "openai"
+
+
+def default_model_for_provider(provider: str) -> str:
+    env_model = os.getenv("TRADINGBOT_AGENT_MODEL", "").strip()
+    if env_model:
+        return env_model
+    if provider == "openai":
+        return "gpt-5"
+    return "claude-sonnet-4-5"
+
+
 def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=check, text=True, capture_output=False)
 
@@ -592,8 +613,8 @@ def build_messages(task_text: str, required: List[str], extra_directives: str = 
     ]
 
 
-def request_and_parse_bundle(messages: List[dict], model: str, last_output_path: Path) -> Dict[str, str]:
-    out = chat(messages, model=model)
+def request_and_parse_bundle(messages: List[dict], model: str, provider: str, last_output_path: Path) -> Dict[str, str]:
+    out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
     try:
@@ -617,7 +638,7 @@ def request_and_parse_bundle(messages: List[dict], model: str, last_output_path:
             "END_FILE_BUNDLE\n\n"
             f"Parser error: {e}"
         )
-        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model)
+        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
         try:
             return parse_file_bundle(out2)
@@ -631,7 +652,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("task", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
-    ap.add_argument("--model", default=os.getenv("TRADINGBOT_AGENT_MODEL", "claude-sonnet-4-5"))
+    ap.add_argument("--provider", default=default_provider(), choices=["openai", "anthropic"])
+    ap.add_argument("--model", default=default_model_for_provider(default_provider()))
     ap.add_argument("--max-iters", type=int, default=4)
     args = ap.parse_args()
 
@@ -649,6 +671,8 @@ def main() -> int:
     branch = f"agent-{task_path.stem}"
     print(f"Current branch: {capture(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
     print(f"Creating branch: {branch}")
+    print(f"Using provider: {args.provider}")
+    print(f"Using model: {args.model}")
     ensure_branch(branch)
 
     last_output_path = Path("_last_agent_model_output.txt")
@@ -663,7 +687,7 @@ def main() -> int:
         messages = build_messages(task_text, required, extra_directives)
 
         try:
-            files = request_and_parse_bundle(messages, args.model, last_output_path)
+            files = request_and_parse_bundle(messages, args.model, args.provider, last_output_path)
         except FileBundleError as e:
             print(f"❌ {e}")
             print(f"Model output saved to: {last_output_path}")

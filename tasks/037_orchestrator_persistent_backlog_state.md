@@ -26,6 +26,139 @@ All existing public APIs must remain backward compatible:
 
 All existing passing tests must continue to pass.
 
+
+
+## CRITICAL — existing runner semantics are locked
+
+This task is NOT allowed to change any pre-existing runner behavior except to add persistence hooks.
+
+A solution is invalid if any of the following existing tests would need their expected values changed:
+
+- approval flow tests
+- dry-run tests
+- execute workflow tests
+- full simulation tests
+- git guardrail tests
+- real execution tests
+- real review gate tests
+- generic runner tests
+
+The implementation must preserve all existing return dictionaries and message strings exactly unless persistence strictly requires an additive hook.
+
+## Locked runner contracts
+
+The following must remain EXACTLY unchanged:
+
+### `run_next_task(dry_run=True)` when a pending task exists
+
+```python
+{
+    "dry_run": True,
+    "task_name": "001_task.py",
+    "status": "planned",
+    "message": "Task is planned for execution.",
+    "outcome": "noop",
+    "next_action": "none",
+    "requires_approval": False,
+}
+```
+
+### `run_next_task()` when no pending task exists
+
+```python
+{
+    "task_name": "none",
+    "status": "no_task",
+    "message": "No pending tasks available.",
+    "outcome": "noop",
+    "next_action": "none",
+    "requires_approval": False,
+}
+```
+
+### legacy success path
+
+```python
+{
+    "task_name": "001_task.py",
+    "status": "running",
+    "message": "Task is now running.",
+    "outcome": "ready_for_pr",
+    "next_action": "merge",
+    "requires_approval": False,
+}
+```
+
+### review-blocked path
+
+```python
+{
+    "task_name": "001_task.py",
+    "status": "running",
+    "message": "Task is now running.",
+    "outcome": "review_blocked",
+    "next_action": "requires_approval",
+    "requires_approval": True,
+}
+```
+
+### failure path
+
+```python
+{
+    "task_name": "001_task.py",
+    "status": "failed",
+    "message": "Execution failed: Execution failed",
+    "outcome": "repair_required",
+    "next_action": "require_human_review",
+}
+```
+
+### successful simulation
+
+```python
+{
+    "processed_tasks": ["001_task.py", "002_task.py"],
+    "stopped_reason": "",
+    "final_status": "completed",
+    "approval_required": False,
+    "planned_actions": [
+        "Task 001_task.py completed successfully.",
+        "Task 002_task.py completed successfully.",
+    ],
+}
+```
+
+### approval-blocked simulation
+
+```python
+{
+    "processed_tasks": ["001_task.py", "002_task.py"],
+    "stopped_reason": "Approval required",
+    "final_status": "blocked",
+    "approval_required": True,
+}
+```
+
+### failure simulation
+
+```python
+{
+    "processed_tasks": ["001_task.py"],
+    "stopped_reason": "Execution failed",
+    "final_status": "failed",
+    "approval_required": False,
+    "planned_actions": [],
+}
+```
+
+### guardrail-blocked path
+
+- `status == "blocked"`
+- `outcome == "guardrail_failed"`
+- `task_name == "none"` for the blocked pre-execution guardrail case
+
+
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
@@ -389,3 +522,31 @@ A valid implementation will likely:
 - add `save_state/load_state/update_task_status` helpers in `backlog.py`
 - make only the smallest possible integration hooks in `runner.py`
 - leave all unrelated contracts untouched
+
+## Explicitly invalid changes
+
+INVALID:
+- returning `blocked` on legacy success path
+- changing dry-run message to include the task name
+- removing `next_action` from the no-task path
+- changing simulation `planned_actions` from `list[str]` to `list[dict]`
+- stopping approval simulation after only `["001_task.py"]`
+- changing `execute_task()` return shape for existing real-execution tests
+- changing `execute_task()` default mock `changed_files`
+- changing guardrail-blocked `task_name`
+- changing any existing expected message string
+- changing any existing expected status string
+- regenerating `runner.py` wholesale
+
+## CRITICAL — `state.py` must be materially updated
+
+`state.py` must not remain a minimal persistence wrapper only.
+
+It must be materially updated in a way that is central to this task, for example:
+- robust JSON serialization and deserialization helpers
+- stable task-state round-tripping
+- explicit missing-file behavior
+- explicit corrupted-file recovery behavior
+- helper logic that is meaningfully exercised by the persistence tests
+
+A cosmetic or trivially small change to `state.py` is invalid.
