@@ -1,11 +1,11 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 
 class ReviewChecker:
     def __init__(self, deliverables: List[str], changed_files: List[str]):
         self.deliverables = set(deliverables)
         self.changed_files = changed_files
 
-    def evaluate(self) -> Dict[str, List[str]]:
+    def evaluate(self) -> Dict[str, Any]:
         reasons = []
         warnings = []
         
