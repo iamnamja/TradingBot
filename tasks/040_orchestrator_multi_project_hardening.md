@@ -25,15 +25,25 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 - `src/builder/orchestrator/project_config.py`
 - `src/builder/orchestrator/project_adapter.py`
-- `src/builder/orchestrator/runner.py`
 - `tests/test_project_adapter.py`
 - `tests/test_multi_project_adapters.py`
 
 All five files must be materially updated in the same bundle.
 
+
+## CRITICAL — runner.py is PROTECTED and must NOT be included as a deliverable
+
+`src/builder/orchestrator/runner.py` is a stable, fully-tested file. Do NOT include it in the bundle.
+Do NOT rewrite it. Do NOT modify it. Do NOT include it as a deliverable.
+
+If this task requires new functionality in runner.py, add ONLY the specific new method described,
+using surgical `str_replace`-style additions. All existing methods must remain exactly unchanged.
+
+The agent must NOT regenerate runner.py from scratch under any circumstances.
+
 ## Bundle completeness requirement
 
-The bundle is incomplete unless all five deliverables are present.
+The bundle is incomplete unless all listed deliverables are present.
 
 ## Critical anti-truncation rule
 
@@ -324,93 +334,3 @@ Invalid (breaks CI):
 ```python
 from src.builder.orchestrator.runner import OrchestratorRunner
 ```
-
-## CRITICAL — run_review signature must stay as single argument
-
-`run_review` must keep its existing single-argument signature:
-
-```python
-def run_review(self, changed_files: list[str]) -> dict[str, Any]:
-```
-
-Do NOT add a second argument like `deliverables_updated`. Existing tests mock it as:
-```python
-runner.run_review = lambda changed_files: {"mergeable": False}
-```
-Adding a second parameter breaks these with `TypeError`.
-
-`run_review` must use `PolicyEngine` internally:
-
-```python
-def run_review(self, changed_files: list[str]) -> dict[str, Any]:
-    effective_changed = list(changed_files or [])
-
-    if not effective_changed:
-        return {"mergeable": True}
-
-    approval_patterns = getattr(self.config, "approval_required_file_patterns", [])
-    policy = PolicyEngine(
-        approval_required_file_patterns=approval_patterns,
-        protected_file_patterns=getattr(self.config, "protected_file_patterns", []),
-    )
-    if policy.requires_approval(effective_changed):
-        return {"mergeable": False}
-
-    checker = ReviewChecker(
-        deliverables=effective_changed,
-        changed_files=effective_changed,
-    )
-    result = checker.evaluate()
-    if "mergeable" not in result:
-        return {"mergeable": True}
-    return result
-```
-
-## CRITICAL — deliverables_updated check in process_execution_result
-
-When `deliverables_updated` is explicitly `[]` (empty list) AND `changed_files` is non-empty, block review BEFORE calling `run_review`:
-
-```python
-# On the success path, before calling run_review:
-changed_files = execution_result.get("changed_files", [])
-deliverables_updated = execution_result.get("deliverables_updated", [])
-
-# Block if files changed but no deliverables updated
-if changed_files and "deliverables_updated" in execution_result and len(deliverables_updated) == 0:
-    log_review_verdict("blocked", None)
-    checkpoint = create_approval_checkpoint(
-        task_name=task.name,
-        reason="no_deliverables_updated",
-        source="review_gate",
-        requested_action="requires_approval",
-    )
-    checkpoint["status"] = "pending_approval"
-    log_approval_checkpoint(checkpoint, None)
-    return {
-        "task_name": task.name,
-        "status": "running",
-        "message": "Task is now running.",
-        "outcome": "review_blocked",
-        "next_action": "requires_approval",
-        "requires_approval": True,
-    }
-```
-
-Only block when `deliverables_updated` key is PRESENT and is an empty list.
-When the key is ABSENT (legacy mock payloads), do NOT block.
-
-## CRITICAL — final_status must be "completed" not "success"
-
-`simulate_backlog` must initialize `final_status = "completed"` and never change it to `"success"`.
-
-Valid values: `"completed"`, `"failed"`, `"blocked"`. Never `"success"`.
-
-## CRITICAL — execute_task stdout/stderr must be stripped
-
-Always call `.strip()` on subprocess output:
-```python
-"stdout": result.stdout.strip(),
-"stderr": result.stderr.strip(),
-```
-
-Tests expect `"Task executed successfully"` not `"Task executed successfully\n"`.
