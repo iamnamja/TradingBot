@@ -130,7 +130,7 @@ class TestRunnerGuardrailIntegration:
             initial_state=OrchestratorState(tasks=[]),
         )
 
-        with patch("subprocess.run") as mock_run:
+        with patch("builder.orchestrator.git_guardrails.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 stdout="main\n",
                 returncode=0,
@@ -159,7 +159,7 @@ class TestRunnerGuardrailIntegration:
             initial_state=OrchestratorState(tasks=[]),
         )
 
-        with patch("subprocess.run") as mock_run:
+        with patch("builder.orchestrator.git_guardrails.subprocess.run") as mock_run:
             def side_effect(*args, **kwargs):
                 cmd = args[0]
                 if "rev-parse" in cmd:
@@ -192,7 +192,7 @@ class TestRunnerGuardrailIntegration:
             initial_state=OrchestratorState(tasks=[]),
         )
 
-        with patch("subprocess.run") as mock_run:
+        with patch("builder.orchestrator.git_guardrails.subprocess.run") as mock_run:
             def side_effect(*args, **kwargs):
                 cmd = args[0]
                 if "rev-parse" in cmd:
@@ -225,7 +225,7 @@ class TestRunnerGuardrailIntegration:
             initial_state=OrchestratorState(tasks=[]),
         )
 
-        with patch("subprocess.run") as mock_run:
+        with patch("builder.orchestrator.git_guardrails.subprocess.run") as mock_run:
             def side_effect(*args, **kwargs):
                 cmd = args[0]
                 if "rev-parse" in cmd:
@@ -257,7 +257,7 @@ class TestRunnerGuardrailIntegration:
             initial_state=OrchestratorState(tasks=[]),
         )
 
-        with patch("subprocess.run") as mock_run:
+        with patch("builder.orchestrator.git_guardrails.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 stdout="main\n",
                 returncode=0,
@@ -284,6 +284,19 @@ class TestRunnerGuardrailIntegration:
             initial_state=OrchestratorState(tasks=[]),
         )
 
+        # Mock execute_task to avoid real subprocess and mock get_next_task
+        # so simulate_backlog sequences correctly via side_effect
+        from unittest.mock import MagicMock, patch
+        runner.execute_task = MagicMock(return_value={
+            "success": True,
+            "output": "Task executed successfully",
+            "changed_files": [],
+        })
+        backlog_tracker.get_next_task = MagicMock(side_effect=[
+            TaskMetadata(name="test_task.md", order=1, status=TaskStatus(status="pending")),
+            None,
+        ])
+
         result = runner.simulate_backlog()
 
         assert result["final_status"] == "completed"
@@ -306,7 +319,7 @@ class TestRunnerGuardrailIntegration:
         )
         runner.skip_guardrails = True
 
-        with patch("subprocess.run") as mock_run:
+        with patch("builder.orchestrator.git_guardrails.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 stdout="main\n",
                 returncode=0,

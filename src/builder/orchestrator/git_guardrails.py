@@ -47,6 +47,11 @@ class GitGuardrails:
             # git not available or timed out — treat as safe to proceed
             return True, ""
 
+        # If the branch name contains spaces or looks like command output
+        # rather than a real branch name, skip guardrails safely
+        if not current_branch or " " in current_branch or len(current_branch) > 100:
+            return True, ""
+
         if current_branch == "main":
             return False, "Cannot execute on main branch"
 

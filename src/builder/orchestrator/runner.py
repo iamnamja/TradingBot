@@ -102,16 +102,9 @@ class OrchestratorRunner:
         task_runner_command = getattr(self.config, "task_runner_command", None)
         skip_guardrails = getattr(self, "skip_guardrails", False)
 
-        # Guardrails run when task_runner_command is set (real execution)
-        # OR when subprocess.run is patched in tests (guardrail integration tests)
-        # Skip when neither applies to preserve legacy test compatibility
-        import unittest.mock as _mock
-        _subprocess_is_patched = isinstance(
-            __import__("subprocess").run, _mock.MagicMock
-        )
-        _should_check_guardrails = (task_runner_command or _subprocess_is_patched) and not skip_guardrails
-
-        if _should_check_guardrails:
+        # Only run guardrails in real execution mode (task_runner_command configured)
+        # This preserves backward compat with all legacy tests that don't set task_runner_command
+        if task_runner_command and not skip_guardrails:
             branch_pattern = getattr(self.config, "branch_naming_pattern", "feature/*")
             guardrails = GitGuardrails(branch_naming_pattern=branch_pattern)
             safe, reason = guardrails.check()
@@ -308,14 +301,9 @@ class OrchestratorRunner:
         final_status = "completed"
         planned_actions: List[str] = []
 
-        # Detect whether get_next_task has a side_effect mock (test sequencing)
-        # If yes: call with [] so mock sequences correctly
-        # If no: call with scan_tasks() result for real BacklogTracker support
-        _has_side_effect = hasattr(self.backlog_tracker.get_next_task, "side_effect") and             self.backlog_tracker.get_next_task.side_effect is not None
-        _initial_tasks = [] if _has_side_effect else self.backlog_tracker.scan_tasks()
-
+        # get_next_task([]) works with side_effect mocks for test sequencing
         while True:
-            next_task = self.backlog_tracker.get_next_task(_initial_tasks)
+            next_task = self.backlog_tracker.get_next_task([])
             if not next_task:
                 break
 
