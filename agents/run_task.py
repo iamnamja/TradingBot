@@ -64,7 +64,6 @@ def _load_dotenv_if_available() -> None:
     load_dotenv()
 
 
-
 def default_provider() -> str:
     provider = os.getenv("TRADINGBOT_AGENT_PROVIDER", "").strip().lower()
     if provider:
@@ -652,8 +651,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("task", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
-    ap.add_argument("--provider", default=default_provider(), choices=["openai", "anthropic"])
-    ap.add_argument("--model", default=default_model_for_provider(default_provider()))
+    ap.add_argument("--model", default=os.getenv("TRADINGBOT_AGENT_MODEL", "claude-sonnet-4-5"))
     ap.add_argument("--max-iters", type=int, default=4)
     args = ap.parse_args()
 
