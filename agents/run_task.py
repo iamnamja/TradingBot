@@ -651,9 +651,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("task", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
-    ap.add_argument("--model", default=os.getenv("TRADINGBOT_AGENT_MODEL", "claude-sonnet-4-5"))
+    ap.add_argument("--model", default=default_model_for_provider(default_provider()))
     ap.add_argument("--max-iters", type=int, default=4)
     args = ap.parse_args()
+    if not hasattr(args, "provider"):
+        args.provider = default_provider()
+    if not hasattr(args, "model") or not args.model:
+        args.model = default_model_for_provider(args.provider)
 
     task_path = Path(args.task)
     if not task_path.exists():
