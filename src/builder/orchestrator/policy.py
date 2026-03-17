@@ -1,9 +1,21 @@
 from typing import List, Dict
 
 class PolicyEngine:
-    def __init__(self, protected_file_patterns: List[str], approval_required_file_patterns: List[str]):
-        self.protected_file_patterns = protected_file_patterns
+    def __init__(
+        self,
+        approval_required_file_patterns: list[str],
+        protected_file_patterns: list[str] | None = None,
+    ) -> None:
+        self.protected_file_patterns = protected_file_patterns or []
         self.approval_required_file_patterns = approval_required_file_patterns
+
+    def requires_approval(self, changed_files: list[str]) -> bool:
+        """Returns True if any changed file matches any approval-required pattern."""
+        for pattern in self.approval_required_file_patterns:
+            for f in changed_files:
+                if pattern in f or f.endswith(pattern):
+                    return True
+        return False
 
     def evaluate(self, changed_files: List[str], failure_category: str, requested_action: str) -> Dict[str, str]:
         if self._is_protected_file_change(changed_files):

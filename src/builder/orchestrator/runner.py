@@ -13,6 +13,7 @@ from .audit import (
 from .backlog import BacklogTracker
 from .execution_result import normalize_execution_result
 from .failures import FailureClassifier
+from .policy import PolicyEngine
 from .project_adapter import ProjectAdapter, ProjectConfig
 from .repair import RepairWorkflow
 from .review import ReviewChecker
@@ -49,6 +50,14 @@ class OrchestratorRunner:
 
         if not effective_changed:
             return {"mergeable": True}
+
+        approval_patterns = getattr(self.config, "approval_required_file_patterns", [])
+        policy = PolicyEngine(
+            approval_required_file_patterns=approval_patterns,
+            protected_file_patterns=getattr(self.config, "protected_file_patterns", []),
+        )
+        if policy.requires_approval(effective_changed):
+            return {"mergeable": False}
 
         checker = ReviewChecker(
             deliverables=effective_changed,
@@ -126,18 +135,23 @@ class OrchestratorRunner:
     def process_execution_result(
         self, execution_result: dict[str, Any], task: TaskMetadata
     ) -> dict[str, Any]:
-        audit_path = getattr(self.config, "audit_path", None)
+        audit_path = getattr(self.config, "audit_log_path", None)
+
         log_selected_task(task.name, audit_path)
 
-        if not execution_result.get("success", False):
-            failure_text = execution_result.get("failure_text", "")
-            changed_files = execution_result.get("changed_files", [])
-            runner_output = execution_result.get("output", "")
+        success = execution_result.get("success", False)
+        failure_text = execution_result.get("failure_text", "")
+        changed_files = execution_result.get("changed_files", [])
+        deliverables_updated = execution_result.get("deliverables_updated", [])
 
+        if not success:
             classifier = FailureClassifier()
             classification_result = classifier.classify(
-                runner_output, failure_text, changed_files
+                runner_output=execution_result.get("output", ""),
+                failure_text=failure_text,
+                changed_files=changed_files,
             )
+
             log_classification_result(
                 classification_result.get("category", "unknown"), audit_path
             )
@@ -146,27 +160,43 @@ class OrchestratorRunner:
                 failure_classification=classification_result.get("category", "unknown"),
                 changed_files=changed_files,
             )
+
             repair_action = repair_workflow.determine_repair_action()
             log_repair_decision(repair_action.get("action", "unknown"), audit_path)
 
             next_action = repair_action.get("action", "require_human_review")
-            requires_approval = repair_action.get("requires_approval", True)
 
-            message = f"Execution failed: {failure_text}" if failure_text else "Execution failed."
+            if repair_action.get("requires_approval", True):
+                checkpoint = create_approval_checkpoint(
+                    task_name=task.name,
+                    reason=repair_action.get("reason", "Failure requires approval"),
+                    source="repair_workflow",
+                    requested_action=next_action,
+                )
+                log_approval_checkpoint(checkpoint, audit_path)
 
             return {
                 "task_name": task.name,
                 "status": "failed",
-                "message": message,
+                "message": f"Execution failed: {failure_text}" if failure_text else "Execution failed.",
                 "outcome": "repair_required",
                 "next_action": next_action,
-                "requires_approval": requires_approval,
+                "requires_approval": repair_action.get("requires_approval", True),
             }
 
-        changed_files = execution_result.get("changed_files", [])
+        if changed_files and deliverables_updated is not None and len(deliverables_updated) == 0:
+            return {
+                "task_name": task.name,
+                "status": "running",
+                "message": "Task is now running.",
+                "outcome": "review_blocked",
+                "next_action": "requires_approval",
+                "requires_approval": True,
+            }
+
         review_result = self.run_review(changed_files)
         log_review_verdict(
-            "approved" if review_result.get("mergeable", False) else "blocked",
+            "mergeable" if review_result.get("mergeable", False) else "blocked",
             audit_path,
         )
 
@@ -174,8 +204,8 @@ class OrchestratorRunner:
             checkpoint = create_approval_checkpoint(
                 task_name=task.name,
                 reason="Review blocked",
-                source="review",
-                requested_action="approve",
+                source="review_checker",
+                requested_action="requires_approval",
             )
             log_approval_checkpoint(checkpoint, audit_path)
 
@@ -198,14 +228,15 @@ class OrchestratorRunner:
         }
 
     def simulate_backlog(self) -> dict[str, Any]:
+        tasks = self.backlog_tracker.scan_tasks()
         processed_tasks = []
-        stopped_reason = ""
-        final_status = "completed"
-        approval_required = False
         planned_actions = []
+        stopped_reason = ""
+        approval_required = False
+        final_status = "completed"
 
         while True:
-            next_task = self.backlog_tracker.get_next_task([])
+            next_task = self.backlog_tracker.get_next_task(tasks)
             if not next_task:
                 break
 
@@ -227,10 +258,21 @@ class OrchestratorRunner:
 
             planned_actions.append(f"Task {next_task.name} completed successfully.")
 
+            tasks = [
+                t
+                if t.name != next_task.name
+                else TaskMetadata(
+                    name=t.name,
+                    order=t.order,
+                    status=TaskStatus(status="completed"),
+                )
+                for t in tasks
+            ]
+
         return {
             "processed_tasks": processed_tasks,
-            "stopped_reason": stopped_reason,
-            "final_status": final_status,
-            "approval_required": approval_required,
             "planned_actions": planned_actions,
+            "stopped_reason": stopped_reason,
+            "approval_required": approval_required,
+            "final_status": final_status,
         }
