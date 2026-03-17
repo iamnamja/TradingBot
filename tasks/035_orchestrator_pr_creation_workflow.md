@@ -317,92 +317,48 @@ Invalid (breaks CI):
 from src.builder.orchestrator.runner import OrchestratorRunner
 ```
 
-## CRITICAL — run_review signature must stay as single argument
+## CRITICAL — runner.py is a protected file for this task
 
-`run_review` must keep its existing single-argument signature:
+`runner.py` already has `pr_attempted` and `pr_success` keys added. The agent must NOT rewrite runner.py from scratch. Only add the minimum necessary changes.
 
+If `runner.py` is included in the bundle, it must pass ALL existing tests without modification. The existing runner.py already works — do not break it.
+
+## CRITICAL — exact string contracts for merge.py
+
+`merge_pr()` must return exactly `"PR merged successfully."` (with trailing period).
+
+`sync_main()` must return exactly `"Local main branch synced."` (with trailing period).
+
+`merge_pr()` must raise `Exception("CI failed, cannot merge.")` when CI fails.
+
+## CRITICAL — command_runner.py method name
+
+The `CommandRunner` class must use `run()` as the method name, NOT `execute()`.
+
+Tests call `command_runner.run(cmd)` not `command_runner.execute(cmd)`.
+
+## CRITICAL — execute_task file path
+
+When `task_runner_command` is set, resolve the task file as:
 ```python
-def run_review(self, changed_files: list[str]) -> dict[str, Any]:
+task_file = Path(self.config.tasks_directory) / task.name
 ```
 
-Do NOT add a second argument like `deliverables_updated`. Existing tests mock it as:
+Do NOT add order prefix like `001_001_task.py`. Just use `task.name` directly.
+
+## CRITICAL — execute_task mock path
+
+When `task_runner_command` is None:
 ```python
-runner.run_review = lambda changed_files: {"mergeable": False}
-```
-Adding a second parameter breaks these with `TypeError`.
-
-`run_review` must use `PolicyEngine` internally:
-
-```python
-def run_review(self, changed_files: list[str]) -> dict[str, Any]:
-    effective_changed = list(changed_files or [])
-
-    if not effective_changed:
-        return {"mergeable": True}
-
-    approval_patterns = getattr(self.config, "approval_required_file_patterns", [])
-    policy = PolicyEngine(
-        approval_required_file_patterns=approval_patterns,
-        protected_file_patterns=getattr(self.config, "protected_file_patterns", []),
-    )
-    if policy.requires_approval(effective_changed):
-        return {"mergeable": False}
-
-    checker = ReviewChecker(
-        deliverables=effective_changed,
-        changed_files=effective_changed,
-    )
-    result = checker.evaluate()
-    if "mergeable" not in result:
-        return {"mergeable": True}
-    return result
+return {
+    "success": True,
+    "output": "Task executed successfully",
+    "changed_files": [],
+}
 ```
 
-## CRITICAL — deliverables_updated check in process_execution_result
+Do NOT return `"changed_files": ["file1.py"]`.
 
-When `deliverables_updated` is explicitly `[]` (empty list) AND `changed_files` is non-empty, block review BEFORE calling `run_review`:
+## CRITICAL — subprocess patch path for execute_task tests
 
-```python
-# On the success path, before calling run_review:
-changed_files = execution_result.get("changed_files", [])
-deliverables_updated = execution_result.get("deliverables_updated", [])
-
-# Block if files changed but no deliverables updated
-if changed_files and "deliverables_updated" in execution_result and len(deliverables_updated) == 0:
-    log_review_verdict("blocked", None)
-    checkpoint = create_approval_checkpoint(
-        task_name=task.name,
-        reason="no_deliverables_updated",
-        source="review_gate",
-        requested_action="requires_approval",
-    )
-    checkpoint["status"] = "pending_approval"
-    log_approval_checkpoint(checkpoint, None)
-    return {
-        "task_name": task.name,
-        "status": "running",
-        "message": "Task is now running.",
-        "outcome": "review_blocked",
-        "next_action": "requires_approval",
-        "requires_approval": True,
-    }
-```
-
-Only block when `deliverables_updated` key is PRESENT and is an empty list.
-When the key is ABSENT (legacy mock payloads), do NOT block.
-
-## CRITICAL — final_status must be "completed" not "success"
-
-`simulate_backlog` must initialize `final_status = "completed"` and never change it to `"success"`.
-
-Valid values: `"completed"`, `"failed"`, `"blocked"`. Never `"success"`.
-
-## CRITICAL — execute_task stdout/stderr must be stripped
-
-Always call `.strip()` on subprocess output:
-```python
-"stdout": result.stdout.strip(),
-"stderr": result.stderr.strip(),
-```
-
-Tests expect `"Task executed successfully"` not `"Task executed successfully\n"`.
+Tests that patch `subprocess.run` globally expect `execute_task` to use the patched subprocess. The `execute_task` real path must call `subprocess.run` directly (not through a wrapper) so the global patch works.
