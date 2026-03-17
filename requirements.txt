@@ -1,5 +1,6 @@
 alpaca-py
 pytest
+pytest-timeout
 ruff
 tzdata
 python-dotenv>=1.0
