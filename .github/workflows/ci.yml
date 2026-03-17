@@ -33,4 +33,4 @@ jobs:
         run: ruff check .
 
       - name: Tests
-        run: pytest -q
+        run: pytest -q --timeout=30
