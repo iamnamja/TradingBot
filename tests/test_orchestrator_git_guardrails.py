@@ -122,6 +122,7 @@ class TestRunnerGuardrailIntegration:
 
         config = ProjectAdapter.get_tradingbot_default_config()
         config.tasks_directory = str(tasks_dir)
+        config.task_runner_command = "python"  # enable guardrails
 
         backlog_tracker = BacklogTracker(tasks_directory=str(tasks_dir))
         runner = OrchestratorRunner(
@@ -151,6 +152,7 @@ class TestRunnerGuardrailIntegration:
 
         config = ProjectAdapter.get_tradingbot_default_config()
         config.tasks_directory = str(tasks_dir)
+        config.task_runner_command = "python"  # enable guardrails
 
         backlog_tracker = BacklogTracker(tasks_directory=str(tasks_dir))
         runner = OrchestratorRunner(
@@ -184,6 +186,7 @@ class TestRunnerGuardrailIntegration:
 
         config = ProjectAdapter.get_tradingbot_default_config()
         config.tasks_directory = str(tasks_dir)
+        config.task_runner_command = "python"  # enable guardrails
 
         backlog_tracker = BacklogTracker(tasks_directory=str(tasks_dir))
         runner = OrchestratorRunner(
@@ -286,7 +289,8 @@ class TestRunnerGuardrailIntegration:
 
         # Mock execute_task to avoid real subprocess and mock get_next_task
         # so simulate_backlog sequences correctly via side_effect
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
+        from builder.orchestrator.state import TaskMetadata, TaskStatus
         runner.execute_task = MagicMock(return_value={
             "success": True,
             "output": "Task executed successfully",
