@@ -11,6 +11,10 @@ def main() -> int:
 
     runner = OrchestratorRunner(config=config, backlog_tracker=backlog_tracker, initial_state=initial_state)
     
+    # Support --skip-guardrails flag for testing purposes only
+    if "--skip-guardrails" in sys.argv:
+        runner.skip_guardrails = True
+    
     dry_run = "--dry-run" in sys.argv
     if "--simulate" in sys.argv:
         simulation_result = runner.simulate_backlog()

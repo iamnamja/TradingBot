@@ -360,9 +360,9 @@ def relevant_context(required: List[str]) -> str:
     seen: set[str] = set()
     lines: List[str] = []
 
+    # Only include agents dir and specific required files — skip bulk src/tests injection
+    # to keep prompt size manageable as codebase grows
     candidates = [
-        Path("src"),
-        Path("tests"),
         Path("agents"),
     ]
 
@@ -385,7 +385,7 @@ def relevant_context(required: List[str]) -> str:
             content = p.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        snippet = "\n".join(content.splitlines()[:120])
+        snippet = "\n".join(content.splitlines()[:60])
         lines.append(f"### {rel}\n{snippet}\n")
     return "\n".join(lines).strip()
 
@@ -543,12 +543,12 @@ def chat(messages: List[dict], model: str) -> str:
         raise RuntimeError("Missing ANTHROPIC_API_KEY in environment.")
     import anthropic  # type: ignore
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, timeout=120.0)
     system = next((m["content"] for m in messages if m["role"] == "system"), "")
     user_msgs = [m for m in messages if m["role"] != "system"]
     resp = client.messages.create(
         model=model,
-        max_tokens=16000,
+        max_tokens=12000,
         system=system,
         messages=user_msgs,
     )
