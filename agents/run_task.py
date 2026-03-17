@@ -557,7 +557,24 @@ def load_system_prompt() -> str:
     return "You are an engineering agent. Output ONLY a valid file bundle."
 
 
-def chat(messages: List[dict], model: str) -> str:
+def chat_openai(messages: List[dict], model: str) -> str:
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Missing OPENAI_API_KEY in environment.")
+    from openai import OpenAI  # type: ignore
+
+    client = OpenAI(api_key=api_key, timeout=120.0)
+    resp = client.chat.completions.create(
+        model=model,
+        messages=messages,
+    )
+    content = resp.choices[0].message.content
+    if isinstance(content, str):
+        return content.strip()
+    return ""
+
+
+def chat_anthropic(messages: List[dict], model: str) -> str:
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing ANTHROPIC_API_KEY in environment.")
@@ -573,6 +590,15 @@ def chat(messages: List[dict], model: str) -> str:
         messages=user_msgs,
     )
     return (resp.content[0].text or "").strip()
+
+
+def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
+    chosen = (provider or default_provider()).strip().lower()
+    if chosen == "openai":
+        return chat_openai(messages, model)
+    if chosen == "anthropic":
+        return chat_anthropic(messages, model)
+    raise RuntimeError(f"Unsupported provider: {chosen}")
 
 
 def build_messages(task_text: str, required: List[str], extra_directives: str = "") -> List[dict]:
