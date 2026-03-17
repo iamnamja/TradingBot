@@ -27,6 +27,20 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 All three files must be materially updated in the same bundle.
 
+
+## CRITICAL — runner.py surgical update ONLY
+
+`src/builder/orchestrator/runner.py` is included as a deliverable ONLY to add the `run_loop()` method.
+
+The agent must:
+- Copy the ENTIRE existing runner.py exactly as-is
+- Add ONLY the `run_loop()` method at the end of the class, before `simulate_backlog()`
+- Change NOTHING else — no existing methods, no imports, no class structure
+
+Any change to existing methods (run_next_task, execute_task, process_execution_result, simulate_backlog, run_review, etc.) is INVALID and will cause test failures.
+
+The existing runner.py passes all tests. Only `run_loop()` is new.
+
 ## Bundle completeness requirement
 
 The bundle is incomplete unless all three deliverables are present.
@@ -315,93 +329,3 @@ Invalid (breaks CI):
 ```python
 from src.builder.orchestrator.runner import OrchestratorRunner
 ```
-
-## CRITICAL — run_review signature must stay as single argument
-
-`run_review` must keep its existing single-argument signature:
-
-```python
-def run_review(self, changed_files: list[str]) -> dict[str, Any]:
-```
-
-Do NOT add a second argument like `deliverables_updated`. Existing tests mock it as:
-```python
-runner.run_review = lambda changed_files: {"mergeable": False}
-```
-Adding a second parameter breaks these with `TypeError`.
-
-`run_review` must use `PolicyEngine` internally:
-
-```python
-def run_review(self, changed_files: list[str]) -> dict[str, Any]:
-    effective_changed = list(changed_files or [])
-
-    if not effective_changed:
-        return {"mergeable": True}
-
-    approval_patterns = getattr(self.config, "approval_required_file_patterns", [])
-    policy = PolicyEngine(
-        approval_required_file_patterns=approval_patterns,
-        protected_file_patterns=getattr(self.config, "protected_file_patterns", []),
-    )
-    if policy.requires_approval(effective_changed):
-        return {"mergeable": False}
-
-    checker = ReviewChecker(
-        deliverables=effective_changed,
-        changed_files=effective_changed,
-    )
-    result = checker.evaluate()
-    if "mergeable" not in result:
-        return {"mergeable": True}
-    return result
-```
-
-## CRITICAL — deliverables_updated check in process_execution_result
-
-When `deliverables_updated` is explicitly `[]` (empty list) AND `changed_files` is non-empty, block review BEFORE calling `run_review`:
-
-```python
-# On the success path, before calling run_review:
-changed_files = execution_result.get("changed_files", [])
-deliverables_updated = execution_result.get("deliverables_updated", [])
-
-# Block if files changed but no deliverables updated
-if changed_files and "deliverables_updated" in execution_result and len(deliverables_updated) == 0:
-    log_review_verdict("blocked", None)
-    checkpoint = create_approval_checkpoint(
-        task_name=task.name,
-        reason="no_deliverables_updated",
-        source="review_gate",
-        requested_action="requires_approval",
-    )
-    checkpoint["status"] = "pending_approval"
-    log_approval_checkpoint(checkpoint, None)
-    return {
-        "task_name": task.name,
-        "status": "running",
-        "message": "Task is now running.",
-        "outcome": "review_blocked",
-        "next_action": "requires_approval",
-        "requires_approval": True,
-    }
-```
-
-Only block when `deliverables_updated` key is PRESENT and is an empty list.
-When the key is ABSENT (legacy mock payloads), do NOT block.
-
-## CRITICAL — final_status must be "completed" not "success"
-
-`simulate_backlog` must initialize `final_status = "completed"` and never change it to `"success"`.
-
-Valid values: `"completed"`, `"failed"`, `"blocked"`. Never `"success"`.
-
-## CRITICAL — execute_task stdout/stderr must be stripped
-
-Always call `.strip()` on subprocess output:
-```python
-"stdout": result.stdout.strip(),
-"stderr": result.stderr.strip(),
-```
-
-Tests expect `"Task executed successfully"` not `"Task executed successfully\n"`.
