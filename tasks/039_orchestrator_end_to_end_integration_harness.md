@@ -1,8 +1,14 @@
 # Task 039 — End-to-End Integration Harness
 
+## Current baseline update
+
+`src/builder/orchestrator/runner.py` is stable and green on `main` after Task 037.
+
+This task is tests-only. Treat all production orchestrator code as locked baseline.
+
 ## Goal
 
-Test the full orchestrator workflow end-to-end — from backlog discovery through execution, normalization, review gate, approval checkpoint, and PR readiness — in a single deterministic integration test.
+Test the full orchestrator workflow end-to-end — from backlog discovery through execution, normalization, review gate, approval checkpoint, and PR readiness — in deterministic integration tests.
 
 ## Why
 
@@ -10,47 +16,28 @@ Unit tests cover individual components. This task ensures the full pipeline work
 
 ## Critical compatibility requirement
 
-All existing public APIs must remain backward compatible. This task adds tests only — it must not change any production code signatures.
+All existing public APIs must remain backward compatible. This task adds tests only — it must not change any production code signatures or behavior.
 
 All existing passing tests must continue to pass.
 
 ## Deliverables
 
-Create or update these exact files. Every listed file must appear in the bundle:
+Create or update this exact file. It must appear in the bundle:
 
 - `tests/test_orchestrator_end_to_end.py`
 
-Both files must be materially updated in the same bundle.
+This file must be materially updated.
 
-`runner.py` must NOT be included in the bundle. It is a protected file. All tests must work with the existing runner.py as-is.
-
-
-## CRITICAL — runner.py is PROTECTED and must NOT be included as a deliverable
+## CRITICAL — runner.py is PROTECTED and must NOT be included
 
 `src/builder/orchestrator/runner.py` is a stable, fully-tested file. Do NOT include it in the bundle.
 Do NOT rewrite it. Do NOT modify it. Do NOT include it as a deliverable.
 
-If this task requires new functionality in runner.py, add ONLY the specific new method described,
-using surgical `str_replace`-style additions. All existing methods must remain exactly unchanged.
-
-The agent must NOT regenerate runner.py from scratch under any circumstances.
+If the agent believes production code changes are required, that belief is incorrect for this task.
 
 ## Bundle completeness requirement
 
-The bundle is incomplete unless both deliverables are present.
-
-## Critical anti-truncation rule
-
-`src/builder/orchestrator/runner.py` must visibly contain all of these method headers:
-
-- `def select_next_task(`
-- `def run_next_task(`
-- `def execute_task(`
-- `def process_execution_result(`
-- `def simulate_backlog(`
-
-And must contain a `simulate_backlog` return dict with all five keys:
-`processed_tasks`, `stopped_reason`, `final_status`, `approval_required`, `planned_actions`
+The bundle is incomplete unless `tests/test_orchestrator_end_to_end.py` is present.
 
 ## Required integration test coverage
 
@@ -88,38 +75,56 @@ And must contain a `simulate_backlog` return dict with all five keys:
 ## Test implementation rules
 
 All tests must:
-- mock `execute_task` or `subprocess.run` — never call real subprocess in integration tests
+- mock `execute_task` or `subprocess.run` — never call a real subprocess
 - mock `get_next_task` using `side_effect` for sequencing
 - be deterministic and portable on Windows
-- not rely on filesystem state (no real `tasks/` directory required)
-- not use `BacklogTracker(tasks_directory="mock/tasks")` without patching `scan_tasks`
+- avoid relying on real repo filesystem state
+- not use `BacklogTracker(tasks_directory="mock/tasks")` unless `scan_tasks` is patched or avoided
+- preserve the existing `runner.py` contracts exactly
 
-## Exact legacy contract that must not be changed
+## Recommended test shape
 
-When a pending task exists on the legacy/mock success path:
+Use real `ProjectAdapter.get_tradingbot_default_config()` objects where needed.
+Prefer `MagicMock(spec=BacklogTracker)` for sequencing behavior.
+Patch only the smallest seams needed:
+- `backlog_tracker.get_next_task`
+- `runner.execute_task`
+- `runner.run_review`
+- or `subprocess.run` for real-execution path coverage
+
+Do NOT patch:
+- `OrchestratorRunner.run_next_task`
+- `OrchestratorRunner.process_execution_result`
+- `OrchestratorRunner.simulate_backlog`
+
+## Locked runner contracts
+
+### pending task on legacy/mock success path
 - `status == "running"`
 - `message == "Task is now running."`
 - `outcome == "ready_for_pr"`
 - `next_action == "merge"`
 - `requires_approval == False`
 
-When review is blocked:
+### review blocked
 - `status == "running"`
 - `message == "Task is now running."`
 - `requires_approval == True`
 - `outcome == "review_blocked"`
 
-When no pending task:
+### no pending task
 - `task_name == "none"`
 - `status == "no_task"`
 - `message == "No pending tasks available."`
 
-When execution fails:
+### execution failure
 - `status == "failed"`
 - `outcome == "repair_required"`
 - `next_action == "require_human_review"`
 
-## CRITICAL — simulate_backlog must be implemented exactly
+## CRITICAL — simulate_backlog contract
+
+When used in tests, it must remain behaviorally unchanged:
 
 ```python
 while True:
@@ -141,155 +146,28 @@ while True:
         approval_required = True
         stopped_reason = "Approval required"
         final_status = "blocked"
-        continue  # MUST be continue, NOT break
+        continue
 
     planned_actions.append(f"Task {next_task.name} completed successfully.")
 ```
 
-## CRITICAL — run_review behavior
-
-When `changed_files` is empty on the legacy/mock success path, return `{"mergeable": True}`.
-
-## CRITICAL — ProjectConfig must remain mutable
-
-Do NOT use `@dataclass(frozen=True)` on `ProjectConfig` or any subclass.
-
 ## Exact forbidden patterns
 
+- modifying any production code
 - real subprocess calls in integration tests
-- relying on filesystem for task discovery without mocking
-- `break` when `requires_approval` is True in `simulate_backlog`
-- calling `self.select_next_task()` or `scan_tasks()` inside `simulate_backlog` loop
-- `@dataclass(frozen=True)` on any config class
-- unused local variables that ruff will flag
-- using `plain echo` as subprocess command
+- relying on live git state or GitHub CLI
+- relying on actual repo `tasks/` contents
+- Unix-only shell commands
+- unused locals or imports that ruff will flag
 
 ## Acceptance criteria
 
 All five scenarios above have dedicated test functions.
 
-Tests are portable on Windows (no Unix-only shell commands).
+Tests are portable on Windows.
 
 `ruff check .` must pass. `pytest -q` must be fully green.
-
-## CRITICAL — process_execution_result must be implemented exactly
-
-Do NOT simplify `process_execution_result`. Route through `FailureClassifier`, `RepairWorkflow`, and audit log calls.
-
-### Review blocked path must return exactly:
-```python
-{
-    "task_name": task.name,
-    "status": "running",
-    "message": "Task is now running.",
-    "outcome": "review_blocked",
-    "next_action": "requires_approval",   # NOT "review", "merge", or anything else
-    "requires_approval": True,
-}
-```
-
-### Failure path must return:
-```python
-{
-    "task_name": task.name,
-    "status": "failed",
-    "message": f"Execution failed: {failure_text}" if failure_text else "Execution failed.",
-    "outcome": "repair_required",
-    "next_action": next_action,           # from repair_action, fallback "require_human_review"
-    "requires_approval": repair_action.get("requires_approval", True),  # True by default
-}
-```
-
-Do NOT return `"Task execution failed."` or any other message format.
-Do NOT return `requires_approval: False` on the failure path.
-Do NOT skip `FailureClassifier` or `RepairWorkflow`.
-
-### Required imports in runner.py — do not remove any:
-```python
-from .approval import create_approval_checkpoint
-from .audit import (
-    log_approval_checkpoint,
-    log_classification_result,
-    log_repair_decision,
-    log_review_verdict,
-    log_selected_task,
-)
-from .execution_result import normalize_execution_result
-from .failures import FailureClassifier
-from .repair import RepairWorkflow
-```
-
-## CRITICAL — stopped_reason contract
-
-When backlog completes normally: `stopped_reason == ""` (empty string). NEVER `"All tasks completed"` or any other non-empty value.
-
-Only non-empty values allowed:
-- `"Execution failed"` on task failure
-- `"Approval required"` when approval is needed
-
-## CRITICAL — simulate_backlog with normalization
-
-Must call `normalize_execution_result` before `process_execution_result`:
-
-```python
-while True:
-    next_task = self.backlog_tracker.get_next_task([])
-    if not next_task:
-        break
-
-    processed_tasks.append(next_task.name)
-    execution_result = self.execute_task(next_task)
-    normalized_result = normalize_execution_result(execution_result)
-    result = self.process_execution_result(normalized_result, next_task)
-
-    if result["status"] == "failed":
-        stopped_reason = normalized_result.get("failure_text", "Execution failed")
-        final_status = "failed"
-        break
-
-    if result.get("requires_approval", False):
-        approval_required = True
-        stopped_reason = "Approval required"
-        final_status = "blocked"
-        continue  # MUST be continue, NOT break
-
-    planned_actions.append(f"Task {next_task.name} completed successfully.")
-```
-
-## CRITICAL — run_next_task normalization
-
-Must call `normalize_execution_result` between `execute_task` and `process_execution_result`:
-
-```python
-execution_result = self.execute_task(running_task)
-normalized_result = normalize_execution_result(execution_result)
-return self.process_execution_result(normalized_result, running_task)
-```
-
-## CRITICAL — execute_task default mock return
-
-When `task_runner_command` is None, return exactly:
-```python
-{
-    "success": True,
-    "output": "Task executed successfully",
-    "changed_files": ["file1.py"],
-}
-```
-
-Do NOT return `{"success": True, "changed_files": []}` — the empty list causes test failures.
 
 ## CRITICAL — Test import paths
 
 All test imports must use `from builder.orchestrator...` NOT `from src.builder.orchestrator...`.
-
-Correct:
-```python
-from builder.orchestrator.runner import OrchestratorRunner
-from builder.orchestrator.policy import PolicyEngine
-```
-
-Invalid (breaks CI):
-```python
-from src.builder.orchestrator.runner import OrchestratorRunner
-```
