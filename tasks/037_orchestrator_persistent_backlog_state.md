@@ -213,6 +213,22 @@ Do not rename task names in a way that breaks existing tests.
 3. Save updated state after each task execution via `write_state()`
 4. Mark task as `completed` on success, `failed` on failure
 
+`read_backlog()` must NOT replace the live backlog with only the persisted file contents.
+
+Required behavior:
+- scan current task files from `BacklogTracker.scan_tasks()`
+- load persisted task state from disk
+- merge persisted statuses onto the scanned task list by normalized task name
+- keep newly discovered task files as `pending` when no persisted record exists
+
+A solution is invalid if `read_backlog()` simply does:
+```python
+self.state = OrchestratorState.load(state_file)
+```
+without merging against the scanned task files.
+
+Otherwise, real task files will never enter persisted state and `run_next_task(dry_run=False)` will leave persisted state empty.
+
 `simulate_backlog()` must NOT write to persistent state — simulation is read-only.
 
 It may read state if needed for consistency, but it must not create or modify the state file.
@@ -232,6 +248,9 @@ Current failure pattern to fix:
 
 - current failing bundles still return `OrchestratorState` from `BacklogTracker.load_state(...)`, breaking existing tracker tests that expect a list
 - current failing bundles still forget to set `runner.skip_guardrails = True` on the shared persistence runner fixture
+- current failing bundles still replace `read_backlog()` with persisted-state-only loading instead of merging scanned tasks with persisted statuses
+- current failing bundles still leave persisted state empty after a real success-path or forced-failure `run_next_task(dry_run=False)`
+- current failing bundles still replace real `runner.py` method bodies with placeholders or invented return contracts
 
 ## Locked runner contracts
 
@@ -673,6 +692,14 @@ The following are invalid anywhere in the bundle:
 - placeholder comments like "Execution logic here"
 - replacing existing production logic with stubs
 
+The following are also invalid in `runner.py`:
+- `return {}` from `process_execution_result`
+- removing the existing real implementation of `execute_task`
+- removing the existing real implementation of `process_execution_result`
+- changing success-path `run_next_task()` to return `"status": "completed"`
+
+`runner.py` must preserve the existing `execute_task()` and `process_execution_result()` implementations and only add the smallest persistence hooks around them.
+
 ## Acceptance criteria
 
 Tests in `tests/test_orchestrator_persistent_backlog_state.py` must cover:
@@ -857,6 +884,20 @@ Do not rely on each individual test remembering to do this.
 
 A solution is invalid if the persistence tests use a runner fixture that leaves guardrails enabled for real `run_next_task(dry_run=False)` calls.
 
+
+## HARD FAIL RULE — runner persistence must write the current in-memory task list
+
+A solution is invalid if persistence is attempted only through `BacklogTracker.update_task_status(...)` against an empty on-disk state file.
+
+Valid behavior requires that after `read_backlog()` merges scanned tasks with persisted state:
+- `self.state.tasks` contains the current discovered tasks
+- `run_next_task(dry_run=False)` updates the selected task status in `self.state.tasks`
+- `write_state()` persists `self.state.tasks` to `config.state_path`
+
+This is the intended persistence flow for this task.
+
+`BacklogTracker.update_task_status(...)` may still exist as a helper for tests/utilities, but runner-backed persistence must not depend on there already being an on-disk record for the task.
+
 ## HARD FAIL RULE — empty persisted state after real run is invalid
 
 A solution is invalid if, after a real `run_next_task(dry_run=False)` call in the persistence tests, `OrchestratorState.load(config.state_path).tasks` is still empty.
@@ -873,6 +914,25 @@ A valid success-path persistence test should verify both:
 - the persisted task list contains the expected completed task
 
 It is invalid for a success-path test to only assert on the `run_next_task()` return value without checking persisted state.
+
+The persistence tests must also preserve existing runner contracts.
+
+Success-path persistence tests must expect the legacy success contract from `run_next_task(dry_run=False)`, including:
+- `status == "running"`
+- `message == "Task is now running."`
+- `outcome == "ready_for_pr"`
+
+Failed-path persistence tests must expect the legacy failure contract, including:
+- `status == "failed"`
+- `outcome == "repair_required"`
+
+Do NOT invent new success statuses like `"completed"` in `run_next_task()` results.
+
+Also, persisted task names must follow the existing tracker normalization:
+- file `001_first.py` persists as task name `first.py`
+- file `002_second.py` persists as task name `second.py`
+
+A solution is invalid if persistence tests assert persisted names like `"001_first.py"` unless production scanning semantics were explicitly changed, which this task must not do.
 
 ## HARD FAIL RULE — state.py must handle JSON-safe round-tripping itself
 
