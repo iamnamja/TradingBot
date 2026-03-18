@@ -230,6 +230,9 @@ Current failure pattern to fix:
 - current failing bundles still misuse the `config` fixture inside persistence tests
 - current failing bundles still leave `state.py` too weak or incorrectly frozen
 
+- current failing bundles still return `OrchestratorState` from `BacklogTracker.load_state(...)`, breaking existing tracker tests that expect a list
+- current failing bundles still forget to set `runner.skip_guardrails = True` on the shared persistence runner fixture
+
 ## Locked runner contracts
 
 The following must remain EXACTLY unchanged:
@@ -693,6 +696,10 @@ The persistence tests must also:
 - force failure by patching only `runner.execute_task`, not the higher-level runner entrypoint
 - verify that `state.py` was materially updated, not merely re-exported or cosmetically changed
 
+- not create unused locals like `result = runner.run_next_task(...)` unless `result` is asserted
+- keep `tests/test_orchestrator_backlog.py` green by preserving the tracker list contract
+- use `OrchestratorState.load(config.state_path)` only in persistence tests, while tracker tests should continue to use `BacklogTracker.load_state(...)`
+
 And all pre-existing orchestrator tests must remain green.
 
 `ruff check .` must pass. `pytest -q` must be fully green.
@@ -820,6 +827,40 @@ A solution is invalid if `backlog.py` contains brittle persistence code like:
 - direct dumping of `TaskMetadata` objects
 - duplicated task-to-dict conversion logic that bypasses `state.py`
 
+## HARD FAIL RULE — preserve the existing BacklogTracker return contract
+
+`BacklogTracker.load_state(state_path)` must return `list[TaskMetadata]`, not an `OrchestratorState` object.
+
+Existing tests and callers expect list semantics such as:
+```python
+loaded_tasks = tracker.load_state(state_file)
+assert len(loaded_tasks) == 3
+assert loaded_tasks[0] == TaskMetadata(...)
+```
+
+A solution is invalid if `BacklogTracker.load_state(...)` returns `OrchestratorState` directly.
+
+`BacklogTracker.save_state(...)` may delegate to `OrchestratorState.save(...)`, but the public tracker interface must remain list-oriented.
+
+## HARD FAIL RULE — persistence tests must set skip_guardrails on the runner fixture
+
+If the persistence test file defines a shared `runner` fixture, that fixture must set:
+```python
+runner.skip_guardrails = True
+```
+
+Do not rely on each individual test remembering to do this.
+
+A solution is invalid if the persistence tests use a runner fixture that leaves guardrails enabled for real `run_next_task(dry_run=False)` calls.
+
+## HARD FAIL RULE — persistence success tests must verify state through the real persisted task list
+
+A valid success-path persistence test should verify both:
+- the state file exists or loads successfully from `config.state_path`
+- the persisted task list contains the expected completed task
+
+It is invalid for a success-path test to only assert on the `run_next_task()` return value without checking persisted state.
+
 ## HARD FAIL RULE — state.py must handle JSON-safe round-tripping itself
 
 `state.py` must provide robust JSON-safe conversion for task objects.
@@ -848,6 +889,13 @@ Valid pattern:
 def test_persistence_success(runner, tasks_dir, config):
     state = OrchestratorState.load(config.state_path)
 ```
+
+The same rule applies to any fixture-backed value used in persistence tests:
+- if you use `config`, include `config` in the test signature
+- if you use `tasks_dir`, include `tasks_dir` in the test signature
+- if you use `runner`, include `runner` in the test signature
+
+Do not reference fixture functions as globals.
 
 ## HARD FAIL RULE — no unused result locals in persistence tests
 
