@@ -221,6 +221,8 @@ Current failure pattern to fix:
 - persistence helpers may exist, but state is not wired into the real runner flow strongly enough
 - new tests must not be written in a way that breaks existing `state.py` / `backlog.py` equality contracts
 - the fix must include only the smallest persistence hook needed so completed tasks are actually skipped on later runs and the state file is actually created after real execution
+- new persistence tests must use a real config object with `state_path` set, not undefined locals or raw dict config
+- failed-task tests must explicitly patch execution to fail; success-path tests must not assert failed state by default
 
 ## Locked runner contracts
 
@@ -480,6 +482,43 @@ A solution is invalid if it breaks any of these behaviors:
 - `load_state()` round-trips persisted tasks into equality-comparable `TaskMetadata` values
 - `TaskStatus(status="pending")` remains a valid constructor shape
 - `TaskMetadata(name=..., order=..., status=TaskStatus(...))` remains a valid constructor shape
+
+## HARD FAIL RULE — preserve dataclass/value semantics in state.py
+
+If the existing code uses dataclasses for `TaskStatus`, `TaskMetadata`, or `OrchestratorState`, keep them as dataclasses.
+
+Do NOT convert them into plain classes unless you fully preserve value-based equality and constructor compatibility.
+
+The following regressions are invalid:
+- equality failures in existing backlog tests
+- constructor shape changes that break `TaskStatus(status="pending")`
+- constructor shape changes that break `TaskMetadata(name=..., order=..., status=TaskStatus(...))`
+
+## HARD FAIL RULE — persistence tests must set real state_path on config
+
+If persistence tests use `ProjectAdapter.get_tradingbot_default_config()`, they must explicitly set:
+
+```python
+config.tasks_directory = str(tasks_dir)
+config.state_path = str(tasks_dir / "state.json")
+```
+
+Do NOT create unused `state_file` locals.
+Do NOT reference undefined fixtures like `tmp_path` inside another fixture unless it is explicitly passed in.
+
+## HARD FAIL RULE — persistence tests must distinguish success vs failure explicitly
+
+If a persistence test expects a failed task to be recorded, it must explicitly monkeypatch or stub execution so the run actually fails.
+
+It is invalid to call the default `run_next_task(dry_run=False)` path and then assert a failed status without forcing failure.
+
+Likewise, if a test expects a completed task, it must use the default success path or an explicit success stub.
+
+## HARD FAIL RULE — new persistence tests must not conflict with existing runner defaults
+
+Remember that default `execute_task()` mock behavior returns success when `task_runner_command` is `None`.
+
+A solution is invalid if new persistence tests assume failure without explicitly patching `execute_task`.
 
 ## HARD FAIL RULE — persistence tests must use the real config shape expected by runner
 
