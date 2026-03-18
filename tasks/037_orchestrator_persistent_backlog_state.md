@@ -223,6 +223,8 @@ Current failure pattern to fix:
 - the fix must include only the smallest persistence hook needed so completed tasks are actually skipped on later runs and the state file is actually created after real execution
 - new persistence tests must use a real config object with `state_path` set, not undefined locals or raw dict config
 - failed-task tests must explicitly patch execution to fail; success-path tests must not assert failed state by default
+- new persistence tests must not use mocked config objects that make guardrail patterns non-string values
+- persistence tests should bypass guardrails safely so they test persistence, not git state
 
 ## Locked runner contracts
 
@@ -534,6 +536,34 @@ Use the real project config shape already expected by production code, e.g.:
 
 A solution is invalid if new persistence tests require changing `runner.__init__` to accept raw dict config.
 
+## HARD FAIL RULE — do not use MagicMock config objects in persistence tests
+
+Do NOT patch `ProjectAdapter.get_tradingbot_default_config()` to return a `MagicMock` or mocked config object for persistence tests.
+
+Use a real mutable config object instead, for example:
+- `config = ProjectAdapter.get_tradingbot_default_config()`
+- then set `config.tasks_directory = ...`
+- then set `config.state_path = ...`
+
+A solution is invalid if persistence tests create a mocked config whose fields like:
+- `branch_naming_pattern`
+- `protected_file_patterns`
+- `approval_required_file_patterns`
+
+become `MagicMock` values and break guardrail code.
+
+## HARD FAIL RULE — persistence tests must bypass guardrails safely without changing runner contracts
+
+Persistence tests that exercise real `run_next_task(dry_run=False)` behavior must avoid unrelated git guardrail failures.
+
+Acceptable approaches:
+- set `runner.skip_guardrails = True` in the persistence tests after constructing the runner
+- or configure a real config object with a valid string `branch_naming_pattern` and clean guardrail-compatible values
+
+Do NOT change production guardrail behavior to satisfy persistence tests.
+
+A solution is invalid if it changes production guardrail semantics instead of configuring tests correctly.
+
 ## HARD FAIL RULE — persistence tests must create real task files before calling run_next_task
 
 Any persistence test that expects `run_next_task(dry_run=False)` to create state or advance tasks must first create real task files in the test tasks directory.
@@ -600,6 +630,9 @@ The persistence tests must also:
 - construct runner config using the real config object shape already used by production code
 - create the tasks directory fixture before writing any task files into it
 - set `config.state_path` explicitly to a valid file path under the created tasks directory
+- avoid duplicate test method names
+- use a real config object, not a patched `MagicMock` config
+- set `runner.skip_guardrails = True` in persistence tests unless the test is explicitly about guardrails
 
 And all pre-existing orchestrator tests must remain green.
 
