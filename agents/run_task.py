@@ -19,6 +19,7 @@ END_FILE_BUNDLE
 
 from __future__ import annotations
 
+import time
 import argparse
 import difflib
 import os
@@ -561,35 +562,55 @@ def chat_openai(messages: List[dict], model: str) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY in environment.")
+
+    from openai import APITimeoutError  # type: ignore
     from openai import OpenAI  # type: ignore
 
-    client = OpenAI(api_key=api_key, timeout=120.0)
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-    )
-    content = resp.choices[0].message.content
-    if isinstance(content, str):
-        return content.strip()
-    return ""
+    client = OpenAI(api_key=api_key, timeout=300.0)
+
+    for attempt in range(2):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+            content = resp.choices[0].message.content
+            if isinstance(content, str):
+                return content.strip()
+            return ""
+        except APITimeoutError:
+            if attempt == 1:
+                raise
+            print("⚠️ OpenAI timeout — retrying once...")
+            time.sleep(2)
 
 
 def chat_anthropic(messages: List[dict], model: str) -> str:
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing ANTHROPIC_API_KEY in environment.")
+
     import anthropic  # type: ignore
 
-    client = anthropic.Anthropic(api_key=api_key, timeout=120.0)
+    client = anthropic.Anthropic(api_key=api_key, timeout=300.0)
+
     system = next((m["content"] for m in messages if m["role"] == "system"), "")
     user_msgs = [m for m in messages if m["role"] != "system"]
-    resp = client.messages.create(
-        model=model,
-        max_tokens=12000,
-        system=system,
-        messages=user_msgs,
-    )
-    return (resp.content[0].text or "").strip()
+
+    for attempt in range(2):
+        try:
+            resp = client.messages.create(
+                model=model,
+                max_tokens=12000,
+                system=system,
+                messages=user_msgs,
+            )
+            return (resp.content[0].text or "").strip()
+        except Exception as e:
+            if "timeout" not in str(e).lower() or attempt == 1:
+                raise
+            print("⚠️ Anthropic timeout — retrying once...")
+            time.sleep(2)
 
 
 def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
@@ -677,7 +698,6 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("task", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
-    ap.add_argument("--provider", default=default_provider(), choices=["openai", "anthropic"])
     ap.add_argument("--model", default=default_model_for_provider(default_provider()))
     ap.add_argument("--max-iters", type=int, default=4)
     args = ap.parse_args()
