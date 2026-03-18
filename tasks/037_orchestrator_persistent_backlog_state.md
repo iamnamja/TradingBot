@@ -217,6 +217,11 @@ Do not rename task names in a way that breaks existing tests.
 
 It may read state if needed for consistency, but it must not create or modify the state file.
 
+Current failure pattern to fix:
+- persistence helpers may exist, but state is not wired into the real runner flow strongly enough
+- new tests must not be written in a way that breaks existing `state.py` / `backlog.py` equality contracts
+- the fix must include only the smallest persistence hook needed so completed tasks are actually skipped on later runs and the state file is actually created after real execution
+
 ## Locked runner contracts
 
 The following must remain EXACTLY unchanged:
@@ -450,6 +455,62 @@ If any test file constructs `TaskStatus(...)`, it must explicitly import `TaskSt
 
 Using `status="pending"` directly in `TaskMetadata(...)` is invalid unless the existing code explicitly supports that constructor shape.
 
+## HARD FAIL RULE — preserve existing state-model equality semantics
+
+Do NOT replace existing equality-friendly task/state models with plain classes that rely on object identity.
+
+A solution is invalid if it rewrites `TaskStatus`, `TaskMetadata`, or `OrchestratorState` into manual classes that break existing equality-based tests such as:
+
+```python
+assert tasks[0] == TaskMetadata(name="task_one.py", order=1, status=TaskStatus(status="pending"))
+```
+
+`state.py` must preserve or implement value-based equality semantics compatible with existing backlog tests.
+
+If dataclasses are already used in the existing codebase for these models, keep that approach.
+Do NOT regress them into plain classes without `__eq__`.
+
+## HARD FAIL RULE — do not regress existing state/backlog test contracts
+
+This task must keep existing backlog/state tests green.
+
+A solution is invalid if it breaks any of these behaviors:
+- `scan_tasks()` still returns equality-comparable `TaskMetadata` values
+- `get_next_task()` still returns equality-comparable `TaskMetadata` values
+- `load_state()` round-trips persisted tasks into equality-comparable `TaskMetadata` values
+- `TaskStatus(status="pending")` remains a valid constructor shape
+- `TaskMetadata(name=..., order=..., status=TaskStatus(...))` remains a valid constructor shape
+
+## HARD FAIL RULE — persistence tests must use the real config shape expected by runner
+
+Do NOT instantiate `OrchestratorRunner` in persistence tests with a raw dict config like:
+
+```python
+OrchestratorRunner(config={"tasks_directory": ...}, ...)
+```
+
+Use the real project config shape already expected by production code, e.g.:
+- `ProjectAdapter.get_tradingbot_default_config()` and then override `tasks_directory` / `state_path`
+- or a real `ProjectConfig(...)` instance
+
+A solution is invalid if new persistence tests require changing `runner.__init__` to accept raw dict config.
+
+## HARD FAIL RULE — persistence tests must create real task files before calling run_next_task
+
+Any persistence test that expects `run_next_task(dry_run=False)` to create state or advance tasks must first create real task files in the test tasks directory.
+
+It is invalid to call `run_next_task()` against an empty task directory and then assert that state was created for executed work.
+
+## HARD FAIL RULE — persistence tests must respect existing task-name normalization
+
+Do NOT change production task-name normalization semantics in `BacklogTracker`.
+
+If task files are created in tests, choose filenames whose normalized names remain distinct after stripping the numeric prefix, for example:
+- `001_first.py`
+- `002_second.py`
+
+Do NOT force production code changes just to preserve full prefixed filenames in new persistence tests.
+
 ## HARD FAIL RULE — no placeholder implementations
 
 The following are invalid anywhere in the bundle:
@@ -467,6 +528,12 @@ Tests in `tests/test_orchestrator_persistent_backlog_state.py` must cover:
 - state file is created if missing
 - simulation does not modify state
 - state persists correctly across two sequential `run_next_task()` calls
+
+The persistence tests must also:
+- import every symbol they use (`TaskMetadata`, `TaskStatus`, etc.)
+- avoid unused locals that ruff will reject
+- use real task filenames that normalize to distinct task names
+- construct runner config using the real config object shape already used by production code
 
 And all pre-existing orchestrator tests must remain green.
 
