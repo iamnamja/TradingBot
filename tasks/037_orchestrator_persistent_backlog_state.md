@@ -226,6 +226,9 @@ Current failure pattern to fix:
 - new persistence tests must not use mocked config objects that make guardrail patterns non-string values
 - persistence tests should bypass guardrails safely so they test persistence, not git state
 - current failing persistence tests are still tripping guardrails before state is written; fix the tests/config so persistence logic actually runs
+- current failing bundles still serialize `TaskMetadata` directly in `backlog.py` instead of delegating to `state.py`
+- current failing bundles still misuse the `config` fixture inside persistence tests
+- current failing bundles still leave `state.py` too weak or incorrectly frozen
 
 ## Locked runner contracts
 
@@ -803,6 +806,63 @@ A solution is invalid if `state.py` is effectively unchanged while persistence b
 - `OrchestratorState.save(...)`
 - `OrchestratorState.load(...)`
 - explicit task-to-dict / dict-to-task conversion helpers
+
+## HARD FAIL RULE — backlog.py must delegate serialization to state.py
+
+`backlog.py` must not directly serialize or deserialize `TaskMetadata` / `TaskStatus` with ad hoc JSON logic if `state.py` already owns persistence helpers.
+
+Preferred pattern:
+- `BacklogTracker.save_state(...)` should build an `OrchestratorState(tasks=tasks)` and call `state.save(...)`
+- `BacklogTracker.load_state(...)` should call `OrchestratorState.load(...)` and return `.tasks`
+
+A solution is invalid if `backlog.py` contains brittle persistence code like:
+- `json.dump(tasks, f)`
+- direct dumping of `TaskMetadata` objects
+- duplicated task-to-dict conversion logic that bypasses `state.py`
+
+## HARD FAIL RULE — state.py must handle JSON-safe round-tripping itself
+
+`state.py` must provide robust JSON-safe conversion for task objects.
+
+A valid implementation should make it impossible for `BacklogTracker.save_state(...)` to fail with:
+- `TypeError: Object of type TaskMetadata is not JSON serializable`
+
+This means `state.py` should own explicit conversion between:
+- `TaskMetadata` / `TaskStatus`
+- plain JSON dictionaries
+
+## HARD FAIL RULE — persistence tests must consume the config fixture correctly
+
+If the persistence test file defines a `config` fixture, tests must receive it as a fixture argument and use that object directly.
+
+It is invalid to reference `config.state_path` from inside a test without accepting `config` as a test parameter, because that refers to the fixture function object rather than the fixture value.
+
+Invalid pattern:
+```python
+def test_persistence_success(runner, tasks_dir):
+    state = OrchestratorState.load(config.state_path)
+```
+
+Valid pattern:
+```python
+def test_persistence_success(runner, tasks_dir, config):
+    state = OrchestratorState.load(config.state_path)
+```
+
+## HARD FAIL RULE — no unused result locals in persistence tests
+
+Do not assign `result = runner.run_next_task(...)` unless the test actually asserts on `result`.
+
+If the return value is not used, call `runner.run_next_task(...)` directly.
+
+## HARD FAIL RULE — state.py must not use frozen dataclasses
+
+Persistence updates require mutable task status transitions in helper flows like `update_task_status(...)`.
+
+A solution is invalid if `TaskStatus` or `TaskMetadata` is declared with `@dataclass(frozen=True)` and that causes failures like:
+- `FrozenInstanceError: cannot assign to field 'status'`
+
+Keep value-based equality, but do not freeze these persistence models.
 
 ## Minimal runner-change guidance
 
