@@ -540,6 +540,31 @@ Any persistence test that expects `run_next_task(dry_run=False)` to create state
 
 It is invalid to call `run_next_task()` against an empty task directory and then assert that state was created for executed work.
 
+## HARD FAIL RULE — persistence test fixtures must create the tasks directory before writing files
+
+If a fixture returns a tasks directory path like `tmp_path / "tasks"`, it must ensure the directory actually exists before any test writes files into it, for example with:
+
+```python
+tasks_dir = tmp_path / "tasks"
+tasks_dir.mkdir(parents=True, exist_ok=True)
+return tasks_dir
+```
+
+A solution is invalid if persistence tests attempt to open files under a tasks directory that was never created.
+
+## HARD FAIL RULE — required imports must be present in touched files
+
+If `state.py` uses `os.path.exists`, it must import `os`.
+
+If tests construct or compare `TaskMetadata`, they must import `TaskMetadata`.
+
+If tests use `os.path` or other `os` functions, they must import `os`.
+
+A solution is invalid if it introduces obvious undefined-name lint failures such as:
+- missing `os` import in `state.py`
+- missing `TaskMetadata` import in persistence tests
+- undefined fixture variables such as `tmp_path`
+
 ## HARD FAIL RULE — persistence tests must respect existing task-name normalization
 
 Do NOT change production task-name normalization semantics in `BacklogTracker`.
@@ -573,6 +598,8 @@ The persistence tests must also:
 - avoid unused locals that ruff will reject
 - use real task filenames that normalize to distinct task names
 - construct runner config using the real config object shape already used by production code
+- create the tasks directory fixture before writing any task files into it
+- set `config.state_path` explicitly to a valid file path under the created tasks directory
 
 And all pre-existing orchestrator tests must remain green.
 
