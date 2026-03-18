@@ -37,15 +37,59 @@ class OrchestratorRunner:
         pass
 
     def _state_file_path(self) -> str:
+        configured_state_path = getattr(self.config, "state_path", None)
+        if configured_state_path:
+            return str(configured_state_path)
         return str(Path(self.config.tasks_directory) / "state.json")
+
+    def _with_task_status(self, task: TaskMetadata, status: str) -> TaskMetadata:
+        return TaskMetadata(
+            name=task.name,
+            order=task.order,
+            status=TaskStatus(status=status),
+        )
+
+    def _replace_task_in_state(self, updated_task: TaskMetadata) -> None:
+        replaced = False
+        updated_tasks: List[TaskMetadata] = []
+
+        for existing_task in self.state.tasks:
+            if (
+                existing_task.order == updated_task.order
+                and existing_task.name == updated_task.name
+            ):
+                updated_tasks.append(updated_task)
+                replaced = True
+            else:
+                updated_tasks.append(existing_task)
+
+        if not replaced:
+            updated_tasks.append(updated_task)
+            updated_tasks.sort(key=lambda task: task.order)
+
+        self.state = OrchestratorState(tasks=updated_tasks)
+
+    def write_state(self) -> None:
+        self.backlog_tracker.save_state(self._state_file_path(), self.state.tasks)
 
     def read_backlog(self) -> None:
         state_file = self._state_file_path()
-        self.state = OrchestratorState(tasks=self.backlog_tracker.load_state(state_file))
+        scanned_tasks = self.backlog_tracker.scan_tasks()
+        persisted_tasks = self.backlog_tracker.load_state(state_file)
+
+        persisted_lookup = {
+            (task.order, task.name): task
+            for task in persisted_tasks
+        }
+
+        merged_tasks: List[TaskMetadata] = []
+        for task in scanned_tasks:
+            merged_tasks.append(persisted_lookup.get((task.order, task.name), task))
+
+        self.state = OrchestratorState(tasks=merged_tasks)
 
     def select_next_task(self) -> Optional[TaskMetadata]:
-        tasks = self.backlog_tracker.scan_tasks()
-        return self.backlog_tracker.get_next_task(tasks)
+        return self.backlog_tracker.get_next_task(self.state.tasks)
 
     def run_review(self, changed_files: list[str]) -> dict[str, Any]:
         effective_changed = list(changed_files or [])
@@ -119,11 +163,8 @@ class OrchestratorRunner:
                     "requires_approval": False,
                 }
 
-        running_task = TaskMetadata(
-            name=next_task.name,
-            order=next_task.order,
-            status=TaskStatus(status="running"),
-        )
+        running_task = self._with_task_status(next_task, "running")
+        self._replace_task_in_state(running_task)
 
         log_selected_task(running_task.name, getattr(self.config, "audit_path", None))
 
@@ -135,14 +176,12 @@ class OrchestratorRunner:
         task_runner_command = getattr(self.config, "task_runner_command", None)
 
         if not task_runner_command:
-            # Fix 2: mock path returns changed_files: [] not ["file1.py"]
             return {
                 "success": True,
                 "output": "Task executed successfully",
                 "changed_files": [],
             }
 
-        # Fix 3: real path — resolve task file as tasks_dir / task.name directly
         task_file = Path(self.config.tasks_directory) / task.name
 
         try:
@@ -153,7 +192,6 @@ class OrchestratorRunner:
                 timeout=300,
             )
 
-            # Fix 4: include status, stdout stripped, stderr stripped, changed_files
             return {
                 "success": result.returncode == 0,
                 "status": "success" if result.returncode == 0 else "failure",
@@ -229,6 +267,10 @@ class OrchestratorRunner:
                 or "require_human_review"
             )
 
+            failed_task = self._with_task_status(task, "failed")
+            self._replace_task_in_state(failed_task)
+            self.write_state()
+
             return {
                 "task_name": task.name,
                 "status": "failed",
@@ -241,8 +283,11 @@ class OrchestratorRunner:
         changed_files = execution_result.get("changed_files", [])
         deliverables_updated = execution_result.get("deliverables_updated", [])
 
-        # Block if files changed but no deliverables updated (key present and empty)
-        if changed_files and "deliverables_updated" in execution_result and len(deliverables_updated) == 0:
+        if (
+            changed_files
+            and "deliverables_updated" in execution_result
+            and len(deliverables_updated) == 0
+        ):
             log_review_verdict("blocked", getattr(self.config, "audit_path", None))
             checkpoint = create_approval_checkpoint(
                 task_name=task.name,
@@ -252,6 +297,11 @@ class OrchestratorRunner:
             )
             checkpoint["status"] = "pending_approval"
             log_approval_checkpoint(checkpoint, getattr(self.config, "audit_path", None))
+
+            blocked_task = self._with_task_status(task, "blocked")
+            self._replace_task_in_state(blocked_task)
+            self.write_state()
+
             return {
                 "task_name": task.name,
                 "status": "running",
@@ -274,6 +324,10 @@ class OrchestratorRunner:
             checkpoint["status"] = "pending_approval"
             log_approval_checkpoint(checkpoint, getattr(self.config, "audit_path", None))
 
+            blocked_task = self._with_task_status(task, "blocked")
+            self._replace_task_in_state(blocked_task)
+            self.write_state()
+
             return {
                 "task_name": task.name,
                 "status": "running",
@@ -284,6 +338,10 @@ class OrchestratorRunner:
             }
 
         log_review_verdict("approved", getattr(self.config, "audit_path", None))
+
+        completed_task = self._with_task_status(task, "completed")
+        self._replace_task_in_state(completed_task)
+        self.write_state()
 
         return {
             "task_name": task.name,
@@ -301,7 +359,6 @@ class OrchestratorRunner:
         final_status = "completed"
         planned_actions: List[str] = []
 
-        # get_next_task([]) works with side_effect mocks for test sequencing
         while True:
             next_task = self.backlog_tracker.get_next_task([])
             if not next_task:
