@@ -1,8 +1,9 @@
-import json
+from __future__ import annotations
+
 import os
 from typing import List, Optional
 
-from .state import TaskMetadata, TaskStatus
+from .state import OrchestratorState, TaskMetadata, TaskStatus
 
 
 class BacklogTracker:
@@ -59,31 +60,19 @@ class BacklogTracker:
         return None
 
     def load_state(self, state_file: str) -> List[TaskMetadata]:
-        if os.path.exists(state_file):
-            with open(state_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return [
-                    TaskMetadata(
-                        name=task["name"],
-                        order=task["order"],
-                        status=TaskStatus(status=task["status"]),
-                    )
-                    for task in data["tasks"]
-                ]
-        return []
+        return OrchestratorState.load(state_file).tasks
 
     def save_state(self, state_file: str, tasks: List[TaskMetadata]) -> None:
-        with open(state_file, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "tasks": [
-                        {
-                            "name": task.name,
-                            "order": task.order,
-                            "status": task.status.status,
-                        }
-                        for task in tasks
-                    ]
-                },
-                f,
-            )
+        OrchestratorState(tasks=tasks).save(state_file)
+
+    def update_task_status(self, task_name: str, status: str, state_file: str) -> None:
+        tasks = self.load_state(state_file)
+        updated = False
+        for task in tasks:
+            if task.name == task_name:
+                task.status = TaskStatus(status=status)
+                updated = True
+                break
+
+        if updated:
+            self.save_state(state_file, tasks)
