@@ -1,5 +1,59 @@
 # Task 037 — Persistent Backlog State
 
+## Current baseline update
+
+`src/builder/orchestrator/runner.py` has already been surgically fixed on `main` and the full existing test suite is currently green.
+
+For the next attempt, treat the current `runner.py` on `main` as the locked baseline.
+
+### Updated deliverable guidance for the next bundle
+
+The primary remaining work is now in:
+- `src/builder/orchestrator/state.py`
+- `src/builder/orchestrator/backlog.py`
+- `tests/test_orchestrator_persistent_backlog_state.py`
+
+`src/builder/orchestrator/runner.py` may still be included in the bundle if required by the task runner, but:
+- it must be preserved from the current `main` baseline
+- it must NOT be regenerated or materially rewritten
+- if no additional runner change is strictly required, prefer leaving it unchanged
+- if included, any diff must be truly minimal and must preserve the current green behavior
+
+A solution is invalid if it regresses the current green `runner.py` behavior already on `main`.
+
+### Additional explicit instruction
+
+Before editing anything, first read the current `main` versions of:
+- `src/builder/orchestrator/runner.py`
+- `src/builder/orchestrator/backlog.py`
+- `src/builder/orchestrator/state.py`
+
+Then preserve the current `runner.py` implementation exactly unless a tiny additive compatibility edit is strictly necessary.
+
+### Updated anti-regression rule
+
+Do NOT touch these `runner.py` behaviors:
+- dry-run path
+- no-task path
+- success path
+- review-blocked path
+- failure path
+- guardrail path
+- simulation contract
+- execute_task default mock behavior
+- normalization flow
+- audit / repair / classification flow
+
+### Updated bundle objective
+
+Complete task 037 by implementing the remaining persistence ownership and tests in:
+- `state.py`
+- `backlog.py`
+- `tests/test_orchestrator_persistent_backlog_state.py`
+
+while preserving the already-fixed `runner.py`.
+
+
 ## Goal
 
 Persist task execution state between orchestrator runs so the orchestrator can resume from where it left off without re-executing completed tasks.
