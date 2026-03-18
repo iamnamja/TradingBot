@@ -146,8 +146,6 @@ class OrchestratorRunner:
         task_runner_command = getattr(self.config, "task_runner_command", None)
         skip_guardrails = getattr(self, "skip_guardrails", False)
 
-        # Only run guardrails in real execution mode (task_runner_command configured)
-        # This preserves backward compat with all legacy tests that don't set task_runner_command
         if task_runner_command and not skip_guardrails:
             branch_pattern = getattr(self.config, "branch_naming_pattern", "feature/*")
             guardrails = GitGuardrails(branch_naming_pattern=branch_pattern)
