@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -567,21 +568,61 @@ def load_system_prompt() -> str:
     return "You are an engineering agent. Output ONLY a valid file bundle."
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def chat_openai(messages: List[dict], model: str) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY in environment.")
-    from openai import OpenAI  # type: ignore
+    from openai import APITimeoutError, OpenAI  # type: ignore
 
-    client = OpenAI(api_key=api_key, timeout=120.0)
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-    )
-    content = resp.choices[0].message.content
-    if isinstance(content, str):
-        return content.strip()
-    return ""
+    timeout_s = _float_env("TRADINGBOT_OPENAI_TIMEOUT", 600.0)
+    max_attempts = max(1, _int_env("TRADINGBOT_OPENAI_RETRIES", 2))
+    client = OpenAI(api_key=api_key, timeout=timeout_s)
+
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+            content = resp.choices[0].message.content
+            if isinstance(content, str):
+                return content.strip()
+            return ""
+        except APITimeoutError as exc:
+            last_err = exc
+            if attempt == max_attempts:
+                raise
+            wait_s = min(5 * attempt, 15)
+            print(
+                f"OpenAI request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...",
+                file=sys.stderr,
+            )
+            time.sleep(wait_s)
+
+    if last_err is not None:
+        raise last_err
+    raise RuntimeError("OpenAI request failed without returning a response.")
 
 
 def chat_anthropic(messages: List[dict], model: str) -> str:
@@ -590,16 +631,39 @@ def chat_anthropic(messages: List[dict], model: str) -> str:
         raise RuntimeError("Missing ANTHROPIC_API_KEY in environment.")
     import anthropic  # type: ignore
 
-    client = anthropic.Anthropic(api_key=api_key, timeout=120.0)
+    timeout_s = _float_env("TRADINGBOT_ANTHROPIC_TIMEOUT", 600.0)
+    max_attempts = max(1, _int_env("TRADINGBOT_ANTHROPIC_RETRIES", 2))
+    client = anthropic.Anthropic(api_key=api_key, timeout=timeout_s)
     system = next((m["content"] for m in messages if m["role"] == "system"), "")
     user_msgs = [m for m in messages if m["role"] != "system"]
-    resp = client.messages.create(
-        model=model,
-        max_tokens=12000,
-        system=system,
-        messages=user_msgs,
-    )
-    return (resp.content[0].text or "").strip()
+
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = client.messages.create(
+                model=model,
+                max_tokens=12000,
+                system=system,
+                messages=user_msgs,
+            )
+            return (resp.content[0].text or "").strip()
+        except Exception as exc:
+            # Anthropics' timeout type can vary by SDK/http backend; only retry obvious timeout text.
+            msg = str(exc).lower()
+            is_timeout = "timeout" in msg or "timed out" in msg
+            if not is_timeout or attempt == max_attempts:
+                raise
+            last_err = exc
+            wait_s = min(5 * attempt, 15)
+            print(
+                f"Anthropic request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...",
+                file=sys.stderr,
+            )
+            time.sleep(wait_s)
+
+    if last_err is not None:
+        raise last_err
+    raise RuntimeError("Anthropic request failed without returning a response.")
 
 
 def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
