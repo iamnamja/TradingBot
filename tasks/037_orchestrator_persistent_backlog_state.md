@@ -49,20 +49,22 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 - `src/builder/orchestrator/backlog.py`
 - `src/builder/orchestrator/state.py`
+- `src/builder/orchestrator/runner.py`
 - `tests/test_orchestrator_persistent_backlog_state.py`
 
-All three listed files must be materially updated in the same bundle.
+All four listed files must be materially updated in the same bundle.
+
+For this task, `runner.py` is now explicitly required because the current failing bundles leave persisted state empty after real `run_next_task(dry_run=False)` calls.
 
 ## runner.py policy
 
-`src/builder/orchestrator/runner.py` is NOT a primary deliverable for this task.
+`src/builder/orchestrator/runner.py` is a required deliverable for this task, but only as a **small surgical persistence patch**.
 
-However, this task is allowed to include a **small surgical patch** to `runner.py` if needed for persistence integration.
-
-Allowed runner changes:
+Required runner changes:
 - add / use a helper like `_state_file_path()`
 - read persisted state before selecting the next task
-- write persisted state after successful or failed task execution
+- write persisted state after successful task execution
+- write persisted state after failed task execution
 - ensure sequential runs and fresh runner instances see persisted completed/failed tasks
 - ensure simulation does not write state
 
@@ -75,35 +77,34 @@ Forbidden runner changes:
 - removing existing audit / repair / normalization flow
 
 A solution is invalid if `runner.py` is rewritten wholesale.
+A solution is also invalid if `runner.py` is omitted or only cosmetically touched.
 
-## CRITICAL — runner.py is protected and must NOT be included as a deliverable
+## CRITICAL — runner.py is protected and must be changed only surgically
 
-`src/builder/orchestrator/runner.py` is a stable, fully-tested file. Do NOT include it in the bundle.
-Do NOT rewrite it. Do NOT modify it. Do NOT include it as a deliverable.
+`src/builder/orchestrator/runner.py` is a stable, fully-tested file. It must be included in the bundle for this task, but only with the smallest surgical persistence changes required.
 
-If this task requires new functionality in runner.py, add ONLY the smallest surgical changes required for persistence integration.
+Do NOT regenerate it from scratch.
+Do NOT rewrite unrelated logic.
 All existing methods must remain behaviorally unchanged except for the minimal persistence hooks explicitly required below.
 
-The agent must NOT regenerate runner.py from scratch under any circumstances.
+## Clarification — surgical runner edits are required now
 
-## Clarification — surgical runner edits are allowed but runner.py is still not a deliverable
-
-`src/builder/orchestrator/runner.py` may be edited only if strictly necessary for persistence integration.
+`src/builder/orchestrator/runner.py` must be edited for this task because persisted state is currently not being written during real runner execution.
 
 However:
-- it must NOT be listed or treated as a primary deliverable for this task
 - it must NOT be regenerated wholesale
-- it must NOT be materially rewritten
+- it must NOT be materially rewritten beyond persistence hooks
 - only the smallest possible persistence hooks are allowed
 
-A valid solution may include a minimal patch to `runner.py`, but the main substantive work for this task must be in:
+The main substantive work should still remain in:
 - `src/builder/orchestrator/backlog.py`
 - `src/builder/orchestrator/state.py`
 - `tests/test_orchestrator_persistent_backlog_state.py`
+- plus the minimal required persistence hook in `src/builder/orchestrator/runner.py`
 
 ## Protected files / minimal change rule
 
-`src/builder/orchestrator/runner.py` may be updated only surgically to:
+`src/builder/orchestrator/runner.py` must be updated only surgically to:
 - read persistent state
 - write persistent state after task state transitions
 - respect configurable state file path
@@ -124,10 +125,9 @@ In particular, do not change:
 
 The bundle is incomplete unless all listed deliverables are present.
 
-The bundle may additionally include:
-- `src/builder/orchestrator/runner.py`
+`src/builder/orchestrator/runner.py` is now a required deliverable for this task, but it must still be modified surgically only for persistence integration.
 
-But only if it is surgically modified for persistence integration.
+A solution is invalid if the bundle omits `runner.py`.
 
 ## Critical anti-truncation rule
 
@@ -465,6 +465,10 @@ If those behaviors are not implemented through real runner-backed persistence ho
 - `run_next_task(dry_run=False)` writes state after success and failure transitions
 - `run_next_task(dry_run=True)` preserves existing dry-run contract and does not create state
 - `simulate_backlog()` remains read-only and does not persist state
+
+Current failing bundles still leave `config.state_path` empty after real `run_next_task(dry_run=False)` calls in the persistence tests.
+
+This means the bundle is invalid unless the `runner.py` patch actually causes persisted task state to be written during the real success path and the real forced-failure path.
 
 ## Exact forbidden patterns
 
@@ -852,6 +856,15 @@ runner.skip_guardrails = True
 Do not rely on each individual test remembering to do this.
 
 A solution is invalid if the persistence tests use a runner fixture that leaves guardrails enabled for real `run_next_task(dry_run=False)` calls.
+
+## HARD FAIL RULE — empty persisted state after real run is invalid
+
+A solution is invalid if, after a real `run_next_task(dry_run=False)` call in the persistence tests, `OrchestratorState.load(config.state_path).tasks` is still empty.
+
+Specifically, after a real success-path run with one pending task file, persisted state must contain exactly one completed task.
+After a real forced-failure run with one pending task file, persisted state must contain exactly one failed task.
+
+If persisted state remains empty, the bundle has not actually implemented runner-backed persistence.
 
 ## HARD FAIL RULE — persistence success tests must verify state through the real persisted task list
 
