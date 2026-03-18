@@ -53,18 +53,28 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 All three listed files must be materially updated in the same bundle.
 
-## HARD FAIL RULE — bundle must be rejected if runner.py is included
+## runner.py policy
 
-If the bundle includes `src/builder/orchestrator/runner.py` at all, the solution is invalid.
+`src/builder/orchestrator/runner.py` is NOT a primary deliverable for this task.
 
-This task must be completed by updating only:
-- `src/builder/orchestrator/backlog.py`
-- `src/builder/orchestrator/state.py`
-- `tests/test_orchestrator_persistent_backlog_state.py`
+However, this task is allowed to include a **small surgical patch** to `runner.py` if needed for persistence integration.
 
-Do not include `runner.py` in the bundle.
-Do not modify `runner.py`.
-Do not propose a rewritten `runner.py`.
+Allowed runner changes:
+- add / use a helper like `_state_file_path()`
+- read persisted state before selecting the next task
+- write persisted state after successful or failed task execution
+- ensure sequential runs and fresh runner instances see persisted completed/failed tasks
+- ensure simulation does not write state
+
+Forbidden runner changes:
+- wholesale rewrite or regeneration of `runner.py`
+- changing dry-run / no-task / success / failure / blocked return contracts
+- changing guardrail semantics
+- changing default `execute_task()` mock behavior
+- changing simulation return schema
+- removing existing audit / repair / normalization flow
+
+A solution is invalid if `runner.py` is rewritten wholesale.
 
 ## CRITICAL — runner.py is protected and must NOT be included as a deliverable
 
@@ -113,6 +123,11 @@ In particular, do not change:
 ## Bundle completeness requirement
 
 The bundle is incomplete unless all listed deliverables are present.
+
+The bundle may additionally include:
+- `src/builder/orchestrator/runner.py`
+
+But only if it is surgically modified for persistence integration.
 
 ## Critical anti-truncation rule
 
@@ -372,6 +387,28 @@ Do NOT use `@dataclass(frozen=True)` on:
 - unused locals
 - unused imports
 - placeholder variables created only for comments
+
+## HARD FAIL RULE — persistence tests must verify real runner-backed behavior
+
+The persistence tests must verify behavior by exercising the real runner flow, not by only testing serialization helpers in isolation.
+
+At minimum they must verify:
+- a state file is created after a real `run_next_task(dry_run=False)` run
+- completed tasks are skipped on the next run
+- failed tasks are recorded in persisted state after a real failed run
+- a fresh runner instance picks up persisted state from a previous run
+
+If the tests only validate `save_state()` / `load_state()` helpers and do not verify real runner-backed persistence behavior, the solution is invalid.
+
+## HARD FAIL RULE — state file creation and task skipping require real runner wiring
+
+A solution is invalid if it only updates `backlog.py` and `state.py` but does not wire persistence into `runner.py` enough to make these behaviors true:
+- `run_next_task(dry_run=False)` creates the state file when it did not already exist
+- after a successful first run, a second `run_next_task(dry_run=False)` does NOT execute the same completed task again
+- a new `OrchestratorRunner` instance created later reads the persisted state and skips already-completed tasks
+- failed runs are persisted with status `failed`
+
+If those behaviors are not implemented through real runner-backed persistence hooks, the solution is invalid.
 
 ## Exact forbidden patterns
 
