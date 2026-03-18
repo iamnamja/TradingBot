@@ -384,6 +384,13 @@ State must serialize each task explicitly in JSON-safe form, e.g.:
 
 On load, `status: str` must be converted back into `TaskStatus(status=...)`.
 
+`backlog.py` helpers must also satisfy these behaviors:
+- `load_state(state_path)` returns `[]` if the file does not exist
+- `load_state(state_path)` never raises `FileNotFoundError` for a missing state file
+- `save_state(state_path, tasks)` creates the parent directory if needed
+- `update_task_status(task_name, status, state_path)` loads the current persisted tasks, updates the matching task if present, and saves the full updated task list
+- `update_task_status(...)` must not reference undefined locals like `tasks`
+
 ## HARD FAIL RULE — no frozen dataclasses in persistence models
 
 Do NOT use `@dataclass(frozen=True)` on:
@@ -410,6 +417,33 @@ At minimum they must verify:
 
 If the tests only validate `save_state()` / `load_state()` helpers and do not verify real runner-backed persistence behavior, the solution is invalid.
 
+## HARD FAIL RULE — do not fake persistence tests by patching runner entrypoints
+
+The following are invalid in `tests/test_orchestrator_persistent_backlog_state.py`:
+- patching `OrchestratorRunner.run_next_task`
+- patching `OrchestratorRunner.simulate_backlog`
+- asserting persistence behavior after only calling `save_state()` manually
+- asserting failed-task persistence without a real `run_next_task(dry_run=False)` invocation that is explicitly forced to fail via `runner.execute_task`
+
+Persistence tests must exercise the real runner flow.
+
+Acceptable pattern for a failed-task persistence test:
+```python
+runner = OrchestratorRunner(...)
+runner.skip_guardrails = True
+runner.execute_task = lambda task: {"success": False, "failure_text": "Execution failed"}
+result = runner.run_next_task(dry_run=False)
+state = OrchestratorState.load(config.state_path)
+```
+
+Acceptable pattern for a successful persistence test:
+```python
+runner = OrchestratorRunner(...)
+runner.skip_guardrails = True
+result = runner.run_next_task(dry_run=False)
+state = OrchestratorState.load(config.state_path)
+```
+
 ## HARD FAIL RULE — state file creation and task skipping require real runner wiring
 
 A solution is invalid if it only updates `backlog.py` and `state.py` but does not wire persistence into `runner.py` enough to make these behaviors true:
@@ -419,6 +453,12 @@ A solution is invalid if it only updates `backlog.py` and `state.py` but does no
 - failed runs are persisted with status `failed`
 
 If those behaviors are not implemented through real runner-backed persistence hooks, the solution is invalid.
+
+`runner.py` must therefore include the minimal persistence integration needed so that:
+- `read_backlog()` or equivalent can tolerate a missing state file
+- `run_next_task(dry_run=False)` writes state after success and failure transitions
+- `run_next_task(dry_run=True)` preserves existing dry-run contract and does not create state
+- `simulate_backlog()` remains read-only and does not persist state
 
 ## Exact forbidden patterns
 
@@ -646,6 +686,10 @@ The persistence tests must also:
 - assert persistence results only after the runner has actually executed past guardrails
 - not rely on git guardrails to be satisfied in the test environment
 
+- not patch `run_next_task` or `simulate_backlog`
+- force failure by patching only `runner.execute_task`, not the higher-level runner entrypoint
+- verify that `state.py` was materially updated, not merely re-exported or cosmetically changed
+
 And all pre-existing orchestrator tests must remain green.
 
 `ruff check .` must pass. `pytest -q` must be fully green.
@@ -752,6 +796,13 @@ It must be materially updated in a way that is central to this task, for example
 - helper logic that is meaningfully exercised by the persistence tests
 
 A cosmetic or trivially small change to `state.py` is invalid.
+
+A solution is invalid if `state.py` is effectively unchanged while persistence behavior is pushed entirely into `backlog.py` or tests.
+
+`state.py` should own meaningful persistence logic, such as:
+- `OrchestratorState.save(...)`
+- `OrchestratorState.load(...)`
+- explicit task-to-dict / dict-to-task conversion helpers
 
 ## Minimal runner-change guidance
 
