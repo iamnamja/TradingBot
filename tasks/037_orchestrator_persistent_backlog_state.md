@@ -345,6 +345,34 @@ Do NOT use `@dataclass(frozen=True)` on `ProjectConfig` or any subclass.
 
 Use `getattr(self.config, "state_path", "tasks/state.json")` everywhere — do not assume the field exists.
 
+## HARD FAIL RULE — state serialization must be explicit and JSON-safe
+
+The following are invalid in `state.py` or `backlog.py`:
+- `json.dump([task.__dict__ for task in ...], ...)`
+- relying on dataclass `__dict__` for persistence
+- writing nested `TaskStatus` objects directly to JSON
+
+State must serialize each task explicitly in JSON-safe form, e.g.:
+- `name: str`
+- `order: int`
+- `status: str`
+
+On load, `status: str` must be converted back into `TaskStatus(status=...)`.
+
+## HARD FAIL RULE — no frozen dataclasses in persistence models
+
+Do NOT use `@dataclass(frozen=True)` on:
+- `TaskStatus`
+- `TaskMetadata`
+- `OrchestratorState`
+
+## HARD FAIL RULE — no ruff violations in the persistence test file
+
+`tests/test_orchestrator_persistent_backlog_state.py` must not contain:
+- unused locals
+- unused imports
+- placeholder variables created only for comments
+
 ## Exact forbidden patterns
 
 - writing state inside `simulate_backlog`
