@@ -225,6 +225,7 @@ Current failure pattern to fix:
 - failed-task tests must explicitly patch execution to fail; success-path tests must not assert failed state by default
 - new persistence tests must not use mocked config objects that make guardrail patterns non-string values
 - persistence tests should bypass guardrails safely so they test persistence, not git state
+- current failing persistence tests are still tripping guardrails before state is written; fix the tests/config so persistence logic actually runs
 
 ## Locked runner contracts
 
@@ -564,6 +565,15 @@ Do NOT change production guardrail behavior to satisfy persistence tests.
 
 A solution is invalid if it changes production guardrail semantics instead of configuring tests correctly.
 
+For this task, prefer the simplest safe approach:
+- after constructing the real runner in persistence tests, set `runner.skip_guardrails = True`
+
+This avoids unrelated git environment failures and ensures the tests exercise persistence behavior rather than guardrail behavior.
+
+A solution is invalid if persistence tests call real `run_next_task(dry_run=False)` without either:
+- `runner.skip_guardrails = True`, or
+- a fully real guardrail-compatible git/config setup.
+
 ## HARD FAIL RULE — persistence tests must create real task files before calling run_next_task
 
 Any persistence test that expects `run_next_task(dry_run=False)` to create state or advance tasks must first create real task files in the test tasks directory.
@@ -633,6 +643,8 @@ The persistence tests must also:
 - avoid duplicate test method names
 - use a real config object, not a patched `MagicMock` config
 - set `runner.skip_guardrails = True` in persistence tests unless the test is explicitly about guardrails
+- assert persistence results only after the runner has actually executed past guardrails
+- not rely on git guardrails to be satisfied in the test environment
 
 And all pre-existing orchestrator tests must remain green.
 
