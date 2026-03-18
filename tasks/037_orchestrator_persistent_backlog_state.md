@@ -53,6 +53,19 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 All three listed files must be materially updated in the same bundle.
 
+## HARD FAIL RULE — bundle must be rejected if runner.py is included
+
+If the bundle includes `src/builder/orchestrator/runner.py` at all, the solution is invalid.
+
+This task must be completed by updating only:
+- `src/builder/orchestrator/backlog.py`
+- `src/builder/orchestrator/state.py`
+- `tests/test_orchestrator_persistent_backlog_state.py`
+
+Do not include `runner.py` in the bundle.
+Do not modify `runner.py`.
+Do not propose a rewritten `runner.py`.
+
 ## CRITICAL — runner.py is protected and must NOT be included as a deliverable
 
 `src/builder/orchestrator/runner.py` is a stable, fully-tested file. Do NOT include it in the bundle.
@@ -365,6 +378,20 @@ INVALID:
 - changing any existing expected message string
 - changing any existing expected status string
 - regenerating `runner.py` wholesale
+
+## HARD FAIL RULE — tests must import TaskStatus when used
+
+If any test file constructs `TaskStatus(...)`, it must explicitly import `TaskStatus` from `builder.orchestrator.state`.
+
+Using `status="pending"` directly in `TaskMetadata(...)` is invalid unless the existing code explicitly supports that constructor shape.
+
+## HARD FAIL RULE — no placeholder implementations
+
+The following are invalid anywhere in the bundle:
+- `pass` in `execute_task`
+- `pass` in `process_execution_result`
+- placeholder comments like "Execution logic here"
+- replacing existing production logic with stubs
 
 ## Acceptance criteria
 
