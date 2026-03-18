@@ -218,3 +218,6 @@ _last_agent_patch_fixed_lf.diff
 
 # Runtime audit artifacts
 logs/
+
+# orchestrator runtime state
+tasks/state.json
