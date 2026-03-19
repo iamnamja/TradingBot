@@ -25,8 +25,9 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 FILE_BUNDLE_BEGIN = "BEGIN_FILE_BUNDLE"
 FILE_BUNDLE_END = "END_FILE_BUNDLE"
@@ -36,10 +37,6 @@ FILE_END = "END_FILE"
 DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
 FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
 RUNNER_METHOD_HEADER_RE = re.compile(r"^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILINE)
-
-HARNESS_FILE_POLICY_RE = re.compile(r"^\s*-\s*FILE:\s*([^\s]+)\s+MODE=([A-Z_]+)(.*)$", re.MULTILINE)
-POLICY_KV_RE = re.compile(r"([A-Z_]+)=([^\s]+)")
-CLASS_METHOD_HEADER_RE = re.compile(r"^\s{4}def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILINE)
 
 RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
 RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
@@ -86,6 +83,27 @@ def default_model_for_provider(provider: str) -> str:
     if provider == "openai":
         return "gpt-5"
     return "claude-sonnet-4-5"
+
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
 
 
 def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -277,148 +295,6 @@ def parse_required_runner_methods(task_text: str) -> List[str]:
             out.append(method)
             seen.add(method)
     return out
-
-
-def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, str]]:
-    policies: Dict[str, Dict[str, str]] = {}
-    for path, mode, tail in HARNESS_FILE_POLICY_RE.findall(normalize_newlines(task_text)):
-        entry: Dict[str, str] = {"mode": mode.strip()}
-        for key, value in POLICY_KV_RE.findall(tail or ""):
-            entry[key.strip()] = value.strip()
-        policies[path.strip().replace("\\", "/")] = entry
-    return policies
-
-
-def _anchor_header_from_policy(policy: Dict[str, str]) -> str:
-    method = policy.get("ANCHOR_BEFORE", "").strip()
-    if method:
-        return f"def {method}("
-    literal = policy.get("ANCHOR_TEXT", "").strip()
-    return literal
-
-
-def _validate_exact_copy_plus_append_method(
-    relpath: str,
-    baseline: str,
-    candidate: str,
-    policy: Dict[str, str],
-) -> Optional[str]:
-    anchor = _anchor_header_from_policy(policy)
-    if not anchor:
-        return f"`{relpath}` policy requires ANCHOR_BEFORE or ANCHOR_TEXT."
-
-    baseline_idx = baseline.find(anchor)
-    candidate_idx = candidate.find(anchor)
-    if baseline_idx == -1 or candidate_idx == -1:
-        return f"`{relpath}` must preserve anchor section `{anchor}`."
-
-    baseline_prefix = baseline[:baseline_idx]
-    baseline_suffix = baseline[baseline_idx:]
-    candidate_prefix = candidate[:candidate_idx]
-    candidate_suffix = candidate[candidate_idx:]
-
-    if candidate_suffix != baseline_suffix:
-        return (
-            f"`{relpath}` changed content at or after protected anchor `{anchor}`. "
-            "Only additive insertion before the anchor is allowed."
-        )
-
-    if not candidate_prefix.startswith(baseline_prefix):
-        return (
-            f"`{relpath}` changed content before protected anchor `{anchor}`. "
-            "Existing file content must be copied exactly before the allowed insertion point."
-        )
-
-    inserted = candidate_prefix[len(baseline_prefix):]
-    if not inserted.strip():
-        return f"`{relpath}` did not append any new method at the allowed insertion anchor."
-
-    allowed_method = policy.get("ALLOW_NEW_METHOD", "").strip()
-    method_headers = CLASS_METHOD_HEADER_RE.findall(inserted)
-    if allowed_method:
-        if method_headers != [allowed_method]:
-            return (
-                f"`{relpath}` may add only method `{allowed_method}` before `{anchor}`; "
-                f"found method headers: {method_headers or 'none'}."
-            )
-
-    max_changed = policy.get("MAX_CHANGED_LINES", "").strip()
-    if max_changed:
-        try:
-            limit = int(max_changed)
-        except ValueError:
-            limit = 0
-        if limit > 0:
-            changed_lines = len(inserted.rstrip("\n").splitlines())
-            if changed_lines > limit:
-                return (
-                    f"`{relpath}` exceeded MAX_CHANGED_LINES={limit} for protected append-only mode "
-                    f"(observed {changed_lines})."
-                )
-
-    # Disallow hidden edits anywhere else by ensuring only a single insertion occurred.
-    if baseline != baseline_prefix + baseline_suffix:
-        return f"`{relpath}` baseline anchor reconstruction failed."
-    if candidate != baseline_prefix + inserted + baseline_suffix:
-        return f"`{relpath}` contains changes outside the allowed insertion region."
-
-    return None
-
-
-def enforce_harness_file_policies(
-    task_text: str,
-    bundle: Dict[str, str],
-    baseline: Dict[str, str],
-) -> Tuple[bool, str]:
-    policies = parse_harness_file_policies(task_text)
-    if not policies:
-        return True, ""
-
-    issues: List[str] = []
-    for relpath, policy in policies.items():
-        mode = policy.get("mode", "").strip().upper()
-
-        if mode == "PROTECTED_FORBID":
-            if relpath in bundle:
-                issues.append(f"`{relpath}` is protected with MODE=PROTECTED_FORBID and must not appear in the bundle.")
-            continue
-
-        if relpath not in bundle:
-            # Only validate file-content policies when the file is included.
-            continue
-
-        if mode == "EXACT_COPY_PLUS_APPEND_METHOD":
-            if relpath not in baseline:
-                issues.append(f"`{relpath}` uses MODE=EXACT_COPY_PLUS_APPEND_METHOD but no baseline file was found.")
-                continue
-            err = _validate_exact_copy_plus_append_method(relpath, baseline[relpath], bundle[relpath], policy)
-            if err:
-                issues.append(err)
-            continue
-
-        if mode == "MAX_DIFF_LINES":
-            if relpath not in baseline:
-                continue
-            try:
-                limit = int(policy.get("MAX_CHANGED_LINES", "0"))
-            except ValueError:
-                limit = 0
-            if limit > 0:
-                delta = list(difflib.unified_diff(
-                    baseline[relpath].splitlines(),
-                    bundle[relpath].splitlines(),
-                    lineterm="",
-                ))
-                changed = sum(1 for line in delta if line.startswith(("+", "-")) and not line.startswith(("+++", "---")))
-                if changed > limit:
-                    issues.append(
-                        f"`{relpath}` exceeded MAX_CHANGED_LINES={limit} (observed {changed}) under MODE=MAX_DIFF_LINES."
-                    )
-            continue
-
-    if issues:
-        return False, "Harness protected-file policy violations detected:\n" + "\n".join(f"- {x}" for x in issues)
-    return True, ""
 
 
 def enforce_required_files(
@@ -717,16 +593,36 @@ def chat_openai(messages: List[dict], model: str) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY in environment.")
-    from openai import OpenAI  # type: ignore
+    from openai import APITimeoutError, OpenAI  # type: ignore
 
-    client = OpenAI(api_key=api_key, timeout=120.0)
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-    )
-    content = resp.choices[0].message.content
-    if isinstance(content, str):
-        return content.strip()
+    timeout_s = _float_env("TRADINGBOT_OPENAI_TIMEOUT", 900.0)
+    max_attempts = max(1, _int_env("TRADINGBOT_OPENAI_RETRIES", 2))
+    client = OpenAI(api_key=api_key, timeout=timeout_s)
+
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+            content = resp.choices[0].message.content
+            if isinstance(content, str):
+                return content.strip()
+            return ""
+        except APITimeoutError as exc:
+            last_err = exc
+            if attempt == max_attempts:
+                raise
+            wait_s = min(5 * attempt, 15)
+            print(
+                f"OpenAI request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...",
+                file=sys.stderr,
+            )
+            time.sleep(wait_s)
+
+    if last_err is not None:
+        raise last_err
     return ""
 
 
@@ -736,16 +632,36 @@ def chat_anthropic(messages: List[dict], model: str) -> str:
         raise RuntimeError("Missing ANTHROPIC_API_KEY in environment.")
     import anthropic  # type: ignore
 
-    client = anthropic.Anthropic(api_key=api_key, timeout=120.0)
+    timeout_s = _float_env("TRADINGBOT_ANTHROPIC_TIMEOUT", 900.0)
+    max_attempts = max(1, _int_env("TRADINGBOT_ANTHROPIC_RETRIES", 2))
+    client = anthropic.Anthropic(api_key=api_key, timeout=timeout_s)
     system = next((m["content"] for m in messages if m["role"] == "system"), "")
     user_msgs = [m for m in messages if m["role"] != "system"]
-    resp = client.messages.create(
-        model=model,
-        max_tokens=12000,
-        system=system,
-        messages=user_msgs,
-    )
-    return (resp.content[0].text or "").strip()
+
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = client.messages.create(
+                model=model,
+                max_tokens=12000,
+                system=system,
+                messages=user_msgs,
+            )
+            return (resp.content[0].text or "").strip()
+        except Exception as exc:
+            last_err = exc
+            if attempt == max_attempts or "timeout" not in str(exc).lower():
+                raise
+            wait_s = min(5 * attempt, 15)
+            print(
+                f"Anthropic request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...",
+                file=sys.stderr,
+            )
+            time.sleep(wait_s)
+
+    if last_err is not None:
+        raise last_err
+    return ""
 
 
 def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
@@ -827,6 +743,16 @@ def request_and_parse_bundle(messages: List[dict], model: str, provider: str, la
             raise FileBundleError(f"Model returned malformed file bundle after retry: {e2}") from e2
 
 
+
+def _append_task_feedback(task_text: str, message: str) -> str:
+    return task_text.rstrip() + "\n\nIMPORTANT: " + message + "\n"
+
+
+def _repeat_limit_exceeded(counter: Dict[str, int], key: str, limit: int) -> bool:
+    counter[key] = counter.get(key, 0) + 1
+    return counter[key] >= limit
+
+
 def main() -> int:
     _load_dotenv_if_available()
 
@@ -836,6 +762,7 @@ def main() -> int:
     ap.add_argument("--provider", default=default_provider(), choices=["openai", "anthropic"])
     ap.add_argument("--model", default=default_model_for_provider(default_provider()))
     ap.add_argument("--max-iters", type=int, default=4)
+    ap.add_argument("--policy-block-limit", type=int, default=_int_env("TRADINGBOT_POLICY_BLOCK_LIMIT", 2))
     args = ap.parse_args()
     if not hasattr(args, "provider"):
         args.provider = default_provider()
@@ -867,6 +794,7 @@ def main() -> int:
 
     prev_files: Dict[str, str] | None = None
     extra_directives = ""
+    violation_counts: Dict[str, int] = {}
 
     for it in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {it}/{args.max_iters} ===")
@@ -898,39 +826,53 @@ def main() -> int:
         )
         if not ok_req:
             print(f"❌ {req_msg}")
-            task_text = task_text.rstrip() + "\n\nIMPORTANT: " + req_msg + "\n"
+            task_text = _append_task_feedback(task_text, req_msg)
+            if _repeat_limit_exceeded(violation_counts, "deliverables", args.policy_block_limit):
+                print("\n❌ Stopping early: repeated deliverable violations. Recommended action: manual_patch")
+                print("Model output saved to: _last_agent_model_output.txt")
+                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                return 1
             prev_files = files
             continue
 
         ok_policy, policy_msg = enforce_harness_file_policies(task_text, files, baseline)
         if not ok_policy:
             print(f"❌ {policy_msg}")
-            task_text = task_text.rstrip() + "\n\nIMPORTANT: " + policy_msg + "\n"
+            task_text = _append_task_feedback(task_text, policy_msg)
+            if _repeat_limit_exceeded(violation_counts, "protected_file_policy", args.policy_block_limit):
+                print("\n❌ Stopping early: repeated protected-file policy violations. Recommended action: manual_patch")
+                print("Model output saved to: _last_agent_model_output.txt")
+                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                return 1
             prev_files = files
             continue
 
         ok_static, static_msg = validate_static_bundle_contracts(files, task_text)
         if not ok_static:
             print(f"❌ {static_msg}")
-            task_text = task_text.rstrip() + "\n\nIMPORTANT: " + static_msg + "\n"
+            task_text = _append_task_feedback(task_text, static_msg)
+            if _repeat_limit_exceeded(violation_counts, "static_contracts", args.policy_block_limit):
+                print("\n❌ Stopping early: repeated static contract violations. Recommended action: manual_patch")
+                print("Model output saved to: _last_agent_model_output.txt")
+                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                return 1
             prev_files = files
             continue
 
         ok_imports, import_msg = validate_imports(files)
         if not ok_imports:
             print(f"❌ {import_msg}")
-            task_text = (
-                task_text.rstrip()
-                + "\n\nIMPORTANT: "
-                + import_msg
-                + "\n"
-                + missing_module_hints(import_msg)
-                + "\n"
-            )
+            task_text = _append_task_feedback(task_text, import_msg + "\n" + missing_module_hints(import_msg))
+            if _repeat_limit_exceeded(violation_counts, "imports", args.policy_block_limit):
+                print("\n❌ Stopping early: repeated import validation failures. Recommended action: manual_patch")
+                print("Model output saved to: _last_agent_model_output.txt")
+                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                return 1
             prev_files = files
             continue
 
         write_files(files)
+        violation_counts.clear()
 
         ok, details = run_checks()
         if ok:
