@@ -2,7 +2,10 @@
 
 ## Context
 
-Tasks 015–031 are complete. The orchestrator now has:
+Tasks 015–031 are complete. Task 037 is now also complete and stable on `main`.
+
+The orchestrator now has:
+
 - backlog/state tracking
 - review/compliance checking
 - failure classification
@@ -10,8 +13,14 @@ Tasks 015–031 are complete. The orchestrator now has:
 - repair workflow
 - generic project adapter foundation
 - real task execution bridge (task 031 ✅)
+- persistent backlog state (task 037 ✅)
 
-The agent model is now **Claude Sonnet** (switched from GPT-4o-mini in task 031). Claude produces green results in 1 iteration when task specs are precise.
+The primary lessons from tasks 037–038 are:
+
+- exact task shape matters as much as the model
+- green tests are necessary but not sufficient
+- fragile files such as `runner.py` need protected-file rules
+- broad tasks should be split into engine, CLI, and integration phases
 
 ## Roadmap summary
 
@@ -23,100 +32,72 @@ The agent model is now **Claude Sonnet** (switched from GPT-4o-mini in task 031)
 | 035 | PR Creation Workflow | Automate PR after successful execution |
 | 036 | Resume After Approval | Resume from human-approval checkpoints |
 | 037 | Persistent Backlog State | Remember task state across runs |
-| 038 | Run Loop CLI | Continuous task processing loop |
-| 039 | End-to-End Integration Harness | Full pipeline integration test |
+| 038 | Run Loop Engine | Add `run_loop()` safely on top of `run_next_task()` |
+| 039 | CLI Wiring and End-to-End Harness | Wire CLI modes and deterministic full-pipeline tests |
 | 040 | Multi-Project Hardening | Remove all TradingBot-specific assumptions |
 
 ## Task 032 — Execution Result Normalization
 
 **Goal:** Build a normalization layer in `execution_result.py` that converts raw runner output into a stable dict used by the rest of the orchestrator.
 
-**Key outputs:**
-- `src/builder/orchestrator/execution_result.py` with `normalize_execution_result(raw) -> dict`
-- Updated `runner.py` that calls normalization before `process_execution_result`
-- Tests covering: success, lint failure, missing deliverables, malformed output, unknown fallback
-
-**Why first:** All downstream tasks depend on a stable execution result shape.
-
 ## Task 033 — Real Review and Compliance Gate
 
 **Goal:** Evaluate actual execution results and changed files through a `PolicyEngine` before allowing merge readiness.
-
-**Key outputs:**
-- `src/builder/orchestrator/policy.py` with `PolicyEngine` class
-- Updated `review.py` using `PolicyEngine`
-- Tests covering: mergeable, missing deliverables, approval-required files, no-files edge case
-
-**Why here:** Depends on normalized execution results from 032.
 
 ## Task 034 — Branch and Worktree Guardrails
 
 **Goal:** Block real execution on `main`, dirty worktrees, or mismatched branch names. Simulation always bypasses guardrails.
 
-**Key outputs:**
-- `src/builder/orchestrator/git_guardrails.py` with `GitGuardrails` class
-- Updated `runner.py` calling guardrails before real execution
-- Tests: blocked on main, blocked on dirty worktree, passes on valid branch, simulation bypass
-
 ## Task 035 — PR Creation Workflow
 
 **Goal:** Automate PR creation after successful execution that passes review. PR creation is opt-in and never runs in dry-run or simulate mode.
-
-**Key outputs:**
-- `src/builder/orchestrator/command_runner.py` — safe subprocess abstraction
-- `src/builder/orchestrator/merge.py` with `PRCreator` class
-- `runner.py` result includes `pr_attempted` and `pr_success` keys
 
 ## Task 036 — Resume After Approval
 
 **Goal:** Resume execution from a human-approved checkpoint rather than restarting from scratch.
 
-**Key outputs:**
-- `approval.py` additions: `load_approval_checkpoint`, `grant_approval`, `is_approval_granted`
-- `runner.py` `resume_from_approval()` method
-- `cli.py` `--resume` flag
-
-## Task 037 — Persistent Backlog State
+## Task 037 — Persistent Backlog State ✅
 
 **Goal:** Persist task execution state to `tasks/state.json` between runs. Completed tasks are skipped. Simulation never writes state.
 
-**Key outputs:**
-- `state.py` with `save()` and `load()` methods
-- `backlog.py` with `update_task_status()` method
-- `runner.py` reading/writing state on each execution
+**Status:** Completed manually after constraining the task and preserving the green `runner.py` baseline.
 
-## Task 038 — Run Loop CLI
+## Task 038 — Run Loop Engine
 
-**Goal:** Add a `run_loop()` method and CLI modes (`run-once`, `run-loop`, `simulate`, `resume`) for continuous task processing.
+**Goal:** Add a `run_loop()` method to `runner.py` that repeatedly calls `run_next_task()`.
 
-**Key outputs:**
-- `runner.py` `run_loop()` method calling `run_next_task()` internally
-- `cli.py` with four modes and structured summary output
+**Scope control:** `runner.py` is in protected additive mode. No CLI work in this task.
 
-## Task 039 — End-to-End Integration Harness
+## Task 039 — CLI Wiring and End-to-End Harness
 
-**Goal:** Single integration test covering the full pipeline: discovery → execution → normalization → review → approval → PR readiness.
+**Goal:** Wire `cli.py` to expose `run-once`, `run-loop`, `simulate`, and `resume`, then add deterministic integration tests for the full pipeline.
 
-**Key outputs:**
-- `tests/test_orchestrator_end_to_end.py` with 5 scenarios
-- All external calls mocked (subprocess, git, GitHub CLI)
-- Windows-compatible, deterministic
+**Scope control:** `runner.py` is protected. Production changes are limited to `cli.py`.
 
 ## Task 040 — Multi-Project Hardening
 
-**Goal:** Remove all hardcoded TradingBot assumptions from the orchestrator engine. Make the orchestrator work with any project via config.
+**Goal:** Remove all hardcoded TradingBot assumptions from the orchestrator engine and prove portability through adapters/config tests.
 
-**Key outputs:**
-- `ProjectConfig` with all fields configurable: `task_file_pattern`, `state_path`, `audit_path`, `task_runner_command`
-- Tests proving orchestrator works with two distinct project configs
-- All optional config fields accessed via `getattr` everywhere in runner
+**Scope control:** `runner.py` and `cli.py` are protected. Work is limited to config/adapter files and tests.
+
+## Cross-task control policy
+
+For all remaining orchestrator tasks:
+
+- prefer one risky production file per task
+- use protected-file modes when touching `runner.py`
+- reject green-but-policy-violating bundles
+- keep optional config access via `getattr(...)`
+- keep Windows-compatible subprocess/testing patterns
 
 ## After task 040
 
 Once 032–040 are complete, the orchestrator can:
-- autonomously process a task backlog end-to-end
+
+- autonomously process a task backlog end to end
 - stop safely and resume from approval checkpoints
 - work with TradingBot and any future project via config
+- enforce protected-file policies more reliably in the harness
 
 At that point, focus returns to TradingBot product functionality:
 - scheduled market-hours execution

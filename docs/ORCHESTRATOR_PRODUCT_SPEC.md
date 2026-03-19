@@ -4,13 +4,18 @@
 
 The orchestrator is a reusable software-delivery engine that takes a backlog of task specifications, executes them safely through coding agents, reviews the results, classifies failures, manages pull requests and CI, and continues iteratively with strong controls.
 
-TradingBot is the first client project. The orchestrator must be designed to support future software projects with minimal changes.
+TradingBot is the first client project. The orchestrator must support future software projects with minimal changes.
 
-## Agent
+## Agent and harness model
 
-The orchestrator uses **Claude Sonnet** (via Anthropic API) as the coding agent. The agent reads task markdown specs and produces a deterministic file bundle. The runner applies the bundle, runs ruff + pytest, and retries up to 4 times.
+The coding model/provider is configurable. The reliable control surface is:
 
-The task spec is the primary control surface. Precise specs with exact contracts and forbidden patterns produce green results in 1 iteration.
+1. the task spec
+2. the harness
+3. protected-file policies
+4. review/compliance checks
+
+The runner applies the bundle, runs `ruff` + `pytest`, and retries up to 4 times, but green tests alone are not sufficient if the bundle violates task policy.
 
 ## Product goals
 
@@ -41,6 +46,7 @@ The task spec is the primary control surface. Precise specs with exact contracts
 - decision journaling
 - resumable execution after approval checkpoints
 - dry-run simulation
+- protected-file policy enforcement
 
 ## Current implementation status
 
@@ -53,19 +59,20 @@ The task spec is the primary control surface. Precise specs with exact contracts
 | Repair workflow | ✅ | 019 |
 | Project adapter foundation | ✅ | 020 |
 | Real task execution bridge | ✅ | 031 |
+| Persistent backlog state | ✅ | 037 |
 | Execution result normalization | 🔄 | 032 |
 | Real review + compliance gate | 🔄 | 033 |
 | Branch/worktree guardrails | 🔄 | 034 |
 | PR creation workflow | 🔄 | 035 |
 | Resume after approval | 🔄 | 036 |
-| Persistent backlog state | 🔄 | 037 |
-| Run loop CLI | 🔄 | 038 |
-| End-to-end integration harness | 🔄 | 039 |
+| Run loop engine | 🔄 | 038 |
+| CLI wiring + integration harness | 🔄 | 039 |
 | Multi-project hardening | 🔄 | 040 |
 
 ## Safety model
 
 ### Always automatic
+
 - clean-worktree check
 - task branch creation
 - local lint/test execution
@@ -74,13 +81,14 @@ The task spec is the primary control surface. Precise specs with exact contracts
 - task state update
 
 ### Automatic if policy allows
+
 - PR creation
 - auto-merge after passing CI
 - safe retries
 - cleanup of known runtime artifacts
-- ordinary task-spec patch workflow
 
 ### Approval required
+
 - CI/workflow changes
 - runner changes
 - dependency changes
@@ -97,12 +105,12 @@ src/builder/orchestrator/
     runner.py           — main orchestration loop
     backlog.py          — task discovery and state
     state.py            — OrchestratorState model
-    execution_result.py — normalization layer (task 032)
+    execution_result.py — normalization layer
     review.py           — compliance checker
-    policy.py           — policy engine (task 033)
-    git_guardrails.py   — branch/worktree safety (task 034)
-    merge.py            — PR creation (task 035)
-    command_runner.py   — safe subprocess abstraction (task 035)
+    policy.py           — policy engine
+    git_guardrails.py   — branch/worktree safety
+    merge.py            — PR creation
+    command_runner.py   — safe subprocess abstraction
     approval.py         — checkpoint management
     audit.py            — decision logging
     failures.py         — failure classifier
@@ -114,27 +122,29 @@ src/builder/orchestrator/
 
 ## Invariants that must never change
 
-These contracts are fixed across all tasks. Any task that breaks them is invalid:
-
 ### runner.py invariants
+
 - `OrchestratorRunner.__init__(config, backlog_tracker, initial_state)` — signature never changes
 - `run_next_task(dry_run=False)` — signature never changes
 - `simulate_backlog()` — signature and return keys never change
-- Legacy success: `status="running"`, `message="Task is now running."`, `outcome="ready_for_pr"`
-- Empty `changed_files` → `run_review` returns `{"mergeable": True}`
-- `simulate_backlog` calls `get_next_task([])` directly, uses `continue` not `break` on approval
+- legacy success: `status="running"`, `message="Task is now running."`, `outcome="ready_for_pr"`
+- empty `changed_files` → `run_review` returns `{"mergeable": True}`
+- `simulate_backlog` calls `get_next_task([])` directly and uses `continue`, not `break`, on approval
 
 ### config invariants
+
 - `ProjectConfig` is never `@dataclass(frozen=True)`
-- Optional config fields always accessed via `getattr(self.config, "field", default)`
+- optional config fields are always accessed via `getattr(self.config, "field", default)`
 - `get_tradingbot_default_config()` and `get_generic_project_config()` remain on `ProjectAdapter`
 
 ## Success criteria
 
 The orchestrator is production-usable when it can:
+
 - run a task loop end to end
 - stop safely on risky situations
 - resume after interruption
 - explain every action taken
 - support at least one project adapter cleanly
 - be extended to another project with minimal engine changes
+- reject green-but-policy-violating bundles
