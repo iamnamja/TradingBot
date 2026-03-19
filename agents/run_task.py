@@ -37,6 +37,8 @@ FILE_END = "END_FILE"
 DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
 FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
 RUNNER_METHOD_HEADER_RE = re.compile(r"^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILINE)
+TASK_FILE_POLICY_RE = re.compile(r"^\s*-\s*FILE:\s*(?P<path>\S+)(?P<rest>.*)$")
+TASK_FILE_ATTR_RE = re.compile(r"([A-Z_]+)=([^\s]+)")
 
 RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
 RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
@@ -222,6 +224,7 @@ def _deliverables_section(task_text: str) -> str:
 
     return "\n".join(collected)
 
+
 def parse_required_files(task_text: str) -> List[str]:
     section = _deliverables_section(task_text)
 
@@ -238,6 +241,7 @@ def parse_required_files(task_text: str) -> List[str]:
             out.append(p)
             seen.add(p)
     return out
+
 
 def task_requires_material_update(task_text: str) -> bool:
     lower = normalize_newlines(task_text).lower()
@@ -265,6 +269,52 @@ def task_allows_unchanged_cli(task_text: str) -> bool:
     return any(p in lower for p in phrases)
 
 
+def _normalize_policy_rule(rule: str) -> str | None:
+    r = rule.strip()
+    if not r:
+        return None
+    return r
+
+
+def _convert_file_mode_attributes_to_rules(path: str, attrs: Dict[str, str]) -> List[str]:
+    rules: List[str] = []
+    mode = attrs.get("MODE", "").strip().upper()
+
+    if mode == "FORBID":
+        rules.append("forbid")
+    elif mode == "EXACT_COPY":
+        rules.append("exact_copy")
+    elif mode == "EXACT_COPY_PLUS_APPEND_METHOD":
+        anchor_before = attrs.get("ANCHOR_BEFORE", "").strip()
+        if anchor_before:
+            if "(" in anchor_before:
+                anchor = f"def {anchor_before}"
+            else:
+                anchor = f"def {anchor_before}("
+            rules.append(f"append_before:{anchor}")
+        else:
+            rules.append("exact_copy")
+
+        allow_new_method = attrs.get("ALLOW_NEW_METHOD", "").strip()
+        if allow_new_method:
+            rules.append(f"allow_methods:{allow_new_method}")
+
+    max_changed_lines = attrs.get("MAX_CHANGED_LINES", "").strip()
+    if max_changed_lines:
+        rules.append(f"max_changed_lines:{max_changed_lines}")
+
+    raw_allow_methods = attrs.get("ALLOW_METHODS", "").strip()
+    if raw_allow_methods:
+        rules.append(f"allow_methods:{raw_allow_methods}")
+
+    # Allow explicit exact-copy/forbid from attributes too.
+    if attrs.get("EXACT_COPY", "").strip().lower() in {"1", "true", "yes"}:
+        rules.append("exact_copy")
+    if attrs.get("FORBID", "").strip().lower() in {"1", "true", "yes"}:
+        rules.append("forbid")
+
+    return rules
+
 
 def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
     """
@@ -277,31 +327,77 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
     HARNESS_POLICY: path/to/file.py forbid
     HARNESS_POLICY: path/to/file.py max_changed_lines:40
 
+    And task-style FILE policy lines:
+
+    - FILE: src/builder/orchestrator/runner.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=run_loop ANCHOR_BEFORE=simulate_backlog MAX_CHANGED_LINES=160
+    - FILE: src/builder/orchestrator/cli.py MODE=FORBID
+
     Multiple rules may be declared for the same file on separate lines.
     """
     policies: Dict[str, Dict[str, object]] = {}
-    for raw_line in normalize_newlines(task_text).split("\n"):
+    normalized = normalize_newlines(task_text)
+
+    for raw_line in normalized.split("\n"):
         line = raw_line.strip()
-        if not line.startswith("HARNESS_POLICY:"):
-            continue
-        try:
-            _, rest = line.split("HARNESS_POLICY:", 1)
-            path_and_rule = rest.strip()
-            if not path_and_rule:
-                continue
-            path, rule = path_and_rule.split(None, 1)
-        except ValueError:
+        if not line:
             continue
 
-        path = path.strip().replace("\\", "/")
-        rule = rule.strip()
-        if not path or not rule:
+        if line.startswith("HARNESS_POLICY:"):
+            try:
+                _, rest = line.split("HARNESS_POLICY:", 1)
+                path_and_rule = rest.strip()
+                if not path_and_rule:
+                    continue
+                path, rule = path_and_rule.split(None, 1)
+            except ValueError:
+                continue
+
+            path = path.strip().replace("\\", "/")
+            normalized_rule = _normalize_policy_rule(rule)
+            if not path or not normalized_rule:
+                continue
+
+            entry = policies.setdefault(path, {"rules": []})
+            entry_rules = entry.setdefault("rules", [])
+            if isinstance(entry_rules, list):
+                entry_rules.append(normalized_rule)
+            continue
+
+        m = TASK_FILE_POLICY_RE.match(raw_line)
+        if not m:
+            continue
+
+        path = m.group("path").strip().replace("\\", "/")
+        rest = m.group("rest") or ""
+        attrs: Dict[str, str] = {}
+        for key, value in TASK_FILE_ATTR_RE.findall(rest):
+            attrs[key.strip().upper()] = value.strip()
+
+        if not path or not attrs:
             continue
 
         entry = policies.setdefault(path, {"rules": []})
         entry_rules = entry.setdefault("rules", [])
-        if isinstance(entry_rules, list):
-            entry_rules.append(rule)
+        if not isinstance(entry_rules, list):
+            continue
+        for rule in _convert_file_mode_attributes_to_rules(path, attrs):
+            normalized_rule = _normalize_policy_rule(rule)
+            if normalized_rule:
+                entry_rules.append(normalized_rule)
+
+    # De-duplicate while preserving order.
+    for path, entry in policies.items():
+        rules = entry.get("rules", [])
+        if not isinstance(rules, list):
+            continue
+        seen: set[str] = set()
+        deduped: List[str] = []
+        for rule in rules:
+            if isinstance(rule, str) and rule not in seen:
+                deduped.append(rule)
+                seen.add(rule)
+        entry["rules"] = deduped
+
     return policies
 
 
@@ -434,6 +530,7 @@ def enforce_harness_file_policies(
     if issues:
         return False, "Harness protected-file policy violations detected:\n" + "\n".join(f"- {x}" for x in issues)
     return True, ""
+
 
 def existing_file_contents(paths: List[str]) -> Dict[str, str]:
     out: Dict[str, str] = {}
@@ -582,8 +679,6 @@ def relevant_context(required: List[str]) -> str:
     seen: set[str] = set()
     lines: List[str] = []
 
-    # Only include agents dir and specific required files — skip bulk src/tests injection
-    # to keep prompt size manageable as codebase grows
     candidates = [
         Path("agents"),
     ]
@@ -731,7 +826,6 @@ def bundle_similarity(a: Dict[str, str] | None, b: Dict[str, str] | None) -> flo
 def run_checks() -> Tuple[bool, str]:
     details: List[str] = []
 
-    # Let the model auto-fix simple ruff issues first.
     capture_result([sys.executable, "-m", "ruff", "check", ".", "--fix"])
 
     ruff = capture_result([sys.executable, "-m", "ruff", "check", "."])
