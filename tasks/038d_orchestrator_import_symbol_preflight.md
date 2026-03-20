@@ -106,7 +106,7 @@ This must participate in the existing pre-write validation flow the same way cur
 - rewriting all of `agents/run_task.py`
 - emitting multiple top-level methods in the protected insertion payload
 - using nested helper defs inside `validate_imports`
-- adding helper methods like `module_exists`, `resolve_module_source`, `symbol_exists`, etc. at top level
+- adding helper methods like `module_exists`, `resolve_module_source`, `symbol_exists`, `_module_spec`, `_package_exports`, `_is_repo_local`, etc. at top level
 - adding extra `def` statements anywhere in the inserted `validate_imports` payload
 - changing provider/model defaults
 - changing protected-file baseline logic
