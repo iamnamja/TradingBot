@@ -6,7 +6,7 @@ Add repo-local imported-symbol validation to the existing `validate_imports(...)
 
 ## Why
 
-Task 039 repeatedly failed because generated test bundles imported names like `BacklogStore` / `TaskRecord` from repo-local modules even when the module existed but the symbol did not. The current harness validates repo-local module existence, but it does not yet validate imported symbol existence.
+Task 039 repeatedly failed because generated test bundles imported names like `BacklogStore` / `TaskRecord` from repo-local modules even when those names were not actually exported. The current harness validates repo-local module existence, but it does not yet validate imported symbol existence.
 
 This task is a narrow harness hardening task that should land before rerunning Task 039.
 
@@ -31,7 +31,7 @@ Do not change:
 - provider/model selection behavior
 - retry loop behavior
 - protected-file policy enforcement
-- protected method parsing/recovery behavior except as needed to support surgical method replacement
+- protected method insertion / replacement behavior except as needed to replace `validate_imports(...)`
 - workspace restore behavior
 - virtual protected-file context behavior
 - current missing-module validation behavior except to extend it with repo-local symbol validation
@@ -45,7 +45,7 @@ For `agents/run_task.py`:
 - Do not rewrite the full file.
 - Use the protected replace-method flow only.
 - Replace the existing top-level function named `validate_imports`.
-- The protected response payload must contain exactly one top-level function and nothing else.
+- The protected method payload must contain exactly one top-level function and nothing else.
 - Do not add any additional top-level defs.
 - Do not add any additional top-level classes.
 - Do not add any additional top-level constants.
@@ -53,7 +53,7 @@ For `agents/run_task.py`:
 - Do not define nested helper functions inside `validate_imports(...)`.
 - Do not use any additional `def` statements anywhere inside the replacement method text.
 - Keep helper logic inline using local variables, loops, comprehensions, and existing stdlib calls only.
-- For the protected method response, return only the method insertion payload requested by the harness. Do not emit a normal `BEGIN_FILE_BUNDLE` response for `agents/run_task.py`.
+- For the protected method response, return only the method insertion/replacement payload requested by the harness. Do not emit a normal `BEGIN_FILE_BUNDLE` response for `agents/run_task.py`.
 
 ### Required method signature
 
@@ -61,7 +61,7 @@ For `agents/run_task.py`:
 def validate_imports(bundle: Dict[str, str]) -> Tuple[bool, str]:
 ```
 
-The replacement `validate_imports(...)` method must preserve the current missing-module validation semantics and extend them with repo-local imported-symbol validation.
+The replacement `validate_imports(...)` method must preserve the current module-existence validation semantics and extend them with repo-local imported-symbol validation.
 
 ## Required behavior
 
@@ -103,22 +103,27 @@ This must participate in the existing pre-write validation flow the same way cur
 ## Exact forbidden patterns
 
 - rewriting all of `agents/run_task.py`
-- adding a second top-level `validate_imports`
 - emitting multiple top-level methods in the protected method payload
 - using nested helper defs inside `validate_imports`
-- adding helper methods like `module_exists`, `resolve_module_source`, `symbol_exists`, `module_source_exists`, `module_to_paths`, `module_exists_local`, `load_module_exports`, `load_module_texts`, `_module_spec`, `_package_exports`, `_is_repo_local`, etc.
+- adding helper methods like `module_exists`, `resolve_module_source`, `symbol_exists`, `module_source_exists`, `module_to_paths`, `module_exists_local`, `load_module_exports`, `load_module_texts`, `_module_spec`, `_package_exports`, `_is_repo_local`, etc. at top level
 - adding extra `def` statements anywhere in the replacement `validate_imports` payload
+- adding a second `validate_imports` definition instead of replacing the existing one
 - changing provider/model defaults
 - changing protected-file baseline logic
 - touching orchestrator production files
 - touching TradingBot production files
+- importing nonexistent repo-local symbols in the new tests
 - relying on external services in tests
 
 ## Test requirements
 
 `tests/test_run_task_import_validation.py` must be self-contained and deterministic.
 
-The tests must use `tmp_path` to create repo-local package fixtures under a temporary working tree rather than assuming specific real symbols already exist in the repository.
+The tests must not depend on the real repo's current exported symbols. Instead:
+- create a temporary mini-repo under `tmp_path`
+- create minimal `src/builder/orchestrator/...` or `src/tradingbot/...` files inside that temp repo
+- use `monkeypatch.chdir(...)` so `validate_imports(...)` resolves modules against that temporary repo
+- only assert symbols that are explicitly created inside the test fixture or the bundle
 
 Cover at least:
 
@@ -137,4 +142,4 @@ Tests must be Windows-portable and self-contained.
 - `ruff check .` passes
 - `pytest -q` passes
 - invalid repo-local symbol imports are blocked before `pytest`
-- `agents/run_task.py` changes are limited to one protected method replacement of `validate_imports`
+- `agents/run_task.py` changes are limited to one protected method replacement of `validate_imports(...)`
