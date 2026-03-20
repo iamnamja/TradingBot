@@ -114,7 +114,8 @@ Add deterministic tests covering at least:
 5. append method application into baseline content before an anchor
    - assert:
      - the helper method appears before the anchor method
-     - the helper body is present
+     - the helper definition is present
+     - the helper body line is present
      - the helper is indented according to the surrounding context
    - do NOT assert one exact flat string like `def helper(self):\n    return 3\n`
 
@@ -142,6 +143,113 @@ Add deterministic tests covering at least:
 
 11. `request_and_parse_method_insertion(...)` malformed bundle rejection using monkeypatched `chat`
     - use `pytest.raises(run_task.FileBundleError)`
+
+## Strong guidance — use these fixture shapes
+
+Use helper functions in the test file so the shapes stay exact.
+
+### Example harness-policy fixture
+
+Use a helper like:
+
+```python
+def _policy_text(*lines: str) -> str:
+    return "\n".join(["# Task title", "", "## Harness policy", "", *lines]).strip()
+```
+
+For append policy tests, use this exact shape:
+
+```python
+task_text = _policy_text(
+    "- FILE: agents/example.py MODE=EXACT_COPY_PLUS_APPEND_METHOD "
+    "ALLOW_NEW_METHOD=simulate_backlog ANCHOR_BEFORE=_parse_task_file("
+)
+```
+
+Expected normalized rules should include:
+
+```python
+rules = policies["agents/example.py"]["rules"]
+assert "append_before:def _parse_task_file(" in rules
+assert "allow_methods:simulate_backlog" in rules
+```
+
+For replace policy tests, use this exact shape:
+
+```python
+task_text = _policy_text(
+    "- FILE: agents/example.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD "
+    "TARGET_METHOD=validate_static_bundle_contracts"
+)
+```
+
+Expected normalized rules should include:
+
+```python
+rules = policies["agents/example.py"]["rules"]
+assert "replace_method:validate_static_bundle_contracts" in rules
+```
+
+It is acceptable if `allow_methods:validate_static_bundle_contracts` is also present.
+
+### Example append insertion fixture
+
+Use a class-method context so indentation is explicit:
+
+```python
+original = "\n".join(
+    [
+        "class Example:",
+        "    def existing(self):",
+        "        return 1",
+        "",
+    ]
+) + "\n"
+
+method_text = "\n".join(
+    [
+        "def helper(self):",
+        "    return 3",
+        "",
+    ]
+)
+```
+
+Then assert all of:
+- `"    def helper(self):"` is in the updated string
+- `"        return 3"` is in the updated string
+- `"def helper(self):"` appears before `"def existing(self):"`
+
+### Example happy-path request/parse fixture
+
+The monkeypatched `chat` must accept exactly:
+
+```python
+def fake_chat(messages, model, provider):
+    ...
+```
+
+The synthetic bundle text should be built indirectly and should contain a valid method block, for example:
+
+```python
+bundle = "\n".join(
+    [
+        "BEGIN_" + "FILE_BUNDLE",
+        "FI" + "LE: agents/run_task.py",
+        "def helper(self):",
+        "    return 3",
+        "END_" + "FILE",
+        "END_" + "FILE_BUNDLE",
+        "",
+    ]
+)
+```
+
+Expected success assertion:
+
+```python
+assert result == "def helper(self):\n    return 3\n"
+```
 
 ## Test construction rules
 
