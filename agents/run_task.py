@@ -20,6 +20,7 @@ END_FILE_BUNDLE
 from __future__ import annotations
 
 import argparse
+import ast
 import difflib
 import os
 import re
@@ -482,20 +483,31 @@ def _method_indent_from_anchor_content(content: str, anchor: str) -> str:
     return line[: len(line) - len(line.lstrip())]
 
 
+def _method_relative_body_indent(lines: List[str]) -> int:
+    non_empty = [line.expandtabs(4) for line in lines if line.strip()]
+    if not non_empty:
+        return 0
+    return min(len(line) - len(line.lstrip(" ")) for line in non_empty)
+
+
 def _indent_method_text(method_text: str, indent: str) -> str:
     raw = normalize_newlines(method_text).strip("\n")
     if not raw:
-        return raw
+        raise FileBundleError("Method insertion payload was empty.")
     lines = raw.split("\n")
     first = lines[0].lstrip()
     if not first.startswith("def "):
         raise FileBundleError("Method insertion payload must begin with a def line.")
+    rest = [line.expandtabs(4) for line in lines[1:]]
+    base = _method_relative_body_indent(rest)
     out = [indent + first]
-    for line in lines[1:]:
-        stripped = line.lstrip()
-        out.append((indent + "    " + stripped) if stripped else "")
-    return "\n".join(out) + "\n"
-
+    for line in rest:
+        if not line.strip():
+            out.append("")
+            continue
+        rel = line[base:] if len(line) >= base else line.lstrip()
+        out.append(indent + "    " + rel)
+    return "\n".join(out).rstrip("\n") + "\n"
 
 def apply_method_insertion(original: str, anchor: str, method_name: str, method_text: str) -> str:
     if anchor not in original:
@@ -520,39 +532,72 @@ METHOD_BLOCK_BEGIN = "BEGIN_METHOD"
 METHOD_BLOCK_END = "END_METHOD"
 
 
+def _method_block_from_file_content(file_content: str, method_name: str) -> str:
+    content = normalize_newlines(file_content)
+    lines = content.split("\n")
+    start_idx = None
+    method_indent = 0
+    for idx, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith(f"def {method_name}("):
+            start_idx = idx
+            method_indent = len(line) - len(stripped)
+            break
+    if start_idx is None:
+        raise FileBundleError(f"Could not locate method `{method_name}` in file content.")
+    end_idx = len(lines)
+    for idx in range(start_idx + 1, len(lines)):
+        stripped = lines[idx].lstrip()
+        if not stripped:
+            continue
+        cur_indent = len(lines[idx]) - len(stripped)
+        if cur_indent <= method_indent and stripped.startswith("def "):
+            end_idx = idx
+            break
+    return "\n".join(lines[start_idx:end_idx]).rstrip("\n") + "\n"
+
+
 def parse_method_insertion_bundle(text: str, expected_path: str, expected_method_name: str) -> str:
     text = normalize_newlines(text)
-    if METHOD_INSERTION_BEGIN not in text or METHOD_INSERTION_END not in text:
-        raise FileBundleError("Model output missing BEGIN_METHOD_INSERTION/END_METHOD_INSERTION markers.")
-    start = text.index(METHOD_INSERTION_BEGIN) + len(METHOD_INSERTION_BEGIN)
-    end = text.index(METHOD_INSERTION_END)
-    body = text[start:end].strip("\n")
-    target_file = None
-    method_name = None
-    lines = body.split("\n")
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        if line.startswith("TARGET_FILE:"):
-            target_file = line.split(":", 1)[1].strip().replace("\\", "/")
-        elif line.startswith("METHOD_NAME:"):
-            method_name = line.split(":", 1)[1].strip()
-        elif line == METHOD_BLOCK_BEGIN:
-            i += 1
-            buf: List[str] = []
-            while i < len(lines) and lines[i].strip() != METHOD_BLOCK_END:
-                buf.append(lines[i])
+    if METHOD_INSERTION_BEGIN in text and METHOD_INSERTION_END in text:
+        start = text.index(METHOD_INSERTION_BEGIN) + len(METHOD_INSERTION_BEGIN)
+        end = text.index(METHOD_INSERTION_END)
+        body = text[start:end].strip("\n")
+        target_file = None
+        method_name = None
+        lines = body.split("\n")
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            if line.startswith("TARGET_FILE:"):
+                target_file = line.split(":", 1)[1].strip().replace("\\", "/")
+            elif line.startswith("METHOD_NAME:"):
+                method_name = line.split(":", 1)[1].strip()
+            elif line == METHOD_BLOCK_BEGIN:
                 i += 1
-            if i >= len(lines):
-                raise FileBundleError("Missing END_METHOD in method insertion bundle.")
-            if target_file and target_file != expected_path:
-                raise FileBundleError(f"Method insertion target file mismatch: expected {expected_path}, got {target_file}.")
-            if method_name and method_name != expected_method_name:
-                raise FileBundleError(f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}.")
-            return "\n".join(buf).rstrip("\n") + "\n"
-        i += 1
-    raise FileBundleError("No BEGIN_METHOD/END_METHOD block found in method insertion bundle.")
+                buf: List[str] = []
+                while i < len(lines) and lines[i].strip() != METHOD_BLOCK_END:
+                    buf.append(lines[i])
+                    i += 1
+                if i >= len(lines):
+                    raise FileBundleError("Missing END_METHOD in method insertion bundle.")
+                if target_file and target_file != expected_path:
+                    raise FileBundleError(
+                        f"Method insertion target file mismatch: expected {expected_path}, got {target_file}."
+                    )
+                if method_name and method_name != expected_method_name:
+                    raise FileBundleError(
+                        f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}."
+                    )
+                return "\n".join(buf).rstrip("\n") + "\n"
+            i += 1
 
+    files = parse_file_bundle(text)
+    if expected_path not in files:
+        raise FileBundleError(
+            "Method insertion response did not include protected target file or insertion markers."
+        )
+    return _method_block_from_file_content(files[expected_path], expected_method_name)
 
 def build_method_insertion_messages(task_text: str, target_path: str, method_name: str, anchor: str, baseline_content: str, extra_directives: str = "") -> List[dict]:
     parts = [
@@ -615,6 +660,21 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
             raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {e2}") from e2
 
 
+
+def validate_python_syntax(bundle: Dict[str, str]) -> Tuple[bool, str]:
+    issues: List[str] = []
+    for rel, content in bundle.items():
+        if not rel.endswith(".py"):
+            continue
+        try:
+            ast.parse(normalize_newlines(content), filename=rel)
+        except SyntaxError as exc:
+            lineno = exc.lineno or 0
+            msg = exc.msg or "invalid syntax"
+            issues.append(f"`{rel}` has Python syntax error at line {lineno}: {msg}")
+    if issues:
+        return False, "Python syntax validation failed:\n" + "\n".join(f"- {x}" for x in issues)
+    return True, ""
 def _append_task_feedback(task_text: str, message: str) -> str:
     return task_text.rstrip() + "\n\nIMPORTANT: " + message + "\n"
 
@@ -1144,7 +1204,9 @@ def main() -> int:
                 method_name = str(target["method_name"])
                 baseline_content = baseline.get(target_path)
                 if baseline_content is None:
-                    raise FileBundleError(f"Protected insertion target `{target_path}` has no baseline content.")
+                    raise FileBundleError(
+                        f"Protected insertion target `{target_path}` has no baseline content."
+                    )
                 insertion_messages = build_method_insertion_messages(
                     task_text,
                     target_path,
@@ -1161,19 +1223,47 @@ def main() -> int:
                     target_path,
                     method_name,
                 )
-                files[target_path] = apply_method_insertion(baseline_content, anchor, method_name, method_text)
+                files[target_path] = apply_method_insertion(
+                    baseline_content,
+                    anchor,
+                    method_name,
+                    method_text,
+                )
 
             if bundle_required:
                 non_protected_directives = extra_directives
                 if protected_append_paths:
-                    non_protected_directives = ((extra_directives.rstrip() + "\n\n") if extra_directives.strip() else "") + (
-                        "Do not emit protected append-only files in the normal file bundle; they are handled separately by insertion mode."
+                    suffix = (
+                        "Do not emit protected append-only files in the normal file bundle; "
+                        "they are handled separately by insertion mode. If you include them anyway, "
+                        "they will be ignored."
                     )
+                    non_protected_directives = (
+                        (extra_directives.rstrip() + "\n\n") if extra_directives.strip() else ""
+                    ) + suffix
                 messages = build_messages(task_text, bundle_required, non_protected_directives)
-                files.update(request_and_parse_bundle(messages, args.model, args.provider, last_output_path))
+                generated = request_and_parse_bundle(
+                    messages, args.model, args.provider, last_output_path
+                )
+                overlap = sorted(set(generated) & protected_append_paths)
+                if overlap:
+                    print(
+                        "ℹ️ Ignoring protected append-only files emitted in normal bundle: "
+                        + ", ".join(overlap)
+                    )
+                    task_text = _append_task_feedback(
+                        task_text,
+                        "Do not emit protected append-only files in the normal file bundle. "
+                        "Only emit non-protected deliverables there.",
+                    )
+                    for p in overlap:
+                        generated.pop(p, None)
+                files.update(generated)
             elif not files:
                 messages = build_messages(task_text, required, extra_directives)
-                files = request_and_parse_bundle(messages, args.model, args.provider, last_output_path)
+                files = request_and_parse_bundle(
+                    messages, args.model, args.provider, last_output_path
+                )
         except FileBundleError as e:
             print(f"❌ {e}")
             print(f"Model output saved to: {last_output_path}")
@@ -1187,6 +1277,18 @@ def main() -> int:
             pretty.append(FILE_END)
         pretty.append(FILE_BUNDLE_END)
         last_bundle_path.write_text("\n".join(pretty) + "\n", encoding="utf-8", newline="\n")
+
+        ok_syntax, syntax_msg = validate_python_syntax(files)
+        if not ok_syntax:
+            print(f"❌ {syntax_msg}")
+            task_text = _append_task_feedback(task_text, syntax_msg)
+            if _repeat_limit_exceeded(violation_counts, "python_syntax", args.policy_block_limit):
+                print("\n❌ Stopping early: repeated Python syntax failures. Recommended action: manual_patch")
+                print("Model output saved to: _last_agent_model_output.txt")
+                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                return 1
+            prev_files = files
+            continue
 
         ok_req, req_msg = enforce_required_files(
             required,
