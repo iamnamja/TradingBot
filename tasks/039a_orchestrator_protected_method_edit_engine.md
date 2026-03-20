@@ -28,6 +28,7 @@ Do not change:
 - normal bundle parsing behavior
 - git / branch behavior
 - TradingBot or orchestrator production code under `src/`
+- semantic/API preflight behavior in `validate_static_bundle_contracts(...)`
 
 ## Required protected modes
 
@@ -75,6 +76,31 @@ Examples of expected errors:
 - `Protected method replacement target 'validate_imports' was not found in agents/run_task.py`
 - `Method insertion payload must define exactly one method 'validate_imports'`
 - `Protected append target requires anchor 'missing_module_hints(' but it was not found`
+
+## CRITICAL task identity
+
+This task is about the protected method edit engine only.
+
+It is NOT the semantic preflight task.
+
+The bundle for this task must:
+- update `agents/run_task.py`
+- create/update `tests/test_run_task_protected_method_edit_engine.py`
+
+The bundle for this task must NOT:
+- create `tests/test_run_task_protected_api_semantic_preflight.py`
+- replace or focus on `validate_static_bundle_contracts(...)`
+- add semantic constructor/import/method-call validation logic
+- solve Task 039b instead of Task 039a
+
+## Exact forbidden patterns
+
+- solving semantic/API preflight instead of protected method edit engine
+- creating `tests/test_run_task_protected_api_semantic_preflight.py`
+- replacing `validate_static_bundle_contracts(...)`
+- adding tests for `OrchestratorRunner()` constructor misuse in this task
+- adding tests for missing protected imports in this task
+- modifying any file under `src/`
 
 ## Tests
 
