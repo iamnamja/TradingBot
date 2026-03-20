@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import sys
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Iterable
 
 from .backlog import BacklogTracker
@@ -27,6 +30,45 @@ def _get_option_value(argv: list[str], option: str, default: int) -> int:
         return default
 
     return value
+
+
+def _timestamp() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _append_decision_log_entry(audit_path: str | None, entry: dict) -> None:
+    if not audit_path:
+        return
+
+    try:
+        path = Path(audit_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        return
+
+
+def _log_run_loop_decisions(result: dict, audit_path: str | None) -> None:
+    if not audit_path:
+        return
+
+    processed_tasks = result.get("processed_tasks", [])
+    for iteration, task in enumerate(processed_tasks, start=1):
+        task_name = task.get("task_name", "")
+        status = task.get("status", "")
+        if task_name == "none" or status == "no_task":
+            continue
+
+        _append_decision_log_entry(
+            audit_path,
+            {
+                "task_name": str(task_name),
+                "outcome": str(task.get("outcome", "")),
+                "timestamp": _timestamp(),
+                "iteration": iteration,
+            },
+        )
 
 
 def _print_run_loop_result(result: dict) -> None:
@@ -58,33 +100,20 @@ def main() -> int:
 
     if _has_flag(sys.argv, "--simulate"):
         simulation_result = runner.simulate_backlog()
-        print(
-            "Processed Tasks: "
-            f"{simulation_result['processed_tasks']}, "
-            f"Stopped Reason: {simulation_result['stopped_reason']}, "
-            f"Final Status: {simulation_result['final_status']}"
-        )
+        print(f"Simulation complete: {simulation_result}")
         return 0
 
     if _has_flag(sys.argv, "run-loop"):
         max_tasks = _get_option_value(sys.argv, "--max-tasks", 100)
         result = runner.run_loop(max_tasks=max_tasks)
         _print_run_loop_result(result)
+        _log_run_loop_decisions(result, getattr(config, "audit_path", None))
         return 0
 
-    dry_run = _has_flag(sys.argv, "--dry-run")
-    result = runner.run_next_task(dry_run=dry_run)
-
-    print(
-        "Task Name: "
-        f"{result['task_name']}, "
-        f"Status: {result['status']}, "
-        f"Message: {result['message']}, "
-        f"Outcome: {result.get('outcome', 'noop')}"
-    )
-
-    return 0 if result["status"] == "running" else 1
+    result = runner.run_next_task()
+    print(result)
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

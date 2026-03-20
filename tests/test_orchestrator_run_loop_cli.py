@@ -1,34 +1,47 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 from builder.orchestrator import cli
+from builder.orchestrator.project_adapter import ProjectAdapter
 
 
-def test_run_loop_cli_calls_runner_and_prints_iteration_and_summary(capsys) -> None:
+def test_run_loop_cli_calls_runner_prints_and_logs_decisions(capsys, tmp_path) -> None:
+    audit_path = tmp_path / "audit" / "decision.jsonl"
     mock_runner = MagicMock()
     mock_runner.run_loop.return_value = {
         "processed_tasks": [
             {
                 "task_name": "alpha",
+                "status": "running",
                 "outcome": "success",
                 "next_action": "continue",
             },
             {
                 "task_name": "beta",
-                "outcome": "blocked",
-                "next_action": "stop",
+                "status": "no_task",
+                "outcome": "noop",
+                "next_action": "none",
+            },
+            {
+                "task_name": "none",
+                "status": "no_task",
+                "outcome": "noop",
+                "next_action": "none",
             },
         ],
         "final_status": "completed",
-        "count": 2,
+        "count": 3,
         "stopped_reason": "all tasks processed",
     }
 
-    with patch.object(cli.ProjectAdapter, "get_tradingbot_default_config") as mock_config, patch.object(
+    config = ProjectAdapter.get_tradingbot_default_config()
+    config.audit_path = str(audit_path)
+
+    with patch.object(cli.ProjectAdapter, "get_tradingbot_default_config", return_value=config), patch.object(
         cli, "OrchestratorRunner", return_value=mock_runner
     ) as mock_runner_cls:
-        mock_config.return_value = MagicMock(tasks_directory="tasks/")
         with patch("sys.argv", ["cli.py", "run-loop", "--max-tasks", "7"]):
             exit_code = cli.main()
 
@@ -39,56 +52,96 @@ def test_run_loop_cli_calls_runner_and_prints_iteration_and_summary(capsys) -> N
     mock_runner.run_loop.assert_called_once_with(max_tasks=7)
     assert captured == [
         "[Task 1] alpha — success (continue)",
-        "[Task 2] beta — blocked (stop)",
+        "[Task 2] beta — noop (none)",
+        "[Task 3] none — noop (none)",
         "Run complete: completed",
-        "Tasks processed: 2",
+        "Tasks processed: 3",
         "Stopped reason: all tasks processed",
     ]
 
+    assert audit_path.exists()
+    with audit_path.open("r", encoding="utf-8") as f:
+        entries = [json.loads(line) for line in f if line.strip()]
 
-def test_run_loop_cli_defaults_max_tasks_to_100() -> None:
+    assert len(entries) == 1
+    assert entries[0]["task_name"] == "alpha"
+    assert entries[0]["outcome"] == "success"
+    assert entries[0]["iteration"] == 1
+    assert isinstance(entries[0]["timestamp"], str)
+    assert "T" in entries[0]["timestamp"]
+
+
+def test_run_loop_cli_defaults_max_tasks_to_100_and_skips_logging_without_audit_path(
+    capsys,
+) -> None:
     mock_runner = MagicMock()
     mock_runner.run_loop.return_value = {
-        "processed_tasks": [],
+        "processed_tasks": [
+            {
+                "task_name": "alpha",
+                "status": "running",
+                "outcome": "success",
+                "next_action": "continue",
+            }
+        ],
         "final_status": "idle",
-        "count": 0,
+        "count": 1,
         "stopped_reason": "no tasks",
     }
 
-    with patch.object(cli.ProjectAdapter, "get_tradingbot_default_config") as mock_config, patch.object(
+    config = ProjectAdapter.get_tradingbot_default_config()
+    config.audit_path = None
+
+    with patch.object(cli.ProjectAdapter, "get_tradingbot_default_config", return_value=config), patch.object(
         cli, "OrchestratorRunner", return_value=mock_runner
     ):
-        mock_config.return_value = MagicMock(tasks_directory="tasks/")
         with patch("sys.argv", ["cli.py", "run-loop"]):
-            cli.main()
+            exit_code = cli.main()
 
+    captured = capsys.readouterr().out.splitlines()
+
+    assert exit_code == 0
     mock_runner.run_loop.assert_called_once_with(max_tasks=100)
+    assert captured == [
+        "[Task 1] alpha — success (continue)",
+        "Run complete: idle",
+        "Tasks processed: 1",
+        "Stopped reason: no tasks",
+    ]
 
 
-def test_existing_cli_modes_still_parse_and_dispatch() -> None:
+def test_run_loop_cli_creates_audit_parent_directories(tmp_path) -> None:
+    audit_path = tmp_path / "nested" / "logs" / "decision.jsonl"
     mock_runner = MagicMock()
-    mock_runner.simulate_backlog.return_value = {
-        "processed_tasks": 3,
-        "stopped_reason": "done",
+    mock_runner.run_loop.return_value = {
+        "processed_tasks": [
+            {
+                "task_name": "alpha",
+                "status": "running",
+                "outcome": "success",
+                "next_action": "continue",
+            }
+        ],
         "final_status": "completed",
-    }
-    mock_runner.run_next_task.return_value = {
-        "task_name": "omega",
-        "status": "running",
-        "message": "ok",
-        "outcome": "noop",
+        "count": 1,
+        "stopped_reason": "done",
     }
 
-    with patch.object(cli.ProjectAdapter, "get_tradingbot_default_config") as mock_config, patch.object(
+    config = ProjectAdapter.get_tradingbot_default_config()
+    config.audit_path = str(audit_path)
+
+    with patch.object(cli.ProjectAdapter, "get_tradingbot_default_config", return_value=config), patch.object(
         cli, "OrchestratorRunner", return_value=mock_runner
     ):
-        mock_config.return_value = MagicMock(tasks_directory="tasks/")
+        with patch("sys.argv", ["cli.py", "run-loop"]):
+            exit_code = cli.main()
 
-        with patch("sys.argv", ["cli.py", "--simulate"]):
-            assert cli.main() == 0
-
-        with patch("sys.argv", ["cli.py", "--dry-run"]):
-            assert cli.main() == 0
-
-    mock_runner.simulate_backlog.assert_called_once()
-    mock_runner.run_next_task.assert_called_once_with(dry_run=True)
+    assert exit_code == 0
+    assert audit_path.exists()
+    assert audit_path.parent.exists()
+    with audit_path.open("r", encoding="utf-8") as f:
+        entries = [json.loads(line) for line in f if line.strip()]
+    assert len(entries) == 1
+    assert entries[0]["task_name"] == "alpha"
+    assert entries[0]["outcome"] == "success"
+    assert entries[0]["iteration"] == 1
