@@ -31,19 +31,27 @@ Do not change:
 
 ## Required protected modes
 
-The harness must support both of these task-spec modes:
+The harness must support both append-method mode and replace-method mode.
 
-### 1. Append method
+### Append-method mode
 
-```text
-- FILE: path/to/file.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ANCHOR_BEFORE=some_anchor( ALLOW_NEW_METHOD=new_method
-```
+Support task specs that declare all of the following:
+- a protected Python file path
+- `MODE=EXACT_COPY_PLUS_APPEND_METHOD`
+- an append anchor such as `ANCHOR_BEFORE=some_anchor(`
+- the allowed new method name such as `ALLOW_NEW_METHOD=new_method`
 
-### 2. Replace existing method
+### Replace-method mode
 
-```text
-- FILE: path/to/file.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=existing_method
-```
+Support task specs that declare all of the following:
+- a protected Python file path
+- `MODE=EXACT_COPY_PLUS_REPLACE_METHOD`
+- a replacement target such as `TARGET_METHOD=existing_method`
+
+Important:
+- The examples in this section are descriptive only.
+- Do not treat this section as literal file directives.
+- The only real file changes for this task are the deliverables listed above.
 
 ## Required behavior
 
@@ -62,7 +70,7 @@ Retain the current malformed-output retry behavior, but the same recovery path m
 
 ### Failure messaging
 
-Examples:
+Examples of expected errors:
 
 - `Protected method replacement target 'validate_imports' was not found in agents/run_task.py`
 - `Method insertion payload must define exactly one method 'validate_imports'`
