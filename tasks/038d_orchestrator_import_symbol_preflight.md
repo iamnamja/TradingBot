@@ -14,7 +14,7 @@ This is a narrow harness gap and is worth fixing before rerunning Task 039.
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ANCHOR_BEFORE=missing_module_hints( ALLOW_NEW_METHOD=validate_imports MAX_CHANGED_LINES=160
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ANCHOR_BEFORE=missing_module_hints( ALLOW_NEW_METHOD=validate_imports MAX_CHANGED_LINES=220
 - `tests/test_run_task_import_validation.py`
 
 Both listed files must be materially updated.
@@ -34,7 +34,8 @@ For `agents/run_task.py`:
 - Add exactly one new top-level function named `validate_imports`.
 - Place it immediately before `def missing_module_hints(` using the protected append-method flow.
 - Preserve the existing missing-module validation behavior and extend it with repo-local imported-symbol validation.
-- Any small helper logic needed for symbol inspection should live inside `validate_imports` as nested helper logic, not as additional top-level functions.
+- Do not add any additional top-level helper functions.
+- Any small helper logic needed for symbol inspection must live inside `validate_imports` as nested helper logic only.
 
 ## Required behavior
 
@@ -58,6 +59,15 @@ The validation should work against:
 - files that already exist in the repo
 - files included in the current bundle
 - package `__init__.py` exports where applicable
+
+### Implementation constraints
+
+The protected method insertion payload must contain exactly one top-level function: `validate_imports`.
+
+That means:
+- no additional top-level defs
+- no additional top-level classes
+- no free-standing helper functions outside `validate_imports`
 
 ### Error messaging
 
