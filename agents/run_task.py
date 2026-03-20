@@ -979,16 +979,98 @@ def module_exists(mod: str, bundle: Dict[str, str]) -> bool:
 
 def validate_imports(bundle: Dict[str, str]) -> Tuple[bool, str]:
     bad: List[str] = []
-    import_re = import_regex_for_roots()
+    module_cache: Dict[str, Tuple[bool, set[str], bool]] = {}
+    import_roots = package_roots()
+    root_prefixes = tuple(import_roots)
+    repo_root = Path(".").resolve()
+
     for rel, content in bundle.items():
-        for mod, _root in import_re.findall(content):
+        if not rel.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(normalize_newlines(content), filename=rel)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.level != 0 or not node.module:
+                continue
+            mod = node.module
+            if not mod.startswith(root_prefixes):
+                continue
             if not module_exists(mod, bundle):
                 bad.append(f"{rel}: imports missing module '{mod}'")
+                continue
+            if any(alias.name == "*" for alias in node.names):
+                continue
+            if mod in module_cache:
+                exists, exports, is_package = module_cache[mod]
+            else:
+                exists = False
+                exports = set()
+                is_package = False
+                parts = mod.split(".")
+                rel_file = (Path("src") / Path(*parts).with_suffix(".py")).as_posix()
+                rel_pkg = (Path("src") / Path(*parts) / "__init__.py").as_posix()
+                source = None
+                if rel_file in bundle:
+                    exists = True
+                    source = bundle[rel_file]
+                elif rel_pkg in bundle:
+                    exists = True
+                    source = bundle[rel_pkg]
+                    is_package = True
+                else:
+                    file_path = repo_root / rel_file
+                    pkg_path = repo_root / rel_pkg
+                    if file_path.exists():
+                        exists = True
+                        source = file_path.read_text(encoding="utf-8", errors="replace")
+                    elif pkg_path.exists():
+                        exists = True
+                        source = pkg_path.read_text(encoding="utf-8", errors="replace")
+                        is_package = True
+                if source is not None:
+                    try:
+                        mod_tree = ast.parse(normalize_newlines(source), filename=rel_pkg if is_package else rel_file)
+                    except SyntaxError:
+                        mod_tree = None
+                    if mod_tree is not None:
+                        for stmt in mod_tree.body:
+                            if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                                exports.add(stmt.name)
+                            elif isinstance(stmt, ast.Assign):
+                                for target in stmt.targets:
+                                    if isinstance(target, ast.Name) and target.id.isupper():
+                                        exports.add(target.id)
+                            elif isinstance(stmt, ast.ImportFrom):
+                                for alias in stmt.names:
+                                    if alias.asname:
+                                        exports.add(alias.asname)
+                    if is_package:
+                        all_nodes = [n for n in ast.walk(mod_tree) if isinstance(n, ast.Assign)] if mod_tree else []
+                        for stmt in all_nodes:
+                            for target in stmt.targets:
+                                if isinstance(target, ast.Name) and target.id == "__all__" and isinstance(stmt.value, (ast.List, ast.Tuple)):
+                                    exports.clear()
+                                    for elt in stmt.value.elts:
+                                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                            exports.add(elt.value)
+                    module_cache[mod] = (exists, exports, is_package)
+                else:
+                    module_cache[mod] = (False, set(), False)
+                    continue
+            exports = module_cache[mod][1]
+            if not exports:
+                continue
+            for alias in node.names:
+                if alias.name == "*" or alias.name in exports:
+                    continue
+                bad.append(f"{rel}: imports missing symbol '{alias.name}' from '{mod}'")
     if not bad:
         return True, ""
     return False, "Invalid imports detected:\n" + "\n".join(sorted(set(bad)))
-
-
 def missing_module_hints(import_msg: str) -> str:
     mods = re.findall(r"module '([^']+)'", import_msg)
     if not mods:
