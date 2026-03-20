@@ -35,28 +35,34 @@ It must not change:
 
 All existing passing tests must continue to pass.
 
-## Current baseline under test — use exact real interfaces
+## Current baseline under test — use exact current behavior
 
 Only import symbols that actually exist on the current baseline.
 
-The tests must target these real functions with their real current signatures/return shapes:
+The tests must target these real functions with their real current signatures and current behavior:
 
 - `parse_harness_file_policies(task_text)`
   - returns a dict keyed by file path
   - each value is a dict containing a `"rules"` list
+  - rules are normalized to internal policy strings such as:
+    - `forbid`
+    - `exact_copy`
+    - `append_before:<anchor>`
+    - `allow_methods:<name>`
+    - `replace_method:<name>`
+    - `max_changed_lines:<n>`
 
 - `_extract_protected_method_targets(task_text)`
   - returns a list of dict objects, not tuples
-  - each target dict uses keys like:
-    - `"path"`
-    - `"mode"` (`"append"` or `"replace"`)
-    - `"method_name"`
-    - `"anchor"` (append mode only, when present)
-    - `"max_changed_lines"` (optional)
+  - append targets are only produced when the policy contains:
+    - an append anchor from `ANCHOR_BEFORE=...`
+    - and an allowed method from `ALLOW_NEW_METHOD=...`
+  - replace targets may include `"max_changed_lines": None` when no limit is provided
 
 - `apply_method_insertion(original, anchor, method_name, method_text)`
   - returns the updated file content as a string
   - raises `run_task.FileBundleError` on invalid input
+  - does not need to reject the case where the inserted method name already exists elsewhere unless the current implementation already does so
 
 - `apply_method_replacement(original, method_name, method_text)`
   - returns the updated file content as a string
@@ -68,26 +74,58 @@ The tests must target these real functions with their real current signatures/re
 
 - `request_and_parse_method_insertion(messages, model, provider, last_output_path, expected_path, expected_method_name)`
   - returns the extracted method text as a string on success
-  - for this function, monkeypatch `agents.run_task.chat` and use a temporary output path
+  - calls `chat(messages, model=model, provider=provider)` without an `output_path` parameter
+  - for this function, monkeypatch `agents.run_task.chat`
   - do NOT call the real external model
 
 ## Required test scenarios
 
 Add deterministic tests covering at least:
 
-1. append target extraction from a realistic task snippet using:
+1. append policy parsing from a realistic task snippet using:
    - a `## Harness policy` section
-   - `- FILE: ... MODE=EXACT_COPY_PLUS_APPEND_METHOD ... ALLOW_NEW_METHOD=...`
-2. replace target extraction from a realistic task snippet using:
+   - `- FILE: ... MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=... ANCHOR_BEFORE=...`
+   - assert normalized rules like `append_before:...` and `allow_methods:...`
+
+2. replace policy parsing from a realistic task snippet using:
    - a `## Harness policy` section
    - `- FILE: ... MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=...`
-3. append method application into baseline content before an anchor
-4. replace method application for an existing method
-5. duplicate-method payload rejection
-6. missing replacement target rejection
-7. missing append anchor rejection
-8. malformed protected payload parsing failure for method insertion bundles
-9. `request_and_parse_method_insertion(...)` happy-path parsing using monkeypatched `chat`
+   - assert normalized rules include both:
+     - `replace_method:<name>`
+     - `allow_methods:<name>`
+
+3. append target extraction from a realistic task snippet using:
+   - `ANCHOR_BEFORE=...`
+   - `ALLOW_NEW_METHOD=...`
+   - assert the returned list of dicts matches the current shape
+
+4. replace target extraction from a realistic task snippet using:
+   - `TARGET_METHOD=...`
+   - assert the returned dict shape matches current behavior
+   - it is acceptable for the dict to include `"max_changed_lines": None`
+
+5. append method application into baseline content before an anchor
+
+6. replace method application for an existing method
+   - do not require an exact full-string match
+   - assert instead that:
+     - the new body is present
+     - the old exact line `return 2` is gone
+     - surrounding methods remain present
+
+7. missing replacement target rejection
+
+8. missing append anchor rejection
+
+9. malformed protected payload parsing failure for method insertion bundles
+   - use `pytest.raises(run_task.FileBundleError)`
+
+10. `request_and_parse_method_insertion(...)` happy-path parsing using monkeypatched `chat`
+    - monkeypatched `chat` must accept exactly `(messages, model, provider)`
+    - assert the function returns the extracted method text string
+
+11. `request_and_parse_method_insertion(...)` malformed bundle rejection using monkeypatched `chat`
+    - use `pytest.raises(run_task.FileBundleError)`
 
 ## Test construction rules
 
@@ -104,10 +142,9 @@ Add deterministic tests covering at least:
 
 So the extraction tests must place their `- FILE:` lines under a real `## Harness policy` heading.
 
-Do NOT put those `- FILE:` lines only under:
-- `## Task`
-- free prose
-- ad hoc headings like `Replace target:`
+### CRITICAL: use real policy attribute names
+
+For append extraction tests, use `ANCHOR_BEFORE=...`, not `ANCHOR=...`.
 
 ### CRITICAL: use the real exception/return contracts
 
@@ -119,14 +156,14 @@ For these functions, use the current real behavior:
 - successful functions return plain strings
 - invalid input raises `run_task.FileBundleError`
 
-### CRITICAL: avoid overspecifying exact whitespace for replacement output
+### CRITICAL: avoid overspecifying exact whitespace or substring overlaps
 
-For `apply_method_replacement(...)`, do not require an exact full-string match if the current function preserves the correct structure but normalizes blank lines slightly differently.
+For `apply_method_replacement(...)`, do not use brittle checks like asserting `"    return 2"` is absent when the replacement body contains `"    return 200"`.
 
-Prefer assertions like:
-- replaced method body changed as expected
-- untouched method remains present
-- old method body is gone
+Prefer assertions that check:
+- the exact old method body line, such as `"return 2\n"`, is gone
+- the new exact body line, such as `"return 200\n"`, is present
+- untouched methods remain present
 
 ### CRITICAL bundle-string construction rule
 
@@ -158,6 +195,8 @@ so the final runtime string is correct, but the emitted source file does not con
 - calling `apply_method_insertion(...)`, `apply_method_replacement(...)`, `parse_method_insertion_bundle(...)`, or `request_and_parse_method_insertion(...)` with invented signatures
 - asserting dict return values from `parse_method_insertion_bundle(...)` or `request_and_parse_method_insertion(...)`
 - using `## Task` instead of `## Harness policy` for `- FILE:` extraction fixtures
+- using `ANCHOR=` in append extraction tests
+- monkeypatching `chat` with an `output_path` parameter
 
 ## Acceptance criteria
 
