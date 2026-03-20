@@ -87,7 +87,6 @@ def default_model_for_provider(provider: str) -> str:
     return "claude-sonnet-4-5"
 
 
-
 def _int_env(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -224,7 +223,6 @@ def _deliverables_section(task_text: str) -> str:
 
     return "\n".join(collected)
 
-
 def parse_required_files(task_text: str) -> List[str]:
     section = _deliverables_section(task_text)
 
@@ -241,7 +239,6 @@ def parse_required_files(task_text: str) -> List[str]:
             out.append(p)
             seen.add(p)
     return out
-
 
 def task_requires_material_update(task_text: str) -> bool:
     lower = normalize_newlines(task_text).lower()
@@ -269,75 +266,25 @@ def task_allows_unchanged_cli(task_text: str) -> bool:
     return any(p in lower for p in phrases)
 
 
-def _normalize_policy_rule(rule: str) -> str | None:
-    r = rule.strip()
-    if not r:
-        return None
-    return r
 
-
-def _convert_file_mode_attributes_to_rules(path: str, attrs: Dict[str, str]) -> List[str]:
-    rules: List[str] = []
-    mode = attrs.get("MODE", "").strip().upper()
-
-    if mode == "FORBID":
-        rules.append("forbid")
-    elif mode == "EXACT_COPY":
-        rules.append("exact_copy")
-    elif mode == "EXACT_COPY_PLUS_APPEND_METHOD":
-        anchor_before = attrs.get("ANCHOR_BEFORE", "").strip()
-        if anchor_before:
-            if "(" in anchor_before:
-                anchor = f"def {anchor_before}"
-            else:
-                anchor = f"def {anchor_before}("
-            rules.append(f"append_before:{anchor}")
-        else:
-            rules.append("exact_copy")
-
-        allow_new_method = attrs.get("ALLOW_NEW_METHOD", "").strip()
-        if allow_new_method:
-            rules.append(f"allow_methods:{allow_new_method}")
-
-    max_changed_lines = attrs.get("MAX_CHANGED_LINES", "").strip()
-    if max_changed_lines:
-        rules.append(f"max_changed_lines:{max_changed_lines}")
-
-    raw_allow_methods = attrs.get("ALLOW_METHODS", "").strip()
-    if raw_allow_methods:
-        rules.append(f"allow_methods:{raw_allow_methods}")
-
-    # Allow explicit exact-copy/forbid from attributes too.
-    if attrs.get("EXACT_COPY", "").strip().lower() in {"1", "true", "yes"}:
-        rules.append("exact_copy")
-    if attrs.get("FORBID", "").strip().lower() in {"1", "true", "yes"}:
-        rules.append("forbid")
-
-    return rules
+def _normalize_anchor_token(token: str) -> str:
+    token = token.strip().strip("`")
+    if not token:
+        return token
+    if token.startswith("def "):
+        return token
+    if token.endswith("("):
+        return f"def {token}"
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token):
+        return f"def {token}("
+    return token
 
 
 def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
-    """
-    Parse optional machine-readable harness policies embedded in task text.
-
-    Supported forms (one per line):
-
-    HARNESS_POLICY: path/to/file.py append_before:def simulate_backlog(
-    HARNESS_POLICY: path/to/file.py exact_copy
-    HARNESS_POLICY: path/to/file.py forbid
-    HARNESS_POLICY: path/to/file.py max_changed_lines:40
-
-    And task-style FILE policy lines:
-
-    - FILE: src/builder/orchestrator/runner.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=run_loop ANCHOR_BEFORE=simulate_backlog MAX_CHANGED_LINES=160
-    - FILE: src/builder/orchestrator/cli.py MODE=FORBID
-
-    Multiple rules may be declared for the same file on separate lines.
-    """
+    """Parse machine-readable harness policies from task text."""
     policies: Dict[str, Dict[str, object]] = {}
-    normalized = normalize_newlines(task_text)
-
-    for raw_line in normalized.split("\n"):
+    lines = normalize_newlines(task_text).split("\n")
+    for raw_line in lines:
         line = raw_line.strip()
         if not line:
             continue
@@ -346,59 +293,84 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
             try:
                 _, rest = line.split("HARNESS_POLICY:", 1)
                 path_and_rule = rest.strip()
-                if not path_and_rule:
-                    continue
                 path, rule = path_and_rule.split(None, 1)
             except ValueError:
                 continue
-
             path = path.strip().replace("\\", "/")
-            normalized_rule = _normalize_policy_rule(rule)
-            if not path or not normalized_rule:
+            rule = rule.strip()
+            if not path or not rule:
                 continue
-
             entry = policies.setdefault(path, {"rules": []})
-            entry_rules = entry.setdefault("rules", [])
-            if isinstance(entry_rules, list):
-                entry_rules.append(normalized_rule)
+            rules = entry.setdefault("rules", [])
+            if isinstance(rules, list):
+                rules.append(rule)
             continue
 
-        m = TASK_FILE_POLICY_RE.match(raw_line)
+        m = TASK_FILE_POLICY_RE.match(line)
         if not m:
             continue
-
         path = m.group("path").strip().replace("\\", "/")
-        rest = m.group("rest") or ""
-        attrs: Dict[str, str] = {}
-        for key, value in TASK_FILE_ATTR_RE.findall(rest):
-            attrs[key.strip().upper()] = value.strip()
-
-        if not path or not attrs:
+        attrs = dict(TASK_FILE_ATTR_RE.findall((m.group("rest") or "").strip()))
+        mode = attrs.get("MODE", "").strip().upper()
+        if not path or not mode:
             continue
-
         entry = policies.setdefault(path, {"rules": []})
-        entry_rules = entry.setdefault("rules", [])
-        if not isinstance(entry_rules, list):
-            continue
-        for rule in _convert_file_mode_attributes_to_rules(path, attrs):
-            normalized_rule = _normalize_policy_rule(rule)
-            if normalized_rule:
-                entry_rules.append(normalized_rule)
-
-    # De-duplicate while preserving order.
-    for path, entry in policies.items():
-        rules = entry.get("rules", [])
+        rules = entry.setdefault("rules", [])
         if not isinstance(rules, list):
             continue
-        seen: set[str] = set()
-        deduped: List[str] = []
-        for rule in rules:
-            if isinstance(rule, str) and rule not in seen:
-                deduped.append(rule)
-                seen.add(rule)
-        entry["rules"] = deduped
-
+        if mode == "PROTECTED_FORBID":
+            rules.append("forbid")
+        elif mode == "EXACT_COPY":
+            rules.append("exact_copy")
+        elif mode == "EXACT_COPY_PLUS_APPEND_METHOD":
+            anchor = attrs.get("ANCHOR_BEFORE", "").strip()
+            if anchor:
+                rules.append(f"append_before:{_normalize_anchor_token(anchor)}")
+            allow_method = attrs.get("ALLOW_NEW_METHOD", "").strip()
+            if allow_method:
+                rules.append(f"allow_methods:{allow_method}")
+            max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
+            if max_changed:
+                rules.append(f"max_changed_lines:{max_changed}")
+        elif mode == "METHOD_ADD_ONLY":
+            allow_method = attrs.get("ALLOW_NEW_METHOD", "").strip()
+            if allow_method:
+                rules.append(f"allow_methods:{allow_method}")
+            max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
+            if max_changed:
+                rules.append(f"max_changed_lines:{max_changed}")
     return policies
+
+
+def _extract_append_method_targets(task_text: str) -> List[Dict[str, object]]:
+    targets: List[Dict[str, object]] = []
+    for path, config in parse_harness_file_policies(task_text).items():
+        rules = config.get("rules", [])
+        if not isinstance(rules, list):
+            continue
+        anchor = None
+        allowed_methods: List[str] = []
+        max_changed_lines = None
+        for rule in rules:
+            if not isinstance(rule, str):
+                continue
+            if rule.startswith("append_before:"):
+                anchor = rule.split("append_before:", 1)[1]
+            elif rule.startswith("allow_methods:"):
+                allowed_methods = [x.strip() for x in rule.split("allow_methods:", 1)[1].split(",") if x.strip()]
+            elif rule.startswith("max_changed_lines:"):
+                try:
+                    max_changed_lines = int(rule.split("max_changed_lines:", 1)[1].strip())
+                except ValueError:
+                    pass
+        if anchor and len(allowed_methods) == 1:
+            targets.append({
+                "path": path,
+                "anchor": anchor,
+                "method_name": allowed_methods[0],
+                "max_changed_lines": max_changed_lines,
+            })
+    return targets
 
 
 def _count_changed_lines(old: str, new: str) -> int:
@@ -418,36 +390,24 @@ def _count_changed_lines(old: str, new: str) -> int:
     return changed
 
 
-def enforce_harness_file_policies(
-    task_text: str,
-    bundle: Dict[str, str],
-    baseline: Dict[str, str],
-) -> Tuple[bool, str]:
-    """
-    Enforce task-declared protected-file policies against the candidate bundle.
-    """
+def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseline: Dict[str, str]) -> Tuple[bool, str]:
     issues: List[str] = []
     policies = parse_harness_file_policies(task_text)
-
     for path, config in policies.items():
         rules = config.get("rules", [])
         if not isinstance(rules, list):
             continue
-
         proposed = bundle.get(path)
         original = baseline.get(path)
-
         for rule in rules:
             if not isinstance(rule, str):
                 continue
-
             if rule == "forbid":
                 if proposed is not None and original is not None and normalize_newlines(proposed) != normalize_newlines(original):
                     issues.append(f"`{path}` is protected by `forbid` and must not change.")
                 elif proposed is not None and original is None:
                     issues.append(f"`{path}` is protected by `forbid` and must not be created.")
                 continue
-
             if rule == "exact_copy":
                 if proposed is None:
                     issues.append(f"`{path}` is protected by `exact_copy` and must be emitted unchanged.")
@@ -456,7 +416,6 @@ def enforce_harness_file_policies(
                 elif normalize_newlines(proposed) != normalize_newlines(original):
                     issues.append(f"`{path}` is protected by `exact_copy` and changed unexpectedly.")
                 continue
-
             if rule.startswith("append_before:"):
                 if proposed is None:
                     issues.append(f"`{path}` is protected by `append_before`, but the file was omitted from the bundle.")
@@ -464,7 +423,6 @@ def enforce_harness_file_policies(
                 if original is None:
                     issues.append(f"`{path}` is protected by `append_before`, but no baseline file exists.")
                     continue
-
                 anchor = rule.split("append_before:", 1)[1]
                 if anchor not in original:
                     issues.append(f"Harness anchor `{anchor}` not found in baseline `{path}`.")
@@ -472,22 +430,14 @@ def enforce_harness_file_policies(
                 if anchor not in proposed:
                     issues.append(f"`{path}` changed content at or after protected anchor `{anchor}`. Only additive insertion before the anchor is allowed.")
                     continue
-
                 original_before, original_after = original.split(anchor, 1)
                 proposed_before, proposed_after = proposed.split(anchor, 1)
-
                 if normalize_newlines(proposed_after) != normalize_newlines(original_after):
-                    issues.append(
-                        f"`{path}` changed content at or after protected anchor `{anchor}`. Only additive insertion before the anchor is allowed."
-                    )
+                    issues.append(f"`{path}` changed content at or after protected anchor `{anchor}`. Only additive insertion before the anchor is allowed.")
                     continue
-
                 if normalize_newlines(proposed_before) == normalize_newlines(original_before):
-                    issues.append(
-                        f"`{path}` is protected by `append_before:{anchor}`, but no additive insertion before the anchor was detected."
-                    )
+                    issues.append(f"`{path}` is protected by `append_before:{anchor}`, but no additive insertion before the anchor was detected.")
                 continue
-
             if rule.startswith("max_changed_lines:"):
                 if proposed is None or original is None:
                     continue
@@ -499,37 +449,179 @@ def enforce_harness_file_policies(
                     continue
                 changed = _count_changed_lines(original, proposed)
                 if changed > limit:
-                    issues.append(
-                        f"`{path}` exceeded max changed lines policy ({changed} > {limit})."
-                    )
+                    issues.append(f"`{path}` exceeded max changed lines policy ({changed} > {limit}).")
                 continue
-
             if rule.startswith("allow_methods:"):
                 if proposed is None or original is None:
                     continue
-                allowed = {
-                    name.strip()
-                    for name in rule.split("allow_methods:", 1)[1].split(",")
-                    if name.strip()
-                }
+                allowed = {name.strip() for name in rule.split("allow_methods:", 1)[1].split(",") if name.strip()}
                 original_methods = set(RUNNER_METHOD_HEADER_RE.findall(original))
                 proposed_methods = set(RUNNER_METHOD_HEADER_RE.findall(proposed))
                 removed = original_methods - proposed_methods
                 added = proposed_methods - original_methods
                 disallowed_added = sorted(name for name in added if name not in allowed)
                 if removed:
-                    issues.append(
-                        f"`{path}` removed existing methods under `allow_methods` policy: {', '.join(sorted(removed))}."
-                    )
+                    issues.append(f"`{path}` removed existing methods under `allow_methods` policy: {', '.join(sorted(removed))}.")
                 if disallowed_added:
-                    issues.append(
-                        f"`{path}` added disallowed methods under `allow_methods` policy: {', '.join(disallowed_added)}."
-                    )
+                    issues.append(f"`{path}` added disallowed methods under `allow_methods` policy: {', '.join(disallowed_added)}.")
                 continue
-
     if issues:
         return False, "Harness protected-file policy violations detected:\n" + "\n".join(f"- {x}" for x in issues)
     return True, ""
+
+
+def _method_indent_from_anchor_content(content: str, anchor: str) -> str:
+    idx = content.find(anchor)
+    if idx < 0:
+        return "    "
+    line_start = content.rfind("\n", 0, idx) + 1
+    line_end = content.find("\n", idx)
+    if line_end < 0:
+        line_end = len(content)
+    line = content[line_start:line_end]
+    return line[: len(line) - len(line.lstrip())]
+
+
+def _indent_method_text(method_text: str, indent: str) -> str:
+    raw = normalize_newlines(method_text).strip("\n")
+    if not raw:
+        return raw
+    lines = raw.split("\n")
+    first = lines[0].lstrip()
+    if not first.startswith("def "):
+        raise FileBundleError("Method insertion payload must begin with a def line.")
+    out = [indent + first]
+    for line in lines[1:]:
+        stripped = line.lstrip()
+        out.append((indent + "    " + stripped) if stripped else "")
+    return "\n".join(out) + "\n"
+
+
+def apply_method_insertion(original: str, anchor: str, method_name: str, method_text: str) -> str:
+    if anchor not in original:
+        raise FileBundleError(f"Insertion anchor `{anchor}` not found in baseline file.")
+    method_names = RUNNER_METHOD_HEADER_RE.findall(method_text)
+    if method_names != [method_name]:
+        raise FileBundleError(f"Method insertion payload must define exactly one method `{method_name}`; got {method_names or 'none'}.")
+    indent = _method_indent_from_anchor_content(original, anchor)
+    inserted = _indent_method_text(method_text, indent)
+    anchor_idx = original.index(anchor)
+    insert_at = original.rfind("\n", 0, anchor_idx) + 1
+    before = original[:insert_at]
+    after = original[insert_at:]
+    if before and not before.endswith("\n\n"):
+        before = before + ("\n" if before.endswith("\n") else "\n\n")
+    return before + inserted + "\n" + after
+
+
+METHOD_INSERTION_BEGIN = "BEGIN_METHOD_INSERTION"
+METHOD_INSERTION_END = "END_METHOD_INSERTION"
+METHOD_BLOCK_BEGIN = "BEGIN_METHOD"
+METHOD_BLOCK_END = "END_METHOD"
+
+
+def parse_method_insertion_bundle(text: str, expected_path: str, expected_method_name: str) -> str:
+    text = normalize_newlines(text)
+    if METHOD_INSERTION_BEGIN not in text or METHOD_INSERTION_END not in text:
+        raise FileBundleError("Model output missing BEGIN_METHOD_INSERTION/END_METHOD_INSERTION markers.")
+    start = text.index(METHOD_INSERTION_BEGIN) + len(METHOD_INSERTION_BEGIN)
+    end = text.index(METHOD_INSERTION_END)
+    body = text[start:end].strip("\n")
+    target_file = None
+    method_name = None
+    lines = body.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith("TARGET_FILE:"):
+            target_file = line.split(":", 1)[1].strip().replace("\\", "/")
+        elif line.startswith("METHOD_NAME:"):
+            method_name = line.split(":", 1)[1].strip()
+        elif line == METHOD_BLOCK_BEGIN:
+            i += 1
+            buf: List[str] = []
+            while i < len(lines) and lines[i].strip() != METHOD_BLOCK_END:
+                buf.append(lines[i])
+                i += 1
+            if i >= len(lines):
+                raise FileBundleError("Missing END_METHOD in method insertion bundle.")
+            if target_file and target_file != expected_path:
+                raise FileBundleError(f"Method insertion target file mismatch: expected {expected_path}, got {target_file}.")
+            if method_name and method_name != expected_method_name:
+                raise FileBundleError(f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}.")
+            return "\n".join(buf).rstrip("\n") + "\n"
+        i += 1
+    raise FileBundleError("No BEGIN_METHOD/END_METHOD block found in method insertion bundle.")
+
+
+def build_method_insertion_messages(task_text: str, target_path: str, method_name: str, anchor: str, baseline_content: str, extra_directives: str = "") -> List[dict]:
+    parts = [
+        task_text.rstrip(),
+        "",
+        "## Protected-file insertion mode",
+        f"Return ONLY a method insertion bundle for `{target_path}`.",
+        f"Add exactly one new method named `{method_name}` before anchor `{anchor}`.",
+        "Do not rewrite the full file.",
+        "Do not include any other file in this response.",
+        "Do not change imports or any existing method bodies.",
+        "",
+        "Required format:",
+        "BEGIN_METHOD_INSERTION",
+        f"TARGET_FILE: {target_path}",
+        f"METHOD_NAME: {method_name}",
+        "BEGIN_METHOD",
+        f"def {method_name}(...):",
+        "    ...",
+        "END_METHOD",
+        "END_METHOD_INSERTION",
+        "",
+        "## Current baseline file content",
+        f"FILE: {target_path}",
+        baseline_content.rstrip("\n"),
+        "END_FILE",
+    ]
+    if extra_directives.strip():
+        parts.extend(["", "## Iteration-specific directives", extra_directives.strip()])
+    return [
+        {"role": "system", "content": load_system_prompt().strip()},
+        {"role": "user", "content": "\n".join(parts).rstrip() + "\n"},
+    ]
+
+
+def request_and_parse_method_insertion(messages: List[dict], model: str, provider: str, last_output_path: Path, expected_path: str, expected_method_name: str) -> str:
+    out = chat(messages, model=model, provider=provider)
+    last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
+    try:
+        return parse_method_insertion_bundle(out, expected_path, expected_method_name)
+    except Exception as e:
+        reminder = (
+            "Your previous response was INVALID.\n"
+            "You MUST output ONLY a valid method insertion bundle using the literal markers below.\n\n"
+            "BEGIN_METHOD_INSERTION\n"
+            f"TARGET_FILE: {expected_path}\n"
+            f"METHOD_NAME: {expected_method_name}\n"
+            "BEGIN_METHOD\n"
+            f"def {expected_method_name}(...):\n"
+            "    ...\n"
+            "END_METHOD\n"
+            "END_METHOD_INSERTION\n\n"
+            f"Parser error: {e}"
+        )
+        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+        last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+        try:
+            return parse_method_insertion_bundle(out2, expected_path, expected_method_name)
+        except Exception as e2:
+            raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {e2}") from e2
+
+
+def _append_task_feedback(task_text: str, message: str) -> str:
+    return task_text.rstrip() + "\n\nIMPORTANT: " + message + "\n"
+
+
+def _repeat_limit_exceeded(counter: Dict[str, int], key: str, limit: int) -> bool:
+    counter[key] = counter.get(key, 0) + 1
+    return counter[key] >= limit
 
 
 def existing_file_contents(paths: List[str]) -> Dict[str, str]:
@@ -679,6 +771,8 @@ def relevant_context(required: List[str]) -> str:
     seen: set[str] = set()
     lines: List[str] = []
 
+    # Only include agents dir and specific required files — skip bulk src/tests injection
+    # to keep prompt size manageable as codebase grows
     candidates = [
         Path("agents"),
     ]
@@ -826,6 +920,7 @@ def bundle_similarity(a: Dict[str, str] | None, b: Dict[str, str] | None) -> flo
 def run_checks() -> Tuple[bool, str]:
     details: List[str] = []
 
+    # Let the model auto-fix simple ruff issues first.
     capture_result([sys.executable, "-m", "ruff", "check", ".", "--fix"])
 
     ruff = capture_result([sys.executable, "-m", "ruff", "check", "."])
@@ -866,10 +961,7 @@ def chat_openai(messages: List[dict], model: str) -> str:
     last_err: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = client.chat.completions.create(
-                model=model,
-                messages=messages,
-            )
+            resp = client.chat.completions.create(model=model, messages=messages)
             content = resp.choices[0].message.content
             if isinstance(content, str):
                 return content.strip()
@@ -879,12 +971,8 @@ def chat_openai(messages: List[dict], model: str) -> str:
             if attempt == max_attempts:
                 raise
             wait_s = min(5 * attempt, 15)
-            print(
-                f"OpenAI request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...",
-                file=sys.stderr,
-            )
+            print(f"OpenAI request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...", file=sys.stderr)
             time.sleep(wait_s)
-
     if last_err is not None:
         raise last_err
     return ""
@@ -905,24 +993,15 @@ def chat_anthropic(messages: List[dict], model: str) -> str:
     last_err: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = client.messages.create(
-                model=model,
-                max_tokens=12000,
-                system=system,
-                messages=user_msgs,
-            )
+            resp = client.messages.create(model=model, max_tokens=12000, system=system, messages=user_msgs)
             return (resp.content[0].text or "").strip()
         except Exception as exc:
             last_err = exc
             if attempt == max_attempts or "timeout" not in str(exc).lower():
                 raise
             wait_s = min(5 * attempt, 15)
-            print(
-                f"Anthropic request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...",
-                file=sys.stderr,
-            )
+            print(f"Anthropic request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...", file=sys.stderr)
             time.sleep(wait_s)
-
     if last_err is not None:
         raise last_err
     return ""
@@ -1007,16 +1086,6 @@ def request_and_parse_bundle(messages: List[dict], model: str, provider: str, la
             raise FileBundleError(f"Model returned malformed file bundle after retry: {e2}") from e2
 
 
-
-def _append_task_feedback(task_text: str, message: str) -> str:
-    return task_text.rstrip() + "\n\nIMPORTANT: " + message + "\n"
-
-
-def _repeat_limit_exceeded(counter: Dict[str, int], key: str, limit: int) -> bool:
-    counter[key] = counter.get(key, 0) + 1
-    return counter[key] >= limit
-
-
 def main() -> int:
     _load_dotenv_if_available()
 
@@ -1063,10 +1132,48 @@ def main() -> int:
     for it in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {it}/{args.max_iters} ===")
         baseline = existing_file_contents(baseline_paths)
-        messages = build_messages(task_text, required, extra_directives)
+        append_targets = _extract_append_method_targets(task_text)
+        protected_append_paths = {str(t["path"]) for t in append_targets}
+        bundle_required = [p for p in required if p not in protected_append_paths]
 
+        files: Dict[str, str] = {}
         try:
-            files = request_and_parse_bundle(messages, args.model, args.provider, last_output_path)
+            for target in append_targets:
+                target_path = str(target["path"])
+                anchor = str(target["anchor"])
+                method_name = str(target["method_name"])
+                baseline_content = baseline.get(target_path)
+                if baseline_content is None:
+                    raise FileBundleError(f"Protected insertion target `{target_path}` has no baseline content.")
+                insertion_messages = build_method_insertion_messages(
+                    task_text,
+                    target_path,
+                    method_name,
+                    anchor,
+                    baseline_content,
+                    extra_directives,
+                )
+                method_text = request_and_parse_method_insertion(
+                    insertion_messages,
+                    args.model,
+                    args.provider,
+                    last_output_path,
+                    target_path,
+                    method_name,
+                )
+                files[target_path] = apply_method_insertion(baseline_content, anchor, method_name, method_text)
+
+            if bundle_required:
+                non_protected_directives = extra_directives
+                if protected_append_paths:
+                    non_protected_directives = ((extra_directives.rstrip() + "\n\n") if extra_directives.strip() else "") + (
+                        "Do not emit protected append-only files in the normal file bundle; they are handled separately by insertion mode."
+                    )
+                messages = build_messages(task_text, bundle_required, non_protected_directives)
+                files.update(request_and_parse_bundle(messages, args.model, args.provider, last_output_path))
+            elif not files:
+                messages = build_messages(task_text, required, extra_directives)
+                files = request_and_parse_bundle(messages, args.model, args.provider, last_output_path)
         except FileBundleError as e:
             print(f"❌ {e}")
             print(f"Model output saved to: {last_output_path}")
