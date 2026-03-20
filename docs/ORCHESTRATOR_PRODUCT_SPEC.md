@@ -47,6 +47,8 @@ The runner applies the bundle, runs `ruff` + `pytest`, and retries up to 4 times
 - resumable execution after approval checkpoints
 - dry-run simulation
 - protected-file policy enforcement
+- machine-readable task contract enforcement
+- protected API semantic preflight
 
 ## Current implementation status
 
@@ -60,14 +62,11 @@ The runner applies the bundle, runs `ruff` + `pytest`, and retries up to 4 times
 | Project adapter foundation | ✅ | 020 |
 | Real task execution bridge | ✅ | 031 |
 | Persistent backlog state | ✅ | 037 |
-| Execution result normalization | 🔄 | 032 |
-| Real review + compliance gate | 🔄 | 033 |
-| Branch/worktree guardrails | 🔄 | 034 |
-| PR creation workflow | 🔄 | 035 |
-| Resume after approval | 🔄 | 036 |
-| Run loop engine | 🔄 | 038 |
-| CLI wiring + integration harness | 🔄 | 039 |
-| Multi-project hardening | 🔄 | 040 |
+| Run loop / CLI / decision logging | ✅ | 038a–038c |
+| Repo-local import symbol validation | ✅ | 038d |
+| Harness semantic hardening tranche | 🔄 | 039a–039c |
+| End-to-end integration harness | 🔄 | 040 |
+| Multi-project hardening | 🔄 | 041 |
 
 ## Safety model
 
@@ -148,3 +147,4 @@ The orchestrator is production-usable when it can:
 - support at least one project adapter cleanly
 - be extended to another project with minimal engine changes
 - reject green-but-policy-violating bundles
+- reject obviously invalid protected API usage before burning full test iterations

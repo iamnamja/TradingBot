@@ -1,4 +1,4 @@
-# Task 039 — End-to-End Integration Harness
+# Task 040 — End-to-End Integration Harness
 
 ## Goal
 
@@ -6,9 +6,9 @@ Add deterministic integration tests for the current stable orchestrator workflow
 
 ## Why
 
-Task 039 is tests-only. The current failures are caused by tests inventing symbols and APIs that do not exist on the current baseline.
+This task is tests-only. It should run only after the harness hardening tranche (039a / 039b / 039c) is complete and green.
 
-This task must validate the real current runner surface without changing production code.
+This task validates the real current runner surface without changing production code.
 
 ## Deliverables
 
@@ -24,6 +24,16 @@ The listed file must be materially updated.
 - FILE: src/builder/orchestrator/cli.py MODE=PROTECTED_FORBID
 - FILE: src/builder/orchestrator/backlog.py MODE=PROTECTED_FORBID
 - FILE: src/builder/orchestrator/execution_result.py MODE=PROTECTED_FORBID
+
+## Machine-readable contract directives
+
+- CONSTRUCTOR: builder.orchestrator.runner.OrchestratorRunner(config, backlog_tracker, initial_state)
+- CONFIG_WRAPPER: builder.orchestrator.runner.OrchestratorRunner first_arg_requires=.config unless=ProjectConfig
+- ALLOWED_METHODS: builder.orchestrator.runner.OrchestratorRunner run_next_task run_loop
+- FORBID_IMPORTS: builder.orchestrator.backlog BacklogTask BacklogItem BacklogStore TaskRecord
+- FORBID_IMPORTS: builder.orchestrator.execution_result ExecutionResult
+- FORBID_CALLS: runner.run runner.run_all_tasks
+- RESULT_KEYS: run_loop processed_tasks stopped_reason final_status approval_required planned_actions
 
 ## Critical compatibility requirement
 
@@ -71,10 +81,14 @@ The tests must target the current real baseline on `main`:
 
 Build the runner using the real constructor surface.
 
-Use a small real config-like object shape and a stub backlog tracker object. Do not instantiate `OrchestratorRunner()` with zero arguments.
+For config shape, use either:
+- a real `ProjectConfig`, or
+- a lightweight wrapper object exposing `.config` where `.config` has the required fields
+
+Do NOT pass a bare `SimpleNamespace(...)` directly as the first constructor argument to `OrchestratorRunner`.
 
 The test harness should use:
-- a config object with at least:
+- a config/config-wrapper with at least:
   - `tasks_directory`
   - `state_path`
   - `approval_required_file_patterns`
@@ -172,6 +186,7 @@ For `run_next_task()` scenarios, patch only the minimal backlog/state behavior n
 - relying on live git state or GitHub CLI
 - relying on actual repo `tasks/` contents
 - zero-argument `OrchestratorRunner()`
+- bare `SimpleNamespace(...)` passed directly as the root config argument
 - calling nonexistent methods like `runner.run()` or `runner.run_all_tasks()`
 - importing nonexistent symbols such as:
   - `BacklogTask`

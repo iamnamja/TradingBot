@@ -103,6 +103,16 @@ Requirements:
 - add only the named method
 - do not change existing methods, imports, strings, or contracts
 
+### exact-copy-plus-replace-method
+
+Use when a protected Python file must keep exact-copy discipline outside one existing method replacement.
+
+Requirements:
+
+- copy the file exactly
+- replace only the named method
+- do not change existing imports, strings, or unrelated methods
+
 ### method-add-only
 
 Use when one small helper or branch is being added to an otherwise locked file.
@@ -120,6 +130,21 @@ Use when work must stay within adapters/config/schema files.
 Use when only markdown or text documentation may change.
 
 Bundles that violate the declared mode must be rejected even if tests pass.
+
+## Machine-readable task contract directives
+
+Task specs may also include machine-readable contract directives so the harness can enforce semantics earlier.
+
+Examples:
+
+- `CONSTRUCTOR: module.Class(arg1, arg2, arg3)`
+- `CONFIG_WRAPPER: module.Class first_arg_requires=.config unless=ProjectConfig`
+- `ALLOWED_METHODS: module.Class run_next_task run_loop`
+- `FORBID_IMPORTS: module symbol1 symbol2`
+- `FORBID_CALLS: runner.run runner.run_all_tasks`
+- `RESULT_KEYS: run_loop processed_tasks stopped_reason final_status approval_required planned_actions`
+
+These directives are additive and do not replace normal prose. They exist to reduce semantic drift on fragile API surfaces.
 
 ## Implementation contract policy (mandatory in all task specs)
 
@@ -172,3 +197,4 @@ A task spec is considered high quality when it includes:
 - bundle completeness requirement
 - material update definition
 - a task scope that is small enough to avoid high-risk multi-file rewrites
+- machine-readable contract directives when the API surface is fragile
