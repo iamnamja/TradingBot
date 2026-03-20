@@ -2,7 +2,7 @@
 
 ## Goal
 
-Unify protected method editing in `agents/run_task.py` so append-method and replace-method tasks both work reliably with one consistent target extractor, prompt builder, parser, recovery path, and apply path.
+Unify protected method editing in the existing `agents/run_task.py` so append-method and replace-method tasks both work reliably with one consistent target extractor, prompt builder, parser, recovery path, and apply path.
 
 ## Why
 
@@ -25,10 +25,35 @@ Keep the change narrowly focused on protected method edit handling in the harnes
 
 Do not change:
 - provider/model selection behavior
-- normal bundle parsing behavior
+- normal bundle parsing behavior unrelated to protected method edits
 - git / branch behavior
 - TradingBot or orchestrator production code under `src/`
 - semantic/API preflight behavior in `validate_static_bundle_contracts(...)`
+
+## CRITICAL in-place update requirement
+
+You must extend the **existing** `agents/run_task.py` in place.
+
+This task must NOT replace `agents/run_task.py` with a miniature standalone runner.
+
+The file must remain the real current harness with its existing:
+- CLI entrypoint behavior
+- bundle parsing behavior
+- task execution flow
+- git/branch handling
+- lint/test loop
+- protected-file policies outside this targeted engine work
+
+### Explicitly forbidden full-file drift
+
+Do NOT replace `agents/run_task.py` with a simplified file that only contains a small subset of functions plus a toy `main()`.
+
+Do NOT:
+- replace the module header/docstring with a fresh miniature version
+- replace the import block with a minimal subset
+- delete existing top-level functions unrelated to protected method editing
+- replace the real CLI/runner flow with a reduced demo implementation
+- create a new tiny `main()` that only prints prompts or parses one task field
 
 ## Required protected modes
 
@@ -53,6 +78,14 @@ Important:
 - The examples in this section are descriptive only.
 - Do not treat this section as literal file directives.
 - The only real file changes for this task are the deliverables listed above.
+
+## Required implementation style
+
+Reuse and extend the existing protected method edit helpers already present in `agents/run_task.py`.
+
+The implementation may refactor current protected-edit helper functions, but it must stay within the real current harness architecture.
+
+You may add helper functions in `agents/run_task.py` if needed for this task.
 
 ## Required behavior
 
@@ -101,6 +134,8 @@ The bundle for this task must NOT:
 - adding tests for `OrchestratorRunner()` constructor misuse in this task
 - adding tests for missing protected imports in this task
 - modifying any file under `src/`
+- replacing `agents/run_task.py` with a miniature standalone script
+- introducing a toy/demo `main()` in place of the real harness
 
 ## Tests
 
@@ -121,3 +156,4 @@ Tests must be Windows-portable and must not call external services.
 - `ruff check .` passes
 - `pytest -q` passes
 - protected method edits are handled by one unified engine for append and replace use cases
+- `agents/run_task.py` remains the real current harness, not a reduced standalone replacement
