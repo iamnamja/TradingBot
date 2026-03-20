@@ -305,7 +305,6 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
     """Parse machine-readable harness policies from task text."""
     policies: Dict[str, Dict[str, object]] = {}
     allowed_section_names = {
-        "",
         "deliverables",
         "harness policy",
         "machine-readable contract directives",
@@ -342,6 +341,8 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
 
             m = TASK_FILE_POLICY_RE.match(line)
             if not m:
+                continue
+            if "MODE=" not in line:
                 continue
             path = m.group("path").strip().replace("\\", "/")
             attrs = dict(TASK_FILE_ATTR_RE.findall((m.group("rest") or "").strip()))
