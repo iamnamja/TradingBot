@@ -14,7 +14,7 @@ This task should make protected insertion more fault-tolerant without weakening 
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
-- `agents/run_task.py`
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=request_and_parse_method_insertion ANCHOR_BEFORE=validate_python_syntax( MAX_CHANGED_LINES=220
 - `tests/test_run_task_method_insertion_recovery.py`
 
 Both listed files must be materially updated in the same bundle.
@@ -32,6 +32,31 @@ Do not change:
 - virtual protected-file context behavior
 - import validation behavior
 - retry loop behavior outside protected insertion parsing/recovery
+
+## Required implementation shape
+
+For `agents/run_task.py`:
+
+- Do not rewrite the full file.
+- Use the protected append-method flow only.
+- Add exactly one new top-level function named `request_and_parse_method_insertion`.
+- Place it immediately before `def validate_python_syntax(`.
+- The insertion payload must contain exactly one top-level function and nothing else.
+- Do not add any additional top-level defs.
+- Do not add any additional top-level classes.
+- Do not add any additional top-level constants.
+- Do not define nested helper functions inside `request_and_parse_method_insertion(...)`.
+- Do not use any additional `def` statements anywhere inside the inserted method text.
+- Keep helper logic inline using local variables, loops, comprehensions, `ast`, and existing stdlib calls only.
+- For the protected insertion response, return only the method insertion payload requested by the harness. Do not emit a normal `BEGIN_FILE_BUNDLE` response for `agents/run_task.py`.
+
+### Required method signature
+
+```python
+def request_and_parse_method_insertion(messages: List[dict], model: str, provider: str, last_output_path: Path, expected_path: str, expected_method_name: str) -> str:
+```
+
+The inserted `request_and_parse_method_insertion(...)` method must remain backward compatible and preserve the current successful parsing paths.
 
 ## Required behavior
 
@@ -52,7 +77,7 @@ Recovery must still fail if:
 - the recovered method body cannot be parsed as Python syntax
 - the recovered method would violate the existing single-method insertion rule
 
-### Implementation guidance
+### Recovery behavior
 
 - Keep the existing success paths intact.
 - After the normal retry fails, perform a raw-text recovery pass before raising `FileBundleError`.
@@ -60,9 +85,23 @@ Recovery must still fail if:
 - Use Python syntax parsing to validate the recovered method text.
 - Preserve current error messages where possible, but include the recovery failure reason when recovery is attempted and fails.
 
+## Exact forbidden patterns
+
+- rewriting all of `agents/run_task.py`
+- emitting multiple top-level methods in the protected insertion payload
+- using nested helper defs inside `request_and_parse_method_insertion`
+- adding helper methods at top level
+- adding extra `def` statements anywhere in the inserted payload
+- changing provider/model defaults
+- changing protected-file baseline logic
+- changing append-method parsing behavior outside the targeted recovery behavior
+- touching orchestrator production files
+- touching TradingBot production files
+- relying on external services in tests
+
 ## Tests
 
-Add deterministic tests covering at least:
+`tests/test_run_task_method_insertion_recovery.py` must cover at least:
 
 1. standard method insertion bundle parses
 2. normal full file bundle parses and extracts the expected method
@@ -71,10 +110,11 @@ Add deterministic tests covering at least:
 5. malformed response with wrong method name fails
 6. malformed response with invalid Python method syntax fails
 
-Tests must be Windows-portable and must not call external services.
+Tests must be deterministic, Windows-portable, and self-contained.
 
 ## Acceptance criteria
 
 - `ruff check .` passes
 - `pytest -q` passes
 - protected insertion can recover from malformed-but-salvageable model output
+- `agents/run_task.py` changes are limited to one additive protected-method insertion
