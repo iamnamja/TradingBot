@@ -559,15 +559,22 @@ def _method_block_from_file_content(file_content: str, method_name: str) -> str:
 
 def parse_method_insertion_bundle(text: str, expected_path: str, expected_method_name: str) -> str:
     text = normalize_newlines(text)
-    if METHOD_INSERTION_BEGIN in text and METHOD_INSERTION_END in text:
-        start = text.index(METHOD_INSERTION_BEGIN) + len(METHOD_INSERTION_BEGIN)
-        end = text.index(METHOD_INSERTION_END)
-        body = text[start:end].strip("\n")
+    lines = text.split("\n")
+    begin_indices = [idx for idx, line in enumerate(lines) if line.strip() == METHOD_INSERTION_BEGIN]
+    if begin_indices:
+        start_line = begin_indices[0]
+        end_line = None
+        for idx in range(start_line + 1, len(lines)):
+            if lines[idx].strip() == METHOD_INSERTION_END:
+                end_line = idx
+                break
+        if end_line is None:
+            raise FileBundleError("Missing END_METHOD_INSERTION in method insertion bundle.")
+
         target_file = None
         method_name = None
-        lines = body.split("\n")
-        i = 0
-        while i < len(lines):
+        i = start_line + 1
+        while i < end_line:
             line = lines[i].strip()
             if line.startswith("TARGET_FILE:"):
                 target_file = line.split(":", 1)[1].strip().replace("\\", "/")
@@ -576,10 +583,10 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
             elif line == METHOD_BLOCK_BEGIN:
                 i += 1
                 buf: List[str] = []
-                while i < len(lines) and lines[i].strip() != METHOD_BLOCK_END:
+                while i < end_line and lines[i].strip() != METHOD_BLOCK_END:
                     buf.append(lines[i])
                     i += 1
-                if i >= len(lines):
+                if i >= end_line:
                     raise FileBundleError("Missing END_METHOD in method insertion bundle.")
                 if target_file and target_file != expected_path:
                     raise FileBundleError(
@@ -598,6 +605,7 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
             "Method insertion response did not include protected target file or insertion markers."
         )
     return _method_block_from_file_content(files[expected_path], expected_method_name)
+
 
 def build_method_insertion_messages(task_text: str, target_path: str, method_name: str, anchor: str, baseline_content: str, extra_directives: str = "") -> List[dict]:
     parts = [
@@ -638,7 +646,7 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
     try:
         return parse_method_insertion_bundle(out, expected_path, expected_method_name)
-    except Exception as e:
+    except Exception as first_error:
         reminder = (
             "Your previous response was INVALID.\n"
             "You MUST output ONLY a valid method insertion bundle using the literal markers below.\n\n"
@@ -650,15 +658,62 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
             "    ...\n"
             "END_METHOD\n"
             "END_METHOD_INSERTION\n\n"
-            f"Parser error: {e}"
+            f"Parser error: {first_error}"
         )
         out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+        retry_error = ""
+        retry_exc = None
         try:
             return parse_method_insertion_bundle(out2, expected_path, expected_method_name)
-        except Exception as e2:
-            raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {e2}") from e2
+        except Exception as second_error:
+            retry_exc = second_error
+            retry_error = str(second_error)
 
+        recovered_text = normalize_newlines(out2)
+        recovered_lines = recovered_text.split("\n")
+        header_re = re.compile(rf"^def\s+{re.escape(expected_method_name)}\s*\(")
+
+        start_matches = [idx for idx, line in enumerate(recovered_lines) if header_re.match(line)]
+        if not start_matches:
+            raise FileBundleError(
+                f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: zero matching method definitions were found."
+            ) from retry_exc
+        if len(start_matches) > 1:
+            raise FileBundleError(
+                f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: more than one matching method definition was found."
+            ) from retry_exc
+
+        start_idx = start_matches[0]
+        end_idx = len(recovered_lines)
+        for idx in range(start_idx + 1, len(recovered_lines)):
+            line = recovered_lines[idx]
+            if line and not line.startswith((" ", "\t")):
+                end_idx = idx
+                break
+
+        method_text = "\n".join(recovered_lines[start_idx:end_idx]).rstrip("\n") + "\n"
+        method_names = RUNNER_METHOD_HEADER_RE.findall(method_text)
+        if method_names != [expected_method_name]:
+            raise FileBundleError(
+                f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: recovered method name mismatch."
+            ) from retry_exc
+
+        try:
+            ast.parse(method_text, filename=expected_path)
+        except SyntaxError as exc:
+            lineno = exc.lineno or 0
+            msg = exc.msg or "invalid syntax"
+            raise FileBundleError(
+                f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: recovered method body has Python syntax error at line {lineno}: {msg}."
+            ) from retry_exc
+
+        if RUNNER_METHOD_HEADER_RE.findall(method_text) != [expected_method_name]:
+            raise FileBundleError(
+                f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: recovered method would violate the single-method insertion rule."
+            ) from retry_exc
+
+        return method_text
 
 
 def validate_python_syntax(bundle: Dict[str, str]) -> Tuple[bool, str]:
