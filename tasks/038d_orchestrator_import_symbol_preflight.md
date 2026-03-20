@@ -2,89 +2,119 @@
 
 ## Goal
 
-Harden `agents/run_task.py` so it rejects agent-generated bundles that import non-existent symbols from existing repo modules before spending an iteration on `pytest`.
+Add repo-local imported-symbol validation to the existing `validate_imports(...)` preflight in `agents/run_task.py` so invalid agent bundles are rejected before `pytest`.
 
 ## Why
 
-Task 039 repeatedly failed because the generated test file imported names like `BacklogStore` / `TaskRecord` from `builder.orchestrator.backlog`, even though the module exists but those symbols do not. The current harness import validation checks module existence only, not imported symbol existence.
+Task 039 repeatedly failed because the generated test bundle imported names like `BacklogStore` / `TaskRecord` from `builder.orchestrator.backlog`, even though the module exists but those symbols do not. The current harness already validates repo-local module existence, but it does not yet validate imported symbol existence.
 
-This is a narrow harness gap and is worth fixing before rerunning Task 039.
+This task is a narrow harness hardening task that should land before rerunning Task 039.
 
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ANCHOR_BEFORE=missing_module_hints( ALLOW_NEW_METHOD=validate_imports MAX_CHANGED_LINES=220
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=validate_imports ANCHOR_BEFORE=missing_module_hints( MAX_CHANGED_LINES=240
 - `tests/test_run_task_import_validation.py`
 
-Both listed files must be materially updated.
+Both listed files must be materially updated in the same bundle.
 
-## Scope
+## Harness policy
 
-Keep the change as small as possible.
+- FILE: tests/test_orchestrator_end_to_end.py MODE=PROTECTED_FORBID
 
-Do not modify orchestrator production files.
-Do not modify TradingBot production files.
-Do not change provider/model selection behavior.
-Do not weaken existing protected-file policy enforcement.
+## Critical compatibility requirement
+
+All existing public APIs and protected-file behavior in `agents/run_task.py` must remain backward compatible.
+
+Do not change:
+- provider/model selection behavior
+- retry loop behavior
+- protected-file policy enforcement
+- append-method insertion behavior
+- workspace restore behavior
+- virtual protected-file context behavior
+- current missing-module validation behavior except to extend it with repo-local symbol validation
+
+All existing passing tests must continue to pass.
+
+## Required implementation shape
 
 For `agents/run_task.py`:
 
 - Do not rewrite the full file.
+- Use the protected append-method flow only.
 - Add exactly one new top-level function named `validate_imports`.
-- Place it immediately before `def missing_module_hints(` using the protected append-method flow.
-- Preserve the existing missing-module validation behavior and extend it with repo-local imported-symbol validation.
-- Do not add any additional top-level helper functions.
-- Any small helper logic needed for symbol inspection must live inside `validate_imports` as nested helper logic only.
+- Place it immediately before `def missing_module_hints(`.
+- The inserted payload must contain exactly one top-level function and nothing else.
+- Do not add any additional top-level defs.
+- Do not add any additional top-level classes.
+- Do not add any additional top-level constants.
+- Do not add helper functions at module scope.
+- Keep all helper logic inside `validate_imports(...)`.
+- Prefer inline logic and local variables over nested helper `def` statements.
+
+### Required method signature
+
+```python
+def validate_imports(bundle: Dict[str, str]) -> Tuple[bool, str]:
+```
+
+The inserted `validate_imports(...)` method must preserve the current module-existence validation semantics and extend them with repo-local imported-symbol validation.
 
 ## Required behavior
 
-### New static validation
-
-Add bundle validation that inspects Python imports of these forms:
+Inspect Python imports of these forms when they target repo-local packages:
 
 - `from builder.orchestrator.some_module import Name`
 - `from tradingbot.some_module import Name`
 
-For imports that target repo-local modules/packages:
+For repo-local imports only:
 
 - fail validation if the target module does not exist
-- fail validation if an imported symbol does not exist in the target module/package
+- fail validation if an imported symbol does not exist in the target module or package export surface
 - allow `as` aliases
 - allow importing submodules that actually exist
 - allow `*` imports to pass unchanged
 - ignore third-party imports
 
-The validation should work against:
+The validation must work against:
 - files that already exist in the repo
 - files included in the current bundle
 - package `__init__.py` exports where applicable
 
-### Implementation constraints
+## Exact error messaging
 
-The protected method insertion payload must contain exactly one top-level function: `validate_imports`.
-
-That means:
-- no additional top-level defs
-- no additional top-level classes
-- no free-standing helper functions outside `validate_imports`
-
-### Error messaging
-
-When symbol validation fails, the harness should surface a clear message like:
+When symbol validation fails, surface a clear message like:
 
 - `tests/test_x.py: imports missing symbol 'BacklogStore' from 'builder.orchestrator.backlog'`
 
-### Retry behavior
+When module validation fails, preserve the existing missing-module message format.
 
-This should participate in the existing pre-write validation flow the same way current import validation does:
+## Retry behavior
+
+This must participate in the existing pre-write validation flow the same way current import validation does:
+
 - reject before files are written
 - append actionable feedback into the task text
 - stop early on repeated violations using the existing policy-block limit pattern
 
-## Tests
+## Exact forbidden patterns
 
-Add deterministic unit tests covering at least:
+- rewriting all of `agents/run_task.py`
+- emitting multiple top-level methods in the protected insertion payload
+- adding helper methods like `module_exists`, `resolve_module_source`, `symbol_exists`, etc. at top level
+- changing provider/model defaults
+- changing protected-file baseline logic
+- changing append-method parsing behavior
+- touching orchestrator production files
+- touching TradingBot production files
+- importing nonexistent repo-local symbols in the new tests
+- relying on external services in tests
+
+## Test requirements
+
+`tests/test_run_task_import_validation.py` must cover at least:
 
 1. valid repo-local symbol import passes
 2. missing module fails
@@ -93,10 +123,11 @@ Add deterministic unit tests covering at least:
 5. star import is ignored/passes
 6. bundled module symbol definitions are recognized without writing to disk first
 
-Tests must be Windows-portable and must not call external services.
+Tests must be deterministic, Windows-portable, and self-contained.
 
 ## Acceptance criteria
 
 - `ruff check .` passes
 - `pytest -q` passes
 - invalid repo-local symbol imports are blocked before `pytest`
+- `agents/run_task.py` changes are limited to one additive protected-method insertion
