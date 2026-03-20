@@ -1,39 +1,73 @@
-# Task 039c — Machine-Readable Task Contracts
+# Task 039c — Machine-Readable Task Contracts (Tests Only)
 
 ## Goal
 
-Teach `agents/run_task.py` to read machine-readable contract directives from task specs and enforce them before bundle write / test execution.
+Add deterministic tests for the current machine-readable task contract support in `agents/run_task.py` without changing production code.
 
 ## Why
 
-The current harness depends too much on prose in task specs. That works when tasks are extremely specific, but it still allows semantic drift because the contract is not structured enough for the harness to enforce directly.
-
-This task comes after 039b so the harness already has the protected semantic/API concepts it needs to validate.
+The harness now includes direct support for contract directives in task markdown, including parsing and enforcement inside `validate_static_bundle_contracts(...)`. The next step is to validate that behavior with deterministic tests rather than continuing to evolve the harness through self-modification.
 
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
-- `agents/run_task.py`
 - `tests/test_run_task_contract_directives.py`
 
-Both listed files must be materially updated.
+The listed file must be materially updated.
 
-## Scope
+## Harness policy
 
-Keep the change narrowly focused on task-spec directive parsing and enforcement.
+- FILE: agents/run_task.py MODE=PROTECTED_FORBID
 
-Do not change:
+## Critical compatibility requirement
+
+This task adds tests only.
+
+It must not change:
+- `agents/run_task.py`
 - provider/model selection behavior
 - protected-file policy enforcement
 - git / branch behavior
-- TradingBot or orchestrator production code under `src/`
+- any file under `src/`
 
-## Required directive support
+All existing passing tests must continue to pass.
 
-Add support for task-spec directives like these:
+## Current baseline under test — use exact current behavior
+
+Only import symbols that actually exist on the current baseline.
+
+The tests must target these current harness surfaces:
+
+- `parse_task_contract_directives(task_text)`
+- `validate_static_bundle_contracts(bundle, task_text)`
+
+It is acceptable to monkeypatch helper functions inside `agents.run_task` to make semantic cases deterministic, including:
+- `_module_source_for_name`
+- `_class_methods_from_source`
+- `_class_init_arity_from_source`
+
+Do NOT patch away `parse_task_contract_directives(...)` or `validate_static_bundle_contracts(...)`.
+
+## Required directive scenarios
+
+Add deterministic tests covering at least:
+
+1. constructor directive parsing
+2. forbid-import enforcement
+3. forbid-call enforcement
+4. config-wrapper enforcement
+5. allowed-methods enforcement
+6. result-key enforcement
+7. backward compatibility when no directives are present
+
+## Strong guidance — use real directive syntax
+
+The task-text fixtures in the tests should use the current markdown directive format, for example:
 
 ```text
+## Machine-readable contract directives
+
 - CONSTRUCTOR: builder.orchestrator.runner.OrchestratorRunner(config, backlog_tracker, initial_state)
 - CONFIG_WRAPPER: builder.orchestrator.runner.OrchestratorRunner first_arg_requires=.config unless=ProjectConfig
 - ALLOWED_METHODS: builder.orchestrator.runner.OrchestratorRunner run_next_task run_loop
@@ -42,43 +76,96 @@ Add support for task-spec directives like these:
 - RESULT_KEYS: run_loop processed_tasks stopped_reason final_status approval_required planned_actions
 ```
 
-The syntax can be normalized if needed, but it must remain human-writable in markdown task files.
+## Strong guidance — use deterministic synthetic bundle content
 
-## Required behavior
+Use synthetic bundle entries such as:
 
-The harness must:
+- `tests/test_generated_contracts.py`
+- `src/builder/orchestrator/runner.py`
 
-1. parse directives from the task text
-2. validate generated bundles against those directives before write / test execution
-3. produce actionable error messages that reference the violated directive
+when you need deterministic enforcement checks.
 
-Examples:
+### FORBID_IMPORTS example
 
-- calling `runner.run_all_tasks()` when `FORBID_CALLS` blocks it
-- importing `BacklogTask` when `FORBID_IMPORTS` blocks it
-- constructing `OrchestratorRunner` with the wrong contract when `CONSTRUCTOR` + `CONFIG_WRAPPER` say otherwise
-- asserting on missing result keys when `RESULT_KEYS` says what the current return contract must include
+Use a synthetic file that contains:
 
-## Directive design constraints
+```python
+from builder.orchestrator.backlog import BacklogTask
+```
 
-- directives must be additive and backward compatible with older task specs
-- if a task does not use directives, current behavior should continue unchanged
-- parsing must be deterministic and Windows-portable
-- directives must be usable in plain markdown task files without custom tooling
+Then assert:
+- `ok is False`
+- `message` contains `"violates FORBID_IMPORTS"`
 
-## Tests
+### FORBID_CALLS / ALLOWED_METHODS example
 
-`tests/test_run_task_contract_directives.py` must include deterministic tests for at least:
+Use a synthetic file that contains:
 
-1. constructor directive parsing
-2. forbid-import enforcement
-3. forbid-call enforcement
-4. config-wrapper enforcement
-5. result-key enforcement
-6. backward compatibility when no directives are present
+```python
+runner.run_all_tasks()
+```
+
+or:
+
+```python
+runner.run()
+```
+
+Then assert:
+- `ok is False`
+- `message` contains `"violates FORBID_CALLS"` or `"violates ALLOWED_METHODS"`
+
+### CONSTRUCTOR / CONFIG_WRAPPER example
+
+Use a synthetic bundle entry that constructs:
+
+```python
+OrchestratorRunner(SimpleNamespace(), object(), object())
+```
+
+with task directives for `CONSTRUCTOR` and `CONFIG_WRAPPER`, and assert the resulting failure message contains either:
+- `"CONSTRUCTOR requires 3"`
+- or `"must satisfy CONFIG_WRAPPER"`
+
+### RESULT_KEYS example
+
+Use a synthetic `src/builder/orchestrator/runner.py` bundle entry that contains a `run_loop` implementation but only one of the required keys, for example only `"processed_tasks"`. Then assert:
+- `ok is False`
+- `message` contains `"missing RESULT_KEYS contract token"`
+
+## Strong guidance — use exact current return/exception behavior
+
+For `parse_task_contract_directives(...)`:
+- assert the returned dict structure directly
+
+For `validate_static_bundle_contracts(...)`:
+- success is `(True, "")`
+- failures are `(False, <message>)`
+
+Do NOT assert invented wrapper dicts like `{"ok": ...}`.
+
+## Import pattern for the test file
+
+Do NOT use:
+
+```python
+from agents import run_task
+```
+
+Instead, load `agents/run_task.py` by path using `importlib.util.spec_from_file_location(...)`, the same way 039a did.
+
+## Exact forbidden patterns
+
+- modifying `agents/run_task.py`
+- creating `last_output.txt`
+- creating `_last_agent_model_output.txt`
+- creating `_last_agent_file_bundle.txt`
+- using wrapper dict expectations for harness functions
+- patching away `parse_task_contract_directives(...)`
+- patching away `validate_static_bundle_contracts(...)`
 
 ## Acceptance criteria
 
 - `ruff check .` passes
 - `pytest -q` passes
-- the harness can enforce structured task contracts without depending only on prose
+- machine-readable task contracts are covered by deterministic tests without production edits
