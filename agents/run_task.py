@@ -1281,7 +1281,6 @@ def enforce_required_files(
 def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> Tuple[bool, str]:
     """Catch obvious structural and protected-API regressions before spending an iteration on ruff/pytest."""
     issues: List[str] = []
-    directives = parse_task_contract_directives(task_text)
 
     runner_path = "src/builder/orchestrator/runner.py"
     runner = bundle.get(runner_path, "")
