@@ -350,6 +350,50 @@ class OrchestratorRunner:
             "requires_approval": False,
         }
 
+    def run_loop(self, max_tasks: int = 100) -> dict[str, Any]:
+        processed_tasks: List[str] = []
+        planned_actions: List[str] = []
+        approval_required = False
+        stopped_reason = ""
+        final_status = "completed"
+
+        for _ in range(max_tasks):
+            result = self.run_next_task()
+
+            task_name = result.get("task_name", "none")
+            if task_name == "none":
+                stopped_reason = "No pending tasks available."
+                final_status = "completed"
+                break
+
+            status = result.get("status", "")
+            if status == "failed":
+                processed_tasks.append(task_name)
+                stopped_reason = result.get("message", "Execution failed.")
+                final_status = "failed"
+                break
+
+            processed_tasks.append(task_name)
+            planned_actions.append(f"Task {task_name} completed successfully.")
+
+            if result.get("requires_approval", False):
+                approval_required = True
+                stopped_reason = "Approval required"
+                final_status = "blocked"
+                break
+
+        else:
+            stopped_reason = f"Reached max_tasks limit of {max_tasks}"
+            final_status = "running" if processed_tasks else "completed"
+
+        return {
+            "processed_tasks": processed_tasks,
+            "stopped_reason": stopped_reason,
+            "final_status": final_status,
+            "approval_required": approval_required,
+            "planned_actions": planned_actions,
+        }
+
     def simulate_backlog(self) -> Dict[str, Union[List[str], str, bool]]:
         processed_tasks: List[str] = []
         approval_required = False
