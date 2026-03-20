@@ -54,10 +54,16 @@ The tests must target these real functions with their real current signatures an
 
 - `_extract_protected_method_targets(task_text)`
   - returns a list of dict objects, not tuples
-  - append targets are only produced when the policy contains:
-    - an append anchor from `ANCHOR_BEFORE=...`
-    - and an allowed method from `ALLOW_NEW_METHOD=...`
-  - replace targets may include `"max_changed_lines": None` when no limit is provided
+  - use keys such as:
+    - `"path"`
+    - `"mode"` (`"append"` or `"replace"`)
+    - `"method_name"`
+    - `"anchor"` for append targets
+    - optional `"max_changed_lines"`
+  - do NOT expect keys like:
+    - `"kind"`
+    - `"rules"`
+    - `"target_method"`
 
 - `apply_method_insertion(original, anchor, method_name, method_text)`
   - returns the updated file content as a string
@@ -70,11 +76,12 @@ The tests must target these real functions with their real current signatures an
 
 - `parse_method_insertion_bundle(text, expected_path, expected_method_name)`
   - returns the extracted method text as a string on success
-  - raises `run_task.FileBundleError` on malformed payload
+  - raises `run_task.FileBundleError` on malformed bundle structure or wrong expected method name
 
 - `request_and_parse_method_insertion(messages, model, provider, last_output_path, expected_path, expected_method_name)`
   - returns the extracted method text as a string on success
   - calls `chat(messages, model=model, provider=provider)` without an `output_path` parameter
+  - `last_output_path` must be a real `pathlib.Path`
   - for this function, monkeypatch `agents.run_task.chat`
   - do NOT call the real external model
 
@@ -101,15 +108,24 @@ Add deterministic tests covering at least:
 3. append target extraction from a realistic task snippet using:
    - `ANCHOR_BEFORE=...`
    - `ALLOW_NEW_METHOD=...`
-   - use subset assertions against the returned dict rather than brittle exact dict equality
-   - for append anchors, expect current normalization like:
-     - `def _parse_task_file(`
-     - `def existing(`
+   - assert exact core fields on the returned dict:
+     - `target["path"] == "agents/example.py"`
+     - `target["mode"] == "append"`
+     - `target["method_name"] == "simulate_backlog"`
+     - `target["anchor"] == "def _parse_task_file("`
+   - do NOT inspect `target["rules"]`
+   - do NOT expect `target["kind"]`
 
 4. replace target extraction from a realistic task snippet using:
    - `TARGET_METHOD=...`
-   - use subset assertions against the returned dict rather than exact dict equality
-   - it is acceptable for the dict to include `"max_changed_lines": None`
+   - assert exact core fields on the returned dict:
+     - `target["path"] == "agents/example.py"`
+     - `target["mode"] == "replace"`
+     - `target["method_name"] == "validate_static_bundle_contracts"`
+   - it is acceptable for the dict to also include:
+     - `"max_changed_lines": None`
+   - do NOT expect `target["target_method"]`
+   - do NOT inspect `target["rules"]`
 
 5. append method application into baseline content before an anchor
    - assert:
@@ -131,17 +147,22 @@ Add deterministic tests covering at least:
 
 8. missing append anchor rejection
 
-9. malformed protected payload parsing failure for method insertion bundles
+9. malformed bundle rejection for `parse_method_insertion_bundle(...)`
+   - use a structurally malformed bundle, for example a bundle that is missing `END_FILE`
    - use `pytest.raises(run_task.FileBundleError)`
+   - do NOT use a structurally valid bundle whose only issue is that the function body is incomplete
 
 10. `request_and_parse_method_insertion(...)` happy-path parsing using monkeypatched `chat`
     - monkeypatched `chat` must accept exactly `(messages, model, provider)`
+    - pass a real `pathlib.Path` as `last_output_path`
     - the synthetic bundle must contain a valid extracted method body with proper indentation, for example:
       - `def helper(self):`
       - `    return 3`
-    - assert the function returns the extracted method text string
+    - assert the function returns the extracted method text string exactly:
+      - `def helper(self):\n    return 3\n`
 
 11. `request_and_parse_method_insertion(...)` malformed bundle rejection using monkeypatched `chat`
+    - use a structurally malformed bundle or a bundle containing the wrong method name
     - use `pytest.raises(run_task.FileBundleError)`
 
 ## Strong guidance — use these fixture shapes
@@ -251,6 +272,25 @@ Expected success assertion:
 assert result == "def helper(self):\n    return 3\n"
 ```
 
+### Example malformed parse fixture
+
+Use a structurally malformed bundle, for example:
+
+```python
+malformed = "\n".join(
+    [
+        "BEGIN_" + "FILE_BUNDLE",
+        "FI" + "LE: agents/run_task.py",
+        "def helper(self):",
+        "    return 3",
+        "END_" + "FILE_BUNDLE",
+        "",
+    ]
+)
+```
+
+This should raise `run_task.FileBundleError` because `END_FILE` is missing.
+
 ## Test construction rules
 
 - Use normal imports from `agents.run_task`
@@ -334,6 +374,7 @@ so the final runtime string is correct, but the emitted source file does not con
 - using `ANCHOR=` in append extraction tests
 - monkeypatching `chat` with an `output_path` parameter
 - using append anchors that contain spaces, such as `class Example:`
+- expecting target dict keys like `kind`, `rules`, or `target_method`
 
 ## Acceptance criteria
 
