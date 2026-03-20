@@ -20,7 +20,7 @@ This task adds a lightweight semantic preflight layer for protected Python APIs.
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=validate_static_bundle_contracts MAX_CHANGED_LINES=260
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=validate_static_bundle_contracts MAX_CHANGED_LINES=420
 - `tests/test_run_task_protected_api_semantic_preflight.py`
 
 Both listed files must be materially updated.
@@ -95,6 +95,27 @@ It should use:
 
 It should NOT try to build a full static type checker.
 
+### Success contract
+
+Do not change the existing success contract of `validate_static_bundle_contracts(...)`.
+
+If the current baseline returns `(True, "")` on success, keep that behavior.
+Do not change it to `(True, "ok")` just for new tests.
+
+### Test import surface
+
+The tests in `tests/test_run_task_protected_api_semantic_preflight.py` must use normal package imports, not `src.`-prefixed imports.
+
+Use imports like:
+
+- `from builder.orchestrator.runner import OrchestratorRunner`
+- `from builder.orchestrator.project_config import ProjectConfig`
+
+Do NOT use:
+
+- `from src.builder.orchestrator.runner import ...`
+- `from src.builder.orchestrator.project_config import ...`
+
 ### Failure messaging
 
 When the validator blocks a bundle, the error must be actionable. Examples:
@@ -112,6 +133,8 @@ When the validator blocks a bundle, the error must be actionable. Examples:
 - modifying any file under `src/`
 - changing import/module validation behavior unrelated to the targeted semantic extension
 - relying on external services in tests
+- using `src.`-prefixed imports in the new test file
+- asserting that success returns the literal message `"ok"` unless the current baseline already does that
 
 ## Tests
 
