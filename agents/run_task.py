@@ -693,6 +693,34 @@ def existing_file_contents(paths: List[str]) -> Dict[str, str]:
     return out
 
 
+def snapshot_file_contents(paths: List[str]) -> Dict[str, str | None]:
+    snapshot: Dict[str, str | None] = {}
+    repo_root = Path(".").resolve()
+    for rel in paths:
+        path = (repo_root / rel).resolve()
+        if not str(path).startswith(str(repo_root)):
+            continue
+        if path.exists() and path.is_file():
+            snapshot[rel] = path.read_text(encoding="utf-8", errors="replace")
+        else:
+            snapshot[rel] = None
+    return snapshot
+
+
+def restore_file_snapshot(snapshot: Dict[str, str | None]) -> None:
+    repo_root = Path(".").resolve()
+    for rel, previous in snapshot.items():
+        path = (repo_root / rel).resolve()
+        if not str(path).startswith(str(repo_root)):
+            continue
+        if previous is None:
+            if path.exists():
+                path.unlink()
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(previous, encoding="utf-8", newline="\n")
+
+
 def parse_required_runner_methods(task_text: str) -> List[str]:
     lower = normalize_newlines(task_text).lower()
     methods: List[str] = []
@@ -1076,7 +1104,12 @@ def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
     raise RuntimeError(f"Unsupported provider: {chosen}")
 
 
-def build_messages(task_text: str, required: List[str], extra_directives: str = "") -> List[dict]:
+def build_messages(
+    task_text: str,
+    required: List[str],
+    extra_directives: str = "",
+    virtual_context: Dict[str, str] | None = None,
+) -> List[dict]:
     extra: List[str] = []
 
     if required:
@@ -1097,6 +1130,19 @@ def build_messages(task_text: str, required: List[str], extra_directives: str = 
 
     extra.append("## Relevant file context")
     extra.append(relevant_context(required) or "(none)")
+
+    if virtual_context:
+        extra.append("")
+        extra.append("## Effective protected-file context (authoritative for this iteration)")
+        extra.append(
+            "These files are handled by the harness outside the normal bundle. "
+            "Use their exact content below when generating dependent files like tests."
+        )
+        for rel, content in virtual_context.items():
+            extra.append(f"FILE: {rel}")
+            extra.append(content.rstrip("\n"))
+            extra.append("END_FILE")
+
     extra.append("")
     extra.append("## Repository map")
     extra.append(repo_map())
@@ -1174,6 +1220,8 @@ def main() -> int:
     allow_unchanged_cli = task_allows_unchanged_cli(task_text)
     harness_policies = parse_harness_file_policies(task_text)
     baseline_paths = sorted(set(required) | set(harness_policies.keys()))
+    append_targets = _extract_append_method_targets(task_text)
+    protected_append_paths = {str(t["path"]) for t in append_targets}
 
     branch = f"agent-{task_path.stem}"
     print(f"Current branch: {capture(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
@@ -1189,11 +1237,16 @@ def main() -> int:
     extra_directives = ""
     violation_counts: Dict[str, int] = {}
 
+    stable_baseline = existing_file_contents(baseline_paths)
+
     for it in range(1, args.max_iters + 1):
         print(f"\n=== Iteration {it}/{args.max_iters} ===")
         baseline = existing_file_contents(baseline_paths)
-        append_targets = _extract_append_method_targets(task_text)
-        protected_append_paths = {str(t["path"]) for t in append_targets}
+        for protected_path in protected_append_paths:
+            if protected_path in stable_baseline:
+                baseline[protected_path] = stable_baseline[protected_path]
+            else:
+                baseline.pop(protected_path, None)
         bundle_required = [p for p in required if p not in protected_append_paths]
 
         files: Dict[str, str] = {}
@@ -1241,7 +1294,13 @@ def main() -> int:
                     non_protected_directives = (
                         (extra_directives.rstrip() + "\n\n") if extra_directives.strip() else ""
                     ) + suffix
-                messages = build_messages(task_text, bundle_required, non_protected_directives)
+                virtual_context = {p: files[p] for p in sorted(protected_append_paths) if p in files}
+                messages = build_messages(
+                    task_text,
+                    bundle_required,
+                    non_protected_directives,
+                    virtual_context=virtual_context,
+                )
                 generated = request_and_parse_bundle(
                     messages, args.model, args.provider, last_output_path
                 )
@@ -1260,7 +1319,13 @@ def main() -> int:
                         generated.pop(p, None)
                 files.update(generated)
             elif not files:
-                messages = build_messages(task_text, required, extra_directives)
+                virtual_context = {p: files[p] for p in sorted(protected_append_paths) if p in files}
+                messages = build_messages(
+                    task_text,
+                    required,
+                    extra_directives,
+                    virtual_context=virtual_context,
+                )
                 files = request_and_parse_bundle(
                     messages, args.model, args.provider, last_output_path
                 )
@@ -1344,6 +1409,7 @@ def main() -> int:
             prev_files = files
             continue
 
+        pre_write_snapshot = snapshot_file_contents(list(files.keys()))
         write_files(files)
         violation_counts.clear()
 
@@ -1361,6 +1427,8 @@ def main() -> int:
                 print(f"Pushed branch: {branch}")
                 print("Create a PR on GitHub for this branch (repo rules require PR).")
             return 0
+
+        restore_file_snapshot(pre_write_snapshot)
 
         print("❌ Checks failed after applying changes:")
         print(details)
