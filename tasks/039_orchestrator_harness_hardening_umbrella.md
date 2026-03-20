@@ -4,23 +4,23 @@
 
 Do NOT run this umbrella task directly with the agent.
 
-This workstream exists because the harness is now strong on bundle structure and policy enforcement, but still too weak on live semantic/API validation. Repeated failures on the end-to-end harness showed that the agent can still drift on protected API surfaces even when the task is otherwise narrow.
+This workstream exists because the harness is now strong on bundle structure and policy enforcement, but still too weak on live semantic/API validation and reusable protected-file edits. Repeated failures on the end-to-end harness showed that the agent can still drift on protected API surfaces even when the task is otherwise narrow.
 
 ## Why this tranche exists
 
 Recent failures showed three recurring gaps:
 
-1. the harness does not validate protected Python API contracts early enough
-2. the harness depends too much on prose in task specs instead of machine-readable contracts
-3. protected method edits still need one unified, reliable engine for append vs replace modes
+1. the harness needs one unified protected method edit engine before more protected-file work
+2. the harness does not validate protected Python API contracts early enough
+3. the harness still depends too much on prose in task specs instead of machine-readable contracts
 
 ## Run order
 
 Execute these subtasks in order from clean `main`:
 
-1. `tasks/039a_orchestrator_protected_api_semantic_preflight.md`
-2. `tasks/039b_orchestrator_machine_readable_task_contracts.md`
-3. `tasks/039c_orchestrator_protected_method_edit_engine.md`
+1. `tasks/039a_orchestrator_protected_method_edit_engine.md`
+2. `tasks/039b_orchestrator_protected_api_semantic_preflight.md`
+3. `tasks/039c_orchestrator_machine_readable_task_contracts.md`
 
 After all three are green and merged:
 
