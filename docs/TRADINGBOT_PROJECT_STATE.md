@@ -38,7 +38,7 @@ Build a safe, testable algorithmic trading bot that can:
 
 ## Current milestone
 
-**Manual paper-trading readiness.**
+**Manual paper-trading readiness plus orchestrator hardening for reusable autonomous delivery.**
 
 The repository contains the pieces needed to run a one-shot paper-trading cycle manually once credentials and environment configuration are in place.
 
@@ -50,7 +50,10 @@ The repository contains the pieces needed to run a one-shot paper-trading cycle 
 | 004–014 | ✅ Complete | Done via agent workflow |
 | 031 | ✅ Complete | Orchestrator real execution bridge |
 | 037 | ✅ Complete | Persistent backlog state completed manually and merged |
-| 032–036, 038–040 | 🔄 In progress | Orchestrator hardening |
+| 038a–038d | ✅ Complete | Run-loop / CLI / decision-log + import-symbol hardening |
+| 039a–039c | 🔄 Planned | Harness semantic hardening tranche |
+| 040 | 🔄 Pending | End-to-end integration harness after 039a–039c |
+| 041a–041b | 🔄 Pending | Multi-project hardening after 040 |
 
 ## What still remains for TradingBot
 
@@ -111,4 +114,4 @@ The current workflow still requires manual coordination:
 - creating/merging PRs
 - continuing to the next task
 
-The orchestrator automates that delivery loop safely. Once the remaining orchestrator hardening tasks are complete, the focus returns to TradingBot product functionality.
+The next orchestrator tranche focuses on improving harness semantic understanding so future tasks fail earlier and more cleanly. Once 039a / 039b / 039c are complete, the focus returns to the end-to-end harness and then multi-project portability.

@@ -145,7 +145,13 @@ py agents/run_task.py tasks/NNN_task_name.md --push
 14. `034_orchestrator_branch_and_worktree_guardrails`
 15. `035_orchestrator_pr_creation_workflow`
 16. `036_orchestrator_resume_after_approval`
-17. `037_orchestrator_persistent_backlog_state`
-18. `038_orchestrator_run_loop_cli`
-19. `039_orchestrator_end_to_end_integration_harness`
-20. `040_orchestrator_multi_project_hardening`
+17. `037_orchestrator_persistent_backlog_state` ✅
+18. `038_orchestrator_run_loop_cli` ✅
+19. `039_orchestrator_harness_hardening_umbrella` (do not run directly)
+20. `039a_orchestrator_protected_api_semantic_preflight`
+21. `039b_orchestrator_machine_readable_task_contracts`
+22. `039c_orchestrator_protected_method_edit_engine`
+23. `040_orchestrator_end_to_end_integration_harness`
+24. `041_orchestrator_multi_project_hardening` (do not run directly)
+25. `041a_orchestrator_project_config_schema`
+26. `041b_orchestrator_multi_project_adapter_tests`
