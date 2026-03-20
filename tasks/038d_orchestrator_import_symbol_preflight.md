@@ -14,7 +14,7 @@ This is a narrow harness gap and is worth fixing before rerunning Task 039.
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
-- `agents/run_task.py`
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ANCHOR_BEFORE=missing_module_hints( ALLOW_NEW_METHOD=validate_imports MAX_CHANGED_LINES=160
 - `tests/test_run_task_import_validation.py`
 
 Both listed files must be materially updated.
@@ -27,6 +27,14 @@ Do not modify orchestrator production files.
 Do not modify TradingBot production files.
 Do not change provider/model selection behavior.
 Do not weaken existing protected-file policy enforcement.
+
+For `agents/run_task.py`:
+
+- Do not rewrite the full file.
+- Add exactly one new top-level function named `validate_imports`.
+- Place it immediately before `def missing_module_hints(` using the protected append-method flow.
+- Preserve the existing missing-module validation behavior and extend it with repo-local imported-symbol validation.
+- Any small helper logic needed for symbol inspection should live inside `validate_imports` as nested helper logic, not as additional top-level functions.
 
 ## Required behavior
 
