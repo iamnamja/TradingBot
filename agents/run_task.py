@@ -334,13 +334,10 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
             if max_changed:
                 rules.append(f"max_changed_lines:{max_changed}")
         elif mode == "EXACT_COPY_PLUS_REPLACE_METHOD":
-            method_name = (
-                attrs.get("TARGET_METHOD", "").strip()
-                or attrs.get("METHOD_NAME", "").strip()
-                or attrs.get("ALLOW_EXISTING_METHOD", "").strip()
-            )
-            if method_name:
-                rules.append(f"replace_method:{method_name}")
+            replace_method = attrs.get("REPLACE_METHOD", "").strip() or attrs.get("ALLOW_EXISTING_METHOD", "").strip()
+            if replace_method:
+                rules.append(f"replace_method:{replace_method}")
+                rules.append(f"allow_methods:{replace_method}")
             max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
             if max_changed:
                 rules.append(f"max_changed_lines:{max_changed}")
@@ -360,7 +357,7 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
         if not isinstance(rules, list):
             continue
         anchor = None
-        allowed_methods: List[str] = []
+        append_method = None
         replace_method = None
         max_changed_lines = None
         for rule in rules:
@@ -368,39 +365,33 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
                 continue
             if rule.startswith("append_before:"):
                 anchor = rule.split("append_before:", 1)[1]
-            elif rule.startswith("allow_methods:"):
-                allowed_methods = [x.strip() for x in rule.split("allow_methods:", 1)[1].split(",") if x.strip()]
             elif rule.startswith("replace_method:"):
                 replace_method = rule.split("replace_method:", 1)[1].strip()
+            elif rule.startswith("allow_methods:") and append_method is None and replace_method is None:
+                methods = [x.strip() for x in rule.split("allow_methods:", 1)[1].split(",") if x.strip()]
+                if len(methods) == 1:
+                    append_method = methods[0]
             elif rule.startswith("max_changed_lines:"):
                 try:
                     max_changed_lines = int(rule.split("max_changed_lines:", 1)[1].strip())
                 except ValueError:
                     pass
-        if anchor and len(allowed_methods) == 1:
-            targets.append(
-                {
-                    "path": path,
-                    "mode": "append",
-                    "anchor": anchor,
-                    "method_name": allowed_methods[0],
-                    "max_changed_lines": max_changed_lines,
-                }
-            )
+        if anchor and append_method:
+            targets.append({
+                "path": path,
+                "mode": "append",
+                "anchor": anchor,
+                "method_name": append_method,
+                "max_changed_lines": max_changed_lines,
+            })
         elif replace_method:
-            targets.append(
-                {
-                    "path": path,
-                    "mode": "replace",
-                    "method_name": replace_method,
-                    "max_changed_lines": max_changed_lines,
-                }
-            )
+            targets.append({
+                "path": path,
+                "mode": "replace",
+                "method_name": replace_method,
+                "max_changed_lines": max_changed_lines,
+            })
     return targets
-
-
-def _extract_append_method_targets(task_text: str) -> List[Dict[str, object]]:
-    return [t for t in _extract_protected_method_targets(task_text) if t.get("mode") == "append"]
 
 def _count_changed_lines(old: str, new: str) -> int:
     diff = difflib.unified_diff(
@@ -466,8 +457,6 @@ def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseli
                     continue
                 if normalize_newlines(proposed_before) == normalize_newlines(original_before):
                     issues.append(f"`{path}` is protected by `append_before:{anchor}`, but no additive insertion before the anchor was detected.")
-                continue
-            if rule.startswith("replace_method:"):
                 continue
             if rule.startswith("max_changed_lines:"):
                 if proposed is None or original is None:
@@ -559,10 +548,7 @@ def apply_method_insertion(original: str, anchor: str, method_name: str, method_
 def apply_method_replacement(original: str, method_name: str, method_text: str) -> str:
     method_names = RUNNER_METHOD_HEADER_RE.findall(method_text)
     if method_names != [method_name]:
-        raise FileBundleError(
-            f"Method insertion payload must define exactly one method `{method_name}`; got {method_names or 'none'}."
-        )
-
+        raise FileBundleError(f"Method insertion payload must define exactly one method `{method_name}`; got {method_names or 'none'}.")
     content = normalize_newlines(original)
     lines = content.split("\n")
     start_idx = None
@@ -574,7 +560,7 @@ def apply_method_replacement(original: str, method_name: str, method_text: str) 
             method_indent = len(line) - len(stripped)
             break
     if start_idx is None:
-        raise FileBundleError(f"Existing method `{method_name}` not found in baseline file.")
+        raise FileBundleError(f"Could not locate existing method `{method_name}` in baseline file.")
 
     end_idx = len(lines)
     for idx in range(start_idx + 1, len(lines)):
@@ -582,27 +568,15 @@ def apply_method_replacement(original: str, method_name: str, method_text: str) 
         if not stripped:
             continue
         cur_indent = len(lines[idx]) - len(stripped)
-        if cur_indent <= method_indent and (stripped.startswith("def ") or stripped.startswith("class ")):
+        if cur_indent <= method_indent and stripped.startswith("def "):
             end_idx = idx
             break
 
-    offsets: List[int] = []
-    pos = 0
-    for line in lines:
-        offsets.append(pos)
-        pos += len(line) + 1
-    start_pos = offsets[start_idx]
-    end_pos = offsets[end_idx] if end_idx < len(lines) else len(content)
-
-    indent = " " * method_indent
-    replaced = _indent_method_text(method_text, indent)
-    return content[:start_pos] + replaced + content[end_pos:]
-
-
-METHOD_INSERTION_BEGIN = "BEGIN_METHOD_INSERTION"
-METHOD_INSERTION_END = "END_METHOD_INSERTION"
-METHOD_BLOCK_BEGIN = "BEGIN_METHOD"
-METHOD_BLOCK_END = "END_METHOD"
+    indent = lines[start_idx][:method_indent]
+    replacement = _indent_method_text(method_text, indent).rstrip("\n").split("\n")
+    new_lines = lines[:start_idx] + replacement + lines[end_idx:]
+    rebuilt = "\n".join(new_lines).rstrip("\n") + "\n"
+    return rebuilt
 
 METHOD_INSERTION_BEGIN = "BEGIN_METHOD_INSERTION"
 METHOD_INSERTION_END = "END_METHOD_INSERTION"
@@ -681,19 +655,11 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
         )
     return _method_block_from_file_content(files[expected_path], expected_method_name)
 
-def build_method_insertion_messages(
-    task_text: str,
-    target_path: str,
-    method_name: str,
-    baseline_content: str,
-    extra_directives: str = "",
-    *,
-    operation: str = "append",
-    anchor: str | None = None,
-) -> List[dict]:
-    action_line = (
-        f"Replace the existing method named `{method_name}`."
-        if operation == "replace"
+
+def build_method_insertion_messages(task_text: str, target_path: str, method_name: str, baseline_content: str, mode: str, extra_directives: str = "", anchor: str = "") -> List[dict]:
+    operation_line = (
+        f"Replace the existing method named `{method_name}` in place."
+        if mode == "replace"
         else f"Add exactly one new method named `{method_name}` before anchor `{anchor}`."
     )
     parts = [
@@ -701,15 +667,15 @@ def build_method_insertion_messages(
         "",
         "## Protected-file method mode",
         f"Return ONLY a method insertion bundle for `{target_path}`.",
-        action_line,
+        operation_line,
         "Do not rewrite the full file.",
         "Do not include any other file in this response.",
-        "Do not change imports or any other existing method bodies.",
+        "Do not change imports or any existing method bodies except the requested method operation.",
         "The response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.",
         "Do not add helper functions at top level.",
         "Do not add nested helper functions inside the requested method.",
-        "Inline helper logic with local variables, loops, comprehensions, and standard-library calls only.",
-        "Do not emit a normal BEGIN_FILE_BUNDLE response for this protected file.",
+        "Inline all helper logic with local variables, loops, comprehensions, and standard-library calls only.",
+        "Do not emit a normal BEGIN_FILE_BUNDLE response for this file.",
         "",
         "Required format:",
         "BEGIN_METHOD_INSERTION",
@@ -720,6 +686,9 @@ def build_method_insertion_messages(
         "    ...",
         "END_METHOD",
         "END_METHOD_INSERTION",
+        "",
+        "Rejection rule:",
+        f"- Accepted only if RUNNER_METHOD_HEADER_RE.findall(method_text) == ['{method_name}']",
         "",
         "## Current baseline file content",
         f"FILE: {target_path}",
@@ -733,14 +702,8 @@ def build_method_insertion_messages(
         {"role": "user", "content": "\n".join(parts).rstrip() + "\n"},
     ]
 
-def request_and_parse_method_insertion(
-    messages: List[dict],
-    model: str,
-    provider: str,
-    last_output_path: Path,
-    expected_path: str,
-    expected_method_name: str,
-) -> str:
+
+def request_and_parse_method_insertion(messages: List[dict], model: str, provider: str, last_output_path: Path, expected_path: str, expected_method_name: str) -> str:
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
     try:
@@ -764,6 +727,7 @@ def request_and_parse_method_insertion(
         "    ...\n"
         "END_METHOD\n"
         "END_METHOD_INSERTION\n\n"
+        f"Acceptance rule: RUNNER_METHOD_HEADER_RE.findall(method_text) must equal ['{expected_method_name}'].\n"
         f"Parser error: {first_error}"
     )
     out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
@@ -1426,9 +1390,9 @@ def main() -> int:
         try:
             for target in protected_method_targets:
                 target_path = str(target["path"])
-                mode = str(target.get("mode", "append"))
                 method_name = str(target["method_name"])
-                anchor = str(target["anchor"]) if "anchor" in target else None
+                mode = str(target["mode"])
+                anchor = str(target.get("anchor", ""))
                 baseline_content = baseline.get(target_path)
                 if baseline_content is None:
                     raise FileBundleError(
@@ -1439,8 +1403,8 @@ def main() -> int:
                     target_path,
                     method_name,
                     baseline_content,
+                    mode,
                     extra_directives,
-                    operation=mode,
                     anchor=anchor,
                 )
                 method_text = request_and_parse_method_insertion(
@@ -1458,21 +1422,18 @@ def main() -> int:
                         method_text,
                     )
                 else:
-                    if anchor is None:
-                        raise FileBundleError(
-                            f"Protected append target `{target_path}` is missing an anchor."
-                        )
                     files[target_path] = apply_method_insertion(
                         baseline_content,
                         anchor,
                         method_name,
                         method_text,
                     )
+
             if bundle_required:
                 non_protected_directives = extra_directives
                 if protected_method_paths:
                     suffix = (
-                        "Do not emit protected method-managed files in the normal file bundle; "
+                        "Do not emit protected method-handled files in the normal file bundle; "
                         "they are handled separately by protected method mode. If you include them anyway, "
                         "they will be ignored."
                     )
@@ -1492,12 +1453,12 @@ def main() -> int:
                 overlap = sorted(set(generated) & protected_method_paths)
                 if overlap:
                     print(
-                        "ℹ️ Ignoring protected method-managed files emitted in normal bundle: "
+                        "ℹ️ Ignoring protected method-handled files emitted in normal bundle: "
                         + ", ".join(overlap)
                     )
                     task_text = _append_task_feedback(
                         task_text,
-                        "Do not emit protected method-managed files in the normal file bundle. "
+                        "Do not emit protected method-handled files in the normal file bundle. "
                         "Only emit non-protected deliverables there.",
                     )
                     for p in overlap:
