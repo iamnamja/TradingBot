@@ -14,7 +14,7 @@ This task is a narrow harness hardening task that should land before rerunning T
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=validate_imports ANCHOR_BEFORE=missing_module_hints( MAX_CHANGED_LINES=240
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=validate_imports ANCHOR_BEFORE=missing_module_hints( MAX_CHANGED_LINES=260
 - `tests/test_run_task_import_validation.py`
 
 Both listed files must be materially updated in the same bundle.
@@ -46,13 +46,15 @@ For `agents/run_task.py`:
 - Use the protected append-method flow only.
 - Add exactly one new top-level function named `validate_imports`.
 - Place it immediately before `def missing_module_hints(`.
-- The inserted payload must contain exactly one top-level function and nothing else.
+- The insertion payload must contain exactly one top-level function and nothing else.
 - Do not add any additional top-level defs.
 - Do not add any additional top-level classes.
 - Do not add any additional top-level constants.
 - Do not add helper functions at module scope.
-- Keep all helper logic inside `validate_imports(...)`.
-- Prefer inline logic and local variables over nested helper `def` statements.
+- Do not define nested helper functions inside `validate_imports(...)`.
+- Do not use any additional `def` statements anywhere inside the inserted method text.
+- Keep helper logic inline using local variables, loops, comprehensions, and existing stdlib calls only.
+- For the protected insertion response, return only the method insertion payload requested by the harness. Do not emit a normal `BEGIN_FILE_BUNDLE` response for `agents/run_task.py`.
 
 ### Required method signature
 
@@ -103,7 +105,9 @@ This must participate in the existing pre-write validation flow the same way cur
 
 - rewriting all of `agents/run_task.py`
 - emitting multiple top-level methods in the protected insertion payload
+- using nested helper defs inside `validate_imports`
 - adding helper methods like `module_exists`, `resolve_module_source`, `symbol_exists`, etc. at top level
+- adding extra `def` statements anywhere in the inserted `validate_imports` payload
 - changing provider/model defaults
 - changing protected-file baseline logic
 - changing append-method parsing behavior
