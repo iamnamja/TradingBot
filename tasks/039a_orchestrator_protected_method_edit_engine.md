@@ -62,7 +62,7 @@ The tests must target these real functions with their real current signatures an
 - `apply_method_insertion(original, anchor, method_name, method_text)`
   - returns the updated file content as a string
   - raises `run_task.FileBundleError` on invalid input
-  - does not need to reject the case where the inserted method name already exists elsewhere unless the current implementation already does so
+  - the inserted method is re-indented to match its insertion context
 
 - `apply_method_replacement(original, method_name, method_text)`
   - returns the updated file content as a string
@@ -85,33 +85,46 @@ Add deterministic tests covering at least:
 1. append policy parsing from a realistic task snippet using:
    - a `## Harness policy` section
    - `- FILE: ... MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=... ANCHOR_BEFORE=...`
-   - assert normalized rules like `append_before:...` and `allow_methods:...`
+   - use an anchor token with no spaces, such as `_parse_task_file(` or `existing(`
+   - assert normalized rules like:
+     - `append_before:def _parse_task_file(`
+     - `allow_methods:simulate_backlog`
 
 2. replace policy parsing from a realistic task snippet using:
    - a `## Harness policy` section
    - `- FILE: ... MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=...`
-   - assert normalized rules include both:
+   - assert normalized rules include:
      - `replace_method:<name>`
+   - it is acceptable if the current baseline also includes:
      - `allow_methods:<name>`
 
 3. append target extraction from a realistic task snippet using:
    - `ANCHOR_BEFORE=...`
    - `ALLOW_NEW_METHOD=...`
-   - assert the returned list of dicts matches the current shape
+   - use subset assertions against the returned dict rather than brittle exact dict equality
+   - for append anchors, expect current normalization like:
+     - `def _parse_task_file(`
+     - `def existing(`
 
 4. replace target extraction from a realistic task snippet using:
    - `TARGET_METHOD=...`
-   - assert the returned dict shape matches current behavior
+   - use subset assertions against the returned dict rather than exact dict equality
    - it is acceptable for the dict to include `"max_changed_lines": None`
 
 5. append method application into baseline content before an anchor
+   - assert:
+     - the helper method appears before the anchor method
+     - the helper body is present
+     - the helper is indented according to the surrounding context
+   - do NOT assert one exact flat string like `def helper(self):\n    return 3\n`
 
 6. replace method application for an existing method
    - do not require an exact full-string match
    - assert instead that:
-     - the new body is present
-     - the old exact line `return 2` is gone
+     - the new exact body line is present
+     - the old exact body line is gone
      - surrounding methods remain present
+   - avoid substring overlaps like asserting `"return 2"` is absent when `"return 200"` is present
 
 7. missing replacement target rejection
 
@@ -122,6 +135,9 @@ Add deterministic tests covering at least:
 
 10. `request_and_parse_method_insertion(...)` happy-path parsing using monkeypatched `chat`
     - monkeypatched `chat` must accept exactly `(messages, model, provider)`
+    - the synthetic bundle must contain a valid extracted method body with proper indentation, for example:
+      - `def helper(self):`
+      - `    return 3`
     - assert the function returns the extracted method text string
 
 11. `request_and_parse_method_insertion(...)` malformed bundle rejection using monkeypatched `chat`
@@ -146,6 +162,13 @@ So the extraction tests must place their `- FILE:` lines under a real `## Harnes
 
 For append extraction tests, use `ANCHOR_BEFORE=...`, not `ANCHOR=...`.
 
+Also, because the current parser tokenizes attribute values on spaces, do not use anchors with spaces such as:
+- `class Example:`
+
+Use anchors without spaces, such as:
+- `_parse_task_file(`
+- `existing(`
+
 ### CRITICAL: use the real exception/return contracts
 
 Do NOT assert invented wrapper dicts like:
@@ -164,6 +187,11 @@ Prefer assertions that check:
 - the exact old method body line, such as `"return 2\n"`, is gone
 - the new exact body line, such as `"return 200\n"`, is present
 - untouched methods remain present
+
+For `apply_method_insertion(...)`, prefer assertions that check:
+- helper method appears before anchor
+- helper definition is present
+- helper body line is present with surrounding-context indentation
 
 ### CRITICAL bundle-string construction rule
 
@@ -197,6 +225,7 @@ so the final runtime string is correct, but the emitted source file does not con
 - using `## Task` instead of `## Harness policy` for `- FILE:` extraction fixtures
 - using `ANCHOR=` in append extraction tests
 - monkeypatching `chat` with an `output_path` parameter
+- using append anchors that contain spaces, such as `class Example:`
 
 ## Acceptance criteria
 
