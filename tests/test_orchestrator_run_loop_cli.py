@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import src.builder.orchestrator.cli as cli
+from builder.orchestrator import cli
 
 
 def test_run_loop_cli_calls_runner_and_prints_iteration_and_summary(capsys) -> None:
