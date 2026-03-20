@@ -1,157 +1,154 @@
-# Task 039b — Protected API Semantic Preflight
+# Task 039b — Protected API Semantic Preflight (Tests Only)
 
 ## Goal
 
-Extend the existing `validate_static_bundle_contracts(...)` preflight in `agents/run_task.py` so the harness rejects obvious semantic/API mismatches against protected Python files before spending an iteration on `ruff` / `pytest`.
+Add deterministic tests for the current protected Python semantic preflight in `agents/run_task.py` without changing production code.
 
 ## Why
 
-The harness already catches syntax, bundle completeness, deliverable scope, and some static contract regressions. It still does not validate enough about the real protected API surface.
-
-Recent failures showed these examples:
-
-- tests importing or calling symbols that do not exist on protected modules/classes
-- tests calling nonexistent methods like `runner.run()` / `runner.run_all_tasks()`
-- tests constructing `OrchestratorRunner` with the wrong config object shape, even though the real constructor requires either a `ProjectConfig` or an object exposing `.config`
-
-This task comes after 039a so it can rely on the hardened protected method replacement path.
+The harness now includes protected Python semantic/API drift detection directly in `agents/run_task.py`. The next step is to validate that behavior with stable tests instead of continuing to evolve the harness through task-driven self-modification.
 
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=validate_static_bundle_contracts MAX_CHANGED_LINES=420
 - `tests/test_run_task_protected_api_semantic_preflight.py`
 
-Both listed files must be materially updated.
+The listed file must be materially updated.
 
 ## Harness policy
 
+- FILE: agents/run_task.py MODE=PROTECTED_FORBID
 - FILE: tests/test_orchestrator_end_to_end.py MODE=PROTECTED_FORBID
 
 ## Critical compatibility requirement
 
-All existing public APIs and harness behavior in `agents/run_task.py` must remain backward compatible.
+This task adds tests only.
 
-Do not change:
+It must not change:
+- `agents/run_task.py`
 - provider/model selection behavior
-- retry loop behavior
-- bundle parsing rules
-- protected-file policy enforcement
-- workspace restore behavior
-- branch / git behavior
-- import validation behavior outside the targeted semantic extension
-- TradingBot or orchestrator production code under `src/`
+- bundle parsing behavior
+- git / branch behavior
+- any file under `src/`
 
 All existing passing tests must continue to pass.
 
-## Required implementation shape
+## Current baseline under test — use exact current behavior
 
-For `agents/run_task.py`:
+Only import symbols that actually exist on the current baseline.
 
-- Do not rewrite the full file.
-- Use the protected replace-method flow only.
-- Replace exactly one existing top-level function named `validate_static_bundle_contracts`.
-- The method replacement payload must contain exactly one top-level function and nothing else.
-- Do not add any additional top-level defs.
-- Do not add any additional top-level classes.
-- Do not add any additional top-level constants.
-- Do not define nested helper functions inside `validate_static_bundle_contracts(...)`.
-- Do not use any additional `def` statements anywhere inside the replacement method text.
-- Keep helper logic inline using local variables, loops, comprehensions, `ast`, and existing stdlib calls only.
-- For the protected method response, return only the method insertion bundle requested by the harness. Do not emit a normal `BEGIN_FILE_BUNDLE` response for `agents/run_task.py`.
+The tests must target the current public-ish harness entrypoint:
 
-### Required method signature
+- `validate_static_bundle_contracts(bundle, task_text)`
 
-```python
-def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> Tuple[bool, str]:
-```
+Use it as the main assertion surface for semantic preflight behavior.
 
-The replacement method must preserve all current passing static contract checks and extend them with the semantic/API checks described below.
+It is acceptable to monkeypatch helper functions inside `agents.run_task` to make the tests deterministic, including:
+- `_module_source_for_name`
+- `_class_methods_from_source`
+- `_class_init_arity_from_source`
 
-## Required behavior
+Do NOT patch away `validate_static_bundle_contracts(...)` itself.
 
-Add a protected-Python semantic preflight that can inspect real protected files on disk and reject generated code when the mismatch is statically obvious.
+## Required semantic scenarios
 
-### Minimum required detections
-
-At minimum, the preflight must reject these patterns when the bundle references protected orchestrator Python files:
-
-1. importing a symbol from a protected module when that symbol does not exist
-2. calling a method on an imported protected class or obvious instance variable when that method does not exist
-3. constructing a protected class with an obviously wrong argument count
-4. constructing `OrchestratorRunner` with a bare config-like object that lacks `.config` when the current protected constructor requires it
-5. calling `runner.run()` or `runner.run_all_tasks()` when only `run_next_task()` and `run_loop()` exist
-
-### Validation style
-
-Keep the validator lightweight and deterministic.
-
-It should use:
-- Python AST parsing
-- protected file contents from disk
-- real symbol/method names discovered from those files
-- simple dataflow only where the variable binding is obvious in the same file
-
-It should NOT try to build a full static type checker.
-
-### Success contract
-
-Do not change the existing success contract of `validate_static_bundle_contracts(...)`.
-
-If the current baseline returns `(True, "")` on success, keep that behavior.
-Do not change it to `(True, "ok")` just for new tests.
-
-### Test import surface
-
-The tests in `tests/test_run_task_protected_api_semantic_preflight.py` must use normal package imports, not `src.`-prefixed imports.
-
-Use imports like:
-
-- `from builder.orchestrator.runner import OrchestratorRunner`
-- `from builder.orchestrator.project_config import ProjectConfig`
-
-Do NOT use:
-
-- `from src.builder.orchestrator.runner import ...`
-- `from src.builder.orchestrator.project_config import ...`
-
-### Failure messaging
-
-When the validator blocks a bundle, the error must be actionable. Examples:
-
-- `tests/test_x.py: OrchestratorRunner() is called with 0 args but protected constructor requires 3`
-- `tests/test_x.py: variable 'runner' is an OrchestratorRunner; protected API has no method 'run_all_tasks'`
-- `tests/test_x.py: OrchestratorRunner first arg must be ProjectConfig or object with .config`
-
-## Exact forbidden patterns
-
-- rewriting all of `agents/run_task.py`
-- emitting multiple top-level methods in the protected replacement payload
-- adding helper methods/functions at top level
-- adding extra `def` statements anywhere inside the replacement payload
-- modifying any file under `src/`
-- changing import/module validation behavior unrelated to the targeted semantic extension
-- relying on external services in tests
-- using `src.`-prefixed imports in the new test file
-- asserting that success returns the literal message `"ok"` unless the current baseline already does that
-
-## Tests
-
-`tests/test_run_task_protected_api_semantic_preflight.py` must include deterministic tests for at least:
+Add deterministic tests covering at least:
 
 1. valid protected constructor usage passes
 2. zero-arg `OrchestratorRunner()` is rejected
 3. missing protected method call is rejected
 4. missing protected import symbol is rejected
-5. bare `SimpleNamespace(...)` as first arg to `OrchestratorRunner` is rejected when `.config` is required
-6. non-protected modules are ignored by this validator
+5. bare `SimpleNamespace(...)` first arg is rejected when `.config` is required
+6. non-protected modules are ignored by the validator
 
-Tests must be Windows-portable and must not call external services.
+## Strong guidance — use deterministic synthetic module sources
+
+To avoid coupling these tests to unrelated future changes in `src/builder/orchestrator/...`, monkeypatch `_module_source_for_name(...)` to return small synthetic module texts for:
+
+- `builder.orchestrator.runner`
+- `builder.orchestrator.project_config`
+
+### Example runner source fixture
+
+Use a synthetic runner source shaped like:
+
+```python
+class OrchestratorRunner:
+    def __init__(self, config, backlog_tracker, initial_state):
+        self.config = config.config if hasattr(config, "config") else config
+
+    def run_next_task(self):
+        return None
+
+    def run_loop(self):
+        return None
+```
+
+This gives the validator a stable constructor arity and method set.
+
+### Example project-config source fixture
+
+Use a simple source like:
+
+```python
+class ProjectConfig:
+    pass
+```
+
+## Strong guidance — use a stable bundle fixture
+
+Construct the synthetic bundle with a test-file path such as:
+
+- `tests/test_generated_semantic_contract.py`
+
+and put the code-under-test in that bundle entry as a string.
+
+Use normal package imports in the synthetic test code, for example:
+
+- `from builder.orchestrator.runner import OrchestratorRunner`
+- `from builder.orchestrator.project_config import ProjectConfig`
+
+Do NOT use `src.`-prefixed imports.
+
+## Strong guidance — use exact assertions that match current behavior
+
+For success:
+- assert `ok is True`
+- assert `message == ""`
+
+For failures:
+- assert `ok is False`
+- assert that `message` contains a stable substring, for example:
+  - `"OrchestratorRunner() is called with 0 args"`
+  - `"has no method 'run_all_tasks'"`
+  - `"imports missing symbol"`
+  - `"first arg must be ProjectConfig or object with .config"`
+
+Do NOT require one exact full multi-line message string.
+
+## Import pattern for the test file
+
+Do NOT use:
+
+```python
+from agents import run_task
+```
+
+Instead, load `agents/run_task.py` by path using `importlib.util.spec_from_file_location(...)`, the same way 039a did, so the test remains portable in the current pytest environment.
+
+## Exact forbidden patterns
+
+- modifying `agents/run_task.py`
+- creating `last_output.txt`
+- creating `_last_agent_model_output.txt`
+- creating `_last_agent_file_bundle.txt`
+- using `src.`-prefixed imports in the synthetic bundle content
+- patching `validate_static_bundle_contracts(...)` itself
+- depending on the current real `src/builder/orchestrator/runner.py` file content
 
 ## Acceptance criteria
 
 - `ruff check .` passes
 - `pytest -q` passes
-- semantic protected API drift is blocked before full test execution
-- `agents/run_task.py` changes are limited to one protected method replacement
+- protected API semantic drift is covered by deterministic tests without production edits
