@@ -40,6 +40,7 @@ FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
 RUNNER_METHOD_HEADER_RE = re.compile(r"^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILINE)
 TASK_FILE_POLICY_RE = re.compile(r"^\s*-\s*FILE:\s*(?P<path>\S+)(?P<rest>.*)$")
 TASK_FILE_ATTR_RE = re.compile(r"([A-Z_]+)=([^\s]+)")
+CONTRACT_DIRECTIVE_RE = re.compile(r"^\s*-\s*(CONSTRUCTOR|CONFIG_WRAPPER|ALLOWED_METHODS|FORBID_IMPORTS|FORBID_CALLS|RESULT_KEYS):\s*(.+)$")
 
 RUFF_UNUSED_IMPORT_RE = re.compile(r"F401 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
 RUFF_BOOL_COMPARE_RE = re.compile(r"E712 .*? --> ([^\n:]+):(\d+):\d+", re.MULTILINE)
@@ -281,74 +282,107 @@ def _normalize_anchor_token(token: str) -> str:
     return token
 
 
+
+def _iter_markdown_sections(task_text: str) -> List[Tuple[str, List[str]]]:
+    text = normalize_newlines(task_text)
+    lines = text.split("\n")
+    sections: List[Tuple[str, List[str]]] = []
+    current_name = ""
+    current_lines: List[str] = []
+    for line in lines:
+        heading = re.match(r"^\s{0,3}#{1,6}\s+(.*?)\s*$", line)
+        if heading:
+            sections.append((current_name, current_lines))
+            current_name = heading.group(1).strip().lower()
+            current_lines = []
+        else:
+            current_lines.append(line)
+    sections.append((current_name, current_lines))
+    return sections
+
+
 def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
     """Parse machine-readable harness policies from task text."""
     policies: Dict[str, Dict[str, object]] = {}
-    lines = normalize_newlines(task_text).split("\n")
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line:
-            continue
+    allowed_section_names = {
+        "",
+        "deliverables",
+        "harness policy",
+        "machine-readable contract directives",
+    }
 
-        if line.startswith("HARNESS_POLICY:"):
-            try:
-                _, rest = line.split("HARNESS_POLICY:", 1)
-                path_and_rule = rest.strip()
-                path, rule = path_and_rule.split(None, 1)
-            except ValueError:
-                continue
-            path = path.strip().replace("\\", "/")
-            rule = rule.strip()
-            if not path or not rule:
-                continue
-            entry = policies.setdefault(path, {"rules": []})
-            rules = entry.setdefault("rules", [])
-            if isinstance(rules, list):
-                rules.append(rule)
-            continue
-
-        m = TASK_FILE_POLICY_RE.match(line)
-        if not m:
-            continue
-        path = m.group("path").strip().replace("\\", "/")
-        attrs = dict(TASK_FILE_ATTR_RE.findall((m.group("rest") or "").strip()))
-        mode = attrs.get("MODE", "").strip().upper()
-        if not path or not mode:
-            continue
+    def _add_rule(path: str, rule: str) -> None:
+        path = path.strip().replace("\\", "/")
+        if not path or not rule:
+            return
         entry = policies.setdefault(path, {"rules": []})
         rules = entry.setdefault("rules", [])
-        if not isinstance(rules, list):
-            continue
-        if mode == "PROTECTED_FORBID":
-            rules.append("forbid")
-        elif mode == "EXACT_COPY":
-            rules.append("exact_copy")
-        elif mode == "EXACT_COPY_PLUS_APPEND_METHOD":
-            anchor = attrs.get("ANCHOR_BEFORE", "").strip()
-            if anchor:
-                rules.append(f"append_before:{_normalize_anchor_token(anchor)}")
-            allow_method = attrs.get("ALLOW_NEW_METHOD", "").strip()
-            if allow_method:
-                rules.append(f"allow_methods:{allow_method}")
-            max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
-            if max_changed:
-                rules.append(f"max_changed_lines:{max_changed}")
-        elif mode == "EXACT_COPY_PLUS_REPLACE_METHOD":
-            replace_method = attrs.get("REPLACE_METHOD", "").strip() or attrs.get("ALLOW_EXISTING_METHOD", "").strip()
-            if replace_method:
-                rules.append(f"replace_method:{replace_method}")
-                rules.append(f"allow_methods:{replace_method}")
-            max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
-            if max_changed:
-                rules.append(f"max_changed_lines:{max_changed}")
-        elif mode == "METHOD_ADD_ONLY":
-            allow_method = attrs.get("ALLOW_NEW_METHOD", "").strip()
-            if allow_method:
-                rules.append(f"allow_methods:{allow_method}")
-            max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
-            if max_changed:
-                rules.append(f"max_changed_lines:{max_changed}")
+        if isinstance(rules, list):
+            rules.append(rule)
+
+    for section_name, section_lines in _iter_markdown_sections(task_text):
+        parse_file_directives = section_name in allowed_section_names
+        for raw_line in section_lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith("HARNESS_POLICY:"):
+                try:
+                    _, rest = line.split("HARNESS_POLICY:", 1)
+                    path_and_rule = rest.strip()
+                    path, rule = path_and_rule.split(None, 1)
+                except ValueError:
+                    continue
+                _add_rule(path, rule.strip())
+                continue
+
+            if not parse_file_directives:
+                continue
+
+            m = TASK_FILE_POLICY_RE.match(line)
+            if not m:
+                continue
+            path = m.group("path").strip().replace("\\", "/")
+            attrs = dict(TASK_FILE_ATTR_RE.findall((m.group("rest") or "").strip()))
+            mode = attrs.get("MODE", "").strip().upper()
+            if not path or not mode:
+                continue
+            if mode == "PROTECTED_FORBID":
+                _add_rule(path, "forbid")
+            elif mode == "EXACT_COPY":
+                _add_rule(path, "exact_copy")
+            elif mode == "EXACT_COPY_PLUS_APPEND_METHOD":
+                anchor = attrs.get("ANCHOR_BEFORE", "").strip()
+                if anchor:
+                    _add_rule(path, f"append_before:{_normalize_anchor_token(anchor)}")
+                allow_method = attrs.get("ALLOW_NEW_METHOD", "").strip()
+                if allow_method:
+                    _add_rule(path, f"allow_methods:{allow_method}")
+                max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
+                if max_changed:
+                    _add_rule(path, f"max_changed_lines:{max_changed}")
+            elif mode == "EXACT_COPY_PLUS_REPLACE_METHOD":
+                replace_method = (
+                    attrs.get("TARGET_METHOD", "").strip()
+                    or attrs.get("REPLACE_METHOD", "").strip()
+                    or attrs.get("ALLOW_EXISTING_METHOD", "").strip()
+                )
+                if replace_method:
+                    _add_rule(path, f"replace_method:{replace_method}")
+                    _add_rule(path, f"allow_methods:{replace_method}")
+                max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
+                if max_changed:
+                    _add_rule(path, f"max_changed_lines:{max_changed}")
+            elif mode == "METHOD_ADD_ONLY":
+                allow_method = attrs.get("ALLOW_NEW_METHOD", "").strip()
+                if allow_method:
+                    _add_rule(path, f"allow_methods:{allow_method}")
+                max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
+                if max_changed:
+                    _add_rule(path, f"max_changed_lines:{max_changed}")
     return policies
+
 
 def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]:
     targets: List[Dict[str, object]] = []
@@ -392,7 +426,6 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
                 "max_changed_lines": max_changed_lines,
             })
     return targets
-
 def _count_changed_lines(old: str, new: str) -> int:
     diff = difflib.unified_diff(
         normalize_newlines(old).splitlines(),
@@ -528,6 +561,7 @@ def _indent_method_text(method_text: str, indent: str) -> str:
         out.append(indent + "    " + rel)
     return "\n".join(out).rstrip("\n") + "\n"
 
+
 def apply_method_insertion(original: str, anchor: str, method_name: str, method_text: str) -> str:
     if anchor not in original:
         raise FileBundleError(f"Insertion anchor `{anchor}` not found in baseline file.")
@@ -561,7 +595,6 @@ def apply_method_replacement(original: str, method_name: str, method_text: str) 
             break
     if start_idx is None:
         raise FileBundleError(f"Could not locate existing method `{method_name}` in baseline file.")
-
     end_idx = len(lines)
     for idx in range(start_idx + 1, len(lines)):
         stripped = lines[idx].lstrip()
@@ -571,12 +604,11 @@ def apply_method_replacement(original: str, method_name: str, method_text: str) 
         if cur_indent <= method_indent and stripped.startswith("def "):
             end_idx = idx
             break
-
     indent = lines[start_idx][:method_indent]
-    replacement = _indent_method_text(method_text, indent).rstrip("\n").split("\n")
-    new_lines = lines[:start_idx] + replacement + lines[end_idx:]
-    rebuilt = "\n".join(new_lines).rstrip("\n") + "\n"
-    return rebuilt
+    replacement_lines = _indent_method_text(method_text, indent).rstrip("\n").split("\n")
+    new_lines = lines[:start_idx] + replacement_lines + lines[end_idx:]
+    return "\n".join(new_lines).rstrip("\n") + "\n"
+
 
 METHOD_INSERTION_BEGIN = "BEGIN_METHOD_INSERTION"
 METHOD_INSERTION_END = "END_METHOD_INSERTION"
@@ -638,21 +670,15 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
                 if i >= len(body_lines):
                     raise FileBundleError("Missing END_METHOD in method insertion bundle.")
                 if target_file and target_file != expected_path:
-                    raise FileBundleError(
-                        f"Method insertion target file mismatch: expected {expected_path}, got {target_file}."
-                    )
+                    raise FileBundleError(f"Method insertion target file mismatch: expected {expected_path}, got {target_file}.")
                 if method_name and method_name != expected_method_name:
-                    raise FileBundleError(
-                        f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}."
-                    )
+                    raise FileBundleError(f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}.")
                 return "\n".join(buf).rstrip("\n") + "\n"
             i += 1
 
     files = parse_file_bundle(text)
     if expected_path not in files:
-        raise FileBundleError(
-            "Method insertion response did not include protected target file or insertion markers."
-        )
+        raise FileBundleError("Method insertion response did not include protected target file or insertion markers.")
     return _method_block_from_file_content(files[expected_path], expected_method_name)
 
 
@@ -668,14 +694,13 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         "## Protected-file method mode",
         f"Return ONLY a method insertion bundle for `{target_path}`.",
         operation_line,
+        "You are editing the EXISTING harness file in place.",
         "Do not rewrite the full file.",
         "Do not include any other file in this response.",
-        "Do not change imports or any existing method bodies except the requested method operation.",
+        "Do not replace the current harness with a miniature standalone script.",
+        "Preserve the current module structure, imports, entrypoint, and unrelated functions exactly.",
+        "Only perform the requested method append or method replacement.",
         "The response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.",
-        "Do not add helper functions at top level.",
-        "Do not add nested helper functions inside the requested method.",
-        "Inline all helper logic with local variables, loops, comprehensions, and standard-library calls only.",
-        "Do not emit a normal BEGIN_FILE_BUNDLE response for this file.",
         "",
         "Required format:",
         "BEGIN_METHOD_INSERTION",
@@ -686,9 +711,6 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         "    ...",
         "END_METHOD",
         "END_METHOD_INSERTION",
-        "",
-        "Rejection rule:",
-        f"- Accepted only if RUNNER_METHOD_HEADER_RE.findall(method_text) == ['{method_name}']",
         "",
         "## Current baseline file content",
         f"FILE: {target_path}",
@@ -714,11 +736,8 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     reminder = (
         "Your previous response was INVALID.\n"
         "You MUST output ONLY a valid method insertion bundle using the literal markers below.\n"
-        "Your response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.\n"
-        "Do NOT add helper functions at top level.\n"
-        "Do NOT add nested helper functions inside the requested method.\n"
-        "Inline all helper logic.\n"
-        "Do NOT output BEGIN_FILE_BUNDLE for this protected file.\n\n"
+        "Do not output BEGIN_FILE_BUNDLE for this protected file.\n"
+        "Do not add any extra top-level def.\n\n"
         "BEGIN_METHOD_INSERTION\n"
         f"TARGET_FILE: {expected_path}\n"
         f"METHOD_NAME: {expected_method_name}\n"
@@ -727,12 +746,10 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         "    ...\n"
         "END_METHOD\n"
         "END_METHOD_INSERTION\n\n"
-        f"Acceptance rule: RUNNER_METHOD_HEADER_RE.findall(method_text) must equal ['{expected_method_name}'].\n"
         f"Parser error: {first_error}"
     )
     out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
     last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
-
     retry_error = None
     try:
         return parse_method_insertion_bundle(out2, expected_path, expected_method_name)
@@ -741,34 +758,20 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
 
     recovered_lines = normalize_newlines(out2).split("\n")
     start_candidates = [
-        idx
-        for idx, line in enumerate(recovered_lines)
+        idx for idx, line in enumerate(recovered_lines)
         if (len(line) - len(line.lstrip())) == 0 and line.startswith(f"def {expected_method_name}(")
     ]
     if not start_candidates:
-        raise FileBundleError(
-            f"Model returned malformed method insertion bundle after retry: {retry_error}; "
-            "raw-text recovery failed: zero matching method definitions were found."
-        )
+        raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: zero matching method definitions were found.")
     if len(start_candidates) > 1:
-        raise FileBundleError(
-            f"Model returned malformed method insertion bundle after retry: {retry_error}; "
-            "raw-text recovery failed: more than one matching method definition was found."
-        )
+        raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: more than one matching method definition was found.")
 
     start_idx = start_candidates[0]
     end_idx = len(recovered_lines)
     for idx in range(start_idx + 1, len(recovered_lines)):
         stripped = recovered_lines[idx].strip()
         cur_indent = len(recovered_lines[idx]) - len(recovered_lines[idx].lstrip())
-        if stripped in {
-            METHOD_BLOCK_END,
-            METHOD_INSERTION_END,
-            FILE_END,
-            FILE_BUNDLE_BEGIN,
-            FILE_BUNDLE_END,
-            METHOD_INSERTION_BEGIN,
-        }:
+        if stripped in {METHOD_BLOCK_END, METHOD_INSERTION_END, FILE_END, FILE_BUNDLE_BEGIN, FILE_BUNDLE_END, METHOD_INSERTION_BEGIN}:
             end_idx = idx
             break
         if FILE_HEADER_RE.match(recovered_lines[idx]):
@@ -777,27 +780,14 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         if cur_indent == 0 and stripped.startswith("def "):
             end_idx = idx
             break
-
     method_text = "\n".join(recovered_lines[start_idx:end_idx]).rstrip("\n") + "\n"
-
     if RUNNER_METHOD_HEADER_RE.findall(method_text) != [expected_method_name]:
-        raise FileBundleError(
-            f"Model returned malformed method insertion bundle after retry: {retry_error}; "
-            "raw-text recovery failed: recovered method would violate the single-method insertion rule."
-        )
-
+        raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: recovered method would violate the single-method insertion rule.")
     try:
         ast.parse(method_text, filename=expected_path)
     except SyntaxError as exc:
-        lineno = exc.lineno or 0
-        msg = exc.msg or "invalid syntax"
-        raise FileBundleError(
-            f"Model returned malformed method insertion bundle after retry: {retry_error}; "
-            f"raw-text recovery failed: recovered method body has Python syntax error at line {lineno}: {msg}."
-        ) from exc
-
+        raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: recovered method body has Python syntax error at line {exc.lineno or 0}: {exc.msg or 'invalid syntax'}.") from exc
     return method_text
-
 def validate_python_syntax(bundle: Dict[str, str]) -> Tuple[bool, str]:
     issues: List[str] = []
     for rel, content in bundle.items():
@@ -881,6 +871,193 @@ def parse_required_runner_methods(task_text: str) -> List[str]:
     return out
 
 
+
+def parse_task_contract_directives(task_text: str) -> Dict[str, List[str]]:
+    directives: Dict[str, List[str]] = {}
+    allowed_sections = {"", "machine-readable contract directives", "critical", "current runner baseline — must match exactly"}
+    for section_name, section_lines in _iter_markdown_sections(task_text):
+        if section_name not in allowed_sections and "contract" not in section_name:
+            continue
+        for raw_line in section_lines:
+            m = CONTRACT_DIRECTIVE_RE.match(raw_line)
+            if not m:
+                continue
+            key = m.group(1).strip().upper()
+            value = m.group(2).strip()
+            directives.setdefault(key, []).append(value)
+    return directives
+
+
+def _module_source_for_name(mod: str, bundle: Dict[str, str]) -> str | None:
+    mod = mod.strip()
+    if mod.startswith("src."):
+        mod = mod[4:]
+    parts = mod.split(".")
+    if len(parts) < 2:
+        return None
+    file_rel = (Path("src") / Path(*parts)).with_suffix(".py").as_posix()
+    pkg_rel = (Path("src") / Path(*parts) / "__init__.py").as_posix()
+    if file_rel in bundle:
+        return bundle[file_rel]
+    if pkg_rel in bundle:
+        return bundle[pkg_rel]
+    fp = Path(file_rel)
+    pp = Path(pkg_rel)
+    if fp.exists():
+        return fp.read_text(encoding="utf-8", errors="replace")
+    if pp.exists():
+        return pp.read_text(encoding="utf-8", errors="replace")
+    return None
+
+
+def _module_exports_from_source(source: str) -> set[str]:
+    try:
+        tree = ast.parse(normalize_newlines(source))
+    except Exception:
+        return set()
+    exports: set[str] = set()
+    explicit_all: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            exports.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            value = node.value
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    exports.add(target.id)
+                    if target.id == "__all__" and isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+                        for elt in value.elts:
+                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                explicit_all.add(elt.value)
+    return explicit_all or exports
+
+
+def _class_methods_from_source(source: str, class_name: str) -> set[str]:
+    try:
+        tree = ast.parse(normalize_newlines(source))
+    except Exception:
+        return set()
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return {item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    return set()
+
+
+def _class_init_arity_from_source(source: str, class_name: str) -> Tuple[int, int | None] | None:
+    try:
+        tree = ast.parse(normalize_newlines(source))
+    except Exception:
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == "__init__":
+                    total = len(getattr(item.args, "posonlyargs", [])) + len(item.args.args)
+                    defaults = len(item.args.defaults)
+                    min_args = max(0, total - defaults - 1)
+                    max_args = None if item.args.vararg is not None else max(0, total - 1)
+                    return min_args, max_args
+    return None
+
+
+def _call_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _call_name(node.value)
+        return f"{base}.{node.attr}" if base else node.attr
+    return None
+
+
+def _is_simplenamespace_call(node: ast.AST) -> bool:
+    return isinstance(node, ast.Call) and ((_call_name(node.func) or "").endswith("SimpleNamespace"))
+
+
+def _protected_python_semantic_issues(bundle: Dict[str, str], task_text: str) -> List[str]:
+    protected_modules = {
+        "builder.orchestrator.runner",
+        "builder.orchestrator.project_config",
+        "builder.orchestrator.cli",
+        "builder.orchestrator.backlog",
+        "builder.orchestrator.execution_result",
+    }
+    runner_source = _module_source_for_name("builder.orchestrator.runner", bundle) or ""
+    runner_methods = _class_methods_from_source(runner_source, "OrchestratorRunner")
+    runner_ctor = _class_init_arity_from_source(runner_source, "OrchestratorRunner")
+    config_requires_wrapper = "config.config" in runner_source
+    issues: List[str] = []
+
+    for rel, content in bundle.items():
+        if not rel.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(normalize_newlines(content), filename=rel)
+        except Exception:
+            continue
+        imported_names: Dict[str, str] = {}
+        var_types: Dict[str, str] = {}
+        var_has_config: Dict[str, bool] = {}
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = (node.module or "").strip()
+                if module.startswith("src."):
+                    module = module[4:]
+                if module in protected_modules:
+                    source = _module_source_for_name(module, bundle)
+                    exports = _module_exports_from_source(source or "") if source is not None else set()
+                    for alias in node.names:
+                        if alias.name == "*":
+                            continue
+                        imported_names[alias.asname or alias.name] = f"{module}.{alias.name}"
+                        if source is not None and alias.name not in exports and _module_source_for_name(f"{module}.{alias.name}", bundle) is None:
+                            issues.append(f"{rel}: imports missing symbol '{alias.name}' from '{module}'")
+
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                target = node.targets[0].id
+                value = node.value
+                if isinstance(value, ast.Call):
+                    call_name = _call_name(value.func) or ""
+                    resolved = imported_names.get(call_name, call_name)
+                    if resolved.endswith("OrchestratorRunner") or call_name == "OrchestratorRunner":
+                        var_types[target] = "OrchestratorRunner"
+                        argc = len(value.args) + len([kw for kw in value.keywords if kw.arg is not None])
+                        if runner_ctor is not None:
+                            min_args, max_args = runner_ctor
+                            if argc < min_args or (max_args is not None and argc > max_args):
+                                req = str(min_args) if min_args == max_args else f"{min_args}-{max_args if max_args is not None else 'n'}"
+                                issues.append(f"{rel}: OrchestratorRunner() is called with {argc} args but protected constructor requires {req}")
+                        if config_requires_wrapper and value.args:
+                            first = value.args[0]
+                            bad_wrapper = False
+                            if _is_simplenamespace_call(first):
+                                bad_wrapper = not any((kw.arg == "config") for kw in first.keywords if kw.arg)
+                            elif isinstance(first, ast.Name) and first.id in var_has_config:
+                                bad_wrapper = not var_has_config[first.id]
+                            if bad_wrapper:
+                                issues.append(f"{rel}: OrchestratorRunner first arg must be ProjectConfig or object with .config")
+                    elif _is_simplenamespace_call(value):
+                        var_has_config[target] = any((kw.arg == "config") for kw in value.keywords if kw.arg)
+                elif isinstance(value, ast.Name) and value.id in var_has_config:
+                    var_has_config[target] = var_has_config[value.id]
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+                obj = node.func.value.id
+                attr = node.func.attr
+                if var_types.get(obj) == "OrchestratorRunner" and runner_methods and attr not in runner_methods:
+                    issues.append(f"{rel}: variable '{obj}' is an OrchestratorRunner; protected API has no method '{attr}'")
+    deduped=[]
+    seen=set()
+    for issue in issues:
+        if issue not in seen:
+            seen.add(issue)
+            deduped.append(issue)
+    return deduped
+
+
 def enforce_required_files(
     required: List[str],
     bundle: Dict[str, str],
@@ -906,24 +1083,19 @@ def enforce_required_files(
     return True, ""
 
 
+
 def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> Tuple[bool, str]:
-    """Catch obvious structural regressions before spending an iteration on ruff/pytest."""
+    """Catch obvious structural and protected-API regressions before spending an iteration on ruff/pytest."""
     issues: List[str] = []
+    directives = parse_task_contract_directives(task_text)
 
     runner_path = "src/builder/orchestrator/runner.py"
     runner = bundle.get(runner_path, "")
     if runner:
         defined_methods = set(RUNNER_METHOD_HEADER_RE.findall(runner))
         for method in parse_required_runner_methods(task_text):
-            if method in {
-                "select_next_task",
-                "run_next_task",
-                "execute_task",
-                "process_execution_result",
-                "simulate_backlog",
-            } and method not in defined_methods:
+            if method in {"select_next_task", "run_next_task", "execute_task", "process_execution_result", "simulate_backlog"} and method not in defined_methods:
                 issues.append(f"`{runner_path}` is missing required method `{method}`.")
-
         lower_task = normalize_newlines(task_text).lower()
         if "processed_tasks" in lower_task and "simulate_backlog" in defined_methods:
             for key in ["processed_tasks", "stopped_reason", "final_status", "approval_required", "planned_actions"]:
@@ -933,26 +1105,32 @@ def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> 
     project_config_path = "src/builder/orchestrator/project_config.py"
     project_config = bundle.get(project_config_path, "")
     if "@dataclass(frozen=True)" in project_config:
-        issues.append(
-            f"`{project_config_path}` uses frozen dataclasses, but the task requires mutable config objects."
-        )
+        issues.append(f"`{project_config_path}` uses frozen dataclasses, but the task requires mutable config objects.")
 
     cli_path = "src/builder/orchestrator/cli.py"
     cli = bundle.get(cli_path, "")
     if "default_task_runner" in cli:
-        issues.append(
-            f"`{cli_path}` invents `default_task_runner`, but the task requires no fallback command."
-        )
+        issues.append(f"`{cli_path}` invents `default_task_runner`, but the task requires no fallback command.")
     if "run_next_task(" in cli and "real_execution=" in cli:
-        issues.append(
-            f"`{cli_path}` calls `run_next_task(..., real_execution=...)`, but the task requires the legacy public signature."
-        )
+        issues.append(f"`{cli_path}` calls `run_next_task(..., real_execution=...)`, but the task requires the legacy public signature.")
+
+    for entry in directives.get("FORBID_CALLS", []):
+        for forbidden in entry.split():
+            for rel, content in bundle.items():
+                if forbidden in content:
+                    issues.append(f"`{rel}` violates FORBID_CALLS directive via `{forbidden}`.")
+
+    issues.extend(_protected_python_semantic_issues(bundle, task_text))
 
     if issues:
-        return False, "Static bundle contract violations detected:\n" + "\n".join(f"- {x}" for x in issues)
+        deduped=[]
+        seen=set()
+        for issue in issues:
+            if issue not in seen:
+                seen.add(issue)
+                deduped.append(issue)
+        return False, "Static bundle contract violations detected:\n" + "\n".join(f"- {x}" for x in deduped)
     return True, ""
-
-
 def package_roots() -> List[str]:
     roots: List[str] = []
     src = Path("src")
@@ -1040,6 +1218,7 @@ def module_exists(mod: str, bundle: Dict[str, str]) -> bool:
     )
 
 
+
 def validate_imports(bundle: Dict[str, str]) -> Tuple[bool, str]:
     bad: List[str] = []
     import_re = import_regex_for_roots()
@@ -1047,11 +1226,34 @@ def validate_imports(bundle: Dict[str, str]) -> Tuple[bool, str]:
         for mod, _root in import_re.findall(content):
             if not module_exists(mod, bundle):
                 bad.append(f"{rel}: imports missing module '{mod}'")
+        if not rel.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(normalize_newlines(content), filename=rel)
+        except Exception:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = (node.module or "").strip()
+            if module.startswith("src."):
+                module = module[4:]
+            if not module or not any(module == root or module.startswith(root + ".") for root in package_roots()):
+                continue
+            source = _module_source_for_name(module, bundle)
+            if source is None:
+                continue
+            exports = _module_exports_from_source(source)
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                if _module_source_for_name(f"{module}.{alias.name}", bundle) is not None:
+                    continue
+                if alias.name not in exports:
+                    bad.append(f"{rel}: imports missing symbol '{alias.name}' from '{module}'")
     if not bad:
         return True, ""
     return False, "Invalid imports detected:\n" + "\n".join(sorted(set(bad)))
-
-
 def missing_module_hints(import_msg: str) -> str:
     mods = re.findall(r"module '([^']+)'", import_msg)
     if not mods:
@@ -1265,6 +1467,10 @@ def build_messages(
         extra.append("Do not substitute similar or nested alternative paths.")
         extra.append("")
 
+    extra.append("## Update discipline")
+    extra.append("When updating an existing file, preserve the current architecture and surrounding code unless the task explicitly requires a rewrite.")
+    extra.append("Do not replace large existing files with miniature standalone versions or toy implementations.")
+    extra.append("")
     extra.append("## Relevant file context")
     extra.append(relevant_context(required) or "(none)")
 
@@ -1357,8 +1563,8 @@ def main() -> int:
     allow_unchanged_cli = task_allows_unchanged_cli(task_text)
     harness_policies = parse_harness_file_policies(task_text)
     baseline_paths = sorted(set(required) | set(harness_policies.keys()))
-    protected_method_targets = _extract_protected_method_targets(task_text)
-    protected_method_paths = {str(t["path"]) for t in protected_method_targets}
+    protected_targets = _extract_protected_method_targets(task_text)
+    protected_method_paths = {str(t["path"]) for t in protected_targets}
 
     branch = f"agent-{task_path.stem}"
     print(f"Current branch: {capture(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
@@ -1388,16 +1594,16 @@ def main() -> int:
 
         files: Dict[str, str] = {}
         try:
-            for target in protected_method_targets:
+            for target in protected_targets:
                 target_path = str(target["path"])
-                method_name = str(target["method_name"])
                 mode = str(target["mode"])
-                anchor = str(target.get("anchor", ""))
+                method_name = str(target["method_name"])
                 baseline_content = baseline.get(target_path)
                 if baseline_content is None:
                     raise FileBundleError(
                         f"Protected method target `{target_path}` has no baseline content."
                     )
+                anchor = str(target.get("anchor", "")) if mode == "append" else ""
                 insertion_messages = build_method_insertion_messages(
                     task_text,
                     target_path,
@@ -1415,16 +1621,16 @@ def main() -> int:
                     target_path,
                     method_name,
                 )
-                if mode == "replace":
-                    files[target_path] = apply_method_replacement(
+                if mode == "append":
+                    files[target_path] = apply_method_insertion(
                         baseline_content,
+                        anchor,
                         method_name,
                         method_text,
                     )
                 else:
-                    files[target_path] = apply_method_insertion(
+                    files[target_path] = apply_method_replacement(
                         baseline_content,
-                        anchor,
                         method_name,
                         method_text,
                     )
@@ -1433,7 +1639,7 @@ def main() -> int:
                 non_protected_directives = extra_directives
                 if protected_method_paths:
                     suffix = (
-                        "Do not emit protected method-handled files in the normal file bundle; "
+                        "Do not emit protected method-edit files in the normal file bundle; "
                         "they are handled separately by protected method mode. If you include them anyway, "
                         "they will be ignored."
                     )
@@ -1453,12 +1659,12 @@ def main() -> int:
                 overlap = sorted(set(generated) & protected_method_paths)
                 if overlap:
                     print(
-                        "ℹ️ Ignoring protected method-handled files emitted in normal bundle: "
+                        "ℹ️ Ignoring protected method-edit files emitted in normal bundle: "
                         + ", ".join(overlap)
                     )
                     task_text = _append_task_feedback(
                         task_text,
-                        "Do not emit protected method-handled files in the normal file bundle. "
+                        "Do not emit protected method-edit files in the normal file bundle. "
                         "Only emit non-protected deliverables there.",
                     )
                     for p in overlap:
