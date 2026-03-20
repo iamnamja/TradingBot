@@ -41,38 +41,48 @@ Only import symbols that actually exist on the current baseline.
 
 The tests must target these real functions with their real current signatures/return shapes:
 
-- `parse_harness_file_policies(task_text)`  
-  Returns a dict keyed by file path, where each value is a dict containing a `"rules"` list.
+- `parse_harness_file_policies(task_text)`
+  - returns a dict keyed by file path
+  - each value is a dict containing a `"rules"` list
 
-- `_extract_protected_method_targets(task_text)`  
-  Returns a list of dict objects, not tuples.  
-  Each target dict uses keys like:
-  - `"path"`
-  - `"mode"` (`"append"` or `"replace"`)
-  - `"method_name"`
-  - `"anchor"` (append mode only, when present)
-  - `"max_changed_lines"` (optional)
+- `_extract_protected_method_targets(task_text)`
+  - returns a list of dict objects, not tuples
+  - each target dict uses keys like:
+    - `"path"`
+    - `"mode"` (`"append"` or `"replace"`)
+    - `"method_name"`
+    - `"anchor"` (append mode only, when present)
+    - `"max_changed_lines"` (optional)
 
 - `apply_method_insertion(original, anchor, method_name, method_text)`
+  - returns the updated file content as a string
+  - raises `run_task.FileBundleError` on invalid input
 
 - `apply_method_replacement(original, method_name, method_text)`
+  - returns the updated file content as a string
+  - raises `run_task.FileBundleError` on invalid input
 
 - `parse_method_insertion_bundle(text, expected_path, expected_method_name)`
+  - returns the extracted method text as a string on success
+  - raises `run_task.FileBundleError` on malformed payload
 
-- `request_and_parse_method_insertion(messages, model, provider, last_output_path, expected_path, expected_method_name)`  
-  For this function, monkeypatch `agents.run_task.chat` and use a temporary output path.  
-  Do NOT call the real external model.
+- `request_and_parse_method_insertion(messages, model, provider, last_output_path, expected_path, expected_method_name)`
+  - returns the extracted method text as a string on success
+  - for this function, monkeypatch `agents.run_task.chat` and use a temporary output path
+  - do NOT call the real external model
 
 ## Required test scenarios
 
 Add deterministic tests covering at least:
 
-1. append target extraction from a real task snippet using:
+1. append target extraction from a realistic task snippet using:
+   - a `## Harness policy` section
    - `- FILE: ... MODE=EXACT_COPY_PLUS_APPEND_METHOD ... ALLOW_NEW_METHOD=...`
-2. replace target extraction from a real task snippet using:
+2. replace target extraction from a realistic task snippet using:
+   - a `## Harness policy` section
    - `- FILE: ... MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=...`
 3. append method application into baseline content before an anchor
-4. replace method application for an existing method in baseline content
+4. replace method application for an existing method
 5. duplicate-method payload rejection
 6. missing replacement target rejection
 7. missing append anchor rejection
@@ -88,15 +98,35 @@ Add deterministic tests covering at least:
 - Do not call external services
 - Do not modify repo files during the tests
 
-### CRITICAL: use real task syntax for extraction tests
+### CRITICAL: use real task section layout for extraction tests
 
-For `_extract_protected_method_targets(...)`, do NOT invent simplified prose like:
+`parse_harness_file_policies(...)` only parses `- FILE:` directives from supported sections such as `## Harness policy`.
 
-- `Replace target:`
-- `Replacement:`
+So the extraction tests must place their `- FILE:` lines under a real `## Harness policy` heading.
 
-That function is driven by real parsed file-policy directives.  
-So the tests must use realistic task snippets with actual `- FILE:` policy lines and `MODE=...` attributes.
+Do NOT put those `- FILE:` lines only under:
+- `## Task`
+- free prose
+- ad hoc headings like `Replace target:`
+
+### CRITICAL: use the real exception/return contracts
+
+Do NOT assert invented wrapper dicts like:
+- `{"ok": True, ...}`
+- `{"ok": False, "error": ...}`
+
+For these functions, use the current real behavior:
+- successful functions return plain strings
+- invalid input raises `run_task.FileBundleError`
+
+### CRITICAL: avoid overspecifying exact whitespace for replacement output
+
+For `apply_method_replacement(...)`, do not require an exact full-string match if the current function preserves the correct structure but normalizes blank lines slightly differently.
+
+Prefer assertions like:
+- replaced method body changed as expected
+- untouched method remains present
+- old method body is gone
 
 ### CRITICAL bundle-string construction rule
 
@@ -126,6 +156,8 @@ so the final runtime string is correct, but the emitted source file does not con
 - using triple-quoted fixtures that contain literal line-start bundle markers like `FILE:` or `END_FILE`
 - asserting tuple results for `_extract_protected_method_targets(...)`
 - calling `apply_method_insertion(...)`, `apply_method_replacement(...)`, `parse_method_insertion_bundle(...)`, or `request_and_parse_method_insertion(...)` with invented signatures
+- asserting dict return values from `parse_method_insertion_bundle(...)` or `request_and_parse_method_insertion(...)`
+- using `## Task` instead of `## Harness policy` for `- FILE:` extraction fixtures
 
 ## Acceptance criteria
 
