@@ -333,6 +333,17 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
             max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
             if max_changed:
                 rules.append(f"max_changed_lines:{max_changed}")
+        elif mode == "EXACT_COPY_PLUS_REPLACE_METHOD":
+            replace_method = (
+                attrs.get("TARGET_METHOD", "").strip()
+                or attrs.get("ALLOW_REPLACE_METHOD", "").strip()
+            )
+            if replace_method:
+                rules.append(f"replace_method:{replace_method}")
+                rules.append(f"allow_methods:{replace_method}")
+            max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
+            if max_changed:
+                rules.append(f"max_changed_lines:{max_changed}")
         elif mode == "METHOD_ADD_ONLY":
             allow_method = attrs.get("ALLOW_NEW_METHOD", "").strip()
             if allow_method:
@@ -341,8 +352,6 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
             if max_changed:
                 rules.append(f"max_changed_lines:{max_changed}")
     return policies
-
-
 def _extract_append_method_targets(task_text: str) -> List[Dict[str, object]]:
     targets: List[Dict[str, object]] = []
     for path, config in parse_harness_file_policies(task_text).items():
@@ -351,6 +360,7 @@ def _extract_append_method_targets(task_text: str) -> List[Dict[str, object]]:
             continue
         anchor = None
         allowed_methods: List[str] = []
+        replace_method = None
         max_changed_lines = None
         for rule in rules:
             if not isinstance(rule, str):
@@ -359,6 +369,8 @@ def _extract_append_method_targets(task_text: str) -> List[Dict[str, object]]:
                 anchor = rule.split("append_before:", 1)[1]
             elif rule.startswith("allow_methods:"):
                 allowed_methods = [x.strip() for x in rule.split("allow_methods:", 1)[1].split(",") if x.strip()]
+            elif rule.startswith("replace_method:"):
+                replace_method = rule.split("replace_method:", 1)[1].strip()
             elif rule.startswith("max_changed_lines:"):
                 try:
                     max_changed_lines = int(rule.split("max_changed_lines:", 1)[1].strip())
@@ -367,13 +379,19 @@ def _extract_append_method_targets(task_text: str) -> List[Dict[str, object]]:
         if anchor and len(allowed_methods) == 1:
             targets.append({
                 "path": path,
+                "mode": "append",
                 "anchor": anchor,
                 "method_name": allowed_methods[0],
                 "max_changed_lines": max_changed_lines,
             })
+        elif replace_method:
+            targets.append({
+                "path": path,
+                "mode": "replace",
+                "method_name": replace_method,
+                "max_changed_lines": max_changed_lines,
+            })
     return targets
-
-
 def _count_changed_lines(old: str, new: str) -> int:
     diff = difflib.unified_diff(
         normalize_newlines(old).splitlines(),
@@ -509,6 +527,45 @@ def _indent_method_text(method_text: str, indent: str) -> str:
         out.append(indent + "    " + rel)
     return "\n".join(out).rstrip("\n") + "\n"
 
+def _locate_method_block(content: str, method_name: str) -> Tuple[int, int, str]:
+    text = normalize_newlines(content)
+    lines = text.split("\n")
+    start_idx = None
+    method_indent = 0
+    for idx, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith(f"def {method_name}("):
+            start_idx = idx
+            method_indent = len(line) - len(stripped)
+            break
+    if start_idx is None:
+        raise FileBundleError(f"Could not locate method `{method_name}` in baseline file.")
+    end_idx = len(lines)
+    for idx in range(start_idx + 1, len(lines)):
+        stripped = lines[idx].lstrip()
+        if not stripped:
+            continue
+        cur_indent = len(lines[idx]) - len(stripped)
+        if cur_indent <= method_indent and stripped.startswith("def "):
+            end_idx = idx
+            break
+    indent = lines[start_idx][:method_indent]
+    return start_idx, end_idx, indent
+
+
+def apply_method_replacement(original: str, method_name: str, method_text: str) -> str:
+    method_names = RUNNER_METHOD_HEADER_RE.findall(method_text)
+    if method_names != [method_name]:
+        raise FileBundleError(
+            f"Method insertion payload must define exactly one method `{method_name}`; got {method_names or 'none'}."
+        )
+    text = normalize_newlines(original)
+    lines = text.split("\n")
+    start_idx, end_idx, indent = _locate_method_block(text, method_name)
+    replacement = _indent_method_text(method_text, indent).rstrip("\n").split("\n")
+    new_lines = lines[:start_idx] + replacement + lines[end_idx:]
+    return "\n".join(new_lines).rstrip("\n") + "\n"
+
 def apply_method_insertion(original: str, anchor: str, method_name: str, method_text: str) -> str:
     if anchor not in original:
         raise FileBundleError(f"Insertion anchor `{anchor}` not found in baseline file.")
@@ -559,16 +616,20 @@ def _method_block_from_file_content(file_content: str, method_name: str) -> str:
 
 def parse_method_insertion_bundle(text: str, expected_path: str, expected_method_name: str) -> str:
     text = normalize_newlines(text)
-    if METHOD_INSERTION_BEGIN in text and METHOD_INSERTION_END in text:
-        start = text.index(METHOD_INSERTION_BEGIN) + len(METHOD_INSERTION_BEGIN)
-        end = text.index(METHOD_INSERTION_END)
-        body = text[start:end].strip("\n")
+    lines = text.split("\n")
+
+    begin_idx = next((i for i, line in enumerate(lines) if line.strip() == METHOD_INSERTION_BEGIN), None)
+    if begin_idx is not None:
+        end_idx = next((i for i in range(begin_idx + 1, len(lines)) if lines[i].strip() == METHOD_INSERTION_END), None)
+        if end_idx is None:
+            raise FileBundleError("Missing END_METHOD_INSERTION in method insertion bundle.")
+
+        body_lines = lines[begin_idx + 1:end_idx]
         target_file = None
         method_name = None
-        lines = body.split("\n")
         i = 0
-        while i < len(lines):
-            line = lines[i].strip()
+        while i < len(body_lines):
+            line = body_lines[i].strip()
             if line.startswith("TARGET_FILE:"):
                 target_file = line.split(":", 1)[1].strip().replace("\\", "/")
             elif line.startswith("METHOD_NAME:"):
@@ -576,10 +637,10 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
             elif line == METHOD_BLOCK_BEGIN:
                 i += 1
                 buf: List[str] = []
-                while i < len(lines) and lines[i].strip() != METHOD_BLOCK_END:
-                    buf.append(lines[i])
+                while i < len(body_lines) and body_lines[i].strip() != METHOD_BLOCK_END:
+                    buf.append(body_lines[i])
                     i += 1
-                if i >= len(lines):
+                if i >= len(body_lines):
                     raise FileBundleError("Missing END_METHOD in method insertion bundle.")
                 if target_file and target_file != expected_path:
                     raise FileBundleError(
@@ -598,22 +659,35 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
             "Method insertion response did not include protected target file or insertion markers."
         )
     return _method_block_from_file_content(files[expected_path], expected_method_name)
-
-def build_method_insertion_messages(task_text: str, target_path: str, method_name: str, anchor: str, baseline_content: str, extra_directives: str = "") -> List[dict]:
+def build_method_insertion_messages(
+    task_text: str,
+    target_path: str,
+    method_name: str,
+    anchor: str,
+    baseline_content: str,
+    extra_directives: str = "",
+    *,
+    operation: str = "append",
+) -> List[dict]:
+    operation_line = (
+        f"Replace the existing method named `{method_name}` in `{target_path}`."
+        if operation == "replace"
+        else f"Add exactly one new method named `{method_name}` before anchor `{anchor}`."
+    )
     parts = [
         task_text.rstrip(),
         "",
-        "## Protected-file insertion mode",
+        "## Protected-file method mode",
         f"Return ONLY a method insertion bundle for `{target_path}`.",
-        f"Add exactly one new method named `{method_name}` before anchor `{anchor}`.",
+        operation_line,
+        "The response must contain exactly one Python `def` in total.",
+        "Do not define any helper functions at top level.",
+        "Do not define any nested helper functions.",
+        "Keep all logic inline inside the single requested method.",
         "Do not rewrite the full file.",
         "Do not include any other file in this response.",
-        "Do not change imports or any existing method bodies.",
-        "The response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.",
-        "Do not add helper functions at top level.",
-        "Do not add nested helper functions inside the requested method.",
-        "Inline all helper logic with local variables, loops, comprehensions, and standard-library calls only.",
-        "Do not emit a normal BEGIN_FILE_BUNDLE response for this file.",
+        "Do not emit a normal BEGIN_FILE_BUNDLE response for this protected file.",
+        "Do not change imports or any existing method bodies outside the targeted method edit.",
         "",
         "Required format:",
         "BEGIN_METHOD_INSERTION",
@@ -624,9 +698,6 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         "    ...",
         "END_METHOD",
         "END_METHOD_INSERTION",
-        "",
-        "Rejection rule:",
-        f"- Accepted only if RUNNER_METHOD_HEADER_RE.findall(method_text) == ['{method_name}']",
         "",
         "## Current baseline file content",
         f"FILE: {target_path}",
@@ -639,7 +710,6 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         {"role": "system", "content": load_system_prompt().strip()},
         {"role": "user", "content": "\n".join(parts).rstrip() + "\n"},
     ]
-
 def request_and_parse_method_insertion(messages: List[dict], model: str, provider: str, last_output_path: Path, expected_path: str, expected_method_name: str) -> str:
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
@@ -651,11 +721,9 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     reminder = (
         "Your previous response was INVALID.\n"
         "You MUST output ONLY a valid method insertion bundle using the literal markers below.\n"
-        "Your response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.\n"
-        "Do NOT add helper functions at top level.\n"
-        "Do NOT add nested helper functions inside the requested method.\n"
-        "Inline all helper logic.\n"
-        "Do NOT output BEGIN_FILE_BUNDLE for this protected file.\n\n"
+        "The response must contain exactly one Python def in total.\n"
+        "Do not define helper functions.\n"
+        "Do not emit BEGIN_FILE_BUNDLE for this protected file.\n\n"
         "BEGIN_METHOD_INSERTION\n"
         f"TARGET_FILE: {expected_path}\n"
         f"METHOD_NAME: {expected_method_name}\n"
@@ -664,7 +732,6 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         "    ...\n"
         "END_METHOD\n"
         "END_METHOD_INSERTION\n\n"
-        f"Acceptance rule: RUNNER_METHOD_HEADER_RE.findall(method_text) must equal ['{expected_method_name}'].\n"
         f"Parser error: {first_error}"
     )
     out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
@@ -734,7 +801,6 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         ) from exc
 
     return method_text
-
 def validate_python_syntax(bundle: Dict[str, str]) -> Tuple[bool, str]:
     issues: List[str] = []
     for rel, content in bundle.items():
@@ -1327,7 +1393,7 @@ def main() -> int:
         try:
             for target in append_targets:
                 target_path = str(target["path"])
-                anchor = str(target["anchor"])
+                anchor = str(target.get("anchor", ""))
                 method_name = str(target["method_name"])
                 baseline_content = baseline.get(target_path)
                 if baseline_content is None:
@@ -1338,9 +1404,10 @@ def main() -> int:
                     task_text,
                     target_path,
                     method_name,
-                    anchor,
+                    anchor if "anchor" in target else "",
                     baseline_content,
                     extra_directives,
+                    operation=str(target.get("mode", "append")),
                 )
                 method_text = request_and_parse_method_insertion(
                     insertion_messages,
@@ -1350,12 +1417,19 @@ def main() -> int:
                     target_path,
                     method_name,
                 )
-                files[target_path] = apply_method_insertion(
-                    baseline_content,
-                    anchor,
-                    method_name,
-                    method_text,
-                )
+                if str(target.get("mode", "append")) == "replace":
+                    files[target_path] = apply_method_replacement(
+                        baseline_content,
+                        method_name,
+                        method_text,
+                    )
+                else:
+                    files[target_path] = apply_method_insertion(
+                        baseline_content,
+                        anchor,
+                        method_name,
+                        method_text,
+                    )
 
             if bundle_required:
                 non_protected_directives = extra_directives
