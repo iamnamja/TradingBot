@@ -54,6 +54,7 @@ For `agents/run_task.py`:
 - Do not define nested helper functions inside `validate_imports(...)`.
 - Do not use any additional `def` statements anywhere inside the inserted method text.
 - Keep helper logic inline using local variables, loops, comprehensions, and existing stdlib calls only.
+- Write one self-contained `validate_imports(...)` implementation even if some logic feels repetitive.
 - For the protected insertion response, return only the method insertion payload requested by the harness. Do not emit a normal `BEGIN_FILE_BUNDLE` response for `agents/run_task.py`.
 
 ### Required method signature
@@ -106,7 +107,7 @@ This must participate in the existing pre-write validation flow the same way cur
 - rewriting all of `agents/run_task.py`
 - emitting multiple top-level methods in the protected insertion payload
 - using nested helper defs inside `validate_imports`
-- adding helper methods like `module_exists`, `resolve_module_source`, `symbol_exists`, `module_source_exists`, `_module_spec`, `_package_exports`, `_is_repo_local`, etc. at top level
+- adding helper methods like `module_exists`, `resolve_module_source`, `symbol_exists`, `module_source_exists`, `module_to_paths`, `module_exists_local`, `load_module_exports`, `_module_spec`, `_package_exports`, `_is_repo_local`, etc. at top level
 - adding extra `def` statements anywhere in the inserted `validate_imports` payload
 - changing provider/model defaults
 - changing protected-file baseline logic

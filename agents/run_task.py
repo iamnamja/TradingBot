@@ -559,20 +559,16 @@ def _method_block_from_file_content(file_content: str, method_name: str) -> str:
 
 def parse_method_insertion_bundle(text: str, expected_path: str, expected_method_name: str) -> str:
     text = normalize_newlines(text)
-    lines = text.split("\n")
-
-    begin_idx = next((i for i, line in enumerate(lines) if line.strip() == METHOD_INSERTION_BEGIN), None)
-    if begin_idx is not None:
-        end_idx = next((i for i in range(begin_idx + 1, len(lines)) if lines[i].strip() == METHOD_INSERTION_END), None)
-        if end_idx is None:
-            raise FileBundleError("Missing END_METHOD_INSERTION in method insertion bundle.")
-
-        body_lines = lines[begin_idx + 1:end_idx]
+    if METHOD_INSERTION_BEGIN in text and METHOD_INSERTION_END in text:
+        start = text.index(METHOD_INSERTION_BEGIN) + len(METHOD_INSERTION_BEGIN)
+        end = text.index(METHOD_INSERTION_END)
+        body = text[start:end].strip("\n")
         target_file = None
         method_name = None
+        lines = body.split("\n")
         i = 0
-        while i < len(body_lines):
-            line = body_lines[i].strip()
+        while i < len(lines):
+            line = lines[i].strip()
             if line.startswith("TARGET_FILE:"):
                 target_file = line.split(":", 1)[1].strip().replace("\\", "/")
             elif line.startswith("METHOD_NAME:"):
@@ -580,10 +576,10 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
             elif line == METHOD_BLOCK_BEGIN:
                 i += 1
                 buf: List[str] = []
-                while i < len(body_lines) and body_lines[i].strip() != METHOD_BLOCK_END:
-                    buf.append(body_lines[i])
+                while i < len(lines) and lines[i].strip() != METHOD_BLOCK_END:
+                    buf.append(lines[i])
                     i += 1
-                if i >= len(body_lines):
+                if i >= len(lines):
                     raise FileBundleError("Missing END_METHOD in method insertion bundle.")
                 if target_file and target_file != expected_path:
                     raise FileBundleError(
@@ -613,6 +609,11 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         "Do not rewrite the full file.",
         "Do not include any other file in this response.",
         "Do not change imports or any existing method bodies.",
+        "The response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.",
+        "Do not add helper functions at top level.",
+        "Do not add nested helper functions inside the requested method.",
+        "Inline all helper logic with local variables, loops, comprehensions, and standard-library calls only.",
+        "Do not emit a normal BEGIN_FILE_BUNDLE response for this file.",
         "",
         "Required format:",
         "BEGIN_METHOD_INSERTION",
@@ -623,6 +624,9 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         "    ...",
         "END_METHOD",
         "END_METHOD_INSERTION",
+        "",
+        "Rejection rule:",
+        f"- Accepted only if RUNNER_METHOD_HEADER_RE.findall(method_text) == ['{method_name}']",
         "",
         "## Current baseline file content",
         f"FILE: {target_path}",
@@ -636,7 +640,6 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         {"role": "user", "content": "\n".join(parts).rstrip() + "\n"},
     ]
 
-
 def request_and_parse_method_insertion(messages: List[dict], model: str, provider: str, last_output_path: Path, expected_path: str, expected_method_name: str) -> str:
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
@@ -647,7 +650,12 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
 
     reminder = (
         "Your previous response was INVALID.\n"
-        "You MUST output ONLY a valid method insertion bundle using the literal markers below.\n\n"
+        "You MUST output ONLY a valid method insertion bundle using the literal markers below.\n"
+        "Your response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.\n"
+        "Do NOT add helper functions at top level.\n"
+        "Do NOT add nested helper functions inside the requested method.\n"
+        "Inline all helper logic.\n"
+        "Do NOT output BEGIN_FILE_BUNDLE for this protected file.\n\n"
         "BEGIN_METHOD_INSERTION\n"
         f"TARGET_FILE: {expected_path}\n"
         f"METHOD_NAME: {expected_method_name}\n"
@@ -656,6 +664,7 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         "    ...\n"
         "END_METHOD\n"
         "END_METHOD_INSERTION\n\n"
+        f"Acceptance rule: RUNNER_METHOD_HEADER_RE.findall(method_text) must equal ['{expected_method_name}'].\n"
         f"Parser error: {first_error}"
     )
     out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
