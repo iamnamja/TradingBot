@@ -70,6 +70,25 @@ Add deterministic tests covering at least:
 - Do not call external services
 - Do not modify repo files during the tests
 
+### CRITICAL bundle-string construction rule
+
+Because the outer agent harness parses `FILE:` / `END_FILE` markers literally, the generated test file must NOT contain a triple-quoted source fixture with literal lines that begin with:
+
+- `FILE:`
+- `END_FILE`
+- `BEGIN_FILE_BUNDLE`
+- `END_FILE_BUNDLE`
+
+inside the emitted file contents.
+
+Instead, when constructing synthetic bundle text inside the test file, build those markers indirectly, for example:
+- with `"FI" "LE:"` string splitting
+- or with `"BEGIN_" + "FILE_BUNDLE"`
+- or with `"
+".join([...])`
+
+so the final runtime string is correct, but the emitted source file does not contain literal bundle-marker lines that confuse the outer parser.
+
 ## Exact forbidden patterns
 
 - modifying `agents/run_task.py`
@@ -77,6 +96,7 @@ Add deterministic tests covering at least:
 - replacing or focusing on `validate_static_bundle_contracts(...)`
 - solving semantic/API preflight instead of protected method edit engine
 - modifying any file under `src/`
+- using triple-quoted fixtures that contain literal line-start bundle markers like `FILE:` or `END_FILE`
 
 ## Acceptance criteria
 
