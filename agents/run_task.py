@@ -1669,6 +1669,7 @@ def build_messages(
     required: List[str],
     extra_directives: str = "",
     virtual_context: Dict[str, str] | None = None,
+    forbidden_normal_bundle_paths: List[str] | None = None,
 ) -> List[dict]:
     extra: List[str] = []
 
@@ -1687,6 +1688,14 @@ def build_messages(
         extra.append("Do not omit test files named in the task.")
         extra.append("Do not substitute similar or nested alternative paths.")
         extra.append("Do not create runtime artifact files such as last_output.txt, _last_agent_model_output.txt, or _last_agent_file_bundle.txt in the bundle.")
+        if forbidden_normal_bundle_paths:
+            extra.append(
+                "Protected files handled separately MUST NOT appear in this normal file bundle: "
+                + ", ".join(forbidden_normal_bundle_paths)
+            )
+            extra.append(
+                "If you emit any of those protected paths here, the response will be rejected even if the rest of the bundle is valid."
+            )
         extra.append("")
 
     extra.append("## Update discipline")
@@ -1708,6 +1717,15 @@ def build_messages(
             extra.append(content.rstrip("\n"))
             extra.append("END_FILE")
 
+    if forbidden_normal_bundle_paths:
+        extra.append("")
+        extra.append("## Protected paths excluded from the normal file bundle")
+        extra.append(
+            "Do not emit FILE blocks for any of these paths in the normal bundle response. "
+            "They are edited separately by protected method mode."
+        )
+        extra.extend(f"- {p}" for p in forbidden_normal_bundle_paths)
+
     extra.append("")
     extra.append("## Repository map")
     extra.append(repo_map())
@@ -1724,21 +1742,35 @@ def build_messages(
     ]
 
 
-def request_and_parse_bundle(messages: List[dict], model: str, provider: str, last_output_path: Path) -> Dict[str, str]:
+def request_and_parse_bundle(
+    messages: List[dict],
+    model: str,
+    provider: str,
+    last_output_path: Path,
+    forbidden_paths: List[str] | None = None,
+) -> Dict[str, str]:
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
     try:
         return parse_file_bundle(out)
     except Exception as e:
+        forbidden_hint = ""
+        if forbidden_paths:
+            forbidden_hint = (
+                "\nProtected paths handled separately and forbidden in this normal file bundle: "
+                + ", ".join(forbidden_paths)
+                + ". Do NOT emit FILE blocks for those paths here.\n"
+            )
         reminder = (
             "Your previous response was INVALID.\n"
             "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
             "Do NOT use commented headers like '# FILE:'.\n"
             "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n"
             "There must be an END_FILE before any later FILE header.\n"
-            "Do not open a new FILE block until the previous FILE block is closed.\n\n"
-            "Required structure:\n"
+            "Do not open a new FILE block until the previous FILE block is closed.\n"
+            + forbidden_hint
+            + "\nRequired structure:\n"
             "BEGIN_FILE_BUNDLE\n"
             "FILE: path/to/file.ext\n"
             "<full file contents>\n"
@@ -1874,9 +1906,14 @@ def main() -> int:
                     bundle_required,
                     non_protected_directives,
                     virtual_context=virtual_context,
+                    forbidden_normal_bundle_paths=sorted(protected_method_paths),
                 )
                 generated = request_and_parse_bundle(
-                    messages, args.model, args.provider, last_output_path
+                    messages,
+                    args.model,
+                    args.provider,
+                    last_output_path,
+                    forbidden_paths=sorted(protected_method_paths),
                 )
                 overlap = sorted(set(generated) & protected_method_paths)
                 if overlap:
@@ -1899,9 +1936,14 @@ def main() -> int:
                     required,
                     extra_directives,
                     virtual_context=virtual_context,
+                    forbidden_normal_bundle_paths=sorted(protected_method_paths),
                 )
                 files = request_and_parse_bundle(
-                    messages, args.model, args.provider, last_output_path
+                    messages,
+                    args.model,
+                    args.provider,
+                    last_output_path,
+                    forbidden_paths=sorted(protected_method_paths),
                 )
         except FileBundleError as e:
             print(f"❌ {e}")
