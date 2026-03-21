@@ -221,3 +221,15 @@ logs/
 
 # orchestrator runtime state
 tasks/state.json
+
+# TradingBot agents package sources (override generic `lib/` ignore above)
+!agents/
+!agents/__init__.py
+!agents/lib/
+!agents/lib/__init__.py
+!agents/lib/provider_client.py
+!agents/lib/git_ops.py
+!agents/lib/check_runner.py
+
+# Local runtime scratch output
+last_output.txt
