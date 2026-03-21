@@ -807,6 +807,21 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
     return _validate_single_method_text(_method_block_from_file_content(files[expected_path], expected_method_name), expected_method_name, context="Method insertion bundle")
 
 
+def load_method_insertion_system_prompt() -> str:
+    base = load_system_prompt().strip()
+    override = (
+        "PROTECTED-FILE METHOD MODE OVERRIDE:\n"
+        "When the user requests a protected-file method edit, you MUST ignore any generic file-bundle formatting instructions.\n"
+        "Output ONLY a valid method insertion bundle using the literal BEGIN_METHOD_INSERTION / END_METHOD_INSERTION markers.\n"
+        "Do NOT output BEGIN_FILE_BUNDLE or END_FILE_BUNDLE in protected-file method mode.\n"
+        "Do NOT emit prose, markdown fences, or any additional files.\n"
+        "The response must contain exactly one top-level def, and it must be the requested method."
+    )
+    if base:
+        return base + "\n\n" + override
+    return override
+
+
 def build_method_insertion_messages(task_text: str, target_path: str, method_name: str, baseline_content: str, mode: str, extra_directives: str = "", anchor: str = "") -> List[dict]:
     operation_line = (
         f"Replace the existing method named `{method_name}` in place."
@@ -825,6 +840,7 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         "Do not replace the current harness with a miniature standalone script.",
         "Preserve the current module structure, imports, entrypoint, and unrelated functions exactly.",
         "Only perform the requested method append or method replacement.",
+        "Do NOT return BEGIN_FILE_BUNDLE / END_FILE_BUNDLE for this protected-file response.",
         "The response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.",
         "",
         "Required format:",
@@ -845,7 +861,7 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
     if extra_directives.strip():
         parts.extend(["", "## Iteration-specific directives", extra_directives.strip()])
     return [
-        {"role": "system", "content": load_system_prompt().strip()},
+        {"role": "system", "content": load_method_insertion_system_prompt()},
         {"role": "user", "content": "\n".join(parts).rstrip() + "\n"},
     ]
 
