@@ -84,10 +84,18 @@ def default_model_for_provider(provider: str) -> str:
     env_model = os.getenv("TRADINGBOT_AGENT_MODEL", "").strip()
     if env_model:
         return env_model
-    if provider == "openai":
-        return "gpt-5"
-    return "claude-sonnet-4-5"
 
+    provider = (provider or "").strip().lower()
+    if provider == "openai":
+        env_openai_model = os.getenv("TRADINGBOT_AGENT_OPENAI_MODEL", "").strip()
+        if env_openai_model:
+            return env_openai_model
+        return "gpt-5.1-codex"
+
+    env_anthropic_model = os.getenv("TRADINGBOT_AGENT_ANTHROPIC_MODEL", "").strip()
+    if env_anthropic_model:
+        return env_anthropic_model
+    return "claude-sonnet-4-5"
 
 def _int_env(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
@@ -742,11 +750,10 @@ def _method_block_from_file_content(file_content: str, method_name: str) -> str:
         if not stripped:
             continue
         cur_indent = len(lines[idx]) - len(stripped)
-        if cur_indent <= method_indent and stripped.startswith("def "):
+        if cur_indent <= method_indent:
             end_idx = idx
             break
     return "\n".join(lines[start_idx:end_idx]).rstrip("\n") + "\n"
-
 
 def _validate_single_method_text(method_text: str, expected_method_name: str, *, context: str) -> str:
     method_text = normalize_newlines(method_text).rstrip("\n") + "\n"
@@ -756,13 +763,21 @@ def _validate_single_method_text(method_text: str, expected_method_name: str, *,
             f"{context}: expected exactly one method `{expected_method_name}`; got {method_names or 'none'}."
         )
     try:
-        ast.parse(method_text)
+        tree = ast.parse(method_text)
     except SyntaxError as exc:
         raise FileBundleError(
             f"{context}: extracted method body has Python syntax error at line {exc.lineno or 0}: {exc.msg or 'invalid syntax'}."
         ) from exc
-    return method_text
 
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.FunctionDef):
+        raise FileBundleError(
+            f"{context}: expected exactly one top-level function definition `{expected_method_name}` and no trailing top-level statements."
+        )
+    if tree.body[0].name != expected_method_name:
+        raise FileBundleError(
+            f"{context}: expected top-level function `{expected_method_name}`; got `{tree.body[0].name}`."
+        )
+    return method_text
 
 def parse_method_insertion_bundle(text: str, expected_path: str, expected_method_name: str) -> str:
     expected_path = str(expected_path)
@@ -770,42 +785,51 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
     text = normalize_newlines(text)
     lines = text.split("\n")
 
+    if FILE_BUNDLE_BEGIN in text or FILE_BUNDLE_END in text:
+        raise FileBundleError(
+            "Protected method mode received BEGIN_FILE_BUNDLE/END_FILE_BUNDLE. "
+            "This response must use BEGIN_METHOD_INSERTION/END_METHOD_INSERTION only."
+        )
+
     begin_idx = next((i for i, line in enumerate(lines) if line.strip() == METHOD_INSERTION_BEGIN), None)
-    if begin_idx is not None:
-        end_idx = next((i for i in range(begin_idx + 1, len(lines)) if lines[i].strip() == METHOD_INSERTION_END), None)
-        if end_idx is None:
-            raise FileBundleError("Missing END_METHOD_INSERTION in method insertion bundle.")
+    if begin_idx is None:
+        raise FileBundleError(
+            "Method insertion response did not include BEGIN_METHOD_INSERTION/END_METHOD_INSERTION markers."
+        )
+    end_idx = next((i for i in range(begin_idx + 1, len(lines)) if lines[i].strip() == METHOD_INSERTION_END), None)
+    if end_idx is None:
+        raise FileBundleError("Missing END_METHOD_INSERTION in method insertion bundle.")
 
-        body_lines = lines[begin_idx + 1:end_idx]
-        target_file = None
-        method_name = None
-        i = 0
-        while i < len(body_lines):
-            line = body_lines[i].strip()
-            if line.startswith("TARGET_FILE:"):
-                target_file = line.split(":", 1)[1].strip().replace("\\", "/")
-            elif line.startswith("METHOD_NAME:"):
-                method_name = line.split(":", 1)[1].strip()
-            elif line == METHOD_BLOCK_BEGIN:
-                i += 1
-                buf: List[str] = []
-                while i < len(body_lines) and body_lines[i].strip() != METHOD_BLOCK_END:
-                    buf.append(body_lines[i])
-                    i += 1
-                if i >= len(body_lines):
-                    raise FileBundleError("Missing END_METHOD in method insertion bundle.")
-                if target_file and target_file != expected_path:
-                    raise FileBundleError(f"Method insertion target file mismatch: expected {expected_path}, got {target_file}.")
-                if method_name and method_name != expected_method_name:
-                    raise FileBundleError(f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}.")
-                return _validate_single_method_text("\n".join(buf).rstrip("\n") + "\n", expected_method_name, context="Method insertion bundle")
+    body_lines = lines[begin_idx + 1:end_idx]
+    target_file = None
+    method_name = None
+    i = 0
+    while i < len(body_lines):
+        line = body_lines[i].strip()
+        if line.startswith("TARGET_FILE:"):
+            target_file = line.split(":", 1)[1].strip().replace("\\", "/")
+        elif line.startswith("METHOD_NAME:"):
+            method_name = line.split(":", 1)[1].strip()
+        elif line == METHOD_BLOCK_BEGIN:
             i += 1
+            buf: List[str] = []
+            while i < len(body_lines) and body_lines[i].strip() != METHOD_BLOCK_END:
+                buf.append(body_lines[i])
+                i += 1
+            if i >= len(body_lines):
+                raise FileBundleError("Missing END_METHOD in method insertion bundle.")
+            if target_file and target_file != expected_path:
+                raise FileBundleError(f"Method insertion target file mismatch: expected {expected_path}, got {target_file}.")
+            if method_name and method_name != expected_method_name:
+                raise FileBundleError(f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}.")
+            return _validate_single_method_text(
+                "\n".join(buf).rstrip("\n") + "\n",
+                expected_method_name,
+                context="Method insertion bundle",
+            )
+        i += 1
 
-    files = parse_file_bundle(text)
-    if expected_path not in files:
-        raise FileBundleError("Method insertion response did not include protected target file or insertion markers.")
-    return _validate_single_method_text(_method_block_from_file_content(files[expected_path], expected_method_name), expected_method_name, context="Method insertion bundle")
-
+    raise FileBundleError("Method insertion response did not include BEGIN_METHOD/END_METHOD markers.")
 
 def load_method_insertion_system_prompt() -> str:
     base = load_system_prompt().strip()
@@ -900,6 +924,12 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     except Exception as exc:
         retry_error = str(exc)
 
+    if FILE_BUNDLE_BEGIN in out2 or FILE_BUNDLE_END in out2:
+        raise FileBundleError(
+            f"Model returned malformed method insertion bundle after retry: {retry_error}; "
+            "raw-text recovery disabled because the response used BEGIN_FILE_BUNDLE markers."
+        )
+
     recovered_lines = normalize_newlines(out2).split("\n")
     start_candidates = [
         idx for idx, line in enumerate(recovered_lines)
@@ -921,17 +951,17 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         if FILE_HEADER_RE.match(recovered_lines[idx]):
             end_idx = idx
             break
-        if cur_indent == 0 and stripped.startswith("def "):
+        if cur_indent == 0 and stripped:
             end_idx = idx
             break
     method_text = "\n".join(recovered_lines[start_idx:end_idx]).rstrip("\n") + "\n"
-    if RUNNER_METHOD_HEADER_RE.findall(method_text) != [expected_method_name]:
-        raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: recovered method would violate the single-method insertion rule.")
     try:
-        ast.parse(method_text, filename=expected_path)
-    except SyntaxError as exc:
-        raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: recovered method body has Python syntax error at line {exc.lineno or 0}: {exc.msg or 'invalid syntax'}.") from exc
-    return method_text
+        return _validate_single_method_text(method_text, expected_method_name, context="Method insertion raw-text recovery")
+    except FileBundleError as exc:
+        raise FileBundleError(
+            f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: {exc}"
+        ) from exc
+
 def validate_python_syntax(bundle: Dict[str, str]) -> Tuple[bool, str]:
     issues: List[str] = []
     for rel, content in bundle.items():
@@ -1698,14 +1728,71 @@ def load_system_prompt() -> str:
     return "You are an engineering agent. Output ONLY a valid file bundle."
 
 
+
+def _openai_retry_after_seconds(exc: Exception) -> float | None:
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    headers = getattr(response, "headers", None) or {}
+    candidates = [
+        headers.get("retry-after-ms"),
+        headers.get("x-ratelimit-reset-requests"),
+        headers.get("x-ratelimit-reset-tokens"),
+        headers.get("retry-after"),
+    ]
+    for raw in candidates:
+        if raw is None:
+            continue
+        try:
+            value = float(str(raw).strip())
+        except ValueError:
+            continue
+        if value > 1000 and str(raw).strip().isdigit():
+            value = value / 1000.0
+        if value >= 0:
+            return value
+    return None
+
+
+def _openai_backoff_seconds(attempt: int, exc: Exception) -> float:
+    hinted = _openai_retry_after_seconds(exc)
+    if hinted is not None:
+        return max(0.5, min(hinted, 30.0))
+    base = _float_env("TRADINGBOT_OPENAI_BACKOFF_BASE", 1.0)
+    cap = _float_env("TRADINGBOT_OPENAI_BACKOFF_CAP", 30.0)
+    wait_s = base * (2 ** max(0, attempt - 1))
+    return max(0.5, min(wait_s, cap))
+
+
+def _is_retryable_openai_error(exc: Exception) -> bool:
+    name = exc.__class__.__name__
+    if name in {"APITimeoutError", "RateLimitError", "APIConnectionError", "InternalServerError"}:
+        return True
+    status_code = getattr(exc, "status_code", None)
+    if status_code in {408, 409, 429, 500, 502, 503, 504}:
+        return True
+    message = str(exc).lower()
+    retry_markers = [
+        "rate limit",
+        "rate_limit",
+        "temporarily unavailable",
+        "timeout",
+        "timed out",
+        "connection",
+        "server error",
+        "overloaded",
+        "please try again",
+    ]
+    return any(marker in message for marker in retry_markers)
+
 def chat_openai(messages: List[dict], model: str) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY in environment.")
-    from openai import APITimeoutError, OpenAI  # type: ignore
+    from openai import OpenAI  # type: ignore
 
     timeout_s = _float_env("TRADINGBOT_OPENAI_TIMEOUT", 900.0)
-    max_attempts = max(1, _int_env("TRADINGBOT_OPENAI_RETRIES", 2))
+    max_attempts = max(1, _int_env("TRADINGBOT_OPENAI_RETRIES", 4))
     client = OpenAI(api_key=api_key, timeout=timeout_s)
 
     last_err: Exception | None = None
@@ -1716,17 +1803,19 @@ def chat_openai(messages: List[dict], model: str) -> str:
             if isinstance(content, str):
                 return content.strip()
             return ""
-        except APITimeoutError as exc:
+        except Exception as exc:
             last_err = exc
-            if attempt == max_attempts:
+            if not _is_retryable_openai_error(exc) or attempt == max_attempts:
                 raise
-            wait_s = min(5 * attempt, 15)
-            print(f"OpenAI request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...", file=sys.stderr)
+            wait_s = _openai_backoff_seconds(attempt, exc)
+            print(
+                f"OpenAI request failed on attempt {attempt}/{max_attempts} with {exc.__class__.__name__}; retrying in {wait_s:.1f}s...",
+                file=sys.stderr,
+            )
             time.sleep(wait_s)
     if last_err is not None:
         raise last_err
     return ""
-
 
 def chat_anthropic(messages: List[dict], model: str) -> str:
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
