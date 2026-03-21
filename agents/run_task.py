@@ -295,8 +295,17 @@ def _normalize_method_token(token: str) -> str:
 
 def _parse_task_file_attrs(rest: str) -> Dict[str, str]:
     attrs: Dict[str, str] = {}
-    for key, raw_value in TASK_FILE_ATTR_RE.findall(rest or ""):
-        value = raw_value.strip()
+    text = (rest or "").strip()
+    if not text:
+        return attrs
+
+    key_re = re.compile(r'([A-Z_]+)=')
+    matches = list(key_re.finditer(text))
+    for idx, match in enumerate(matches):
+        key = match.group(1)
+        value_start = match.end()
+        value_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        value = text[value_start:value_end].strip()
         if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
             value = value[1:-1]
         attrs[key] = value
