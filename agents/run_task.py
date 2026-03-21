@@ -792,9 +792,11 @@ def _indent_method_text(method_text: str, indent: str) -> str:
 def apply_method_insertion(original: str, anchor: str, method_name: str, method_text: str) -> str:
     if anchor not in original:
         raise FileBundleError(f"Insertion anchor `{anchor}` not found in baseline file.")
-    method_names = RUNNER_METHOD_HEADER_RE.findall(method_text)
-    if method_names != [method_name]:
-        raise FileBundleError(f"Method insertion payload must define exactly one method `{method_name}`; got {method_names or 'none'}.")
+    method_text = _validate_single_method_text(
+        method_text,
+        method_name,
+        context=f"Method insertion payload for `{method_name}`",
+    )
     indent = _method_indent_from_anchor_content(original, anchor)
     inserted = _indent_method_text(method_text, indent)
     anchor_idx = original.index(anchor)
@@ -807,9 +809,11 @@ def apply_method_insertion(original: str, anchor: str, method_name: str, method_
 
 
 def apply_method_replacement(original: str, method_name: str, method_text: str) -> str:
-    method_names = RUNNER_METHOD_HEADER_RE.findall(method_text)
-    if method_names != [method_name]:
-        raise FileBundleError(f"Method insertion payload must define exactly one method `{method_name}`; got {method_names or 'none'}.")
+    method_text = _validate_single_method_text(
+        method_text,
+        method_name,
+        context=f"Method replacement payload for `{method_name}`",
+    )
     content = normalize_newlines(original)
     lines = content.split("\n")
     start_idx = None
