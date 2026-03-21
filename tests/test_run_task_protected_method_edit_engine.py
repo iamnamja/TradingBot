@@ -201,12 +201,14 @@ def test_parse_method_insertion_bundle_raises_for_missing_end_file() -> None:
 def test_request_and_parse_method_insertion_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     bundle = "\n".join(
         [
-            "BEGIN_" + "FILE_BUNDLE",
-            "FI" + "LE: agents/run_task.py",
+            "BEGIN_METHOD_INSERTION",
+            "TARGET_FILE: agents/run_task.py",
+            "METHOD_NAME: helper",
+            "BEGIN_METHOD",
             "def helper(self):",
             "    return 3",
-            "END_" + "FILE",
-            "END_" + "FILE_BUNDLE",
+            "END_METHOD",
+            "END_METHOD_INSERTION",
             "",
         ]
     )
@@ -226,6 +228,35 @@ def test_request_and_parse_method_insertion_happy_path(monkeypatch: pytest.Monke
     )
 
     assert result == "def helper(self):\n    return 3\n"
+
+
+def test_request_and_parse_method_insertion_rejects_file_bundle_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    malformed = "\n".join(
+        [
+            "BEGIN_" + "FILE_BUNDLE",
+            "FI" + "LE: agents/run_task.py",
+            "def helper(self):",
+            "    return 3",
+            "END_" + "FILE",
+            "END_" + "FILE_BUNDLE",
+            "",
+        ]
+    )
+
+    def fake_chat(messages, model, provider):
+        return malformed
+
+    monkeypatch.setattr(run_task, "chat", fake_chat)
+
+    with pytest.raises(run_task.FileBundleError, match="BEGIN_FILE_BUNDLE"):
+        run_task.request_and_parse_method_insertion(
+            messages=[{"role": "user", "content": "please help"}],
+            model="model",
+            provider="provider",
+            last_output_path=pathlib.Path("last_output.txt"),
+            expected_path=pathlib.Path("agents/run_task.py"),
+            expected_method_name="helper",
+        )
 
 
 def test_request_and_parse_method_insertion_raises_for_malformed_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
