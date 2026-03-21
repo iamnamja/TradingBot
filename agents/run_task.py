@@ -26,8 +26,6 @@ import os
 import random
 import re
 import subprocess
-import sys
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -107,25 +105,11 @@ def _load_dotenv_if_available() -> None:
 
 
 def default_provider() -> str:
-    provider = os.getenv("TRADINGBOT_AGENT_PROVIDER", "").strip().lower()
-    if provider:
-        return provider
-    if os.getenv("OPENAI_API_KEY", "").strip():
-        return "openai"
-    if os.getenv("ANTHROPIC_API_KEY", "").strip():
-        return "anthropic"
-    return "openai"
-
-
+    from agents.lib.provider_client import default_provider as _default_provider
+    return _default_provider()
 def default_model_for_provider(provider: str) -> str:
-    env_model = os.getenv("TRADINGBOT_AGENT_MODEL", "").strip()
-    if env_model:
-        return env_model
-    if provider == "openai":
-        return "gpt-5.4"
-    return "claude-sonnet-4-6"
-
-
+    from agents.lib.provider_client import default_model_for_provider as _default_model_for_provider
+    return _default_model_for_provider(provider)
 def default_api_mode_for_provider(provider: str) -> str:
     provider = (provider or "").strip().lower()
     if provider == "openai":
@@ -163,33 +147,20 @@ def _float_env(name: str, default: float) -> float:
 
 
 def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, check=check, text=True, capture_output=False)
-
-
+    from agents.lib.git_ops import run as _run
+    return _run(cmd, check=check)
 def capture(cmd: List[str]) -> str:
-    cp = subprocess.run(cmd, check=True, text=True, capture_output=True)
-    return cp.stdout.strip()
-
-
+    from agents.lib.git_ops import capture as _capture
+    return _capture(cmd)
 def capture_result(cmd: List[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, check=False, text=True, capture_output=True)
-
-
+    from agents.lib.check_runner import capture_result as _capture_result
+    return _capture_result(cmd)
 def ensure_clean_worktree() -> None:
-    if capture(["git", "status", "--porcelain"]).strip():
-        raise RuntimeError("Working tree is not clean. Commit/stash your changes before running the agent.")
-
-
+    from agents.lib.git_ops import ensure_clean_worktree as _ensure_clean_worktree
+    _ensure_clean_worktree()
 def ensure_branch(branch: str) -> None:
-    cur = capture(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-    if cur == branch:
-        return
-    if capture(["git", "branch", "--list", branch]).strip():
-        run(["git", "switch", branch])
-    else:
-        run(["git", "switch", "-c", branch])
-
-
+    from agents.lib.git_ops import ensure_branch as _ensure_branch
+    _ensure_branch(branch)
 def normalize_newlines(s: str) -> str:
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     return re.sub(r"^\ufeff", "", s)
@@ -1806,24 +1777,17 @@ def bundle_similarity(a: Dict[str, str] | None, b: Dict[str, str] | None) -> flo
 
 
 def run_checks() -> Tuple[bool, str]:
-    details: List[str] = []
-
-    # Let the model auto-fix simple ruff issues first.
-    capture_result([sys.executable, "-m", "ruff", "check", ".", "--fix"])
-
-    ruff = capture_result([sys.executable, "-m", "ruff", "check", "."])
-    if ruff.returncode != 0:
-        details.append("## ruff\n" + (ruff.stdout or "") + (ruff.stderr or ""))
-
-    pytest = capture_result([sys.executable, "-m", "pytest", "-q"])
-    if pytest.returncode != 0:
-        details.append("## pytest\n" + (pytest.stdout or "") + (pytest.stderr or ""))
-
-    if details:
-        return False, "\n".join(details).strip()
-    return True, ""
-
-
+    from agents.lib.check_runner import run_checks as _run_checks
+    result = _run_checks()
+    if isinstance(result, dict):
+        lint_ok = bool(result.get("lint_ok", False))
+        test_ok = bool(result.get("test_ok", False))
+        output_text = str(result.get("output_text", "") or "")
+        return (lint_ok and test_ok), output_text.strip()
+    if isinstance(result, tuple) and len(result) == 2:
+        ok, details = result
+        return bool(ok), str(details or "").strip()
+    return False, "Invalid check runner result."
 def load_system_prompt() -> str:
     candidates = [
         Path("agents/prompts/system.md"),
@@ -2063,101 +2027,14 @@ def _openai_generate_via_chat_completions(client: Any, messages: List[dict], mod
 
 
 def chat_openai(messages: List[dict], model: str) -> str:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("Missing OPENAI_API_KEY in environment.")
-    from openai import OpenAI  # type: ignore
-
-    timeout_s = _float_env("TRADINGBOT_OPENAI_TIMEOUT", 900.0)
-    max_attempts = max(1, _int_env("TRADINGBOT_OPENAI_RETRIES", 4))
-    api_mode = default_api_mode_for_provider("openai")
-    client = OpenAI(api_key=api_key, timeout=timeout_s)
-
-    _maybe_validate_openai_model(client, model)
-
-    last_err: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            if api_mode == "chat_completions":
-                normalized = _openai_generate_via_chat_completions(client, messages, model)
-            else:
-                if not hasattr(client, "responses"):
-                    raise RuntimeError(
-                        "This OpenAI SDK does not expose the Responses API client. Upgrade the `openai` package or set TRADINGBOT_OPENAI_API_MODE=chat_completions."
-                    )
-                normalized = _openai_generate_via_responses(client, messages, model)
-            return normalized.text.strip()
-        except Exception as exc:
-            last_err = exc
-            if attempt == max_attempts or not _is_retryable_openai_error(exc):
-                raise
-            retry_after = _extract_retry_after_seconds(exc)
-            wait_s = _backoff_delay_seconds(attempt, retry_after)
-            print(
-                f"OpenAI request failed on attempt {attempt}/{max_attempts} with {exc.__class__.__name__}; retrying in {wait_s:.2f}s...",
-                file=sys.stderr,
-            )
-            time.sleep(wait_s)
-    if last_err is not None:
-        raise last_err
-    return ""
-
-
+    from agents.lib.provider_client import chat_openai as _chat_openai
+    return _chat_openai(messages, model)
 def chat_anthropic(messages: List[dict], model: str) -> str:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("Missing ANTHROPIC_API_KEY in environment.")
-    import anthropic  # type: ignore
-
-    timeout_s = _float_env("TRADINGBOT_ANTHROPIC_TIMEOUT", 900.0)
-    max_attempts = max(1, _int_env("TRADINGBOT_ANTHROPIC_RETRIES", 4))
-    client = anthropic.Anthropic(api_key=api_key, timeout=timeout_s)
-
-    _maybe_validate_anthropic_model(client, model)
-
-    system = _join_system_messages(messages)
-    user_msgs = _non_system_messages(messages)
-    max_tokens = _int_env("TRADINGBOT_ANTHROPIC_MAX_TOKENS", 12000)
-    effort = os.getenv("TRADINGBOT_ANTHROPIC_EFFORT", "").strip().lower()
-
-    last_err: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            request: Dict[str, Any] = {
-                "model": model,
-                "max_tokens": max_tokens,
-                "system": system,
-                "messages": user_msgs,
-            }
-            if effort in {"low", "medium", "high", "max"}:
-                request["output_config"] = {"effort": effort}
-            resp = client.messages.create(**request)
-            return _normalize_anthropic_response(resp).text.strip()
-        except Exception as exc:
-            last_err = exc
-            if attempt == max_attempts or not _is_retryable_anthropic_error(exc):
-                raise
-            retry_after = _extract_retry_after_seconds(exc)
-            wait_s = _backoff_delay_seconds(attempt, retry_after)
-            print(
-                f"Anthropic request failed on attempt {attempt}/{max_attempts} with {exc.__class__.__name__}; retrying in {wait_s:.2f}s...",
-                file=sys.stderr,
-            )
-            time.sleep(wait_s)
-    if last_err is not None:
-        raise last_err
-    return ""
-
-
+    from agents.lib.provider_client import chat_anthropic as _chat_anthropic
+    return _chat_anthropic(messages, model)
 def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
-    chosen = (provider or default_provider()).strip().lower()
-    if chosen == "openai":
-        return chat_openai(messages, model)
-    if chosen == "anthropic":
-        return chat_anthropic(messages, model)
-    raise RuntimeError(f"Unsupported provider: {chosen}")
-
-
+    from agents.lib.provider_client import chat as _chat
+    return _chat(messages, model, provider)
 def build_messages(
     task_text: str,
     required: List[str],
@@ -2572,6 +2449,15 @@ def main() -> int:
     print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
     return 1
 
+
+def _runtime_foundations_exports() -> dict[str, object]:
+    from agents.lib import check_runner, git_ops, provider_client
+
+    return {
+        "provider_client": provider_client,
+        "git_ops": git_ops,
+        "check_runner": check_runner,
+    }
 
 if __name__ == "__main__":
     raise SystemExit(main())
