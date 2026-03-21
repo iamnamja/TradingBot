@@ -546,6 +546,31 @@ def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseli
             continue
         proposed = bundle.get(path)
         original = baseline.get(path)
+
+        allowed_methods: set[str] = set()
+        for rule in rules:
+            if isinstance(rule, str) and rule.startswith("allow_methods:"):
+                allowed_methods.update(
+                    name.strip()
+                    for name in rule.split("allow_methods:", 1)[1].split(",")
+                    if name.strip()
+                )
+
+        if allowed_methods and proposed is not None and original is not None:
+            original_methods = set(RUNNER_METHOD_HEADER_RE.findall(original))
+            proposed_methods = set(RUNNER_METHOD_HEADER_RE.findall(proposed))
+            removed = original_methods - proposed_methods
+            added = proposed_methods - original_methods
+            disallowed_added = sorted(name for name in added if name not in allowed_methods)
+            if removed:
+                issues.append(
+                    f"`{path}` removed existing methods under `allow_methods` policy: {', '.join(sorted(removed))}."
+                )
+            if disallowed_added:
+                issues.append(
+                    f"`{path}` added disallowed methods under `allow_methods` policy: {', '.join(disallowed_added)}."
+                )
+
         for rule in rules:
             if not isinstance(rule, str):
                 continue
@@ -599,18 +624,6 @@ def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseli
                     issues.append(f"`{path}` exceeded max changed lines policy ({changed} > {limit}).")
                 continue
             if rule.startswith("allow_methods:"):
-                if proposed is None or original is None:
-                    continue
-                allowed = {name.strip() for name in rule.split("allow_methods:", 1)[1].split(",") if name.strip()}
-                original_methods = set(RUNNER_METHOD_HEADER_RE.findall(original))
-                proposed_methods = set(RUNNER_METHOD_HEADER_RE.findall(proposed))
-                removed = original_methods - proposed_methods
-                added = proposed_methods - original_methods
-                disallowed_added = sorted(name for name in added if name not in allowed)
-                if removed:
-                    issues.append(f"`{path}` removed existing methods under `allow_methods` policy: {', '.join(sorted(removed))}.")
-                if disallowed_added:
-                    issues.append(f"`{path}` added disallowed methods under `allow_methods` policy: {', '.join(disallowed_added)}.")
                 continue
     if issues:
         return False, "Harness protected-file policy violations detected:\n" + "\n".join(f"- {x}" for x in issues)
@@ -1925,17 +1938,18 @@ def main() -> int:
                 target_path = str(target["path"])
                 mode = str(target["mode"])
                 method_name = str(target["method_name"])
-                baseline_content = baseline.get(target_path)
-                if baseline_content is None:
+                original_baseline_content = baseline.get(target_path)
+                if original_baseline_content is None:
                     raise FileBundleError(
                         f"Protected method target `{target_path}` has no baseline content."
                     )
+                working_content = files.get(target_path, original_baseline_content)
                 anchor = str(target.get("anchor", "")) if mode == "append" else ""
                 insertion_messages = build_method_insertion_messages(
                     task_text,
                     target_path,
                     method_name,
-                    baseline_content,
+                    working_content,
                     mode,
                     extra_directives,
                     anchor=anchor,
@@ -1950,14 +1964,14 @@ def main() -> int:
                 )
                 if mode == "append":
                     files[target_path] = apply_method_insertion(
-                        baseline_content,
+                        working_content,
                         anchor,
                         method_name,
                         method_text,
                     )
                 else:
                     files[target_path] = apply_method_replacement(
-                        baseline_content,
+                        working_content,
                         method_name,
                         method_text,
                     )
