@@ -6,7 +6,7 @@ Extract provider execution, git operations, and local check execution out of `ag
 
 ## Deliverables
 
-Create or update these exact files. Every listed file must appear in the bundle:
+Create or update these exact files. Every listed file must appear in the task result overall:
 
 - `agents/lib/provider_client.py`
 - `agents/lib/git_ops.py`
@@ -14,7 +14,17 @@ Create or update these exact files. Every listed file must appear in the bundle:
 - `agents/run_task.py`
 - `tests/test_run_task_runtime_foundations.py`
 
-All listed files must be materially updated in the same bundle.
+Important delivery rule for this task:
+
+- `agents/run_task.py` is a protected deliverable satisfied by protected method mode.
+- In the normal multi-file bundle, emit only the non-protected deliverables:
+  - `agents/lib/provider_client.py`
+  - `agents/lib/git_ops.py`
+  - `agents/lib/check_runner.py`
+  - `tests/test_run_task_runtime_foundations.py`
+- Do NOT emit a normal `FILE: agents/run_task.py` block in the multi-file bundle.
+
+All listed files must be materially updated in the same task result.
 
 ## Harness policy
 
@@ -81,6 +91,8 @@ Do NOT replace `main()` in this task.
 
 Do NOT emit a normal full-file `FILE: agents/run_task.py` bundle for the protected file. Protected-file edits for `agents/run_task.py` must be satisfied only through the declared method replacement / append-method policy.
 
+For the normal multi-file bundle, `agents/run_task.py` is explicitly forbidden even though it is a deliverable for the task overall. If you include it there, the attempt is invalid.
+
 Do NOT stub or weaken existing validators or policy checks while performing the extraction.
 
 ## Test requirements
@@ -102,6 +114,7 @@ Add deterministic tests that prove:
 - touching unrelated orchestrator engine files under `src/builder/orchestrator/`
 - replacing `main()`
 - weakening `_protected_python_semantic_issues`, `validate_static_bundle_contracts`, `validate_imports`, or protected-file machinery
+- creating circular imports from the extracted modules back into `agents.run_task`
 
 ## Acceptance criteria
 
