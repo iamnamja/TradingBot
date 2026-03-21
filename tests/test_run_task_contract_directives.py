@@ -101,7 +101,34 @@ def test_validate_static_bundle_contracts_enforces_config_wrapper(monkeypatch):
     assert "must satisfy CONFIG_WRAPPER" in message
 
 
-def test_validate_static_bundle_contracts_enforces_result_keys(monkeypatch):
+def test_validate_static_bundle_contracts_enforces_result_keys_for_implementation_surface(monkeypatch):
+    task_text = """
+## Machine-readable contract directives
+
+- RESULT_KEYS: run_loop processed_tasks stopped_reason final_status approval_required planned_actions
+""".strip()
+
+    bundle = {
+        "src/builder/orchestrator/runner.py": (
+            "def run_loop():\n"
+            "    return {\n"
+            '        "processed_tasks": [],\n'
+            "    }\n"
+        )
+    }
+
+    monkeypatch.setattr(run_task, "_module_source_for_name", lambda name: "")
+    monkeypatch.setattr(run_task, "_class_methods_from_source", lambda source, class_name: [])
+    monkeypatch.setattr(run_task, "_class_init_arity_from_source", lambda source, class_name: None)
+
+    ok, message = run_task.validate_static_bundle_contracts(bundle, task_text)
+
+    assert ok is False
+    assert "missing RESULT_KEYS contract token" in message
+    assert "stopped_reason" in message or "final_status" in message
+
+
+def test_validate_static_bundle_contracts_ignores_result_keys_for_non_implementation_mentions(monkeypatch):
     task_text = """
 ## Machine-readable contract directives
 
@@ -122,8 +149,8 @@ def test_validate_static_bundle_contracts_enforces_result_keys(monkeypatch):
 
     ok, message = run_task.validate_static_bundle_contracts(bundle, task_text)
 
-    assert ok is False
-    assert "missing RESULT_KEYS contract token" in message
+    assert ok is True
+    assert message == ""
 
 
 def test_validate_static_bundle_contracts_allows_no_directives(monkeypatch):
