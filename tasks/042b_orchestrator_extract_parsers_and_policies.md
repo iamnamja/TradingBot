@@ -18,7 +18,13 @@ All listed files must be materially updated in the same bundle.
 
 ## Harness policy
 
-- FILE: agents/run_task.py MODE=PROTECTED_FORBID
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=_deliverables_section
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=parse_file_bundle
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=parse_method_insertion_bundle
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=parse_task_contract_directives
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=parse_harness_file_policies
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=_extract_protected_method_targets
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=_parser_policy_exports ANCHOR_BEFORE=if __name__ == "__main__":
 
 ## Critical compatibility requirement
 
@@ -59,6 +65,14 @@ Move logic for:
 - protected-file mode normalization
 - protected-file violation reporting helpers
 
+## Required implementation shape
+
+`agents/run_task.py` must remain the public entrypoint, but the methods listed in the harness policy should become thin delegating wrappers over the extracted modules.
+
+Do NOT emit a normal full-file `FILE: agents/run_task.py` bundle for the protected file. Protected-file edits for `agents/run_task.py` must be satisfied only through the declared method replacement / append-method policy.
+
+Do NOT relax protected-file enforcement to make the extraction easier.
+
 ## Test requirements
 
 Add deterministic tests for:
@@ -76,6 +90,7 @@ Add deterministic tests for:
 - touching orchestrator engine files under `src/builder/orchestrator/`
 - removing existing public helper functions from `run_task.py` unless they remain import-compatible or are clearly delegated wrappers
 - relaxing protected-file enforcement
+- broad rewrite of `agents/run_task.py`
 
 ## Acceptance criteria
 

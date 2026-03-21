@@ -18,13 +18,22 @@ All listed files must be materially updated in the same bundle.
 
 ## Harness policy
 
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=default_provider
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=default_model_for_provider
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=chat_openai
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=chat_anthropic
 - FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=chat
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=main
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=run
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=capture
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=capture_result
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=ensure_clean_worktree
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=ensure_branch
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=run_checks
 - FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=_runtime_foundations_exports ANCHOR_BEFORE=if __name__ == "__main__":
 
 ## Machine-readable contract directives
 
-- ALLOWED_METHODS: agents.run_task main chat
+- ALLOWED_METHODS: agents.run_task default_provider default_model_for_provider chat_openai chat_anthropic chat run capture capture_result ensure_clean_worktree ensure_branch run_checks
 - FORBID_CALLS: runner.run runner.run_all_tasks
 - RESULT_KEYS: check_runner lint_ok test_ok output_text
 
@@ -64,6 +73,16 @@ Move the following responsibilities out of `agents/run_task.py` into reusable mo
 - command result normalization
 - text summary returned to the runner
 
+## Required implementation shape
+
+`agents/run_task.py` must remain the public entrypoint, but the methods listed in the harness policy should become thin delegating wrappers over the extracted modules.
+
+Do NOT replace `main()` in this task.
+
+Do NOT emit a normal full-file `FILE: agents/run_task.py` bundle for the protected file. Protected-file edits for `agents/run_task.py` must be satisfied only through the declared method replacement / append-method policy.
+
+Do NOT stub or weaken existing validators or policy checks while performing the extraction.
+
 ## Test requirements
 
 Add deterministic tests that prove:
@@ -81,6 +100,8 @@ Add deterministic tests that prove:
 - changing task-state semantics
 - introducing new product features
 - touching unrelated orchestrator engine files under `src/builder/orchestrator/`
+- replacing `main()`
+- weakening `_protected_python_semantic_issues`, `validate_static_bundle_contracts`, `validate_imports`, or protected-file machinery
 
 ## Acceptance criteria
 

@@ -39,6 +39,15 @@ Changes are allowed only when required to preserve compatibility during extracti
 
 No new orchestrator product behavior should be introduced in 042 beyond what is strictly necessary for modularization and parity validation.
 
+## Critical lesson from 042a retry failure
+
+The current harness is strongest when protected-file work is expressed as **narrow method replacement** or **tests-only validation**, not broad refactors of protected files.
+
+So in this tranche:
+
+- **042a / 042b / 042c** are narrow extraction tasks with targeted method replacement on `agents/run_task.py`
+- **042d** is a **tests-only parity validation** task
+
 ## Acceptance gate
 
 Do not mark Task 042 complete until all four subtasks are green and merged.
