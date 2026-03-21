@@ -605,6 +605,23 @@ def _anchor_context_excerpt(content: str, anchor: str, *, radius: int = 4) -> st
     return f"(anchor `{anchor}` not found in content excerpt generation)"
 
 
+def _normalize_policy_tail_for_compare(content: str, anchor: str) -> str | None:
+    normalized = normalize_newlines(content)
+    lines = normalized.splitlines()
+    for idx, line in enumerate(lines):
+        if line.strip() == anchor.strip():
+            tail = [tail_line.rstrip() for tail_line in lines[idx:]]
+            while tail and tail[-1] == "":
+                tail.pop()
+            return "\n".join(tail)
+    if anchor in normalized:
+        _before, after = normalized.split(anchor, 1)
+        tail = [anchor.rstrip()] + [tail_line.rstrip() for tail_line in after.splitlines()]
+        while tail and tail[-1] == "":
+            tail.pop()
+        return "\n".join(tail)
+    return None
+
 def _protected_overlap_issue(forbidden_paths: List[str], bundle: Dict[str, str]) -> str:
     overlap = sorted(set(bundle) & set(forbidden_paths))
     if not overlap:
@@ -685,9 +702,11 @@ def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseli
                         f"Proposed anchor excerpt:\n{_anchor_context_excerpt(proposed, anchor)}"
                     )
                     continue
-                original_before, original_after = original.split(anchor, 1)
-                proposed_before, proposed_after = proposed.split(anchor, 1)
-                if normalize_newlines(proposed_after) != normalize_newlines(original_after):
+                original_before, _original_after = original.split(anchor, 1)
+                proposed_before, _proposed_after = proposed.split(anchor, 1)
+                original_tail = _normalize_policy_tail_for_compare(original, anchor)
+                proposed_tail = _normalize_policy_tail_for_compare(proposed, anchor)
+                if original_tail is None or proposed_tail is None or proposed_tail != original_tail:
                     issues.append(
                         f"`{path}` changed content at or after protected anchor `{anchor}`. Only additive insertion before the anchor is allowed.\n"
                         f"Baseline anchor excerpt:\n{_anchor_context_excerpt(original, anchor)}\n"
@@ -2365,7 +2384,7 @@ def main() -> int:
                     suffix = (
                         "Do not emit protected method-edit files in the normal file bundle; "
                         "they are handled separately by protected method mode. If you include them anyway, "
-                        "they will be ignored."
+                        "the response will be rejected."
                     )
                     non_protected_directives = (
                         (extra_directives.rstrip() + "\n\n") if extra_directives.strip() else ""
