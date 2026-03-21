@@ -616,6 +616,17 @@ def _protected_overlap_issue(forbidden_paths: List[str], bundle: Dict[str, str])
     )
 
 
+def _top_level_function_names(source: str) -> set[str]:
+    try:
+        tree = ast.parse(normalize_newlines(source))
+    except Exception:
+        return set()
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
 def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseline: Dict[str, str]) -> Tuple[bool, str]:
     issues: List[str] = []
     policies = parse_harness_file_policies(task_text)
@@ -636,8 +647,8 @@ def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseli
                 )
 
         if allowed_methods and proposed is not None and original is not None:
-            original_methods = set(RUNNER_METHOD_HEADER_RE.findall(original))
-            proposed_methods = set(RUNNER_METHOD_HEADER_RE.findall(proposed))
+            original_methods = _top_level_function_names(original)
+            proposed_methods = _top_level_function_names(proposed)
             removed = original_methods - proposed_methods
             added = proposed_methods - original_methods
             disallowed_added = sorted(name for name in added if name not in allowed_methods)
