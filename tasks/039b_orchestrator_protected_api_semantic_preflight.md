@@ -62,14 +62,42 @@ Add deterministic tests covering at least:
 5. bare `SimpleNamespace(...)` first arg is rejected when `.config` is required
 6. non-protected modules are ignored by the validator
 
-## Strong guidance — use deterministic synthetic module sources
+## Strong guidance — exact fixture shapes
 
-To avoid coupling these tests to unrelated future changes in `src/builder/orchestrator/...`, monkeypatch `_module_source_for_name(...)` to return small synthetic module texts for:
+### Import pattern for the test file
 
-- `builder.orchestrator.runner`
-- `builder.orchestrator.project_config`
+Do NOT use:
 
-### Example runner source fixture
+```python
+from agents import run_task
+```
+
+Instead, load `agents/run_task.py` by path using `importlib.util.spec_from_file_location(...)`, the same way 039a did, so the test remains portable in the current pytest environment.
+
+### Synthetic module-source fixture
+
+Use a fixture that monkeypatches helper functions with these exact compatible shapes:
+
+```python
+def fake_module_source_for_name(module_name, bundle=None):
+    ...
+
+def fake_class_methods_from_source(source, class_name):
+    ...
+
+def fake_class_init_arity_from_source(source, class_name):
+    ...
+```
+
+For `fake_class_init_arity_from_source(...)`, return a tuple for `OrchestratorRunner`, for example:
+
+```python
+return (3, 3)
+```
+
+not a bare integer.
+
+### Example synthetic runner source
 
 Use a synthetic runner source shaped like:
 
@@ -85,9 +113,7 @@ class OrchestratorRunner:
         return None
 ```
 
-This gives the validator a stable constructor arity and method set.
-
-### Example project-config source fixture
+### Example project-config source
 
 Use a simple source like:
 
@@ -96,22 +122,78 @@ class ProjectConfig:
     pass
 ```
 
-## Strong guidance — use a stable bundle fixture
+### Stable bundle fixture
 
-Construct the synthetic bundle with a test-file path such as:
+Construct the synthetic bundle with a file path such as:
 
 - `tests/test_generated_semantic_contract.py`
 
 and put the code-under-test in that bundle entry as a string.
 
-Use normal package imports in the synthetic test code, for example:
+Use normal package imports in the synthetic bundle content, for example:
 
 - `from builder.orchestrator.runner import OrchestratorRunner`
 - `from builder.orchestrator.project_config import ProjectConfig`
 
 Do NOT use `src.`-prefixed imports.
 
-## Strong guidance — use exact assertions that match current behavior
+### Exact code shapes for scenarios
+
+For the valid case, use:
+
+```python
+from builder.orchestrator.project_config import ProjectConfig
+from builder.orchestrator.runner import OrchestratorRunner
+
+config = ProjectConfig()
+runner = OrchestratorRunner(config, object(), object())
+runner.run_next_task()
+runner.run_loop()
+```
+
+For the zero-arg rejection case, use:
+
+```python
+from builder.orchestrator.runner import OrchestratorRunner
+
+runner = OrchestratorRunner()
+```
+
+For the missing-method rejection case, use a nonexistent method call such as:
+
+```python
+from builder.orchestrator.project_config import ProjectConfig
+from builder.orchestrator.runner import OrchestratorRunner
+
+config = ProjectConfig()
+runner = OrchestratorRunner(config, object(), object())
+runner.run_all_tasks()
+```
+
+For the missing-import-symbol rejection case, use:
+
+```python
+from builder.orchestrator.runner import MissingSymbol
+```
+
+For the bare `SimpleNamespace(...)` rejection case, use:
+
+```python
+from types import SimpleNamespace
+from builder.orchestrator.runner import OrchestratorRunner
+
+runner = OrchestratorRunner(SimpleNamespace(), object(), object())
+```
+
+For the non-protected module case, use something like:
+
+```python
+from types import SimpleNamespace
+
+value = SimpleNamespace(answer=42)
+```
+
+## Assertion guidance
 
 For success:
 - assert `ok is True`
@@ -127,16 +209,6 @@ For failures:
 
 Do NOT require one exact full multi-line message string.
 
-## Import pattern for the test file
-
-Do NOT use:
-
-```python
-from agents import run_task
-```
-
-Instead, load `agents/run_task.py` by path using `importlib.util.spec_from_file_location(...)`, the same way 039a did, so the test remains portable in the current pytest environment.
-
 ## Exact forbidden patterns
 
 - modifying `agents/run_task.py`
@@ -145,7 +217,10 @@ Instead, load `agents/run_task.py` by path using `importlib.util.spec_from_file_
 - creating `_last_agent_file_bundle.txt`
 - using `src.`-prefixed imports in the synthetic bundle content
 - patching `validate_static_bundle_contracts(...)` itself
+- returning a bare integer from `fake_class_init_arity_from_source(...)`
 - depending on the current real `src/builder/orchestrator/runner.py` file content
+- using `runner.run_next_task()` in the missing-method rejection case
+- using `from agents import run_task`
 
 ## Acceptance criteria
 
