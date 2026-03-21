@@ -770,41 +770,47 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
     text = normalize_newlines(text)
     lines = text.split("\n")
 
+    if FILE_BUNDLE_BEGIN in text or FILE_BUNDLE_END in text:
+        raise FileBundleError(
+            "Method insertion response used BEGIN_FILE_BUNDLE; protected method mode requires BEGIN_METHOD_INSERTION."
+        )
+
     begin_idx = next((i for i, line in enumerate(lines) if line.strip() == METHOD_INSERTION_BEGIN), None)
-    if begin_idx is not None:
-        end_idx = next((i for i in range(begin_idx + 1, len(lines)) if lines[i].strip() == METHOD_INSERTION_END), None)
-        if end_idx is None:
-            raise FileBundleError("Missing END_METHOD_INSERTION in method insertion bundle.")
+    if begin_idx is None:
+        raise FileBundleError(
+            "Method insertion response did not include protected target file or insertion markers."
+        )
 
-        body_lines = lines[begin_idx + 1:end_idx]
-        target_file = None
-        method_name = None
-        i = 0
-        while i < len(body_lines):
-            line = body_lines[i].strip()
-            if line.startswith("TARGET_FILE:"):
-                target_file = line.split(":", 1)[1].strip().replace("\\", "/")
-            elif line.startswith("METHOD_NAME:"):
-                method_name = line.split(":", 1)[1].strip()
-            elif line == METHOD_BLOCK_BEGIN:
-                i += 1
-                buf: List[str] = []
-                while i < len(body_lines) and body_lines[i].strip() != METHOD_BLOCK_END:
-                    buf.append(body_lines[i])
-                    i += 1
-                if i >= len(body_lines):
-                    raise FileBundleError("Missing END_METHOD in method insertion bundle.")
-                if target_file and target_file != expected_path:
-                    raise FileBundleError(f"Method insertion target file mismatch: expected {expected_path}, got {target_file}.")
-                if method_name and method_name != expected_method_name:
-                    raise FileBundleError(f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}.")
-                return _validate_single_method_text("\n".join(buf).rstrip("\n") + "\n", expected_method_name, context="Method insertion bundle")
+    end_idx = next((i for i in range(begin_idx + 1, len(lines)) if lines[i].strip() == METHOD_INSERTION_END), None)
+    if end_idx is None:
+        raise FileBundleError("Missing END_METHOD_INSERTION in method insertion bundle.")
+
+    body_lines = lines[begin_idx + 1:end_idx]
+    target_file = None
+    method_name = None
+    i = 0
+    while i < len(body_lines):
+        line = body_lines[i].strip()
+        if line.startswith("TARGET_FILE:"):
+            target_file = line.split(":", 1)[1].strip().replace("\\", "/")
+        elif line.startswith("METHOD_NAME:"):
+            method_name = line.split(":", 1)[1].strip()
+        elif line == METHOD_BLOCK_BEGIN:
             i += 1
+            buf: List[str] = []
+            while i < len(body_lines) and body_lines[i].strip() != METHOD_BLOCK_END:
+                buf.append(body_lines[i])
+                i += 1
+            if i >= len(body_lines):
+                raise FileBundleError("Missing END_METHOD in method insertion bundle.")
+            if target_file and target_file != expected_path:
+                raise FileBundleError(f"Method insertion target file mismatch: expected {expected_path}, got {target_file}.")
+            if method_name and method_name != expected_method_name:
+                raise FileBundleError(f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}.")
+            return _validate_single_method_text("\n".join(buf).rstrip("\n") + "\n", expected_method_name, context="Method insertion bundle")
+        i += 1
 
-    files = parse_file_bundle(text)
-    if expected_path not in files:
-        raise FileBundleError("Method insertion response did not include protected target file or insertion markers.")
-    return _validate_single_method_text(_method_block_from_file_content(files[expected_path], expected_method_name), expected_method_name, context="Method insertion bundle")
+    raise FileBundleError("Method insertion bundle did not include a BEGIN_METHOD/END_METHOD block.")
 
 
 def load_method_insertion_system_prompt() -> str:
@@ -900,7 +906,14 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     except Exception as exc:
         retry_error = str(exc)
 
-    recovered_lines = normalize_newlines(out2).split("\n")
+    normalized_retry = normalize_newlines(out2)
+    if FILE_BUNDLE_BEGIN in normalized_retry or FILE_BUNDLE_END in normalized_retry:
+        raise FileBundleError(
+            "Model returned malformed method insertion bundle after retry: "
+            f"{retry_error}; raw-text recovery disabled because the response used BEGIN_FILE_BUNDLE."
+        )
+
+    recovered_lines = normalized_retry.split("\n")
     start_candidates = [
         idx for idx, line in enumerate(recovered_lines)
         if (len(line) - len(line.lstrip())) == 0 and line.startswith(f"def {expected_method_name}(")
