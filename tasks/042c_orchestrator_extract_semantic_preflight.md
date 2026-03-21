@@ -16,7 +16,13 @@ All listed files must be materially updated in the same bundle.
 
 ## Harness policy
 
-- FILE: agents/run_task.py MODE=PROTECTED_FORBID
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=_module_source_for_name
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=_module_exports_from_source
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=_class_methods_from_source
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=_class_init_arity_from_source
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=_protected_python_semantic_issues
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=validate_static_bundle_contracts
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=_semantic_preflight_exports ANCHOR_BEFORE=if __name__ == "__main__":
 
 ## Critical compatibility requirement
 
@@ -38,7 +44,9 @@ Move into `semantic_preflight.py`:
 - protected Python semantic issue detection
 - helper functions for module/source/export inspection used by semantic validation
 
-`agents/run_task.py` may delegate to the new module but must preserve the current public behavior.
+`agents/run_task.py` must remain the public entrypoint, but the methods listed in the harness policy should become thin delegating wrappers over the extracted module.
+
+Do NOT emit a normal full-file `FILE: agents/run_task.py` bundle for the protected file. Protected-file edits for `agents/run_task.py` must be satisfied only through the declared method replacement / append-method policy.
 
 ## Test requirements
 
@@ -57,6 +65,7 @@ Add deterministic parity tests for:
 - behavior changes to semantic policy
 - weakening contract enforcement to get tests green
 - touching orchestrator engine files under `src/builder/orchestrator/`
+- broad rewrite of `agents/run_task.py`
 
 ## Acceptance criteria
 

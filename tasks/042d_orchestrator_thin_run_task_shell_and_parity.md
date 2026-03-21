@@ -2,16 +2,15 @@
 
 ## Goal
 
-Reduce `agents/run_task.py` to a thin orchestration shell that composes the extracted modules, while preserving current behavior exactly.
+Validate that `agents/run_task.py` now behaves as a thin orchestration shell over the extracted modules, while preserving current behavior exactly.
 
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
-- `agents/run_task.py`
 - `tests/test_run_task_shell_parity.py`
 
-The listed files must be materially updated.
+The listed file must be materially updated.
 
 ## Harness policy
 
@@ -20,6 +19,8 @@ The listed files must be materially updated.
 ## Critical compatibility requirement
 
 This task must not introduce new product behavior.
+
+This is a **tests-only parity validation task**. By the time 042d runs, the extraction work should already be complete from 042a / 042b / 042c.
 
 The thin shell must preserve the current public workflow:
 
@@ -37,7 +38,7 @@ The thin shell must preserve the current public workflow:
 
 Add deterministic tests that prove the shell still orchestrates the same flow, including:
 
-1. provider call path still runs
+1. provider call path still runs through the extracted provider module
 2. parser/policy modules are actually used
 3. semantic preflight module is actually used
 4. known runtime artifact handling still appears in warnings/flow
@@ -49,10 +50,11 @@ Add deterministic tests that prove the shell still orchestrates the same flow, i
 - behavior changes to retry counts, branch naming, or approval behavior
 - moving product logic into tests instead of the extracted modules
 - touching orchestrator engine files under `src/builder/orchestrator/`
+- touching `agents/run_task.py`
 
 ## Acceptance criteria
 
 - `ruff check .` passes
 - `pytest -q` is fully green
-- `run_task.py` becomes a thin shell relative to the current monolith
+- `run_task.py` is validated as a thin shell relative to the prior monolith
 - no public behavior changes are introduced
