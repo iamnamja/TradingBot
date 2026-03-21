@@ -1,7 +1,0 @@
-BEGIN_FILE_BUNDLE
-FILE: agents/run_task.py
-def wrong(self):
-    return 3
-END_FILE
-END_FILE_BUNDLE
-
