@@ -930,6 +930,158 @@ def parse_task_contract_directives(task_text: str) -> Dict[str, List[str]]:
     return directives
 
 
+def _directive_contract_issues(bundle: Dict[str, str], task_text: str) -> List[str]:
+    directives = parse_task_contract_directives(task_text)
+    if not directives:
+        return []
+
+    issues: List[str] = []
+
+    forbid_import_specs: List[Tuple[str, set[str]]] = []
+    for entry in directives.get("FORBID_IMPORTS", []):
+        tokens = entry.split()
+        if len(tokens) >= 2:
+            module = tokens[0].strip()
+            symbols = {tok.strip() for tok in tokens[1:] if tok.strip()}
+            if symbols:
+                forbid_import_specs.append((module, symbols))
+
+    forbid_calls = {
+        token.strip()
+        for entry in directives.get("FORBID_CALLS", [])
+        for token in entry.split()
+        if token.strip()
+    }
+
+    allowed_method_specs: Dict[str, set[str]] = {}
+    short_class_names: Dict[str, str] = {}
+    for entry in directives.get("ALLOWED_METHODS", []):
+        tokens = entry.split()
+        if len(tokens) >= 2:
+            fqcn = tokens[0].strip()
+            short_class_names[fqcn.split(".")[-1]] = fqcn
+            allowed_method_specs[fqcn] = {tok.strip() for tok in tokens[1:] if tok.strip()}
+
+    constructor_specs: Dict[str, int] = {}
+    for entry in directives.get("CONSTRUCTOR", []):
+        match = re.match(r"(\S+)\((.*)\)$", entry.strip())
+        if not match:
+            continue
+        fqcn = match.group(1).strip()
+        arglist = [x.strip() for x in match.group(2).split(",") if x.strip()]
+        short_class_names[fqcn.split(".")[-1]] = fqcn
+        constructor_specs[fqcn] = len(arglist)
+
+    config_wrapper_specs: Dict[str, Dict[str, str]] = {}
+    for entry in directives.get("CONFIG_WRAPPER", []):
+        tokens = entry.split()
+        if not tokens:
+            continue
+        fqcn = tokens[0].strip()
+        short_class_names[fqcn.split(".")[-1]] = fqcn
+        spec: Dict[str, str] = {}
+        for token in tokens[1:]:
+            if "=" in token:
+                key, value = token.split("=", 1)
+                spec[key.strip()] = value.strip()
+        if spec:
+            config_wrapper_specs[fqcn] = spec
+
+    result_key_specs: Dict[str, set[str]] = {}
+    for entry in directives.get("RESULT_KEYS", []):
+        tokens = entry.split()
+        if len(tokens) >= 2:
+            result_key_specs[tokens[0].strip()] = {tok.strip() for tok in tokens[1:] if tok.strip()}
+
+    for rel, content in bundle.items():
+        if not rel.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(normalize_newlines(content), filename=rel)
+        except Exception:
+            continue
+
+        imported_names: Dict[str, str] = {}
+        var_types: Dict[str, str] = {}
+        var_has_config: Dict[str, bool] = {}
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = (node.module or "").strip()
+                if module.startswith("src."):
+                    module = module[4:]
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    imported_names[alias.asname or alias.name] = f"{module}.{alias.name}" if module else alias.name
+                for forbid_module, forbid_symbols in forbid_import_specs:
+                    if module == forbid_module:
+                        for alias in node.names:
+                            if alias.name in forbid_symbols:
+                                issues.append(f"{rel}: violates FORBID_IMPORTS via `{module}.{alias.name}`")
+
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                target = node.targets[0].id
+                value = node.value
+                if isinstance(value, ast.Call):
+                    call_name = _call_name(value.func) or ""
+                    resolved = imported_names.get(call_name, short_class_names.get(call_name, call_name))
+                    if call_name in short_class_names:
+                        resolved = short_class_names[call_name]
+                    if resolved in constructor_specs:
+                        var_types[target] = resolved
+                        argc = len(value.args) + len([kw for kw in value.keywords if kw.arg is not None])
+                        expected = constructor_specs[resolved]
+                        if argc != expected:
+                            issues.append(f"{rel}: {resolved.split('.')[-1]}() is called with {argc} args but CONSTRUCTOR requires {expected}")
+                        wrapper = config_wrapper_specs.get(resolved)
+                        if wrapper and value.args:
+                            first = value.args[0]
+                            unless = wrapper.get("unless", "").lstrip(".")
+                            first_name = _call_name(first) or ""
+                            resolved_first = imported_names.get(first_name, first_name)
+                            if unless and (resolved_first.endswith("." + unless) or first_name == unless):
+                                pass
+                            elif wrapper.get("first_arg_requires") == ".config":
+                                bad_wrapper = False
+                                if _is_simplenamespace_call(first):
+                                    bad_wrapper = not any((kw.arg == "config") for kw in first.keywords if kw.arg)
+                                elif isinstance(first, ast.Name) and first.id in var_has_config:
+                                    bad_wrapper = not var_has_config[first.id]
+                                if bad_wrapper:
+                                    issues.append(f"{rel}: {resolved.split('.')[-1]} first arg must satisfy CONFIG_WRAPPER")
+                    elif _is_simplenamespace_call(value):
+                        var_has_config[target] = any((kw.arg == "config") for kw in value.keywords if kw.arg)
+                elif isinstance(value, ast.Name) and value.id in var_has_config:
+                    var_has_config[target] = var_has_config[value.id]
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                call_name = _call_name(node.func) or ""
+                if call_name in forbid_calls:
+                    issues.append(f"{rel}: violates FORBID_CALLS via `{call_name}`")
+                if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+                    fqcn = var_types.get(node.func.value.id)
+                    if fqcn and fqcn in allowed_method_specs and node.func.attr not in allowed_method_specs[fqcn]:
+                        issues.append(f"{rel}: `{node.func.value.id}.{node.func.attr}()` violates ALLOWED_METHODS for `{fqcn}`")
+
+        for result_fn, keys in result_key_specs.items():
+            if result_fn in content:
+                for key in keys:
+                    if key not in content:
+                        issues.append(f"{rel}: missing RESULT_KEYS contract token `{key}` for `{result_fn}`")
+
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        if issue not in seen:
+            seen.add(issue)
+            deduped.append(issue)
+    return deduped
+
+
+
 def _module_source_for_name(mod: str, bundle: Dict[str, str]) -> str | None:
     mod = mod.strip()
     if mod.startswith("src."):
@@ -949,6 +1101,28 @@ def _module_source_for_name(mod: str, bundle: Dict[str, str]) -> str | None:
         return fp.read_text(encoding="utf-8", errors="replace")
     if pp.exists():
         return pp.read_text(encoding="utf-8", errors="replace")
+    return None
+
+
+def _module_source_for_name_compat(mod: str, bundle: Dict[str, str]) -> str | None:
+    try:
+        return _module_source_for_name(mod, bundle)
+    except TypeError:
+        return _module_source_for_name(mod)  # type: ignore[misc]
+
+
+def _normalize_ctor_arity_spec(spec: object) -> Tuple[int, int | None] | None:
+    if spec is None:
+        return None
+    if isinstance(spec, int):
+        return spec, spec
+    if (
+        isinstance(spec, tuple)
+        and len(spec) == 2
+        and isinstance(spec[0], int)
+        and (isinstance(spec[1], int) or spec[1] is None)
+    ):
+        return spec[0], spec[1]
     return None
 
 
@@ -1024,9 +1198,11 @@ def _protected_python_semantic_issues(bundle: Dict[str, str], task_text: str) ->
         "builder.orchestrator.backlog",
         "builder.orchestrator.execution_result",
     }
-    runner_source = _module_source_for_name("builder.orchestrator.runner", bundle) or ""
+    runner_source = _module_source_for_name_compat("builder.orchestrator.runner", bundle) or ""
     runner_methods = _class_methods_from_source(runner_source, "OrchestratorRunner")
-    runner_ctor = _class_init_arity_from_source(runner_source, "OrchestratorRunner")
+    runner_ctor = _normalize_ctor_arity_spec(
+        _class_init_arity_from_source(runner_source, "OrchestratorRunner")
+    )
     config_requires_wrapper = "config.config" in runner_source
     issues: List[str] = []
 
@@ -1047,13 +1223,17 @@ def _protected_python_semantic_issues(bundle: Dict[str, str], task_text: str) ->
                 if module.startswith("src."):
                     module = module[4:]
                 if module in protected_modules:
-                    source = _module_source_for_name(module, bundle)
+                    source = _module_source_for_name_compat(module, bundle)
                     exports = _module_exports_from_source(source or "") if source is not None else set()
                     for alias in node.names:
                         if alias.name == "*":
                             continue
                         imported_names[alias.asname or alias.name] = f"{module}.{alias.name}"
-                        if source is not None and alias.name not in exports and _module_source_for_name(f"{module}.{alias.name}", bundle) is None:
+                        if (
+                            source is not None
+                            and alias.name not in exports
+                            and _module_source_for_name_compat(f"{module}.{alias.name}", bundle) is None
+                        ):
                             issues.append(f"{rel}: imports missing symbol '{alias.name}' from '{module}'")
 
         for node in tree.body:
@@ -1091,158 +1271,6 @@ def _protected_python_semantic_issues(bundle: Dict[str, str], task_text: str) ->
                 attr = node.func.attr
                 if var_types.get(obj) == "OrchestratorRunner" and runner_methods and attr not in runner_methods:
                     issues.append(f"{rel}: variable '{obj}' is an OrchestratorRunner; protected API has no method '{attr}'")
-    deduped=[]
-    seen=set()
-    for issue in issues:
-        if issue not in seen:
-            seen.add(issue)
-            deduped.append(issue)
-    return deduped
-
-
-
-def _directive_contract_issues(bundle: Dict[str, str], task_text: str) -> List[str]:
-    directives = parse_task_contract_directives(task_text)
-    if not directives:
-        return []
-
-    issues: List[str] = []
-
-    forbid_import_specs: List[Tuple[str, set[str]]] = []
-    for entry in directives.get("FORBID_IMPORTS", []):
-        tokens = entry.split()
-        if len(tokens) >= 2:
-            module = tokens[0].strip()
-            symbols = {tok.strip() for tok in tokens[1:] if tok.strip()}
-            if symbols:
-                forbid_import_specs.append((module, symbols))
-
-    forbid_calls = {
-        token.strip()
-        for entry in directives.get("FORBID_CALLS", [])
-        for token in entry.split()
-        if token.strip()
-    }
-
-    allowed_method_specs: Dict[str, set[str]] = {}
-    short_class_names: Dict[str, str] = {}
-    for entry in directives.get("ALLOWED_METHODS", []):
-        tokens = entry.split()
-        if len(tokens) >= 2:
-            fqcn = tokens[0].strip()
-            short_class_names[fqcn.split(".")[-1]] = fqcn
-            allowed_method_specs[fqcn] = {tok.strip() for tok in tokens[1:] if tok.strip()}
-
-    constructor_specs: Dict[str, int] = {}
-    for entry in directives.get("CONSTRUCTOR", []):
-        import re
-        match = re.match(r"(\S+)\((.*)\)$", entry.strip())
-        if not match:
-            continue
-        fqcn = match.group(1).strip()
-        arglist = [x.strip() for x in match.group(2).split(",") if x.strip()]
-        short_class_names[fqcn.split(".")[-1]] = fqcn
-        constructor_specs[fqcn] = len(arglist)
-
-    config_wrapper_specs: Dict[str, Dict[str, str]] = {}
-    for entry in directives.get("CONFIG_WRAPPER", []):
-        tokens = entry.split()
-        if not tokens:
-            continue
-        fqcn = tokens[0].strip()
-        short_class_names[fqcn.split(".")[-1]] = fqcn
-        spec: Dict[str, str] = {}
-        for token in tokens[1:]:
-            if "=" in token:
-                key, value = token.split("=", 1)
-                spec[key.strip()] = value.strip()
-        if spec:
-            config_wrapper_specs[fqcn] = spec
-
-    result_key_specs: Dict[str, set[str]] = {}
-    for entry in directives.get("RESULT_KEYS", []):
-        tokens = entry.split()
-        if len(tokens) >= 2:
-            result_key_specs[tokens[0].strip()] = {tok.strip() for tok in tokens[1:] if tok.strip()}
-
-    for rel, content in bundle.items():
-        if not rel.endswith('.py'):
-            continue
-        try:
-            tree = ast.parse(normalize_newlines(content), filename=rel)
-        except Exception:
-            continue
-
-        imported_names: Dict[str, str] = {}
-        var_types: Dict[str, str] = {}
-        var_has_config: Dict[str, bool] = {}
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                module = (node.module or '').strip()
-                if module.startswith('src.'):
-                    module = module[4:]
-                for alias in node.names:
-                    if alias.name == '*':
-                        continue
-                    imported_names[alias.asname or alias.name] = f"{module}.{alias.name}" if module else alias.name
-                for forbid_module, forbid_symbols in forbid_import_specs:
-                    if module == forbid_module:
-                        for alias in node.names:
-                            if alias.name in forbid_symbols:
-                                issues.append(f"{rel}: violates FORBID_IMPORTS via `{module}.{alias.name}`")
-
-        for node in tree.body:
-            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-                target = node.targets[0].id
-                value = node.value
-                if isinstance(value, ast.Call):
-                    call_name = _call_name(value.func) or ''
-                    resolved = imported_names.get(call_name, short_class_names.get(call_name, call_name))
-                    if call_name in short_class_names:
-                        resolved = short_class_names[call_name]
-                    if resolved in constructor_specs:
-                        var_types[target] = resolved
-                        argc = len(value.args) + len([kw for kw in value.keywords if kw.arg is not None])
-                        expected = constructor_specs[resolved]
-                        if argc != expected:
-                            issues.append(f"{rel}: {resolved.split('.')[-1]}() is called with {argc} args but CONSTRUCTOR requires {expected}")
-                        wrapper = config_wrapper_specs.get(resolved)
-                        if wrapper and value.args:
-                            first = value.args[0]
-                            unless = wrapper.get('unless', '').lstrip('.')
-                            first_name = _call_name(first) or ''
-                            resolved_first = imported_names.get(first_name, first_name)
-                            if unless and (resolved_first.endswith('.' + unless) or first_name == unless):
-                                pass
-                            elif wrapper.get('first_arg_requires') == '.config':
-                                bad_wrapper = False
-                                if _is_simplenamespace_call(first):
-                                    bad_wrapper = not any((kw.arg == 'config') for kw in first.keywords if kw.arg)
-                                elif isinstance(first, ast.Name) and first.id in var_has_config:
-                                    bad_wrapper = not var_has_config[first.id]
-                                if bad_wrapper:
-                                    issues.append(f"{rel}: {resolved.split('.')[-1]} first arg must satisfy CONFIG_WRAPPER")
-                    elif _is_simplenamespace_call(value):
-                        var_has_config[target] = any((kw.arg == 'config') for kw in value.keywords if kw.arg)
-                elif isinstance(value, ast.Name) and value.id in var_has_config:
-                    var_has_config[target] = var_has_config[value.id]
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                call_name = _call_name(node.func) or ''
-                if call_name in forbid_calls:
-                    issues.append(f"{rel}: violates FORBID_CALLS via `{call_name}`")
-                if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-                    fqcn = var_types.get(node.func.value.id)
-                    if fqcn and fqcn in allowed_method_specs and node.func.attr not in allowed_method_specs[fqcn]:
-                        issues.append(f"{rel}: `{node.func.value.id}.{node.func.attr}()` violates ALLOWED_METHODS for `{fqcn}`")
-
-        for result_fn, keys in result_key_specs.items():
-            if result_fn in content:
-                for key in keys:
-                    if key not in content:
-                        issues.append(f"{rel}: missing RESULT_KEYS contract token `{key}` for `{result_fn}`")
 
     deduped: List[str] = []
     seen: set[str] = set()
@@ -1251,6 +1279,8 @@ def _directive_contract_issues(bundle: Dict[str, str], task_text: str) -> List[s
             seen.add(issue)
             deduped.append(issue)
     return deduped
+
+
 
 def enforce_required_files(
     required: List[str],
@@ -1311,14 +1341,17 @@ def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> 
     issues.extend(_protected_python_semantic_issues(bundle, task_text))
 
     if issues:
-        deduped=[]
-        seen=set()
+        deduped: List[str] = []
+        seen: set[str] = set()
         for issue in issues:
             if issue not in seen:
                 seen.add(issue)
                 deduped.append(issue)
         return False, "Static bundle contract violations detected:\n" + "\n".join(f"- {x}" for x in deduped)
     return True, ""
+
+
+
 def package_roots() -> List[str]:
     roots: List[str] = []
     src = Path("src")
