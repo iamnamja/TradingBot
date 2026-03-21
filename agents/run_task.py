@@ -1457,6 +1457,14 @@ def _directive_contract_issues(bundle: Dict[str, str], task_text: str) -> List[s
 
 
 def _module_source_for_name(mod: str, bundle: Dict[str, str]) -> str | None:
+    exports = _semantic_preflight_exports()
+    delegated = exports.get("_module_source_for_name")
+    if callable(delegated):
+        try:
+            return delegated(mod, bundle)  # type: ignore[misc]
+        except TypeError:
+            return delegated(mod)  # type: ignore[misc]
+
     mod = mod.strip()
     if mod.startswith("src."):
         mod = mod[4:]
@@ -1476,8 +1484,6 @@ def _module_source_for_name(mod: str, bundle: Dict[str, str]) -> str | None:
     if pp.exists():
         return pp.read_text(encoding="utf-8", errors="replace")
     return None
-
-
 def _module_source_for_name_compat(mod: str, bundle: Dict[str, str]) -> str | None:
     try:
         return _module_source_for_name(mod, bundle)
@@ -1501,6 +1507,13 @@ def _normalize_ctor_arity_spec(spec: object) -> Tuple[int, int | None] | None:
 
 
 def _module_exports_from_source(source: str) -> set[str]:
+    exports_map = _semantic_preflight_exports()
+    delegated = exports_map.get("_module_exports_from_source")
+    if callable(delegated):
+        try:
+            return delegated(source)  # type: ignore[misc]
+        except TypeError:
+            pass
     try:
         tree = ast.parse(normalize_newlines(source))
     except Exception:
@@ -1521,9 +1534,17 @@ def _module_exports_from_source(source: str) -> set[str]:
                             if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                                 explicit_all.add(elt.value)
     return explicit_all or exports
-
-
 def _class_methods_from_source(source: str, class_name: str) -> set[str]:
+    exports = _semantic_preflight_exports()
+    delegated = exports.get("_class_methods_from_source")
+    if callable(delegated):
+        try:
+            return delegated(source, class_name)  # type: ignore[misc]
+        except TypeError:
+            try:
+                return delegated(source)  # type: ignore[misc]
+            except TypeError:
+                pass
     try:
         tree = ast.parse(normalize_newlines(source))
     except Exception:
@@ -1532,9 +1553,27 @@ def _class_methods_from_source(source: str, class_name: str) -> set[str]:
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             return {item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}
     return set()
-
-
 def _class_init_arity_from_source(source: str, class_name: str) -> Tuple[int, int | None] | None:
+    exports = _semantic_preflight_exports()
+    delegated = exports.get("_class_init_arity_from_source")
+    if callable(delegated):
+        try:
+            delegated_result = delegated(source, class_name)  # type: ignore[misc]
+        except TypeError:
+            try:
+                delegated_result = delegated(source)  # type: ignore[misc]
+            except TypeError:
+                delegated_result = delegated(class_name)  # type: ignore[misc]
+        if isinstance(delegated_result, int):
+            return delegated_result, delegated_result
+        if (
+            isinstance(delegated_result, tuple)
+            and len(delegated_result) == 2
+            and isinstance(delegated_result[0], int)
+            and (isinstance(delegated_result[1], int) or delegated_result[1] is None)
+        ):
+            return delegated_result[0], delegated_result[1]
+        return None
     try:
         tree = ast.parse(normalize_newlines(source))
     except Exception:
@@ -1549,8 +1588,6 @@ def _class_init_arity_from_source(source: str, class_name: str) -> Tuple[int, in
                     max_args = None if item.args.vararg is not None else max(0, total - 1)
                     return min_args, max_args
     return None
-
-
 def _call_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Name):
         return node.id
@@ -1565,6 +1602,14 @@ def _is_simplenamespace_call(node: ast.AST) -> bool:
 
 
 def _protected_python_semantic_issues(bundle: Dict[str, str], task_text: str) -> List[str]:
+    exports = _semantic_preflight_exports()
+    delegated = exports.get("_protected_python_semantic_issues")
+    if callable(delegated):
+        try:
+            return list(delegated(bundle, task_text))  # type: ignore[misc]
+        except TypeError:
+            return list(delegated(bundle))  # type: ignore[misc]
+
     protected_modules = {
         "builder.orchestrator.runner",
         "builder.orchestrator.project_config",
@@ -1574,10 +1619,8 @@ def _protected_python_semantic_issues(bundle: Dict[str, str], task_text: str) ->
     }
     runner_source = _module_source_for_name_compat("builder.orchestrator.runner", bundle) or ""
     runner_methods = _class_methods_from_source(runner_source, "OrchestratorRunner")
-    runner_ctor = _normalize_ctor_arity_spec(
-        _class_init_arity_from_source(runner_source, "OrchestratorRunner")
-    )
-    config_requires_wrapper = "config.config" in runner_source
+    runner_ctor = _normalize_ctor_arity_spec(_class_init_arity_from_source(runner_source, "OrchestratorRunner"))
+    config_requires_wrapper = ("config.config" in runner_source) or ("cfg.config" in runner_source)
     issues: List[str] = []
 
     for rel, content in bundle.items():
@@ -1587,6 +1630,7 @@ def _protected_python_semantic_issues(bundle: Dict[str, str], task_text: str) ->
             tree = ast.parse(normalize_newlines(content), filename=rel)
         except Exception:
             continue
+
         imported_names: Dict[str, str] = {}
         var_types: Dict[str, str] = {}
         var_has_config: Dict[str, bool] = {}
@@ -1598,16 +1642,12 @@ def _protected_python_semantic_issues(bundle: Dict[str, str], task_text: str) ->
                     module = module[4:]
                 if module in protected_modules:
                     source = _module_source_for_name_compat(module, bundle)
-                    exports = _module_exports_from_source(source or "") if source is not None else set()
+                    exports_set = _module_exports_from_source(source or "") if source is not None else set()
                     for alias in node.names:
                         if alias.name == "*":
                             continue
                         imported_names[alias.asname or alias.name] = f"{module}.{alias.name}"
-                        if (
-                            source is not None
-                            and alias.name not in exports
-                            and _module_source_for_name_compat(f"{module}.{alias.name}", bundle) is None
-                        ):
+                        if source is not None and alias.name not in exports_set and _module_source_for_name_compat(f"{module}.{alias.name}", bundle) is None:
                             issues.append(f"{rel}: imports missing symbol '{alias.name}' from '{module}'")
 
         for node in tree.body:
@@ -1653,9 +1693,6 @@ def _protected_python_semantic_issues(bundle: Dict[str, str], task_text: str) ->
             seen.add(issue)
             deduped.append(issue)
     return deduped
-
-
-
 def enforce_required_files(
     required: List[str],
     bundle: Dict[str, str],
@@ -1683,7 +1720,14 @@ def enforce_required_files(
 
 
 def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> Tuple[bool, str]:
-    """Catch obvious structural and protected-API regressions before spending an iteration on ruff/pytest."""
+    exports = _semantic_preflight_exports()
+    delegated = exports.get("validate_static_bundle_contracts")
+    if callable(delegated):
+        try:
+            return delegated(bundle, task_text)  # type: ignore[misc]
+        except TypeError:
+            pass
+
     issues: List[str] = []
 
     runner_path = "src/builder/orchestrator/runner.py"
@@ -1723,9 +1767,6 @@ def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> 
                 deduped.append(issue)
         return False, "Static bundle contract violations detected:\n" + "\n".join(f"- {x}" for x in deduped)
     return True, ""
-
-
-
 def package_roots() -> List[str]:
     roots: List[str] = []
     src = Path("src")
@@ -3026,6 +3067,40 @@ def _parser_policy_exports() -> Dict[str, object]:
         exports["parse_harness_file_policies"] = None
         exports["extract_protected_method_targets"] = None
 
+    return exports
+
+def _semantic_preflight_exports() -> Dict[str, object]:
+    try:
+        from agents.lib import semantic_preflight as _semantic_preflight  # type: ignore
+    except Exception:
+        _semantic_preflight = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {}
+    if _semantic_preflight is not None:
+        for name in (
+            "_module_source_for_name",
+            "_module_exports_from_source",
+            "_class_methods_from_source",
+            "_class_init_arity_from_source",
+            "_protected_python_semantic_issues",
+            "validate_static_bundle_contracts",
+        ):
+            obj = getattr(_semantic_preflight, name, None)
+            if callable(obj):
+                exports[name] = obj
+
+    if "_module_source_for_name" not in exports:
+        exports["_module_source_for_name"] = _module_source_for_name_compat
+    if "_module_exports_from_source" not in exports:
+        exports["_module_exports_from_source"] = _module_exports_from_source
+    if "_class_methods_from_source" not in exports:
+        exports["_class_methods_from_source"] = _class_methods_from_source
+    if "_class_init_arity_from_source" not in exports:
+        exports["_class_init_arity_from_source"] = _class_init_arity_from_source
+    if "_protected_python_semantic_issues" not in exports:
+        exports["_protected_python_semantic_issues"] = _protected_python_semantic_issues
+    if "validate_static_bundle_contracts" not in exports:
+        exports["validate_static_bundle_contracts"] = validate_static_bundle_contracts
     return exports
 
 if __name__ == "__main__":
