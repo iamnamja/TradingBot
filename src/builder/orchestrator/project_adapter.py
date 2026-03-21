@@ -1,5 +1,7 @@
 from typing import Any, Dict
-from .project_config import ProjectConfig, GenericProjectConfig
+
+from .project_config import GenericProjectConfig, ProjectConfig
+
 
 class ProjectAdapter:
     def __init__(self, config: ProjectConfig):
@@ -15,6 +17,9 @@ class ProjectAdapter:
             "artifact_path_patterns": self.config.artifact_path_patterns,
             "approval_required_file_patterns": self.config.approval_required_file_patterns,
             "task_runner_command": getattr(self.config, "task_runner_command", None),
+            "state_path": getattr(self.config, "state_path", None),
+            "task_file_pattern": getattr(self.config, "task_file_pattern", "*.md"),
+            "audit_path": getattr(self.config, "audit_path", None),
         }
 
     @staticmethod
@@ -28,6 +33,9 @@ class ProjectAdapter:
             artifact_path_patterns=["artifacts/*"],
             approval_required_file_patterns=["README.md", "CHANGELOG.md"],
             task_runner_command=None,
+            state_path=None,
+            task_file_pattern="*.md",
+            audit_path=None,
         )
 
     @staticmethod
@@ -41,4 +49,7 @@ class ProjectAdapter:
             artifact_path_patterns=["generic_artifacts/*"],
             approval_required_file_patterns=["README.md"],
             task_runner_command=None,
+            state_path=None,
+            task_file_pattern="*.task.md",
+            audit_path=None,
         )
