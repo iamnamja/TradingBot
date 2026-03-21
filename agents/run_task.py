@@ -299,18 +299,58 @@ def _parse_task_file_attrs(rest: str) -> Dict[str, str]:
     if not text:
         return attrs
 
-    key_re = re.compile(r'([A-Z_]+)=')
-    matches = list(key_re.finditer(text))
-    for idx, match in enumerate(matches):
-        key = match.group(1)
-        value_start = match.end()
-        value_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
-        value = text[value_start:value_end].strip()
-        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
-            value = value[1:-1]
-        attrs[key] = value
-    return attrs
+    pos = 0
+    key_re = re.compile(r"[A-Z][A-Z0-9_]*")
 
+    while pos < len(text):
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+        if pos >= len(text):
+            break
+
+        key_match = key_re.match(text, pos)
+        if not key_match:
+            pos += 1
+            continue
+
+        key_end = key_match.end()
+        if key_end >= len(text) or text[key_end] != "=":
+            pos = key_end
+            continue
+
+        key = key_match.group(0)
+        value_start = key_end + 1
+        pos = value_start
+
+        if pos < len(text) and text[pos] in {'"', "'"}:
+            quote = text[pos]
+            pos += 1
+            value_chars: List[str] = []
+            while pos < len(text):
+                ch = text[pos]
+                if ch == "\\" and pos + 1 < len(text):
+                    value_chars.append(text[pos + 1])
+                    pos += 2
+                    continue
+                if ch == quote:
+                    pos += 1
+                    break
+                value_chars.append(ch)
+                pos += 1
+            attrs[key] = "".join(value_chars)
+            continue
+
+        next_key = re.search(r"\s+([A-Z][A-Z0-9_]*)=", text[pos:])
+        if next_key:
+            value_end = pos + next_key.start()
+            value = text[value_start:value_end].strip()
+            pos = value_end
+        else:
+            value = text[value_start:].strip()
+            pos = len(text)
+        attrs[key] = value
+
+    return attrs
 
 def _iter_markdown_sections(task_text: str) -> List[Tuple[str, List[str]]]:
     text = normalize_newlines(task_text)
@@ -416,46 +456,70 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
 
 def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]:
     targets: List[Dict[str, object]] = []
-    for path, config in parse_harness_file_policies(task_text).items():
-        rules = config.get("rules", [])
-        if not isinstance(rules, list):
+    allowed_section_names = {
+        "deliverables",
+        "harness policy",
+        "machine-readable contract directives",
+    }
+
+    for section_name, section_lines in _iter_markdown_sections(task_text):
+        if section_name not in allowed_section_names:
             continue
-        anchor = None
-        append_method = None
-        replace_method = None
-        max_changed_lines = None
-        for rule in rules:
-            if not isinstance(rule, str):
+
+        for raw_line in section_lines:
+            line = raw_line.strip()
+            if not line:
                 continue
-            if rule.startswith("append_before:"):
-                anchor = rule.split("append_before:", 1)[1]
-            elif rule.startswith("replace_method:"):
-                replace_method = rule.split("replace_method:", 1)[1].strip()
-            elif rule.startswith("allow_methods:") and append_method is None and replace_method is None:
-                methods = [x.strip() for x in rule.split("allow_methods:", 1)[1].split(",") if x.strip()]
-                if len(methods) == 1:
-                    append_method = methods[0]
-            elif rule.startswith("max_changed_lines:"):
+
+            m = TASK_FILE_POLICY_RE.match(line)
+            if not m or "MODE=" not in line:
+                continue
+
+            path = m.group("path").strip().replace("\\", "/")
+            attrs = _parse_task_file_attrs((m.group("rest") or "").strip())
+            mode = attrs.get("MODE", "").strip().upper()
+            if not path or not mode:
+                continue
+
+            max_changed_lines = None
+            raw_limit = attrs.get("MAX_CHANGED_LINES", "").strip()
+            if raw_limit:
                 try:
-                    max_changed_lines = int(rule.split("max_changed_lines:", 1)[1].strip())
+                    max_changed_lines = int(raw_limit)
                 except ValueError:
-                    pass
-        if anchor and append_method:
-            targets.append({
-                "path": path,
-                "mode": "append",
-                "anchor": anchor,
-                "method_name": append_method,
-                "max_changed_lines": max_changed_lines,
-            })
-        elif replace_method:
-            targets.append({
-                "path": path,
-                "mode": "replace",
-                "method_name": replace_method,
-                "max_changed_lines": max_changed_lines,
-            })
+                    max_changed_lines = None
+
+            if mode == "EXACT_COPY_PLUS_REPLACE_METHOD":
+                method_name = _normalize_method_token(
+                    attrs.get("TARGET_METHOD", "").strip()
+                    or attrs.get("REPLACE_METHOD", "").strip()
+                    or attrs.get("ALLOW_EXISTING_METHOD", "").strip()
+                )
+                if method_name:
+                    targets.append(
+                        {
+                            "path": path,
+                            "mode": "replace",
+                            "method_name": method_name,
+                            "max_changed_lines": max_changed_lines,
+                        }
+                    )
+            elif mode == "EXACT_COPY_PLUS_APPEND_METHOD":
+                method_name = _normalize_method_token(attrs.get("ALLOW_NEW_METHOD", "").strip())
+                anchor = attrs.get("ANCHOR_BEFORE", "").strip()
+                if method_name and anchor:
+                    targets.append(
+                        {
+                            "path": path,
+                            "mode": "append",
+                            "anchor": _normalize_anchor_token(anchor),
+                            "method_name": method_name,
+                            "max_changed_lines": max_changed_lines,
+                        }
+                    )
+
     return targets
+
 def _count_changed_lines(old: str, new: str) -> int:
     diff = difflib.unified_diff(
         normalize_newlines(old).splitlines(),
@@ -1861,18 +1925,17 @@ def main() -> int:
                 target_path = str(target["path"])
                 mode = str(target["mode"])
                 method_name = str(target["method_name"])
-                original_baseline_content = baseline.get(target_path)
-                if original_baseline_content is None:
+                baseline_content = baseline.get(target_path)
+                if baseline_content is None:
                     raise FileBundleError(
                         f"Protected method target `{target_path}` has no baseline content."
                     )
-                working_content = files.get(target_path, original_baseline_content)
                 anchor = str(target.get("anchor", "")) if mode == "append" else ""
                 insertion_messages = build_method_insertion_messages(
                     task_text,
                     target_path,
                     method_name,
-                    working_content,
+                    baseline_content,
                     mode,
                     extra_directives,
                     anchor=anchor,
@@ -1887,14 +1950,14 @@ def main() -> int:
                 )
                 if mode == "append":
                     files[target_path] = apply_method_insertion(
-                        working_content,
+                        baseline_content,
                         anchor,
                         method_name,
                         method_text,
                     )
                 else:
                     files[target_path] = apply_method_replacement(
-                        working_content,
+                        baseline_content,
                         method_name,
                         method_text,
                     )
