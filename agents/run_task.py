@@ -57,6 +57,13 @@ NAME_ERROR_RE = re.compile(r"NameError: name '([^']+)' is not defined")
 KEY_ERROR_RE = re.compile(r"KeyError: '([^']+)'")
 WIN_ECHO_RE = re.compile(r"FileNotFoundError: \[WinError 2\]", re.MULTILINE)
 
+RUNTIME_ARTIFACT_NAMES = (
+    "last_output.txt",
+    "_last_agent_model_output.txt",
+    "_last_agent_file_bundle.txt",
+)
+
+
 def _ensure_repo_root_on_sys_path() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     repo_root_str = str(repo_root)
@@ -616,17 +623,6 @@ def _protected_overlap_issue(forbidden_paths: List[str], bundle: Dict[str, str])
     )
 
 
-def _top_level_function_names(source: str) -> set[str]:
-    try:
-        tree = ast.parse(normalize_newlines(source))
-    except Exception:
-        return set()
-    return {
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-
 def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseline: Dict[str, str]) -> Tuple[bool, str]:
     issues: List[str] = []
     policies = parse_harness_file_policies(task_text)
@@ -647,8 +643,8 @@ def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseli
                 )
 
         if allowed_methods and proposed is not None and original is not None:
-            original_methods = _top_level_function_names(original)
-            proposed_methods = _top_level_function_names(proposed)
+            original_methods = set(RUNNER_METHOD_HEADER_RE.findall(original))
+            proposed_methods = set(RUNNER_METHOD_HEADER_RE.findall(proposed))
             removed = original_methods - proposed_methods
             added = proposed_methods - original_methods
             disallowed_added = sorted(name for name in added if name not in allowed_methods)
@@ -2136,85 +2132,6 @@ def build_messages(
     ]
 
 
-def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], List[str]]:
-    """
-    Best-effort recovery for malformed outer file-bundle transport.
-
-    This is intentionally separate from parse_file_bundle() so the public parser
-    can retain its current strict behavior for parity-sensitive code/tests.
-    """
-    normalized = normalize_newlines(text)
-    lines = normalized.split("\n")
-
-    begin_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_BEGIN]
-    end_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_END]
-    if len(begin_idxs) != 1 or len(end_idxs) != 1:
-        raise FileBundleError("Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.")
-    b = begin_idxs[0]
-    e = end_idxs[0]
-    if e < b:
-        raise FileBundleError("END_FILE_BUNDLE appears before BEGIN_FILE_BUNDLE.")
-
-    inner = lines[b + 1 : e]
-    files: Dict[str, str] = {}
-    warnings: List[str] = []
-    cur_path: str | None = None
-    cur_lines: List[str] = []
-
-    def close_current(reason: str) -> None:
-        nonlocal cur_path, cur_lines
-        if cur_path is None:
-            return
-        files[cur_path] = "\n".join(cur_lines).rstrip("\n") + "\n"
-        warnings.append(f"{reason}: {cur_path}")
-        cur_path = None
-        cur_lines = []
-
-    i = 0
-    while i < len(inner):
-        line = inner[i]
-
-        if cur_path is None:
-            if not line.strip():
-                i += 1
-                continue
-            m = BUNDLE_FILE_HEADER_RE.match(line)
-            if not m:
-                raise FileBundleError(f"Expected FILE header, got: {line!r}")
-            path = m.group(1).strip().replace("\\", "/")
-            if not path:
-                raise FileBundleError("Empty FILE path.")
-            if path in files:
-                raise FileBundleError(f"Duplicate FILE path in bundle: {path}")
-            cur_path = path
-            cur_lines = []
-            i += 1
-            continue
-
-        if line == FILE_END:
-            close_current("closed explicit END_FILE")
-            i += 1
-            continue
-
-        # Recovery path: if the model forgot END_FILE and started the next top-level FILE block,
-        # implicitly close the current file and continue.
-        m = BUNDLE_FILE_HEADER_RE.match(line)
-        if m:
-            close_current("auto-closed missing END_FILE before next FILE")
-            continue  # re-process this line as the next FILE header
-
-        cur_lines.append(line)
-        i += 1
-
-    if cur_path is not None:
-        close_current("auto-closed missing trailing END_FILE at bundle end")
-
-    if not files:
-        raise FileBundleError("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
-
-    return files, warnings
-
-
 def request_and_parse_bundle(
     messages: List[dict],
     model: str,
@@ -2222,33 +2139,18 @@ def request_and_parse_bundle(
     last_output_path: Path,
     forbidden_paths: List[str] | None = None,
 ) -> Dict[str, str]:
-    def _validate_transport(parsed: Dict[str, str]) -> Dict[str, str]:
+    def _parse_and_validate(raw: str) -> Dict[str, str]:
+        parsed = parse_file_bundle(raw)
         overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
         if overlap_issue:
             raise FileBundleError(overlap_issue)
         return parsed
 
-    def _parse_validate_or_salvage(raw: str) -> Dict[str, str]:
-        try:
-            return _validate_transport(parse_file_bundle(raw))
-        except Exception:
-            # Best-effort transport salvage for the common malformed-bundle class:
-            # the model forgets END_FILE before starting the next top-level FILE block
-            # or before END_FILE_BUNDLE. Keep this internal so the public parser's
-            # behavior remains unchanged for parity-sensitive tests/tasks.
-            salvaged, warnings = _parse_file_bundle_transport_resilient(raw)
-            validated = _validate_transport(salvaged)
-            if warnings:
-                print("⚠️ Recovered malformed file bundle transport:")
-                for warning in warnings:
-                    print(f"  - {warning}")
-            return validated
-
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
     try:
-        return _parse_validate_or_salvage(out)
+        return _parse_and_validate(out)
     except Exception as e:
         forbidden_hint = ""
         if forbidden_paths:
@@ -2281,9 +2183,71 @@ def request_and_parse_bundle(
         out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
         try:
-            return _parse_validate_or_salvage(out2)
+            return _parse_and_validate(out2)
         except Exception as e2:
             raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
+
+
+
+def _local_branch_exists(branch: str) -> bool:
+    try:
+        out = capture(["git", "branch", "--list", branch]).strip()
+    except Exception:
+        return False
+    return bool(out)
+
+
+def _remote_branch_exists(branch: str) -> bool:
+    try:
+        out = capture(["git", "ls-remote", "--heads", "origin", branch]).strip()
+    except Exception:
+        return False
+    return bool(out)
+
+
+def _choose_agent_branch(task_stem: str, push: bool) -> str:
+    base = f"agent-{task_stem}"
+    if not push:
+        return base
+    candidate = base
+    idx = 1
+    while _local_branch_exists(candidate) or _remote_branch_exists(candidate):
+        idx += 1
+        candidate = f"{base}-r{idx}"
+    return candidate
+
+
+def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> List[Path]:
+    ordered = [Path(name) for name in RUNTIME_ARTIFACT_NAMES]
+    extras = [Path(last_output_path), Path(last_bundle_path)]
+    seen: set[str] = set()
+    out: List[Path] = []
+    for p in ordered + extras:
+        key = p.as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
+
+def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
+    for path in paths:
+        try:
+            run(["git", "rm", "--cached", "--quiet", "--ignore-unmatch", path.as_posix()], check=False)
+        except Exception:
+            pass
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
+
+
+def _report_failure(kind: str, message: str) -> None:
+    print(f"❌ [{kind}] {message}")
+
+
 
 
 def main() -> int:
@@ -2317,9 +2281,12 @@ def main() -> int:
     protected_targets = _extract_protected_method_targets(task_text)
     protected_method_paths = {str(t["path"]) for t in protected_targets}
 
-    branch = f"agent-{task_path.stem}"
-    print(f"Current branch: {capture(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
+    branch = _choose_agent_branch(task_path.stem, args.push)
+    current_branch = capture(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
+    print(f"Current branch: {current_branch}")
     print(f"Creating branch: {branch}")
+    if branch != f"agent-{task_path.stem}":
+        print("Branch name was auto-suffixed to avoid stale local/remote branch conflicts.")
     print(f"Using provider: {args.provider}")
     print(f"Using model: {args.model}")
     ensure_branch(branch)
@@ -2431,7 +2398,7 @@ def main() -> int:
                     forbidden_paths=sorted(protected_method_paths),
                 )
         except FileBundleError as e:
-            print(f"❌ {e}")
+            _report_failure("bundle_transport", str(e))
             print(f"Model output saved to: {last_output_path}")
             print(f"Parsed file bundle saved to: {last_bundle_path}")
             return 1
@@ -2446,7 +2413,7 @@ def main() -> int:
 
         ok_syntax, syntax_msg = validate_python_syntax(files)
         if not ok_syntax:
-            print(f"❌ {syntax_msg}")
+            _report_failure("python_syntax", syntax_msg)
             task_text = _append_task_feedback(task_text, syntax_msg)
             if _repeat_limit_exceeded(violation_counts, "python_syntax", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated Python syntax failures. Recommended action: manual_patch")
@@ -2464,7 +2431,7 @@ def main() -> int:
             allow_unchanged_cli=allow_unchanged_cli,
         )
         if not ok_req:
-            print(f"❌ {req_msg}")
+            _report_failure("deliverables", req_msg)
             task_text = _append_task_feedback(task_text, req_msg)
             if _repeat_limit_exceeded(violation_counts, "deliverables", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated deliverable violations. Recommended action: manual_patch")
@@ -2476,7 +2443,7 @@ def main() -> int:
 
         ok_policy, policy_msg = enforce_harness_file_policies(task_text, files, baseline)
         if not ok_policy:
-            print(f"❌ {policy_msg}")
+            _report_failure("protected_file_policy", policy_msg)
             task_text = _append_task_feedback(task_text, policy_msg)
             if _repeat_limit_exceeded(violation_counts, "protected_file_policy", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated protected-file policy violations. Recommended action: manual_patch")
@@ -2488,7 +2455,7 @@ def main() -> int:
 
         ok_static, static_msg = validate_static_bundle_contracts(files, task_text)
         if not ok_static:
-            print(f"❌ {static_msg}")
+            _report_failure("static_contracts", static_msg)
             task_text = _append_task_feedback(task_text, static_msg)
             if _repeat_limit_exceeded(violation_counts, "static_contracts", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated static contract violations. Recommended action: manual_patch")
@@ -2500,7 +2467,7 @@ def main() -> int:
 
         ok_imports, import_msg = validate_imports(files)
         if not ok_imports:
-            print(f"❌ {import_msg}")
+            _report_failure("imports", import_msg)
             task_text = _append_task_feedback(task_text, import_msg + "\n" + missing_module_hints(import_msg))
             if _repeat_limit_exceeded(violation_counts, "imports", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated import validation failures. Recommended action: manual_patch")
@@ -2518,6 +2485,7 @@ def main() -> int:
         if ok:
             print("✅ Green.")
             if args.push:
+                _cleanup_runtime_artifacts_for_commit(_runtime_artifact_paths(last_output_path, last_bundle_path))
                 run(["git", "add", "-A"], check=True)
                 staged = capture(["git", "diff", "--cached", "--name-only"])
                 if not staged.strip():
@@ -2531,7 +2499,7 @@ def main() -> int:
 
         restore_file_snapshot(pre_write_snapshot)
 
-        print("❌ Checks failed after applying changes:")
+        _report_failure("checks", "Checks failed after applying changes:")
         print(details)
 
         semantic_hints = parse_semantic_failures(details)
