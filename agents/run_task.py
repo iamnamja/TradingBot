@@ -28,7 +28,6 @@ import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -63,14 +62,40 @@ class FileBundleError(ValueError):
     pass
 
 
-@dataclass
 class NormalizedLLMResponse:
-    text: str
-    stop_reason: str | None = None
-    usage_input_tokens: int | None = None
-    usage_output_tokens: int | None = None
-    request_id: str | None = None
-    raw_provider_response: Any | None = None
+    __slots__ = (
+        "text",
+        "stop_reason",
+        "usage_input_tokens",
+        "usage_output_tokens",
+        "request_id",
+        "raw_provider_response",
+    )
+
+    def __init__(
+        self,
+        text: str,
+        stop_reason: str | None = None,
+        usage_input_tokens: int | None = None,
+        usage_output_tokens: int | None = None,
+        request_id: str | None = None,
+        raw_provider_response: Any | None = None,
+    ) -> None:
+        self.text = text
+        self.stop_reason = stop_reason
+        self.usage_input_tokens = usage_input_tokens
+        self.usage_output_tokens = usage_output_tokens
+        self.request_id = request_id
+        self.raw_provider_response = raw_provider_response
+
+    def __repr__(self) -> str:
+        return (
+            "NormalizedLLMResponse("
+            f"text={self.text!r}, stop_reason={self.stop_reason!r}, "
+            f"usage_input_tokens={self.usage_input_tokens!r}, "
+            f"usage_output_tokens={self.usage_output_tokens!r}, "
+            f"request_id={self.request_id!r})"
+        )
 
 
 def _load_dotenv_if_available() -> None:
