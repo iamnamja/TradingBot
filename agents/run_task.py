@@ -1293,11 +1293,24 @@ def _directive_contract_issues(bundle: Dict[str, str], task_text: str) -> List[s
                     if fqcn and fqcn in allowed_method_specs and node.func.attr not in allowed_method_specs[fqcn]:
                         issues.append(f"{rel}: `{node.func.value.id}.{node.func.attr}()` violates ALLOWED_METHODS for `{fqcn}`")
 
+        module_path = Path(rel)
+        top_level_names = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+
         for result_fn, keys in result_key_specs.items():
-            if result_fn in content:
-                for key in keys:
-                    if key not in content:
-                        issues.append(f"{rel}: missing RESULT_KEYS contract token `{key}` for `{result_fn}`")
+            applies = (
+                module_path.stem == result_fn
+                or (module_path.name == "__init__.py" and module_path.parent.name == result_fn)
+                or result_fn in top_level_names
+            )
+            if not applies:
+                continue
+            for key in keys:
+                if key not in content:
+                    issues.append(f"{rel}: missing RESULT_KEYS contract token `{key}` for `{result_fn}`")
 
     deduped: List[str] = []
     seen: set[str] = set()
