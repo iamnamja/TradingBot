@@ -590,6 +590,32 @@ def _count_changed_lines(old: str, new: str) -> int:
     return changed
 
 
+def _anchor_context_excerpt(content: str, anchor: str, *, radius: int = 4) -> str:
+    normalized = normalize_newlines(content)
+    lines = normalized.splitlines()
+    for idx, line in enumerate(lines):
+        if anchor in line:
+            start = max(0, idx - radius)
+            end = min(len(lines), idx + radius + 1)
+            excerpt_lines: List[str] = []
+            for line_no in range(start, end):
+                marker = ">>" if line_no == idx else "  "
+                excerpt_lines.append(f"{marker} {line_no + 1:04d}: {lines[line_no]}")
+            return "\n".join(excerpt_lines)
+    return f"(anchor `{anchor}` not found in content excerpt generation)"
+
+
+def _protected_overlap_issue(forbidden_paths: List[str], bundle: Dict[str, str]) -> str:
+    overlap = sorted(set(bundle) & set(forbidden_paths))
+    if not overlap:
+        return ""
+    listed = ", ".join(overlap)
+    return (
+        "Normal file bundle illegally included protected path(s): "
+        f"{listed}. These files are handled separately by protected method mode and MUST NOT appear as FILE blocks in the normal bundle."
+    )
+
+
 def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseline: Dict[str, str]) -> Tuple[bool, str]:
     issues: List[str] = []
     policies = parse_harness_file_policies(task_text)
@@ -653,15 +679,27 @@ def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseli
                     issues.append(f"Harness anchor `{anchor}` not found in baseline `{path}`.")
                     continue
                 if anchor not in proposed:
-                    issues.append(f"`{path}` changed content at or after protected anchor `{anchor}`. Only additive insertion before the anchor is allowed.")
+                    issues.append(
+                        f"`{path}` changed content at or after protected anchor `{anchor}`. Only additive insertion before the anchor is allowed.\n"
+                        f"Baseline anchor excerpt:\n{_anchor_context_excerpt(original, anchor)}\n"
+                        f"Proposed anchor excerpt:\n{_anchor_context_excerpt(proposed, anchor)}"
+                    )
                     continue
                 original_before, original_after = original.split(anchor, 1)
                 proposed_before, proposed_after = proposed.split(anchor, 1)
                 if normalize_newlines(proposed_after) != normalize_newlines(original_after):
-                    issues.append(f"`{path}` changed content at or after protected anchor `{anchor}`. Only additive insertion before the anchor is allowed.")
+                    issues.append(
+                        f"`{path}` changed content at or after protected anchor `{anchor}`. Only additive insertion before the anchor is allowed.\n"
+                        f"Baseline anchor excerpt:\n{_anchor_context_excerpt(original, anchor)}\n"
+                        f"Proposed anchor excerpt:\n{_anchor_context_excerpt(proposed, anchor)}"
+                    )
                     continue
                 if normalize_newlines(proposed_before) == normalize_newlines(original_before):
-                    issues.append(f"`{path}` is protected by `append_before:{anchor}`, but no additive insertion before the anchor was detected.")
+                    issues.append(
+                        f"`{path}` is protected by `append_before:{anchor}`, but no additive insertion before the anchor was detected.\n"
+                        f"Baseline anchor excerpt:\n{_anchor_context_excerpt(original, anchor)}\n"
+                        f"Proposed anchor excerpt:\n{_anchor_context_excerpt(proposed, anchor)}"
+                    )
                 continue
             if rule.startswith("max_changed_lines:"):
                 if proposed is None or original is None:
@@ -2173,11 +2211,18 @@ def request_and_parse_bundle(
     last_output_path: Path,
     forbidden_paths: List[str] | None = None,
 ) -> Dict[str, str]:
+    def _parse_and_validate(raw: str) -> Dict[str, str]:
+        parsed = parse_file_bundle(raw)
+        overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
+        if overlap_issue:
+            raise FileBundleError(overlap_issue)
+        return parsed
+
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
     try:
-        return parse_file_bundle(out)
+        return _parse_and_validate(out)
     except Exception as e:
         forbidden_hint = ""
         if forbidden_paths:
@@ -2203,14 +2248,14 @@ def request_and_parse_bundle(
             "<full file contents>\n"
             "END_FILE\n"
             "END_FILE_BUNDLE\n\n"
-            f"Parser error: {e}"
+            f"Parser/policy error: {e}"
         )
         out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
         try:
-            return parse_file_bundle(out2)
+            return _parse_and_validate(out2)
         except Exception as e2:
-            raise FileBundleError(f"Model returned malformed file bundle after retry: {e2}") from e2
+            raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
 
 
 def main() -> int:
@@ -2340,19 +2385,6 @@ def main() -> int:
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
                 )
-                overlap = sorted(set(generated) & protected_method_paths)
-                if overlap:
-                    print(
-                        "ℹ️ Ignoring protected method-edit files emitted in normal bundle: "
-                        + ", ".join(overlap)
-                    )
-                    task_text = _append_task_feedback(
-                        task_text,
-                        "Do not emit protected method-edit files in the normal file bundle. "
-                        "Only emit non-protected deliverables there.",
-                    )
-                    for p in overlap:
-                        generated.pop(p, None)
                 files.update(generated)
             elif not files:
                 virtual_context = {p: files[p] for p in sorted(protected_method_paths) if p in files}
