@@ -14,8 +14,10 @@ The coding model/provider is configurable. The reliable control surface is:
 2. the harness
 3. protected-file policies
 4. review/compliance checks
+5. machine-readable contract directives
+6. validator plugins
 
-The runner applies the bundle, runs `ruff` + `pytest`, and retries up to 4 times, but green tests alone are not sufficient if the bundle violates task policy.
+The runner applies the bundle, runs validators, and retries up to 4 times, but green checks alone are not sufficient if the bundle violates task policy.
 
 ## Product goals
 
@@ -24,6 +26,8 @@ The runner applies the bundle, runs `ruff` + `pytest`, and retries up to 4 times
 - reduce manual triage of failures
 - support repeatable delivery across different software projects
 - provide clear auditability for every decision
+- minimize task-spec patching by making the harness more semantically aware
+- separate spec clarification from execution when tasks are ambiguous
 
 ## Non-goals
 
@@ -49,24 +53,36 @@ The runner applies the bundle, runs `ruff` + `pytest`, and retries up to 4 times
 - protected-file policy enforcement
 - machine-readable task contract enforcement
 - protected API semantic preflight
+- runtime artifact quarantine
+- spec-mode and execution-mode workflow
+- validator plugin support
+- project bootstrap support
+- safe parallel task execution for explicitly independent work
 
 ## Current implementation status
 
 | Capability | Status | Task |
 |-----------|--------|------|
 | Backlog/state tracking | ✅ | 015–020 |
-| Review/compliance checking | ✅ | 016 |
+| Review/compliance checking | ✅ | 016 / 033 |
 | Failure classification | ✅ | 017 |
-| PR/CI/merge management | ✅ | 018 |
+| PR/CI/merge management | ✅ | 018 / 035 |
 | Repair workflow | ✅ | 019 |
 | Project adapter foundation | ✅ | 020 |
 | Real task execution bridge | ✅ | 031 |
 | Persistent backlog state | ✅ | 037 |
 | Run loop / CLI / decision logging | ✅ | 038a–038c |
 | Repo-local import symbol validation | ✅ | 038d |
-| Harness semantic hardening tranche | 🔄 | 039a–039c |
-| End-to-end integration harness | 🔄 | 040 |
-| Multi-project hardening | 🔄 | 041 |
+| Harness semantic hardening tranche | ✅ | 039a–039c |
+| End-to-end integration harness | ✅ | 040 |
+| Multi-project hardening | ✅ | 041a–041b |
+| Harness modularization | 🔜 | 042 |
+| Runtime artifact quarantine | 🔜 | 043 |
+| Spec / execution two-phase workflow | 🔜 | 044 |
+| Structured failure journal | 🔜 | 045 |
+| Project bootstrap adapter | 🔜 | 046 |
+| Verification plugins / validators | 🔜 | 047 |
+| Safe parallelism | 🔜 | 048 |
 
 ## Safety model
 
@@ -74,7 +90,7 @@ The runner applies the bundle, runs `ruff` + `pytest`, and retries up to 4 times
 
 - clean-worktree check
 - task branch creation
-- local lint/test execution
+- local validator execution
 - deliverable review
 - runtime artifact detection
 - task state update
@@ -97,44 +113,42 @@ The runner applies the bundle, runs `ruff` + `pytest`, and retries up to 4 times
 - repeated failure beyond retry policy
 - broad adapter/policy changes
 
-## High-level architecture
+## High-level architecture target
 
 ```
 src/builder/orchestrator/
-    runner.py           — main orchestration loop
-    backlog.py          — task discovery and state
-    state.py            — OrchestratorState model
-    execution_result.py — normalization layer
-    review.py           — compliance checker
-    policy.py           — policy engine
-    git_guardrails.py   — branch/worktree safety
-    merge.py            — PR creation
-    command_runner.py   — safe subprocess abstraction
-    approval.py         — checkpoint management
-    audit.py            — decision logging
-    failures.py         — failure classifier
-    repair.py           — repair workflow
-    project_config.py   — config schema
-    project_adapter.py  — project adapters
-    cli.py              — CLI entry point
+    runner.py
+    backlog.py
+    state.py
+    execution_result.py
+    review.py
+    policy.py
+    git_guardrails.py
+    merge.py
+    command_runner.py
+    approval.py
+    audit.py
+    failures.py
+    repair.py
+    project_config.py
+    project_adapter.py
+    cli.py
+
+agents/
+    run_task.py                — thin task shell
+    lib/
+        bundle_parser.py
+        task_contracts.py
+        protected_file_policy.py
+        semantic_preflight.py
+        check_runner.py
+        git_ops.py
+        provider_client.py
+        artifact_quarantine.py
+        spec_mode.py
+        failure_journal.py
+        validator_runner.py
 ```
-
-## Invariants that must never change
-
-### runner.py invariants
-
-- `OrchestratorRunner.__init__(config, backlog_tracker, initial_state)` — signature never changes
-- `run_next_task(dry_run=False)` — signature never changes
-- `simulate_backlog()` — signature and return keys never change
-- legacy success: `status="running"`, `message="Task is now running."`, `outcome="ready_for_pr"`
-- empty `changed_files` → `run_review` returns `{"mergeable": True}`
-- `simulate_backlog` calls `get_next_task([])` directly and uses `continue`, not `break`, on approval
-
-### config invariants
-
-- `ProjectConfig` is never `@dataclass(frozen=True)`
-- optional config fields are always accessed via `getattr(self.config, "field", default)`
-- `get_tradingbot_default_config()` and `get_generic_project_config()` remain on `ProjectAdapter`
 
 ## Success criteria
 
@@ -144,7 +158,9 @@ The orchestrator is production-usable when it can:
 - stop safely on risky situations
 - resume after interruption
 - explain every action taken
-- support at least one project adapter cleanly
-- be extended to another project with minimal engine changes
+- support at least two project adapters cleanly
+- bootstrap a new project with minimal manual setup
 - reject green-but-policy-violating bundles
 - reject obviously invalid protected API usage before burning full test iterations
+- quarantine known runtime artifacts automatically without weakening policy
+- switch cleanly between spec generation and execution
