@@ -2136,6 +2136,85 @@ def build_messages(
     ]
 
 
+def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], List[str]]:
+    """
+    Best-effort recovery for malformed outer file-bundle transport.
+
+    This is intentionally separate from parse_file_bundle() so the public parser
+    can retain its current strict behavior for parity-sensitive code/tests.
+    """
+    normalized = normalize_newlines(text)
+    lines = normalized.split("\n")
+
+    begin_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_BEGIN]
+    end_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_END]
+    if len(begin_idxs) != 1 or len(end_idxs) != 1:
+        raise FileBundleError("Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.")
+    b = begin_idxs[0]
+    e = end_idxs[0]
+    if e < b:
+        raise FileBundleError("END_FILE_BUNDLE appears before BEGIN_FILE_BUNDLE.")
+
+    inner = lines[b + 1 : e]
+    files: Dict[str, str] = {}
+    warnings: List[str] = []
+    cur_path: str | None = None
+    cur_lines: List[str] = []
+
+    def close_current(reason: str) -> None:
+        nonlocal cur_path, cur_lines
+        if cur_path is None:
+            return
+        files[cur_path] = "\n".join(cur_lines).rstrip("\n") + "\n"
+        warnings.append(f"{reason}: {cur_path}")
+        cur_path = None
+        cur_lines = []
+
+    i = 0
+    while i < len(inner):
+        line = inner[i]
+
+        if cur_path is None:
+            if not line.strip():
+                i += 1
+                continue
+            m = BUNDLE_FILE_HEADER_RE.match(line)
+            if not m:
+                raise FileBundleError(f"Expected FILE header, got: {line!r}")
+            path = m.group(1).strip().replace("\\", "/")
+            if not path:
+                raise FileBundleError("Empty FILE path.")
+            if path in files:
+                raise FileBundleError(f"Duplicate FILE path in bundle: {path}")
+            cur_path = path
+            cur_lines = []
+            i += 1
+            continue
+
+        if line == FILE_END:
+            close_current("closed explicit END_FILE")
+            i += 1
+            continue
+
+        # Recovery path: if the model forgot END_FILE and started the next top-level FILE block,
+        # implicitly close the current file and continue.
+        m = BUNDLE_FILE_HEADER_RE.match(line)
+        if m:
+            close_current("auto-closed missing END_FILE before next FILE")
+            continue  # re-process this line as the next FILE header
+
+        cur_lines.append(line)
+        i += 1
+
+    if cur_path is not None:
+        close_current("auto-closed missing trailing END_FILE at bundle end")
+
+    if not files:
+        raise FileBundleError("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
+
+    return files, warnings
+
+
 def request_and_parse_bundle(
     messages: List[dict],
     model: str,
@@ -2143,18 +2222,33 @@ def request_and_parse_bundle(
     last_output_path: Path,
     forbidden_paths: List[str] | None = None,
 ) -> Dict[str, str]:
-    def _parse_and_validate(raw: str) -> Dict[str, str]:
-        parsed = parse_file_bundle(raw)
+    def _validate_transport(parsed: Dict[str, str]) -> Dict[str, str]:
         overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
         if overlap_issue:
             raise FileBundleError(overlap_issue)
         return parsed
 
+    def _parse_validate_or_salvage(raw: str) -> Dict[str, str]:
+        try:
+            return _validate_transport(parse_file_bundle(raw))
+        except Exception:
+            # Best-effort transport salvage for the common malformed-bundle class:
+            # the model forgets END_FILE before starting the next top-level FILE block
+            # or before END_FILE_BUNDLE. Keep this internal so the public parser's
+            # behavior remains unchanged for parity-sensitive tests/tasks.
+            salvaged, warnings = _parse_file_bundle_transport_resilient(raw)
+            validated = _validate_transport(salvaged)
+            if warnings:
+                print("⚠️ Recovered malformed file bundle transport:")
+                for warning in warnings:
+                    print(f"  - {warning}")
+            return validated
+
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
     try:
-        return _parse_and_validate(out)
+        return _parse_validate_or_salvage(out)
     except Exception as e:
         forbidden_hint = ""
         if forbidden_paths:
@@ -2187,7 +2281,7 @@ def request_and_parse_bundle(
         out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
         try:
-            return _parse_and_validate(out2)
+            return _parse_validate_or_salvage(out2)
         except Exception as e2:
             raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
 
