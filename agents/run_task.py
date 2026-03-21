@@ -23,12 +23,14 @@ import argparse
 import ast
 import difflib
 import os
+import random
 import re
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 FILE_BUNDLE_BEGIN = "BEGIN_FILE_BUNDLE"
 FILE_BUNDLE_END = "END_FILE_BUNDLE"
@@ -61,6 +63,16 @@ class FileBundleError(ValueError):
     pass
 
 
+@dataclass
+class NormalizedLLMResponse:
+    text: str
+    stop_reason: str | None = None
+    usage_input_tokens: int | None = None
+    usage_output_tokens: int | None = None
+    request_id: str | None = None
+    raw_provider_response: Any | None = None
+
+
 def _load_dotenv_if_available() -> None:
     try:
         from dotenv import load_dotenv  # type: ignore
@@ -85,8 +97,24 @@ def default_model_for_provider(provider: str) -> str:
     if env_model:
         return env_model
     if provider == "openai":
-        return "gpt-5"
-    return "claude-sonnet-4-5"
+        return "gpt-5.4"
+    return "claude-sonnet-4-6"
+
+
+def default_api_mode_for_provider(provider: str) -> str:
+    provider = (provider or "").strip().lower()
+    if provider == "openai":
+        return os.getenv("TRADINGBOT_OPENAI_API_MODE", "").strip().lower() or "responses"
+    if provider == "anthropic":
+        return os.getenv("TRADINGBOT_ANTHROPIC_API_MODE", "").strip().lower() or "messages"
+    return ""
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _int_env(name: str, default: int) -> int:
@@ -742,7 +770,7 @@ def _method_block_from_file_content(file_content: str, method_name: str) -> str:
         if not stripped:
             continue
         cur_indent = len(lines[idx]) - len(stripped)
-        if cur_indent <= method_indent and stripped.startswith("def "):
+        if cur_indent <= method_indent:
             end_idx = idx
             break
     return "\n".join(lines[start_idx:end_idx]).rstrip("\n") + "\n"
@@ -750,17 +778,22 @@ def _method_block_from_file_content(file_content: str, method_name: str) -> str:
 
 def _validate_single_method_text(method_text: str, expected_method_name: str, *, context: str) -> str:
     method_text = normalize_newlines(method_text).rstrip("\n") + "\n"
-    method_names = RUNNER_METHOD_HEADER_RE.findall(method_text)
-    if method_names != [expected_method_name]:
-        raise FileBundleError(
-            f"{context}: expected exactly one method `{expected_method_name}`; got {method_names or 'none'}."
-        )
     try:
-        ast.parse(method_text)
+        tree = ast.parse(method_text)
     except SyntaxError as exc:
         raise FileBundleError(
             f"{context}: extracted method body has Python syntax error at line {exc.lineno or 0}: {exc.msg or 'invalid syntax'}."
         ) from exc
+
+    top_level_defs = [node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    if top_level_defs != [expected_method_name]:
+        raise FileBundleError(
+            f"{context}: expected exactly one top-level method `{expected_method_name}`; got {top_level_defs or 'none'}."
+        )
+    if len(tree.body) != 1:
+        raise FileBundleError(
+            f"{context}: method payload must contain exactly one top-level function definition and no trailing top-level statements."
+        )
     return method_text
 
 
@@ -770,41 +803,46 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
     text = normalize_newlines(text)
     lines = text.split("\n")
 
+    if METHOD_INSERTION_BEGIN not in text:
+        if FILE_BUNDLE_BEGIN in text:
+            raise FileBundleError(
+                "Method insertion response used BEGIN_FILE_BUNDLE. Protected-file method mode requires BEGIN_METHOD_INSERTION / END_METHOD_INSERTION."
+            )
+        raise FileBundleError("Method insertion response did not include BEGIN_METHOD_INSERTION / END_METHOD_INSERTION markers.")
+
     begin_idx = next((i for i, line in enumerate(lines) if line.strip() == METHOD_INSERTION_BEGIN), None)
-    if begin_idx is not None:
-        end_idx = next((i for i in range(begin_idx + 1, len(lines)) if lines[i].strip() == METHOD_INSERTION_END), None)
-        if end_idx is None:
-            raise FileBundleError("Missing END_METHOD_INSERTION in method insertion bundle.")
+    if begin_idx is None:
+        raise FileBundleError("Missing BEGIN_METHOD_INSERTION in method insertion bundle.")
+    end_idx = next((i for i in range(begin_idx + 1, len(lines)) if lines[i].strip() == METHOD_INSERTION_END), None)
+    if end_idx is None:
+        raise FileBundleError("Missing END_METHOD_INSERTION in method insertion bundle.")
 
-        body_lines = lines[begin_idx + 1:end_idx]
-        target_file = None
-        method_name = None
-        i = 0
-        while i < len(body_lines):
-            line = body_lines[i].strip()
-            if line.startswith("TARGET_FILE:"):
-                target_file = line.split(":", 1)[1].strip().replace("\\", "/")
-            elif line.startswith("METHOD_NAME:"):
-                method_name = line.split(":", 1)[1].strip()
-            elif line == METHOD_BLOCK_BEGIN:
-                i += 1
-                buf: List[str] = []
-                while i < len(body_lines) and body_lines[i].strip() != METHOD_BLOCK_END:
-                    buf.append(body_lines[i])
-                    i += 1
-                if i >= len(body_lines):
-                    raise FileBundleError("Missing END_METHOD in method insertion bundle.")
-                if target_file and target_file != expected_path:
-                    raise FileBundleError(f"Method insertion target file mismatch: expected {expected_path}, got {target_file}.")
-                if method_name and method_name != expected_method_name:
-                    raise FileBundleError(f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}.")
-                return _validate_single_method_text("\n".join(buf).rstrip("\n") + "\n", expected_method_name, context="Method insertion bundle")
+    body_lines = lines[begin_idx + 1:end_idx]
+    target_file = None
+    method_name = None
+    i = 0
+    while i < len(body_lines):
+        line = body_lines[i].strip()
+        if line.startswith("TARGET_FILE:"):
+            target_file = line.split(":", 1)[1].strip().replace("\\", "/")
+        elif line.startswith("METHOD_NAME:"):
+            method_name = line.split(":", 1)[1].strip()
+        elif line == METHOD_BLOCK_BEGIN:
             i += 1
+            buf: List[str] = []
+            while i < len(body_lines) and body_lines[i].strip() != METHOD_BLOCK_END:
+                buf.append(body_lines[i])
+                i += 1
+            if i >= len(body_lines):
+                raise FileBundleError("Missing END_METHOD in method insertion bundle.")
+            if target_file != expected_path:
+                raise FileBundleError(f"Method insertion target file mismatch: expected {expected_path}, got {target_file}.")
+            if method_name != expected_method_name:
+                raise FileBundleError(f"Method insertion method mismatch: expected {expected_method_name}, got {method_name}.")
+            return _validate_single_method_text("\n".join(buf).rstrip("\n") + "\n", expected_method_name, context="Method insertion bundle")
+        i += 1
 
-    files = parse_file_bundle(text)
-    if expected_path not in files:
-        raise FileBundleError("Method insertion response did not include protected target file or insertion markers.")
-    return _validate_single_method_text(_method_block_from_file_content(files[expected_path], expected_method_name), expected_method_name, context="Method insertion bundle")
+    raise FileBundleError("Method insertion response did not include BEGIN_METHOD / END_METHOD block.")
 
 
 def load_method_insertion_system_prompt() -> str:
@@ -900,6 +938,11 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     except Exception as exc:
         retry_error = str(exc)
 
+    if FILE_BUNDLE_BEGIN in normalize_newlines(out2):
+        raise FileBundleError(
+            f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery refused because the response used BEGIN_FILE_BUNDLE."
+        )
+
     recovered_lines = normalize_newlines(out2).split("\n")
     start_candidates = [
         idx for idx, line in enumerate(recovered_lines)
@@ -921,17 +964,17 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         if FILE_HEADER_RE.match(recovered_lines[idx]):
             end_idx = idx
             break
-        if cur_indent == 0 and stripped.startswith("def "):
+        if cur_indent == 0:
             end_idx = idx
             break
     method_text = "\n".join(recovered_lines[start_idx:end_idx]).rstrip("\n") + "\n"
-    if RUNNER_METHOD_HEADER_RE.findall(method_text) != [expected_method_name]:
-        raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: recovered method would violate the single-method insertion rule.")
-    try:
-        ast.parse(method_text, filename=expected_path)
-    except SyntaxError as exc:
-        raise FileBundleError(f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery failed: recovered method body has Python syntax error at line {exc.lineno or 0}: {exc.msg or 'invalid syntax'}.") from exc
-    return method_text
+    return _validate_single_method_text(
+        method_text,
+        expected_method_name,
+        context=f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery",
+    )
+
+
 def validate_python_syntax(bundle: Dict[str, str]) -> Tuple[bool, str]:
     issues: List[str] = []
     for rel, content in bundle.items():
@@ -1698,30 +1741,267 @@ def load_system_prompt() -> str:
     return "You are an engineering agent. Output ONLY a valid file bundle."
 
 
+_MODEL_VALIDATION_CACHE: Dict[str, set[str]] = {"openai": set(), "anthropic": set()}
+
+
+def _join_system_messages(messages: List[dict]) -> str:
+    parts: List[str] = []
+    for msg in messages:
+        role = str(msg.get("role", "")).strip().lower()
+        if role in {"system", "developer"}:
+            content = str(msg.get("content", "") or "").strip()
+            if content:
+                parts.append(content)
+    return "\n\n".join(parts).strip()
+
+
+def _non_system_messages(messages: List[dict]) -> List[dict]:
+    out: List[dict] = []
+    for msg in messages:
+        role = str(msg.get("role", "")).strip().lower()
+        if role in {"system", "developer"}:
+            continue
+        content = str(msg.get("content", "") or "")
+        out.append({"role": role or "user", "content": content})
+    if not out:
+        out.append({"role": "user", "content": ""})
+    return out
+
+
+def _messages_to_openai_responses_input(messages: List[dict]) -> List[dict]:
+    items: List[dict] = []
+    for msg in _non_system_messages(messages):
+        role = msg["role"]
+        if role not in {"user", "assistant"}:
+            role = "user"
+        items.append(
+            {
+                "role": role,
+                "content": [{"type": "input_text", "text": msg["content"]}],
+            }
+        )
+    return items
+
+
+def _extract_retry_after_seconds(exc: Exception) -> float | None:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers:
+        raw = headers.get("retry-after") or headers.get("Retry-After")
+        if raw:
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                pass
+    text = str(exc)
+    ms_match = re.search(r"try again in\s+([0-9]+)ms", text, re.IGNORECASE)
+    if ms_match:
+        try:
+            return float(ms_match.group(1)) / 1000.0
+        except ValueError:
+            return None
+    s_match = re.search(r"try again in\s+([0-9]+(?:\.[0-9]+)?)s", text, re.IGNORECASE)
+    if s_match:
+        try:
+            return float(s_match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _backoff_delay_seconds(attempt: int, retry_after: float | None = None, *, base: float = 1.0, cap: float = 30.0) -> float:
+    if retry_after is not None and retry_after > 0:
+        return min(cap, retry_after)
+    delay = min(cap, base * (2 ** max(0, attempt - 1)))
+    jitter = random.uniform(0.0, min(1.0, delay / 2 if delay > 0 else 0.5))
+    return delay + jitter
+
+
+def _status_code_from_exception(exc: Exception) -> int | None:
+    code = getattr(exc, "status_code", None)
+    if isinstance(code, int):
+        return code
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if isinstance(status, int):
+        return status
+    return None
+
+
+def _is_retryable_openai_error(exc: Exception) -> bool:
+    name = exc.__class__.__name__
+    if name in {"RateLimitError", "APITimeoutError", "APIConnectionError", "InternalServerError"}:
+        return True
+    status = _status_code_from_exception(exc)
+    if status in {408, 409, 429, 500, 502, 503, 504}:
+        return True
+    text = str(exc).lower()
+    return "rate limit" in text or "timed out" in text or "temporarily unavailable" in text
+
+
+def _is_retryable_anthropic_error(exc: Exception) -> bool:
+    name = exc.__class__.__name__.lower()
+    if "timeout" in name or "connection" in name or "rate" in name:
+        return True
+    status = _status_code_from_exception(exc)
+    if status in {408, 409, 429, 500, 502, 503, 504}:
+        return True
+    text = str(exc).lower()
+    return "rate limit" in text or "timed out" in text or "temporarily unavailable" in text
+
+
+def _extract_openai_response_text(resp: Any) -> str:
+    output_text = getattr(resp, "output_text", None)
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    outputs = getattr(resp, "output", None)
+    collected: List[str] = []
+    if outputs:
+        for item in outputs:
+            item_type = getattr(item, "type", None) or (item.get("type") if isinstance(item, dict) else None)
+            if item_type == "message":
+                content_list = getattr(item, "content", None) or (item.get("content") if isinstance(item, dict) else None) or []
+                for block in content_list:
+                    block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
+                    if block_type in {"output_text", "text"}:
+                        text_val = getattr(block, "text", None) or (block.get("text") if isinstance(block, dict) else None)
+                        if isinstance(text_val, str) and text_val:
+                            collected.append(text_val)
+            elif item_type in {"output_text", "text"}:
+                text_val = getattr(item, "text", None) or (item.get("text") if isinstance(item, dict) else None)
+                if isinstance(text_val, str) and text_val:
+                    collected.append(text_val)
+    return "\n".join(part.strip() for part in collected if part and part.strip()).strip()
+
+
+def _normalize_openai_response(resp: Any) -> NormalizedLLMResponse:
+    usage = getattr(resp, "usage", None)
+    return NormalizedLLMResponse(
+        text=_extract_openai_response_text(resp),
+        stop_reason=getattr(resp, "status", None),
+        usage_input_tokens=getattr(usage, "input_tokens", None) if usage is not None else None,
+        usage_output_tokens=getattr(usage, "output_tokens", None) if usage is not None else None,
+        request_id=getattr(resp, "id", None),
+        raw_provider_response=resp,
+    )
+
+
+def _normalize_anthropic_response(resp: Any) -> NormalizedLLMResponse:
+    parts: List[str] = []
+    for block in getattr(resp, "content", []) or []:
+        text_val = getattr(block, "text", None)
+        if isinstance(text_val, str) and text_val:
+            parts.append(text_val)
+    usage = getattr(resp, "usage", None)
+    return NormalizedLLMResponse(
+        text="\n".join(part.strip() for part in parts if part and part.strip()).strip(),
+        stop_reason=getattr(resp, "stop_reason", None),
+        usage_input_tokens=getattr(usage, "input_tokens", None) if usage is not None else None,
+        usage_output_tokens=getattr(usage, "output_tokens", None) if usage is not None else None,
+        request_id=getattr(resp, "id", None),
+        raw_provider_response=resp,
+    )
+
+
+def _maybe_validate_openai_model(client: Any, model: str) -> None:
+    if not _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL", False):
+        return
+    if model in _MODEL_VALIDATION_CACHE["openai"]:
+        return
+    try:
+        client.models.retrieve(model)
+    except Exception as exc:
+        raise RuntimeError(
+            f"OpenAI model `{model}` could not be retrieved via the Models API. Check the model ID and project access. Original error: {exc}"
+        ) from exc
+    _MODEL_VALIDATION_CACHE["openai"].add(model)
+
+
+def _maybe_validate_anthropic_model(client: Any, model: str) -> None:
+    if not _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL", False):
+        return
+    if model in _MODEL_VALIDATION_CACHE["anthropic"]:
+        return
+    models_api = getattr(client, "models", None)
+    if models_api is None:
+        return
+    getter = getattr(models_api, "get", None) or getattr(models_api, "retrieve", None)
+    if callable(getter):
+        try:
+            getter(model)
+        except TypeError:
+            getter(model_id=model)
+        except Exception:
+            return
+        _MODEL_VALIDATION_CACHE["anthropic"].add(model)
+
+
+def _openai_generate_via_responses(client: Any, messages: List[dict], model: str) -> NormalizedLLMResponse:
+    request: Dict[str, Any] = {
+        "model": model,
+        "instructions": _join_system_messages(messages),
+        "input": _messages_to_openai_responses_input(messages),
+    }
+    max_output_tokens = _int_env("TRADINGBOT_OPENAI_MAX_OUTPUT_TOKENS", 20000)
+    if max_output_tokens > 0:
+        request["max_output_tokens"] = max_output_tokens
+    effort = os.getenv("TRADINGBOT_OPENAI_REASONING_EFFORT", "").strip().lower()
+    if effort in {"minimal", "low", "medium", "high"}:
+        request["reasoning"] = {"effort": effort}
+    resp = client.responses.create(**request)
+    return _normalize_openai_response(resp)
+
+
+def _openai_generate_via_chat_completions(client: Any, messages: List[dict], model: str) -> NormalizedLLMResponse:
+    resp = client.chat.completions.create(model=model, messages=messages)
+    content = resp.choices[0].message.content
+    usage = getattr(resp, "usage", None)
+    return NormalizedLLMResponse(
+        text=content.strip() if isinstance(content, str) else "",
+        stop_reason=getattr(resp.choices[0], "finish_reason", None),
+        usage_input_tokens=getattr(usage, "prompt_tokens", None) if usage is not None else None,
+        usage_output_tokens=getattr(usage, "completion_tokens", None) if usage is not None else None,
+        request_id=getattr(resp, "id", None),
+        raw_provider_response=resp,
+    )
+
+
 def chat_openai(messages: List[dict], model: str) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY in environment.")
-    from openai import APITimeoutError, OpenAI  # type: ignore
+    from openai import OpenAI  # type: ignore
 
     timeout_s = _float_env("TRADINGBOT_OPENAI_TIMEOUT", 900.0)
-    max_attempts = max(1, _int_env("TRADINGBOT_OPENAI_RETRIES", 2))
+    max_attempts = max(1, _int_env("TRADINGBOT_OPENAI_RETRIES", 4))
+    api_mode = default_api_mode_for_provider("openai")
     client = OpenAI(api_key=api_key, timeout=timeout_s)
+
+    _maybe_validate_openai_model(client, model)
 
     last_err: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = client.chat.completions.create(model=model, messages=messages)
-            content = resp.choices[0].message.content
-            if isinstance(content, str):
-                return content.strip()
-            return ""
-        except APITimeoutError as exc:
+            if api_mode == "chat_completions":
+                normalized = _openai_generate_via_chat_completions(client, messages, model)
+            else:
+                if not hasattr(client, "responses"):
+                    raise RuntimeError(
+                        "This OpenAI SDK does not expose the Responses API client. Upgrade the `openai` package or set TRADINGBOT_OPENAI_API_MODE=chat_completions."
+                    )
+                normalized = _openai_generate_via_responses(client, messages, model)
+            return normalized.text.strip()
+        except Exception as exc:
             last_err = exc
-            if attempt == max_attempts:
+            if attempt == max_attempts or not _is_retryable_openai_error(exc):
                 raise
-            wait_s = min(5 * attempt, 15)
-            print(f"OpenAI request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...", file=sys.stderr)
+            retry_after = _extract_retry_after_seconds(exc)
+            wait_s = _backoff_delay_seconds(attempt, retry_after)
+            print(
+                f"OpenAI request failed on attempt {attempt}/{max_attempts} with {exc.__class__.__name__}; retrying in {wait_s:.2f}s...",
+                file=sys.stderr,
+            )
             time.sleep(wait_s)
     if last_err is not None:
         raise last_err
@@ -1735,22 +2015,39 @@ def chat_anthropic(messages: List[dict], model: str) -> str:
     import anthropic  # type: ignore
 
     timeout_s = _float_env("TRADINGBOT_ANTHROPIC_TIMEOUT", 900.0)
-    max_attempts = max(1, _int_env("TRADINGBOT_ANTHROPIC_RETRIES", 2))
+    max_attempts = max(1, _int_env("TRADINGBOT_ANTHROPIC_RETRIES", 4))
     client = anthropic.Anthropic(api_key=api_key, timeout=timeout_s)
-    system = next((m["content"] for m in messages if m["role"] == "system"), "")
-    user_msgs = [m for m in messages if m["role"] != "system"]
+
+    _maybe_validate_anthropic_model(client, model)
+
+    system = _join_system_messages(messages)
+    user_msgs = _non_system_messages(messages)
+    max_tokens = _int_env("TRADINGBOT_ANTHROPIC_MAX_TOKENS", 12000)
+    effort = os.getenv("TRADINGBOT_ANTHROPIC_EFFORT", "").strip().lower()
 
     last_err: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = client.messages.create(model=model, max_tokens=12000, system=system, messages=user_msgs)
-            return (resp.content[0].text or "").strip()
+            request: Dict[str, Any] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": user_msgs,
+            }
+            if effort in {"low", "medium", "high", "max"}:
+                request["output_config"] = {"effort": effort}
+            resp = client.messages.create(**request)
+            return _normalize_anthropic_response(resp).text.strip()
         except Exception as exc:
             last_err = exc
-            if attempt == max_attempts or "timeout" not in str(exc).lower():
+            if attempt == max_attempts or not _is_retryable_anthropic_error(exc):
                 raise
-            wait_s = min(5 * attempt, 15)
-            print(f"Anthropic request timed out on attempt {attempt}/{max_attempts}; retrying in {wait_s}s...", file=sys.stderr)
+            retry_after = _extract_retry_after_seconds(exc)
+            wait_s = _backoff_delay_seconds(attempt, retry_after)
+            print(
+                f"Anthropic request failed on attempt {attempt}/{max_attempts} with {exc.__class__.__name__}; retrying in {wait_s:.2f}s...",
+                file=sys.stderr,
+            )
             time.sleep(wait_s)
     if last_err is not None:
         raise last_err
