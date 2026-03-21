@@ -27,6 +27,7 @@ import random
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -57,6 +58,17 @@ NAME_ERROR_RE = re.compile(r"NameError: name '([^']+)' is not defined")
 KEY_ERROR_RE = re.compile(r"KeyError: '([^']+)'")
 WIN_ECHO_RE = re.compile(r"FileNotFoundError: \[WinError 2\]", re.MULTILINE)
 
+RUNTIME_ARTIFACT_NAMES = (
+    "last_output.txt",
+    "_last_agent_model_output.txt",
+    "_last_agent_file_bundle.txt",
+)
+
+
+class FileBundleError(ValueError):
+    pass
+
+
 def _ensure_repo_root_on_sys_path() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     repo_root_str = str(repo_root)
@@ -65,11 +77,6 @@ def _ensure_repo_root_on_sys_path() -> None:
 
 
 _ensure_repo_root_on_sys_path()
-
-
-
-class FileBundleError(ValueError):
-    pass
 
 
 class NormalizedLLMResponse:
@@ -117,11 +124,25 @@ def _load_dotenv_if_available() -> None:
 
 
 def default_provider() -> str:
-    from agents.lib.provider_client import default_provider as _default_provider
-    return _default_provider()
+    provider = os.getenv("TRADINGBOT_AGENT_PROVIDER", "").strip().lower()
+    if provider:
+        return provider
+    if os.getenv("OPENAI_API_KEY", "").strip():
+        return "openai"
+    if os.getenv("ANTHROPIC_API_KEY", "").strip():
+        return "anthropic"
+    return "openai"
+
+
 def default_model_for_provider(provider: str) -> str:
-    from agents.lib.provider_client import default_model_for_provider as _default_model_for_provider
-    return _default_model_for_provider(provider)
+    env_model = os.getenv("TRADINGBOT_AGENT_MODEL", "").strip()
+    if env_model:
+        return env_model
+    if provider == "openai":
+        return "gpt-5.4"
+    return "claude-sonnet-4-6"
+
+
 def default_api_mode_for_provider(provider: str) -> str:
     provider = (provider or "").strip().lower()
     if provider == "openai":
@@ -159,20 +180,33 @@ def _float_env(name: str, default: float) -> float:
 
 
 def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    from agents.lib.git_ops import run as _run
-    return _run(cmd, check=check)
+    return subprocess.run(cmd, check=check, text=True, capture_output=False)
+
+
 def capture(cmd: List[str]) -> str:
-    from agents.lib.git_ops import capture as _capture
-    return _capture(cmd)
+    cp = subprocess.run(cmd, check=True, text=True, capture_output=True)
+    return cp.stdout.strip()
+
+
 def capture_result(cmd: List[str]) -> subprocess.CompletedProcess[str]:
-    from agents.lib.check_runner import capture_result as _capture_result
-    return _capture_result(cmd)
+    return subprocess.run(cmd, check=False, text=True, capture_output=True)
+
+
 def ensure_clean_worktree() -> None:
-    from agents.lib.git_ops import ensure_clean_worktree as _ensure_clean_worktree
-    _ensure_clean_worktree()
+    if capture(["git", "status", "--porcelain"]).strip():
+        raise RuntimeError("Working tree is not clean. Commit/stash your changes before running the agent.")
+
+
 def ensure_branch(branch: str) -> None:
-    from agents.lib.git_ops import ensure_branch as _ensure_branch
-    _ensure_branch(branch)
+    cur = capture(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    if cur == branch:
+        return
+    if capture(["git", "branch", "--list", branch]).strip():
+        run(["git", "switch", branch])
+    else:
+        run(["git", "switch", "-c", branch])
+
+
 def normalize_newlines(s: str) -> str:
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     return re.sub(r"^\ufeff", "", s)
@@ -573,6 +607,21 @@ def _count_changed_lines(old: str, new: str) -> int:
     return changed
 
 
+def _normalize_policy_tail_for_compare(content: str, anchor: str) -> str:
+    normalized = normalize_newlines(content)
+    lines = normalized.split("\n")
+    anchor_idx = None
+    for idx, line in enumerate(lines):
+        if anchor in line:
+            anchor_idx = idx
+            break
+    if anchor_idx is None:
+        return normalized
+    tail = lines[anchor_idx:]
+    while tail and not tail[-1].strip():
+        tail.pop()
+    return "\n".join(line.rstrip() for line in tail)
+
 def _anchor_context_excerpt(content: str, anchor: str, *, radius: int = 4) -> str:
     normalized = normalize_newlines(content)
     lines = normalized.splitlines()
@@ -588,39 +637,6 @@ def _anchor_context_excerpt(content: str, anchor: str, *, radius: int = 4) -> st
     return f"(anchor `{anchor}` not found in content excerpt generation)"
 
 
-def _normalize_anchor_tail_for_compare(tail: str) -> str:
-    """
-    Normalize the post-anchor tail for append_before protected-file checks.
-
-    Append-before edits often preserve the exact anchor tail semantically while
-    differing only in trailing EOF newlines or trailing whitespace. Treat those
-    as equivalent so harmless formatting drift does not look like an after-anchor
-    mutation.
-    """
-    normalized = normalize_newlines(tail)
-    lines = normalized.split("\n")
-    while lines and not lines[-1].strip():
-        lines.pop()
-    return "\n".join(line.rstrip() for line in lines)
-
-
-def _normalize_policy_tail_for_compare(content: str, anchor: str) -> str | None:
-    normalized = normalize_newlines(content)
-    lines = normalized.splitlines()
-    for idx, line in enumerate(lines):
-        if line.strip() == anchor.strip():
-            tail = [tail_line.rstrip() for tail_line in lines[idx:]]
-            while tail and tail[-1] == "":
-                tail.pop()
-            return "\n".join(tail)
-    if anchor in normalized:
-        _before, after = normalized.split(anchor, 1)
-        tail = [anchor.rstrip()] + [tail_line.rstrip() for tail_line in after.splitlines()]
-        while tail and tail[-1] == "":
-            tail.pop()
-        return "\n".join(tail)
-    return None
-
 def _protected_overlap_issue(forbidden_paths: List[str], bundle: Dict[str, str]) -> str:
     overlap = sorted(set(bundle) & set(forbidden_paths))
     if not overlap:
@@ -630,6 +646,18 @@ def _protected_overlap_issue(forbidden_paths: List[str], bundle: Dict[str, str])
         "Normal file bundle illegally included protected path(s): "
         f"{listed}. These files are handled separately by protected method mode and MUST NOT appear as FILE blocks in the normal bundle."
     )
+
+
+def _top_level_function_names(source: str) -> set[str]:
+    try:
+        tree = ast.parse(normalize_newlines(source))
+    except Exception:
+        return set()
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
 
 
 def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseline: Dict[str, str]) -> Tuple[bool, str]:
@@ -652,8 +680,8 @@ def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseli
                 )
 
         if allowed_methods and proposed is not None and original is not None:
-            original_methods = set(RUNNER_METHOD_HEADER_RE.findall(original))
-            proposed_methods = set(RUNNER_METHOD_HEADER_RE.findall(proposed))
+            original_methods = _top_level_function_names(original)
+            proposed_methods = _top_level_function_names(proposed)
             removed = original_methods - proposed_methods
             added = proposed_methods - original_methods
             disallowed_added = sorted(name for name in added if name not in allowed_methods)
@@ -705,7 +733,7 @@ def enforce_harness_file_policies(task_text: str, bundle: Dict[str, str], baseli
                 proposed_before, _proposed_after = proposed.split(anchor, 1)
                 original_tail = _normalize_policy_tail_for_compare(original, anchor)
                 proposed_tail = _normalize_policy_tail_for_compare(proposed, anchor)
-                if original_tail is None or proposed_tail is None or proposed_tail != original_tail:
+                if proposed_tail != original_tail:
                     issues.append(
                         f"`{path}` changed content at or after protected anchor `{anchor}`. Only additive insertion before the anchor is allowed.\n"
                         f"Baseline anchor excerpt:\n{_anchor_context_excerpt(original, anchor)}\n"
@@ -873,7 +901,8 @@ def _validate_single_method_text(method_text: str, expected_method_name: str, *,
     top_level_defs = [node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
     if top_level_defs != [expected_method_name]:
         raise FileBundleError(
-            f"{context}: expected exactly one top-level method `{expected_method_name}`; got {top_level_defs or 'none'}."
+            f"{context}: expected exactly one top-level method `{expected_method_name}`; got {top_level_defs or 'none'}. "
+            "Do not define nested or additional helper defs inside the method payload; inline helper logic instead."
         )
     if len(tree.body) != 1:
         raise FileBundleError(
@@ -938,7 +967,9 @@ def load_method_insertion_system_prompt() -> str:
         "Output ONLY a valid method insertion bundle using the literal BEGIN_METHOD_INSERTION / END_METHOD_INSERTION markers.\n"
         "Do NOT output BEGIN_FILE_BUNDLE or END_FILE_BUNDLE in protected-file method mode.\n"
         "Do NOT emit prose, markdown fences, or any additional files.\n"
-        "The response must contain exactly one top-level def, and it must be the requested method."
+        "The response must contain exactly one top-level def, and it must be the requested method.\n"
+        "Do not define nested helper functions inside the requested method body. Inline any small helper logic instead.\n"
+        "Do not introduce local helper defs such as `_add_rule`; use inline statements or extracted imported helpers only."
     )
     if base:
         return base + "\n\n" + override
@@ -965,6 +996,8 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         "Only perform the requested method append or method replacement.",
         "Do NOT return BEGIN_FILE_BUNDLE / END_FILE_BUNDLE for this protected-file response.",
         "The response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.",
+        "Do not define nested helper functions inside the requested method body. Inline small helper logic instead.",
+        "Do not introduce local helper defs such as `_add_rule`; use statements directly or call existing imported helpers.",
         "",
         "Required format:",
         "BEGIN_METHOD_INSERTION",
@@ -1004,7 +1037,8 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         "Your previous response was INVALID.\n"
         "You MUST output ONLY a valid method insertion bundle using the literal markers below.\n"
         "Do not output BEGIN_FILE_BUNDLE for this protected file.\n"
-        "Do not add any extra top-level def.\n\n"
+        "Do not add any extra top-level def.\n"
+        "Do not define nested helper functions inside the requested method body. Inline the logic instead.\n\n"
         "BEGIN_METHOD_INSERTION\n"
         f"TARGET_FILE: {expected_path}\n"
         f"METHOD_NAME: {expected_method_name}\n"
@@ -1160,6 +1194,20 @@ def parse_task_contract_directives(task_text: str) -> Dict[str, List[str]]:
     return directives
 
 
+def _result_keys_contract_applies(rel: str, content: str, tree: ast.AST, result_fn: str) -> bool:
+    p = Path(rel)
+    if p.stem == result_fn:
+        return True
+    if p.name == "__init__.py" and p.parent.name == result_fn:
+        return True
+    for node in getattr(tree, "body", []):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == result_fn:
+            return True
+    return False
+
+
+
+
 def _directive_contract_issues(bundle: Dict[str, str], task_text: str) -> List[str]:
     directives = parse_task_contract_directives(task_text)
     if not directives:
@@ -1296,24 +1344,11 @@ def _directive_contract_issues(bundle: Dict[str, str], task_text: str) -> List[s
                     if fqcn and fqcn in allowed_method_specs and node.func.attr not in allowed_method_specs[fqcn]:
                         issues.append(f"{rel}: `{node.func.value.id}.{node.func.attr}()` violates ALLOWED_METHODS for `{fqcn}`")
 
-        module_path = Path(rel)
-        top_level_names = {
-            node.name
-            for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-        }
-
         for result_fn, keys in result_key_specs.items():
-            applies = (
-                module_path.stem == result_fn
-                or (module_path.name == "__init__.py" and module_path.parent.name == result_fn)
-                or result_fn in top_level_names
-            )
-            if not applies:
-                continue
-            for key in keys:
-                if key not in content:
-                    issues.append(f"{rel}: missing RESULT_KEYS contract token `{key}` for `{result_fn}`")
+            if _result_keys_contract_applies(rel, content, tree, result_fn):
+                for key in keys:
+                    if key not in content:
+                        issues.append(f"{rel}: missing RESULT_KEYS contract token `{key}` for `{result_fn}`")
 
     deduped: List[str] = []
     seen: set[str] = set()
@@ -1322,6 +1357,8 @@ def _directive_contract_issues(bundle: Dict[str, str], task_text: str) -> List[s
             seen.add(issue)
             deduped.append(issue)
     return deduped
+
+
 
 
 
@@ -1809,17 +1846,45 @@ def bundle_similarity(a: Dict[str, str] | None, b: Dict[str, str] | None) -> flo
 
 
 def run_checks() -> Tuple[bool, str]:
-    from agents.lib.check_runner import run_checks as _run_checks
-    result = _run_checks()
-    if isinstance(result, dict):
-        lint_ok = bool(result.get("lint_ok", False))
-        test_ok = bool(result.get("test_ok", False))
-        output_text = str(result.get("output_text", "") or "")
-        return (lint_ok and test_ok), output_text.strip()
-    if isinstance(result, tuple) and len(result) == 2:
-        ok, details = result
-        return bool(ok), str(details or "").strip()
-    return False, "Invalid check runner result."
+    try:
+        from agents.lib.check_runner import run_checks as _run_checks  # type: ignore
+
+        result = _run_checks()
+        if (
+            isinstance(result, tuple)
+            and len(result) == 2
+            and isinstance(result[0], bool)
+            and isinstance(result[1], str)
+        ):
+            return result
+        if isinstance(result, dict):
+            lint_ok = bool(result.get("lint_ok", False))
+            test_ok = bool(result.get("test_ok", False))
+            output_text = str(result.get("output_text", "") or "")
+            return (lint_ok and test_ok), output_text.strip()
+    except Exception:
+        pass
+
+    details: List[str] = []
+
+    # Let the model auto-fix simple ruff issues first.
+    capture_result([sys.executable, "-m", "ruff", "check", ".", "--fix"])
+
+    ruff = capture_result([sys.executable, "-m", "ruff", "check", "."])
+    if ruff.returncode != 0:
+        details.append("## ruff\n" + (ruff.stdout or "") + (ruff.stderr or ""))
+
+    pytest = capture_result([sys.executable, "-m", "pytest", "-q"])
+    if pytest.returncode != 0:
+        details.append("## pytest\n" + (pytest.stdout or "") + (pytest.stderr or ""))
+
+    if details:
+        return False, "\n".join(details).strip()
+    return True, ""
+
+
+
+
 def load_system_prompt() -> str:
     candidates = [
         Path("agents/prompts/system.md"),
@@ -2059,14 +2124,101 @@ def _openai_generate_via_chat_completions(client: Any, messages: List[dict], mod
 
 
 def chat_openai(messages: List[dict], model: str) -> str:
-    from agents.lib.provider_client import chat_openai as _chat_openai
-    return _chat_openai(messages, model)
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Missing OPENAI_API_KEY in environment.")
+    from openai import OpenAI  # type: ignore
+
+    timeout_s = _float_env("TRADINGBOT_OPENAI_TIMEOUT", 900.0)
+    max_attempts = max(1, _int_env("TRADINGBOT_OPENAI_RETRIES", 4))
+    api_mode = default_api_mode_for_provider("openai")
+    client = OpenAI(api_key=api_key, timeout=timeout_s)
+
+    _maybe_validate_openai_model(client, model)
+
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            if api_mode == "chat_completions":
+                normalized = _openai_generate_via_chat_completions(client, messages, model)
+            else:
+                if not hasattr(client, "responses"):
+                    raise RuntimeError(
+                        "This OpenAI SDK does not expose the Responses API client. Upgrade the `openai` package or set TRADINGBOT_OPENAI_API_MODE=chat_completions."
+                    )
+                normalized = _openai_generate_via_responses(client, messages, model)
+            return normalized.text.strip()
+        except Exception as exc:
+            last_err = exc
+            if attempt == max_attempts or not _is_retryable_openai_error(exc):
+                raise
+            retry_after = _extract_retry_after_seconds(exc)
+            wait_s = _backoff_delay_seconds(attempt, retry_after)
+            print(
+                f"OpenAI request failed on attempt {attempt}/{max_attempts} with {exc.__class__.__name__}; retrying in {wait_s:.2f}s...",
+                file=sys.stderr,
+            )
+            time.sleep(wait_s)
+    if last_err is not None:
+        raise last_err
+    return ""
+
+
 def chat_anthropic(messages: List[dict], model: str) -> str:
-    from agents.lib.provider_client import chat_anthropic as _chat_anthropic
-    return _chat_anthropic(messages, model)
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Missing ANTHROPIC_API_KEY in environment.")
+    import anthropic  # type: ignore
+
+    timeout_s = _float_env("TRADINGBOT_ANTHROPIC_TIMEOUT", 900.0)
+    max_attempts = max(1, _int_env("TRADINGBOT_ANTHROPIC_RETRIES", 4))
+    client = anthropic.Anthropic(api_key=api_key, timeout=timeout_s)
+
+    _maybe_validate_anthropic_model(client, model)
+
+    system = _join_system_messages(messages)
+    user_msgs = _non_system_messages(messages)
+    max_tokens = _int_env("TRADINGBOT_ANTHROPIC_MAX_TOKENS", 12000)
+    effort = os.getenv("TRADINGBOT_ANTHROPIC_EFFORT", "").strip().lower()
+
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            request: Dict[str, Any] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": user_msgs,
+            }
+            if effort in {"low", "medium", "high", "max"}:
+                request["output_config"] = {"effort": effort}
+            resp = client.messages.create(**request)
+            return _normalize_anthropic_response(resp).text.strip()
+        except Exception as exc:
+            last_err = exc
+            if attempt == max_attempts or not _is_retryable_anthropic_error(exc):
+                raise
+            retry_after = _extract_retry_after_seconds(exc)
+            wait_s = _backoff_delay_seconds(attempt, retry_after)
+            print(
+                f"Anthropic request failed on attempt {attempt}/{max_attempts} with {exc.__class__.__name__}; retrying in {wait_s:.2f}s...",
+                file=sys.stderr,
+            )
+            time.sleep(wait_s)
+    if last_err is not None:
+        raise last_err
+    return ""
+
+
 def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
-    from agents.lib.provider_client import chat as _chat
-    return _chat(messages, model, provider)
+    chosen = (provider or default_provider()).strip().lower()
+    if chosen == "openai":
+        return chat_openai(messages, model)
+    if chosen == "anthropic":
+        return chat_anthropic(messages, model)
+    raise RuntimeError(f"Unsupported provider: {chosen}")
+
+
 def build_messages(
     task_text: str,
     required: List[str],
@@ -2145,6 +2297,83 @@ def build_messages(
     ]
 
 
+def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], List[str]]:
+    """
+    Best-effort recovery for malformed outer file-bundle transport.
+
+    This is intentionally separate from parse_file_bundle() so the public parser
+    can retain its current strict behavior for parity-sensitive code/tests.
+    """
+    normalized = normalize_newlines(text)
+    lines = normalized.split("\n")
+
+    begin_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_BEGIN]
+    end_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_END]
+    if len(begin_idxs) != 1 or len(end_idxs) != 1:
+        raise FileBundleError("Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.")
+    b = begin_idxs[0]
+    e = end_idxs[0]
+    if e < b:
+        raise FileBundleError("END_FILE_BUNDLE appears before BEGIN_FILE_BUNDLE.")
+
+    inner = lines[b + 1 : e]
+    files: Dict[str, str] = {}
+    warnings: List[str] = []
+    cur_path: str | None = None
+    cur_lines: List[str] = []
+
+    def close_current(reason: str) -> None:
+        nonlocal cur_path, cur_lines
+        if cur_path is None:
+            return
+        files[cur_path] = "\n".join(cur_lines).rstrip("\n") + "\n"
+        warnings.append(f"{reason}: {cur_path}")
+        cur_path = None
+        cur_lines = []
+
+    i = 0
+    while i < len(inner):
+        line = inner[i]
+
+        if cur_path is None:
+            if not line.strip():
+                i += 1
+                continue
+            m = BUNDLE_FILE_HEADER_RE.match(line)
+            if not m:
+                raise FileBundleError(f"Expected FILE header, got: {line!r}")
+            path = m.group(1).strip().replace("\\", "/")
+            if not path:
+                raise FileBundleError("Empty FILE path.")
+            if path in files:
+                raise FileBundleError(f"Duplicate FILE path in bundle: {path}")
+            cur_path = path
+            cur_lines = []
+            i += 1
+            continue
+
+        if line == FILE_END:
+            close_current("closed explicit END_FILE")
+            i += 1
+            continue
+
+        m = BUNDLE_FILE_HEADER_RE.match(line)
+        if m:
+            close_current("auto-closed missing END_FILE before next FILE")
+            continue
+
+        cur_lines.append(line)
+        i += 1
+
+    if cur_path is not None:
+        close_current("auto-closed missing trailing END_FILE at bundle end")
+
+    if not files:
+        raise FileBundleError("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
+
+    return files, warnings
+
+
 def request_and_parse_bundle(
     messages: List[dict],
     model: str,
@@ -2152,18 +2381,29 @@ def request_and_parse_bundle(
     last_output_path: Path,
     forbidden_paths: List[str] | None = None,
 ) -> Dict[str, str]:
-    def _parse_and_validate(raw: str) -> Dict[str, str]:
-        parsed = parse_file_bundle(raw)
+    def _validate_transport(parsed: Dict[str, str]) -> Dict[str, str]:
         overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
         if overlap_issue:
             raise FileBundleError(overlap_issue)
         return parsed
 
+    def _parse_validate_or_salvage(raw: str) -> Dict[str, str]:
+        try:
+            return _validate_transport(parse_file_bundle(raw))
+        except Exception:
+            salvaged, warnings = _parse_file_bundle_transport_resilient(raw)
+            validated = _validate_transport(salvaged)
+            if warnings:
+                print("⚠️ Recovered malformed file bundle transport:")
+                for warning in warnings:
+                    print(f"  - {warning}")
+            return validated
+
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
     try:
-        return _parse_and_validate(out)
+        return _parse_validate_or_salvage(out)
     except Exception as e:
         forbidden_hint = ""
         if forbidden_paths:
@@ -2196,9 +2436,175 @@ def request_and_parse_bundle(
         out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
         try:
-            return _parse_and_validate(out2)
+            return _parse_validate_or_salvage(out2)
         except Exception as e2:
             raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
+
+
+def _local_branch_exists(branch: str) -> bool:
+    try:
+        out = capture(["git", "branch", "--list", branch]).strip()
+    except Exception:
+        return False
+    return bool(out)
+
+
+def _remote_branch_exists(branch: str) -> bool:
+    try:
+        out = capture(["git", "ls-remote", "--heads", "origin", branch]).strip()
+    except Exception:
+        return False
+    return bool(out)
+
+
+def _choose_agent_branch(task_stem: str, push: bool) -> str:
+    base = f"agent-{task_stem}"
+    if not push:
+        return base
+    candidate = base
+    idx = 1
+    while _local_branch_exists(candidate) or _remote_branch_exists(candidate):
+        idx += 1
+        candidate = f"{base}-r{idx}"
+    return candidate
+
+
+def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> List[Path]:
+    ordered = [Path(name) for name in RUNTIME_ARTIFACT_NAMES]
+    extras = [Path(last_output_path), Path(last_bundle_path)]
+    seen: set[str] = set()
+    out: List[Path] = []
+    for p in ordered + extras:
+        key = p.as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
+
+def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
+    for path in paths:
+        try:
+            run(["git", "rm", "--cached", "--quiet", "--ignore-unmatch", path.as_posix()], check=False)
+        except Exception:
+            pass
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
+
+
+def _report_failure(kind: str, message: str) -> None:
+    print(f"❌ [{kind}] {message}")
+
+
+
+# Runtime foundations compatibility wrappers (042a)
+# Keep thin public wrappers in agents.run_task while delegating to extracted modules
+# so tests and downstream callers can still patch/use the extracted surfaces.
+_default_provider_local = default_provider
+_default_model_for_provider_local = default_model_for_provider
+_chat_openai_local = chat_openai
+_chat_anthropic_local = chat_anthropic
+_chat_local = chat
+_run_local = run
+_capture_local = capture
+_capture_result_local = capture_result
+_ensure_clean_worktree_local = ensure_clean_worktree
+_ensure_branch_local = ensure_branch
+_run_checks_local = run_checks
+
+
+def _runtime_foundations_exports() -> Dict[str, object]:
+    try:
+        from agents.lib import check_runner, git_ops, provider_client  # type: ignore
+    except Exception:
+        return {
+            "default_provider": _default_provider_local,
+            "default_model_for_provider": _default_model_for_provider_local,
+            "chat_openai": _chat_openai_local,
+            "chat_anthropic": _chat_anthropic_local,
+            "chat": _chat_local,
+            "run": _run_local,
+            "capture": _capture_local,
+            "capture_result": _capture_result_local,
+            "ensure_clean_worktree": _ensure_clean_worktree_local,
+            "ensure_branch": _ensure_branch_local,
+            "run_checks": _run_checks_local,
+        }
+
+    return {
+        "default_provider": getattr(provider_client, "default_provider", _default_provider_local),
+        "default_model_for_provider": getattr(provider_client, "default_model_for_provider", _default_model_for_provider_local),
+        "chat_openai": getattr(provider_client, "chat_openai", _chat_openai_local),
+        "chat_anthropic": getattr(provider_client, "chat_anthropic", _chat_anthropic_local),
+        "chat": getattr(provider_client, "chat", _chat_local),
+        "run": getattr(git_ops, "run", _run_local),
+        "capture": getattr(git_ops, "capture", _capture_local),
+        "capture_result": getattr(check_runner, "capture_result", _capture_result_local),
+        "ensure_clean_worktree": getattr(git_ops, "ensure_clean_worktree", _ensure_clean_worktree_local),
+        "ensure_branch": getattr(git_ops, "ensure_branch", _ensure_branch_local),
+        "run_checks": getattr(check_runner, "run_checks", _run_checks_local),
+    }
+
+
+def default_provider() -> str:
+    return _runtime_foundations_exports()["default_provider"]()  # type: ignore[misc]
+
+
+def default_model_for_provider(provider: str) -> str:
+    return _runtime_foundations_exports()["default_model_for_provider"](provider)  # type: ignore[misc]
+
+
+def chat_openai(messages: List[dict], model: str) -> str:
+    return _runtime_foundations_exports()["chat_openai"](messages, model)  # type: ignore[misc]
+
+
+def chat_anthropic(messages: List[dict], model: str) -> str:
+    return _runtime_foundations_exports()["chat_anthropic"](messages, model)  # type: ignore[misc]
+
+
+def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
+    return _runtime_foundations_exports()["chat"](messages, model, provider)  # type: ignore[misc]
+
+
+def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    return _runtime_foundations_exports()["run"](cmd, check)  # type: ignore[misc]
+
+
+def capture(cmd: List[str]) -> str:
+    return _runtime_foundations_exports()["capture"](cmd)  # type: ignore[misc]
+
+
+def capture_result(cmd: List[str]) -> subprocess.CompletedProcess[str]:
+    return _runtime_foundations_exports()["capture_result"](cmd)  # type: ignore[misc]
+
+
+def ensure_clean_worktree() -> None:
+    _runtime_foundations_exports()["ensure_clean_worktree"]()  # type: ignore[misc]
+
+
+def ensure_branch(branch: str) -> None:
+    _runtime_foundations_exports()["ensure_branch"](branch)  # type: ignore[misc]
+
+
+def run_checks() -> Tuple[bool, str]:
+    result = _runtime_foundations_exports()["run_checks"]()  # type: ignore[misc]
+    if (
+        isinstance(result, tuple)
+        and len(result) == 2
+        and isinstance(result[0], bool)
+        and isinstance(result[1], str)
+    ):
+        return result
+    if isinstance(result, dict):
+        lint_ok = bool(result.get("lint_ok", False))
+        test_ok = bool(result.get("test_ok", False))
+        output_text = str(result.get("output_text", "") or "")
+        return (lint_ok and test_ok), output_text.strip()
+    raise TypeError(f"Unsupported run_checks() result shape: {type(result).__name__}")
 
 
 def main() -> int:
@@ -2207,14 +2613,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("task", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
-    ap.add_argument("--provider", default=default_provider(), choices=["openai", "anthropic"])
-    ap.add_argument("--model", default=default_model_for_provider(default_provider()))
+    ap.add_argument("--provider", default=None, choices=["openai", "anthropic"])
+    ap.add_argument("--model", default=None)
     ap.add_argument("--max-iters", type=int, default=4)
     ap.add_argument("--policy-block-limit", type=int, default=_int_env("TRADINGBOT_POLICY_BLOCK_LIMIT", 2))
     args = ap.parse_args()
-    if not hasattr(args, "provider"):
+    if not getattr(args, "provider", None):
         args.provider = default_provider()
-    if not hasattr(args, "model") or not args.model:
+    if not getattr(args, "model", None):
         args.model = default_model_for_provider(args.provider)
 
     task_path = Path(args.task)
@@ -2232,9 +2638,11 @@ def main() -> int:
     protected_targets = _extract_protected_method_targets(task_text)
     protected_method_paths = {str(t["path"]) for t in protected_targets}
 
-    branch = f"agent-{task_path.stem}"
+    branch = _choose_agent_branch(task_path.stem, args.push)
     print(f"Current branch: {capture(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
     print(f"Creating branch: {branch}")
+    if branch != f"agent-{task_path.stem}":
+        print("Branch name was auto-suffixed to avoid stale local/remote branch conflicts.")
     print(f"Using provider: {args.provider}")
     print(f"Using model: {args.model}")
     ensure_branch(branch)
@@ -2308,7 +2716,7 @@ def main() -> int:
                     suffix = (
                         "Do not emit protected method-edit files in the normal file bundle; "
                         "they are handled separately by protected method mode. If you include them anyway, "
-                        "the response will be rejected."
+                        "they will be ignored."
                     )
                     non_protected_directives = (
                         (extra_directives.rstrip() + "\n\n") if extra_directives.strip() else ""
@@ -2346,7 +2754,7 @@ def main() -> int:
                     forbidden_paths=sorted(protected_method_paths),
                 )
         except FileBundleError as e:
-            print(f"❌ {e}")
+            _report_failure("bundle_transport", str(e))
             print(f"Model output saved to: {last_output_path}")
             print(f"Parsed file bundle saved to: {last_bundle_path}")
             return 1
@@ -2361,7 +2769,7 @@ def main() -> int:
 
         ok_syntax, syntax_msg = validate_python_syntax(files)
         if not ok_syntax:
-            print(f"❌ {syntax_msg}")
+            _report_failure("python_syntax", syntax_msg)
             task_text = _append_task_feedback(task_text, syntax_msg)
             if _repeat_limit_exceeded(violation_counts, "python_syntax", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated Python syntax failures. Recommended action: manual_patch")
@@ -2379,7 +2787,7 @@ def main() -> int:
             allow_unchanged_cli=allow_unchanged_cli,
         )
         if not ok_req:
-            print(f"❌ {req_msg}")
+            _report_failure("deliverables", req_msg)
             task_text = _append_task_feedback(task_text, req_msg)
             if _repeat_limit_exceeded(violation_counts, "deliverables", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated deliverable violations. Recommended action: manual_patch")
@@ -2391,7 +2799,7 @@ def main() -> int:
 
         ok_policy, policy_msg = enforce_harness_file_policies(task_text, files, baseline)
         if not ok_policy:
-            print(f"❌ {policy_msg}")
+            _report_failure("protected_file_policy", policy_msg)
             task_text = _append_task_feedback(task_text, policy_msg)
             if _repeat_limit_exceeded(violation_counts, "protected_file_policy", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated protected-file policy violations. Recommended action: manual_patch")
@@ -2403,7 +2811,7 @@ def main() -> int:
 
         ok_static, static_msg = validate_static_bundle_contracts(files, task_text)
         if not ok_static:
-            print(f"❌ {static_msg}")
+            _report_failure("static_contracts", static_msg)
             task_text = _append_task_feedback(task_text, static_msg)
             if _repeat_limit_exceeded(violation_counts, "static_contracts", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated static contract violations. Recommended action: manual_patch")
@@ -2415,7 +2823,7 @@ def main() -> int:
 
         ok_imports, import_msg = validate_imports(files)
         if not ok_imports:
-            print(f"❌ {import_msg}")
+            _report_failure("imports", import_msg)
             task_text = _append_task_feedback(task_text, import_msg + "\n" + missing_module_hints(import_msg))
             if _repeat_limit_exceeded(violation_counts, "imports", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated import validation failures. Recommended action: manual_patch")
@@ -2433,6 +2841,7 @@ def main() -> int:
         if ok:
             print("✅ Green.")
             if args.push:
+                _cleanup_runtime_artifacts_for_commit(_runtime_artifact_paths(last_output_path, last_bundle_path))
                 run(["git", "add", "-A"], check=True)
                 staged = capture(["git", "diff", "--cached", "--name-only"])
                 if not staged.strip():
@@ -2483,15 +2892,6 @@ def main() -> int:
     print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
     return 1
 
-
-def _runtime_foundations_exports() -> dict[str, object]:
-    from agents.lib import check_runner, git_ops, provider_client
-
-    return {
-        "provider_client": provider_client,
-        "git_ops": git_ops,
-        "check_runner": check_runner,
-    }
 
 if __name__ == "__main__":
     raise SystemExit(main())
