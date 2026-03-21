@@ -27,6 +27,12 @@ FILE: another/path/to/file.ext
 END_FILE
 END_FILE_BUNDLE
 
+SPECIALIZED PROTECTED-METHOD OVERRIDE:
+If the user explicitly requests a protected-file method insertion response using
+BEGIN_METHOD_INSERTION / END_METHOD_INSERTION, that specialized contract overrides
+the generic file-bundle contract for that response only.
+
+Normal tasks still require BEGIN_FILE_BUNDLE / END_FILE_BUNDLE.
 
 --------------------------------------------------
 CRITICAL FILE-BUNDLE RULE
