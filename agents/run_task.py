@@ -880,7 +880,8 @@ def _validate_single_method_text(method_text: str, expected_method_name: str, *,
     top_level_defs = [node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
     if top_level_defs != [expected_method_name]:
         raise FileBundleError(
-            f"{context}: expected exactly one top-level method `{expected_method_name}`; got {top_level_defs or 'none'}."
+            f"{context}: expected exactly one top-level method `{expected_method_name}`; got {top_level_defs or 'none'}. "
+            "Do not define nested or additional helper defs inside the method payload; inline helper logic instead."
         )
     if len(tree.body) != 1:
         raise FileBundleError(
@@ -945,7 +946,9 @@ def load_method_insertion_system_prompt() -> str:
         "Output ONLY a valid method insertion bundle using the literal BEGIN_METHOD_INSERTION / END_METHOD_INSERTION markers.\n"
         "Do NOT output BEGIN_FILE_BUNDLE or END_FILE_BUNDLE in protected-file method mode.\n"
         "Do NOT emit prose, markdown fences, or any additional files.\n"
-        "The response must contain exactly one top-level def, and it must be the requested method."
+        "The response must contain exactly one top-level def, and it must be the requested method.\n"
+        "Do not define nested helper functions inside the requested method body. Inline any small helper logic instead.\n"
+        "Do not introduce local helper defs such as `_add_rule`; use inline statements or extracted imported helpers only."
     )
     if base:
         return base + "\n\n" + override
@@ -972,6 +975,8 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         "Only perform the requested method append or method replacement.",
         "Do NOT return BEGIN_FILE_BUNDLE / END_FILE_BUNDLE for this protected-file response.",
         "The response will be rejected unless it contains exactly one `def` total, and that `def` is the requested method.",
+        "Do not define nested helper functions inside the requested method body. Inline small helper logic instead.",
+        "Do not introduce local helper defs such as `_add_rule`; use statements directly or call existing imported helpers.",
         "",
         "Required format:",
         "BEGIN_METHOD_INSERTION",
@@ -1011,7 +1016,8 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         "Your previous response was INVALID.\n"
         "You MUST output ONLY a valid method insertion bundle using the literal markers below.\n"
         "Do not output BEGIN_FILE_BUNDLE for this protected file.\n"
-        "Do not add any extra top-level def.\n\n"
+        "Do not add any extra top-level def.\n"
+        "Do not define nested helper functions inside the requested method body. Inline the logic instead.\n\n"
         "BEGIN_METHOD_INSERTION\n"
         f"TARGET_FILE: {expected_path}\n"
         f"METHOD_NAME: {expected_method_name}\n"
