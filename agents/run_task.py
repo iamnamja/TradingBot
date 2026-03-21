@@ -213,6 +213,22 @@ def normalize_newlines(s: str) -> str:
 
 
 def parse_file_bundle(text: str) -> Dict[str, str]:
+    try:
+        from agents.lib.bundle_parser import parse_file_bundle as _parse_file_bundle  # type: ignore
+    except Exception:
+        _parse_file_bundle = None  # type: ignore[assignment]
+
+    if _parse_file_bundle is not None:
+        return _parse_file_bundle(
+            text=text,
+            normalize_newlines=normalize_newlines,
+            file_bundle_begin=FILE_BUNDLE_BEGIN,
+            file_bundle_end=FILE_BUNDLE_END,
+            file_header_re=FILE_HEADER_RE,
+            file_end=FILE_END,
+            error_cls=FileBundleError,
+        )
+
     text = normalize_newlines(text)
 
     if FILE_BUNDLE_BEGIN not in text or FILE_BUNDLE_END not in text:
@@ -261,8 +277,6 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
         raise FileBundleError("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
 
     return files
-
-
 def write_files(files: Dict[str, str]) -> None:
     repo_root = Path(".").resolve()
     for rel, data in files.items():
@@ -294,7 +308,6 @@ def _deliverables_section(task_text: str) -> str:
         collected.append(line)
 
     return "\n".join(collected)
-
 def parse_required_files(task_text: str) -> List[str]:
     section = _deliverables_section(task_text)
 
@@ -442,21 +455,27 @@ def _iter_markdown_sections(task_text: str) -> List[Tuple[str, List[str]]]:
 
 def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
     """Parse machine-readable harness policies from task text."""
+    try:
+        from agents.lib.protected_file_policy import parse_harness_file_policies as _parse_harness_file_policies  # type: ignore
+    except Exception:
+        _parse_harness_file_policies = None  # type: ignore[assignment]
+
+    if _parse_harness_file_policies is not None:
+        return _parse_harness_file_policies(
+            task_text=task_text,
+            iter_markdown_sections=_iter_markdown_sections,
+            task_file_policy_re=TASK_FILE_POLICY_RE,
+            parse_task_file_attrs=_parse_task_file_attrs,
+            normalize_anchor_token=_normalize_anchor_token,
+            normalize_method_token=_normalize_method_token,
+        )
+
     policies: Dict[str, Dict[str, object]] = {}
     allowed_section_names = {
         "deliverables",
         "harness policy",
         "machine-readable contract directives",
     }
-
-    def _add_rule(path: str, rule: str) -> None:
-        path = path.strip().replace("\\", "/")
-        if not path or not rule:
-            return
-        entry = policies.setdefault(path, {"rules": []})
-        rules = entry.setdefault("rules", [])
-        if isinstance(rules, list):
-            rules.append(rule)
 
     for section_name, section_lines in _iter_markdown_sections(task_text):
         parse_file_directives = section_name in allowed_section_names
@@ -472,7 +491,13 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
                     path, rule = path_and_rule.split(None, 1)
                 except ValueError:
                     continue
-                _add_rule(path, rule.strip())
+                normalized_path = path.strip().replace("\\", "/")
+                normalized_rule = rule.strip()
+                if normalized_path and normalized_rule:
+                    entry = policies.setdefault(normalized_path, {"rules": []})
+                    rules = entry.setdefault("rules", [])
+                    if isinstance(rules, list):
+                        rules.append(normalized_rule)
                 continue
 
             if not parse_file_directives:
@@ -489,19 +514,34 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
             if not path or not mode:
                 continue
             if mode == "PROTECTED_FORBID":
-                _add_rule(path, "forbid")
+                entry = policies.setdefault(path, {"rules": []})
+                rules = entry.setdefault("rules", [])
+                if isinstance(rules, list):
+                    rules.append("forbid")
             elif mode == "EXACT_COPY":
-                _add_rule(path, "exact_copy")
+                entry = policies.setdefault(path, {"rules": []})
+                rules = entry.setdefault("rules", [])
+                if isinstance(rules, list):
+                    rules.append("exact_copy")
             elif mode == "EXACT_COPY_PLUS_APPEND_METHOD":
                 anchor = attrs.get("ANCHOR_BEFORE", "").strip()
                 if anchor:
-                    _add_rule(path, f"append_before:{_normalize_anchor_token(anchor)}")
+                    entry = policies.setdefault(path, {"rules": []})
+                    rules = entry.setdefault("rules", [])
+                    if isinstance(rules, list):
+                        rules.append(f"append_before:{_normalize_anchor_token(anchor)}")
                 allow_method = _normalize_method_token(attrs.get("ALLOW_NEW_METHOD", "").strip())
                 if allow_method:
-                    _add_rule(path, f"allow_methods:{allow_method}")
+                    entry = policies.setdefault(path, {"rules": []})
+                    rules = entry.setdefault("rules", [])
+                    if isinstance(rules, list):
+                        rules.append(f"allow_methods:{allow_method}")
                 max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
                 if max_changed:
-                    _add_rule(path, f"max_changed_lines:{max_changed}")
+                    entry = policies.setdefault(path, {"rules": []})
+                    rules = entry.setdefault("rules", [])
+                    if isinstance(rules, list):
+                        rules.append(f"max_changed_lines:{max_changed}")
             elif mode == "EXACT_COPY_PLUS_REPLACE_METHOD":
                 replace_method = _normalize_method_token(
                     attrs.get("TARGET_METHOD", "").strip()
@@ -509,22 +549,47 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
                     or attrs.get("ALLOW_EXISTING_METHOD", "").strip()
                 )
                 if replace_method:
-                    _add_rule(path, f"replace_method:{replace_method}")
-                    _add_rule(path, f"allow_methods:{replace_method}")
+                    entry = policies.setdefault(path, {"rules": []})
+                    rules = entry.setdefault("rules", [])
+                    if isinstance(rules, list):
+                        rules.append(f"replace_method:{replace_method}")
+                        rules.append(f"allow_methods:{replace_method}")
                 max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
                 if max_changed:
-                    _add_rule(path, f"max_changed_lines:{max_changed}")
+                    entry = policies.setdefault(path, {"rules": []})
+                    rules = entry.setdefault("rules", [])
+                    if isinstance(rules, list):
+                        rules.append(f"max_changed_lines:{max_changed}")
             elif mode == "METHOD_ADD_ONLY":
                 allow_method = _normalize_method_token(attrs.get("ALLOW_NEW_METHOD", "").strip())
                 if allow_method:
-                    _add_rule(path, f"allow_methods:{allow_method}")
+                    entry = policies.setdefault(path, {"rules": []})
+                    rules = entry.setdefault("rules", [])
+                    if isinstance(rules, list):
+                        rules.append(f"allow_methods:{allow_method}")
                 max_changed = attrs.get("MAX_CHANGED_LINES", "").strip()
                 if max_changed:
-                    _add_rule(path, f"max_changed_lines:{max_changed}")
+                    entry = policies.setdefault(path, {"rules": []})
+                    rules = entry.setdefault("rules", [])
+                    if isinstance(rules, list):
+                        rules.append(f"max_changed_lines:{max_changed}")
     return policies
-
-
 def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]:
+    try:
+        from agents.lib.protected_file_policy import extract_protected_method_targets as _extract_targets  # type: ignore
+    except Exception:
+        _extract_targets = None  # type: ignore[assignment]
+
+    if _extract_targets is not None:
+        return _extract_targets(
+            task_text=task_text,
+            iter_markdown_sections=_iter_markdown_sections,
+            task_file_policy_re=TASK_FILE_POLICY_RE,
+            parse_task_file_attrs=_parse_task_file_attrs,
+            normalize_anchor_token=_normalize_anchor_token,
+            normalize_method_token=_normalize_method_token,
+        )
+
     targets: List[Dict[str, object]] = []
     allowed_section_names = {
         "deliverables",
@@ -589,7 +654,6 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
                     )
 
     return targets
-
 def _count_changed_lines(old: str, new: str) -> int:
     diff = difflib.unified_diff(
         normalize_newlines(old).splitlines(),
@@ -912,6 +976,28 @@ def _validate_single_method_text(method_text: str, expected_method_name: str, *,
 
 
 def parse_method_insertion_bundle(text: str, expected_path: str, expected_method_name: str) -> str:
+    try:
+        from agents.lib.bundle_parser import parse_method_insertion_bundle as _parse_method_insertion_bundle  # type: ignore
+    except Exception:
+        _parse_method_insertion_bundle = None  # type: ignore[assignment]
+
+    if _parse_method_insertion_bundle is not None:
+        return _parse_method_insertion_bundle(
+            text=text,
+            expected_path=expected_path,
+            expected_method_name=expected_method_name,
+            normalize_newlines=normalize_newlines,
+            method_insertion_begin=METHOD_INSERTION_BEGIN,
+            method_insertion_end=METHOD_INSERTION_END,
+            method_block_begin=METHOD_BLOCK_BEGIN,
+            method_block_end=METHOD_BLOCK_END,
+            file_bundle_begin=FILE_BUNDLE_BEGIN,
+            file_header_re=FILE_HEADER_RE,
+            file_end=FILE_END,
+            validate_single_method_text=_validate_single_method_text,
+            error_cls=FileBundleError,
+        )
+
     expected_path = str(expected_path)
     expected_method_name = str(expected_method_name)
     text = normalize_newlines(text)
@@ -957,8 +1043,6 @@ def parse_method_insertion_bundle(text: str, expected_path: str, expected_method
         i += 1
 
     raise FileBundleError("Method insertion response did not include BEGIN_METHOD / END_METHOD block.")
-
-
 def load_method_insertion_system_prompt() -> str:
     base = load_system_prompt().strip()
     override = (
@@ -1179,6 +1263,18 @@ def parse_required_runner_methods(task_text: str) -> List[str]:
 
 
 def parse_task_contract_directives(task_text: str) -> Dict[str, List[str]]:
+    try:
+        from agents.lib.task_contracts import parse_task_contract_directives as _parse_task_contract_directives  # type: ignore
+    except Exception:
+        _parse_task_contract_directives = None  # type: ignore[assignment]
+
+    if _parse_task_contract_directives is not None:
+        return _parse_task_contract_directives(
+            task_text=task_text,
+            iter_markdown_sections=_iter_markdown_sections,
+            contract_directive_re=CONTRACT_DIRECTIVE_RE,
+        )
+
     directives: Dict[str, List[str]] = {}
     allowed_sections = {"", "machine-readable contract directives", "critical", "current runner baseline — must match exactly"}
     for section_name, section_lines in _iter_markdown_sections(task_text):
@@ -1192,8 +1288,6 @@ def parse_task_contract_directives(task_text: str) -> Dict[str, List[str]]:
             value = m.group(2).strip()
             directives.setdefault(key, []).append(value)
     return directives
-
-
 def _result_keys_contract_applies(rel: str, content: str, tree: ast.AST, result_fn: str) -> bool:
     p = Path(rel)
     if p.stem == result_fn:
@@ -2892,6 +2986,47 @@ def main() -> int:
     print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
     return 1
 
+
+def _parser_policy_exports() -> Dict[str, object]:
+    try:
+        from agents.lib import bundle_parser as _bundle_parser  # type: ignore
+    except Exception:
+        _bundle_parser = None  # type: ignore[assignment]
+    try:
+        from agents.lib import task_contracts as _task_contracts  # type: ignore
+    except Exception:
+        _task_contracts = None  # type: ignore[assignment]
+    try:
+        from agents.lib import protected_file_policy as _protected_file_policy  # type: ignore
+    except Exception:
+        _protected_file_policy = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {
+        "bundle_parser": _bundle_parser,
+        "task_contracts": _task_contracts,
+        "protected_file_policy": _protected_file_policy,
+    }
+
+    if _bundle_parser is not None:
+        exports["parse_file_bundle"] = getattr(_bundle_parser, "parse_file_bundle", None)
+        exports["parse_method_insertion_bundle"] = getattr(_bundle_parser, "parse_method_insertion_bundle", None)
+    else:
+        exports["parse_file_bundle"] = None
+        exports["parse_method_insertion_bundle"] = None
+
+    if _task_contracts is not None:
+        exports["parse_task_contract_directives"] = getattr(_task_contracts, "parse_task_contract_directives", None)
+    else:
+        exports["parse_task_contract_directives"] = None
+
+    if _protected_file_policy is not None:
+        exports["parse_harness_file_policies"] = getattr(_protected_file_policy, "parse_harness_file_policies", None)
+        exports["extract_protected_method_targets"] = getattr(_protected_file_policy, "extract_protected_method_targets", None)
+    else:
+        exports["parse_harness_file_policies"] = None
+        exports["extract_protected_method_targets"] = None
+
+    return exports
 
 if __name__ == "__main__":
     raise SystemExit(main())
