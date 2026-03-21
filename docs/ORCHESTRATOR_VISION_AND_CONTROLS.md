@@ -11,16 +11,18 @@ Build a reusable software-delivery orchestrator that can:
 - decide whether to retry, patch task specs, patch the runner, or stop for approval
 - create and merge PRs when policy is satisfied
 - continue automatically to the next task
+- support multiple software projects through adapters and config
+- evolve from a project-specific harness into a reusable product
 
-This orchestrator works for TradingBot first, but is portable enough to reuse on future software projects.
+TradingBot remains the first client and testbed, but the orchestrator is now explicitly being productized for reuse across future projects.
 
 ## Core design principle
 
-Separate the system into two layers.
+Separate the system into three layers.
 
-### Generic orchestration engine
+### 1. Generic orchestration engine (`src/builder/orchestrator/`)
 
-Reusable across projects (`src/builder/orchestrator/`):
+Reusable across projects:
 
 - task queue handling
 - branch lifecycle
@@ -31,8 +33,24 @@ Reusable across projects (`src/builder/orchestrator/`):
 - failure classification
 - approval gating
 - decision audit logging
+- project configuration and adapter support
 
-### Project adapter / project config
+### 2. Harness / agent shell (`agents/`)
+
+Responsible for:
+
+- task prompt construction
+- file-bundle parsing
+- protected-file handling
+- static contract enforcement
+- semantic preflight
+- provider/model execution
+- local check execution
+- branch-oriented task loop integration
+
+This layer is now strong enough to warrant modularization as its own reusable subsystem.
+
+### 3. Project adapter / project config
 
 Project-specific behavior:
 
@@ -44,28 +62,8 @@ Project-specific behavior:
 - deliverable parser rules
 - merge policies
 - environment/bootstrap expectations
-
-## Agent roles
-
-### 1. Orchestrator
-
-Selects the next task, tracks state, invokes the dev agent, invokes review/compliance logic, decides next actions, writes orchestration decisions to an audit trail.
-
-### 2. Dev agent
-
-Implements one task. Produces the required file bundle. Runs local checks via the task runner. Pushes the task branch.
-
-### 3. Review / QA agent
-
-Verifies deliverables, checks scope compliance, detects runtime artifacts, evaluates whether a PR is mergeable, and identifies suspicious or out-of-scope changes.
-
-### 4. Failure-classifier / repair agent
-
-Determines whether a failure is an implementation bug, task ambiguity, runner weakness, CI/dependency issue, or repo hygiene issue. Recommends the right remediation path.
-
-### 5. Merge manager
-
-Creates PRs, polls CI status, enforces merge policy, syncs `main` after merge.
+- task templates
+- project-specific validators
 
 ## Controls
 
@@ -81,6 +79,7 @@ Creates PRs, polls CI status, enforces merge policy, syncs `main` after merge.
 - cap automatic retries (max 4 iterations per task)
 - do not loop forever
 - if the same failure repeats, escalate instead of blindly retrying
+- preserve raw failure evidence for retries rather than over-compressing it too early
 
 ### Scope controls
 
@@ -107,74 +106,20 @@ Human approval required for:
 - never auto-enable live trading
 - enforce paper-mode guards where relevant
 - prevent autonomous merging of risky/meta changes without approval
+- allow safe automation only when the change is structurally recoverable and policy-compliant
 
-## Implementation invariants
+## New lessons from tasks 039–041
 
-These must be embedded in every orchestrator task spec going forward.
+The orchestrator is now good enough that the next leverage comes from **productizing the harness**, not just tightening prompts.
 
-### simulate_backlog — only valid pattern
+Key lessons:
 
-```python
-while True:
-    next_task = self.backlog_tracker.get_next_task([])
-    if not next_task:
-        break
-    processed_tasks.append(next_task.name)
-    execution_result = self.execute_task(next_task)
-    normalized_result = normalize_execution_result(execution_result)
-    result = self.process_execution_result(normalized_result, next_task)
-    if result["status"] == "failed":
-        stopped_reason = normalized_result.get("failure_text", "Execution failed")
-        final_status = "failed"
-        break
-    if result.get("requires_approval", False):
-        approval_required = True
-        stopped_reason = "Approval required"
-        final_status = "blocked"
-        continue
-    planned_actions.append(f"Task {next_task.name} completed successfully.")
-```
-
-### run_review — empty files
-
-- `changed_files=[]` → return `{"mergeable": True}` on legacy/mock path
-- never block review solely because no files were changed
-
-### ProjectConfig — always mutable
-
-- never `@dataclass(frozen=True)`
-- always `getattr(self.config, "field", default)` for optional fields
-
-### Legacy success contract
-
-- `status == "running"`
-- `message == "Task is now running."`
-- `outcome == "ready_for_pr"`
-- `next_action == "merge"`
-
-### Failure message contract
-
-- `message == "Execution failed: {text}"` when failure_text or stderr is present
-- read from `execution_result.get("failure_text") or execution_result.get("stderr") or ""`
-
-### Windows compatibility
-
-- never use `echo` as subprocess command in tests
-- use `sys.executable + ["-c", "..."]` for cross-platform subprocess tests
-
-## New lesson from tasks 037–038
-
-The orchestrator needs stronger structural control, not just stronger prompts.
-
-Green tests are necessary but not sufficient if the bundle violates the task's protected-file rules.
-
-Future tasks should use one of these scopes explicitly:
-
-- exact-copy-plus-append-method
-- method-add-only
-- tests-only
-- config-only
-- docs-only
+- task quality is as important as model quality
+- future hardening should prefer production change first, then tests-only validation tasks
+- `run_task.py` is functionally strong but structurally too monolithic
+- runtime artifacts should be auto-quarantined when safely recoverable
+- ambiguity should be handled in a spec-generation phase before execution
+- project reusability now depends more on modularity and bootstrap tooling than on basic engine correctness
 
 ## Portability requirements
 
@@ -187,8 +132,10 @@ To make the orchestrator reusable across future software builds:
 - allow project-specific protected-file patterns
 - keep merge criteria configurable
 - use `getattr` for all optional config fields
+- support project-specific validator plugins
+- support bootstrapping a new project adapter without engine edits
 
-## What success looks like
+## What success looks like now
 
 The orchestrator is successful when it can:
 
@@ -199,3 +146,4 @@ The orchestrator is successful when it can:
 - leave a clear audit trail of what happened and why
 - reject green-but-policy-violating bundles
 - run the same engine against a second project with only a config change
+- bootstrap a third project with a scaffold command rather than manual repo surgery

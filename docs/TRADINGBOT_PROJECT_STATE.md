@@ -38,7 +38,7 @@ Build a safe, testable algorithmic trading bot that can:
 
 ## Current milestone
 
-**Manual paper-trading readiness plus orchestrator hardening for reusable autonomous delivery.**
+**Manual paper-trading readiness.**
 
 The repository contains the pieces needed to run a one-shot paper-trading cycle manually once credentials and environment configuration are in place.
 
@@ -49,15 +49,12 @@ The repository contains the pieces needed to run a one-shot paper-trading cycle 
 | 001–003 | ✅ Complete | Done manually |
 | 004–014 | ✅ Complete | Done via agent workflow |
 | 031 | ✅ Complete | Orchestrator real execution bridge |
-| 037 | ✅ Complete | Persistent backlog state completed manually and merged |
-| 038a–038d | ✅ Complete | Run-loop / CLI / decision-log + import-symbol hardening |
-| 039a–039c | 🔄 Planned | Harness semantic hardening tranche |
-| 040 | 🔄 Pending | End-to-end integration harness after 039a–039c |
-| 041a–041b | 🔄 Pending | Multi-project hardening after 040 |
+| 032–041 | ✅ Complete | Orchestrator hardening and portability tranche complete |
+| 042–048 | 🔜 Planned | Orchestrator productization tranche |
 
 ## What still remains for TradingBot
 
-These are functional milestones after orchestrator work completes:
+These are functional milestones after the next orchestrator productization tranche:
 
 - scheduled recurring execution during market hours
 - symbol universe management
@@ -68,17 +65,21 @@ These are functional milestones after orchestrator work completes:
 - stronger portfolio/risk controls
 - live-mode safety gates and approvals
 
-## Paper-trading readiness definition
+## Why orchestrator work still comes next
 
-The project is paper-trading ready when:
+The delivery loop is much stronger now, but the harness is still too monolithic for painless reuse across future projects.
 
-- manual paper-cycle command succeeds with real paper credentials
-- paper orders can be submitted safely
-- audit logs are produced cleanly
-- account/position state is loaded correctly
-- generated order intents are explainable and deterministic
-- runtime artifacts do not dirty the repo
-- safety guard prevents live mode unless explicitly approved
+The next orchestrator tranche is aimed at:
+
+- modularizing `run_task.py`
+- automatically quarantining known runtime artifacts
+- separating spec clarification from execution
+- recording structured failure history
+- bootstrapping adapters for future projects
+- supporting richer project-specific validators
+- enabling safe limited parallelism
+
+That investment is expected to reduce future task-spec patching and make the orchestrator reusable outside TradingBot.
 
 ## Controls already in place
 
@@ -89,29 +90,25 @@ The project is paper-trading ready when:
 - repo-aware import validation
 - retry + semantic failure handling
 - Windows-compatible subprocess handling
+- machine-readable contract directives
+- protected API semantic preflight
+- end-to-end integration coverage
+- multi-project config/adapters
 
 ## Key lessons learned from agent workflow
 
 | Lesson | Impact |
 |--------|--------|
-| Vague task specs cause agent drift | Specs must include exact contracts, forbidden patterns, and pseudocode for algorithmic methods |
-| `simulate_backlog` loop pattern is fragile | Must use `get_next_task([])` directly; `continue` not `break` on approval |
-| `ProjectConfig` must stay mutable | Never use `@dataclass(frozen=True)` |
-| Empty `changed_files` must return `mergeable: True` | Never block review solely on empty file list |
-| Failure message format matters exactly | `"Execution failed: {text}"` not `"Execution failed."` |
-| Protected files need narrow scopes | `runner.py` changes should be additive-only or isolated into their own task |
+| Vague task specs cause agent drift | Specs must include exact contracts, forbidden patterns, and pseudocode where needed |
+| Production baseline first, tests-only second works best | Large hardening tasks should be split into production tasks followed by validation tasks |
+| `run_task.py` is powerful but monolithic | The next tranche should modularize the harness before adding more behavior |
+| Runtime artifacts are repetitive but recoverable | Auto-quarantine should replace manual cleanup for known safe artifacts |
 | Green tests are not sufficient | The harness must also enforce task-policy compliance |
-| Windows compatibility matters | Never use `echo` as subprocess command; always use `sys.executable` |
+| Windows compatibility matters | Always use cross-platform subprocess patterns |
+| Project portability is real now | The next step is bootstrap and validator extensibility, not just TradingBot-specific work |
 
-## Why orchestrator work comes next
+## Long-term direction
 
-The current workflow still requires manual coordination:
+TradingBot remains the first client project.
 
-- selecting the next task
-- running the task
-- interpreting failures
-- deciding whether to patch code, task specs, runner, or CI
-- creating/merging PRs
-- continuing to the next task
-
-The next orchestrator tranche focuses on improving harness semantic understanding so future tasks fail earlier and more cleanly. Once 039a / 039b / 039c are complete, the focus returns to the end-to-end harness and then multi-project portability.
+The orchestrator is now transitioning from “internal build tool for TradingBot” toward “reusable delivery product that can continue to build TradingBot and future apps.”

@@ -2,7 +2,9 @@
 
 ## Overview
 
-This document formalizes the controls that govern orchestrator behavior. These policies apply to all tasks from 032 onward.
+This document formalizes the controls that govern orchestrator behavior.
+
+Tasks 032–041 are complete. The next tranche (042–048) focuses on harness modularization, runtime artifact quarantine, spec/execution workflow, structured failure journaling, project bootstrap, validator plugins, and safe parallelism.
 
 ## Core controls
 
@@ -19,6 +21,7 @@ This document formalizes the controls that govern orchestrator behavior. These p
 - detect repeated identical bundle failures
 - escalate repeated failures instead of looping forever
 - if the agent produces a structurally invalid bundle, retry once with a format reminder
+- preserve a bounded raw failure snippet for the next retry when useful
 
 ### Scope discipline
 
@@ -48,7 +51,7 @@ A PR may be auto-merged only when ALL of:
 - CI passes
 - `requires_approval == False`
 - no protected-file violation exists
-- no runtime artifact is committed
+- no non-recoverable runtime artifact is committed
 - task-policy compliance is satisfied
 
 ## Failure handling policy
@@ -56,7 +59,7 @@ A PR may be auto-merged only when ALL of:
 | Failure category | Next action |
 |-----------------|-------------|
 | `implementation_bug` | retry_task |
-| `task_ambiguity` | patch_task_spec |
+| `task_ambiguity` | patch_task_spec or route to spec mode |
 | `runner_weakness` | patch_runner (requires approval) |
 | `ci_dependency_issue` | patch_ci or dependency file (requires approval) |
 | `repo_hygiene_issue` | clean_repo |
@@ -65,11 +68,20 @@ A PR may be auto-merged only when ALL of:
 
 ## Runtime artifact policy
 
-Artifacts such as `logs/`, temp/cache files:
+Artifacts such as `logs/`, temp/cache files, and runner-generated local artifacts:
 
 - must not block merge by themselves when the task is otherwise valid
+- should be auto-quarantined when they match the known safe list
 - must be cleaned or `.gitignore`'d before final merge
 - must appear in warnings/audit trail
+- must fail the task only when the artifact is unknown, unrecoverable, or outside the safe list
+
+Known safe artifacts for quarantine should include runner-local files such as:
+
+- `last_output.txt`
+- `_last_agent_model_output.txt`
+- `_last_agent_file_bundle.txt`
+- other explicitly declared local audit/debug artifacts
 
 ## Resume/recovery policy
 
@@ -89,6 +101,33 @@ Dry-run mode must:
 - produce a decision log when the task explicitly calls for it
 - not write to remote branches or GitHub
 
+## Spec / execution policy
+
+The orchestrator should support two distinct modes:
+
+### Spec mode
+
+Used when the task is still ambiguous.
+
+Responsibilities:
+- clarify scope
+- identify edge cases
+- identify forbidden patterns
+- define acceptance criteria
+- define verification commands and expected outputs
+- freeze the task into an execution-ready spec artifact
+
+### Execution mode
+
+Used only after the spec is frozen.
+
+Responsibilities:
+- consume the frozen task artifact
+- implement the requested work
+- run validators/checks
+- retry within normal policy bounds
+- avoid changing scope unless escalated
+
 ## Protected-file policy
 
 Task specs should use one of these explicit modes when needed:
@@ -97,21 +136,9 @@ Task specs should use one of these explicit modes when needed:
 
 Use when a file such as `runner.py` is included only to add one method.
 
-Requirements:
-
-- copy the file exactly
-- add only the named method
-- do not change existing methods, imports, strings, or contracts
-
 ### exact-copy-plus-replace-method
 
 Use when a protected Python file must keep exact-copy discipline outside one existing method replacement.
-
-Requirements:
-
-- copy the file exactly
-- replace only the named method
-- do not change existing imports, strings, or unrelated methods
 
 ### method-add-only
 
@@ -133,7 +160,7 @@ Bundles that violate the declared mode must be rejected even if tests pass.
 
 ## Machine-readable task contract directives
 
-Task specs may also include machine-readable contract directives so the harness can enforce semantics earlier.
+Task specs may include machine-readable contract directives so the harness can enforce semantics earlier.
 
 Examples:
 
@@ -143,58 +170,30 @@ Examples:
 - `FORBID_IMPORTS: module symbol1 symbol2`
 - `FORBID_CALLS: runner.run runner.run_all_tasks`
 - `RESULT_KEYS: run_loop processed_tasks stopped_reason final_status approval_required planned_actions`
+- `VERIFY_COMMANDS: ruff check . ; pytest -q`
+- `VERIFY_EXPECTS: cli_command output_contains="..."`
 
-These directives are additive and do not replace normal prose. They exist to reduce semantic drift on fragile API surfaces.
+These directives are additive and do not replace normal prose.
 
-## Implementation contract policy (mandatory in all task specs)
+## Validator plugin policy
 
-These patterns must appear as explicit constraints in every orchestrator task spec.
+Projects may define additional validators beyond `ruff` and `pytest`, such as:
 
-### simulate_backlog contract
+- CLI smoke checks
+- snapshot checks
+- schema validators
+- API contract validators
+- UI screenshot or render validators
 
-- call `get_next_task([])` directly in the loop — never call `scan_tasks()` inside the loop
-- use `continue` not `break` when `requires_approval` is `True`
-- append task name to `processed_tasks` BEFORE any break/continue check
+These validators should be configured in project adapters/config, not hardcoded in the core engine.
 
-### run_review contract
+## Safe parallelism policy
 
-- empty `changed_files` → return `{"mergeable": True}` on legacy/mock path
-- never return `{"mergeable": False}` solely because `changed_files` is empty
+Parallel task execution is allowed only when tasks are explicitly marked independent.
 
-### ProjectConfig contract
-
-- never `@dataclass(frozen=True)` on `ProjectConfig` or any subclass
-- always `getattr(self.config, "field", default)` for optional config fields
-
-### Legacy success contract
-
-- `status == "running"`
-- `message == "Task is now running."`
-- `outcome == "ready_for_pr"`
-- `next_action == "merge"`
-
-### Failure message contract
-
-- `message == "Execution failed: {text}"` when failure_text or stderr is present
-- always read: `execution_result.get("failure_text") or execution_result.get("stderr") or ""`
-
-### Windows compatibility contract
-
-- never use `echo` as subprocess command in tests
-- use `sys.executable + ["-c", "..."]` for cross-platform subprocess calls
-- never patch `subprocess.run` while calling `run_next_task()` under `task_runner_command=None`
-
-## Task spec quality standards
-
-A task spec is considered high quality when it includes:
-
-- exact method signatures
-- explicit forbidden patterns list
-- exact pseudocode for algorithmic methods where needed
-- complete legacy contract table
-- Windows compatibility rules
-- protected-file mode or tests-only/config-only rule where applicable
-- bundle completeness requirement
-- material update definition
-- a task scope that is small enough to avoid high-risk multi-file rewrites
-- machine-readable contract directives when the API surface is fragile
+Parallel mode must:
+- never operate on overlapping protected files
+- never operate on shared mutable state without isolation
+- never bypass approval policy
+- require deterministic fan-in / merge ordering
+- default to off unless the task class is explicitly parallel-safe
