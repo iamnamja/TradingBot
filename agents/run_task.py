@@ -1852,17 +1852,18 @@ def main() -> int:
                 target_path = str(target["path"])
                 mode = str(target["mode"])
                 method_name = str(target["method_name"])
-                baseline_content = baseline.get(target_path)
-                if baseline_content is None:
+                original_baseline_content = baseline.get(target_path)
+                if original_baseline_content is None:
                     raise FileBundleError(
                         f"Protected method target `{target_path}` has no baseline content."
                     )
+                working_content = files.get(target_path, original_baseline_content)
                 anchor = str(target.get("anchor", "")) if mode == "append" else ""
                 insertion_messages = build_method_insertion_messages(
                     task_text,
                     target_path,
                     method_name,
-                    baseline_content,
+                    working_content,
                     mode,
                     extra_directives,
                     anchor=anchor,
@@ -1877,14 +1878,14 @@ def main() -> int:
                 )
                 if mode == "append":
                     files[target_path] = apply_method_insertion(
-                        baseline_content,
+                        working_content,
                         anchor,
                         method_name,
                         method_text,
                     )
                 else:
                     files[target_path] = apply_method_replacement(
-                        baseline_content,
+                        working_content,
                         method_name,
                         method_text,
                     )
