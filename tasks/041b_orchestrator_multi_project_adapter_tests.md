@@ -47,6 +47,8 @@ All existing public APIs must remain backward compatible:
 - `run_next_task(dry_run=False)` signature unchanged
 - `run_loop(max_tasks=100)` signature unchanged
 
+This task must not change production behavior.
+
 ## Current baseline under test
 
 This task must validate the real current baseline on `main`.
@@ -54,7 +56,7 @@ This task must validate the real current baseline on `main`.
 The test file should exercise:
 
 1. TradingBot config
-2. a second generic project config with different:
+2. a second generic project config that is distinct from TradingBot on at least:
    - `tasks_directory`
    - `branch_naming_pattern`
    - `task_file_pattern`
@@ -90,6 +92,64 @@ For `run_loop()` scenarios, prefer patching `runner.run_next_task` directly.
 
 For `run_next_task()` scenarios, patch only the minimal backlog/state behavior needed to exercise the real method.
 
+## CRITICAL baseline behavior details
+
+### Generic config values
+
+Do NOT hardcode exact generic config strings unless they are already confirmed on the current baseline.
+
+Prefer assertions that the generic config is:
+- usable
+- distinct from TradingBot
+- internally self-consistent
+
+For example, assert differences from TradingBot rather than exact literals for:
+- `tasks_directory`
+- `branch_naming_pattern`
+- `task_file_pattern`
+- `lint_command`
+- `test_command`
+
+### Runner state field
+
+The current runner stores the passed state on `runner.state`.
+
+Do NOT assert `runner.initial_state`.
+
+If you need to validate constructor state, assert:
+- `runner.state.tasks == []`
+
+### `run_next_task()` state-loading behavior
+
+When patching `backlog_tracker.load_state(path)` for `run_next_task()` tests, return a plain list such as `[]`, not an `OrchestratorState(...)`, because `read_backlog()` iterates the returned state list directly.
+
+### `run_loop(max_tasks=1)` current baseline
+
+If `run_next_task()` is patched to return a single success result and `run_loop(max_tasks=1)` stops because of the max-task limit, assert the real current baseline:
+
+- `processed_tasks == ["001_task.py"]`
+- `stopped_reason == "Reached max_tasks limit of 1"`
+- `final_status == "running"`
+- `approval_required is False`
+- `planned_actions == ["Task 001_task.py completed successfully."]`
+
+Do NOT assert:
+- `final_status == "completed"` for that scenario
+- empty `stopped_reason` for that scenario
+
+### `run_loop()` human-readable stop reasons
+
+When asserting `run_loop()` results, use the current human-readable baseline values, for example:
+- `"No pending tasks available."`
+- `"Execution failed."`
+- `"Approval required"`
+- `"Reached max_tasks limit of 1"`
+
+Do NOT assert symbolic stop codes like:
+- `"no_task"`
+- `"failed"`
+- `"approval_required"`
+
 ## Required validation scenarios
 
 `tests/test_multi_project_adapters.py` must include deterministic tests for at least:
@@ -99,22 +159,34 @@ For `run_next_task()` scenarios, patch only the minimal backlog/state behavior n
 3. runner can be constructed with TradingBot config
 4. runner can be constructed with generic config
 5. `run_next_task(dry_run=True)` works with both configs when backlog/state is minimally stubbed
-6. `run_loop()` can process patched task results with both configs
+6. `run_loop(max_tasks=1)` can process patched task results with both configs using the current real baseline values
 7. no TradingBot-only assumptions leak into generic config behavior
 
-## CRITICAL baseline behavior details
+## Exact assertion guidance
 
-When patching `backlog_tracker.load_state(path)` for `run_next_task()` tests, return a plain list such as `[]`, not an `OrchestratorState(...)`, because `read_backlog()` iterates the returned state list directly.
+### Construction tests
 
-When asserting `run_loop()` results, use the current human-readable baseline values, for example:
-- `"No pending tasks available."`
-- `"Execution failed."`
-- `"Approval required"`
+For runner construction assertions, use:
+- `runner.config.tasks_directory == config.tasks_directory`
+- `runner.backlog_tracker.__class__ is _StubBacklogTracker`
+- `runner.state.tasks == []`
 
-Do NOT assert symbolic stop codes like:
-- `"no_task"`
-- `"failed"`
-- `"approval_required"`
+Do NOT assert `runner.initial_state`.
+
+### Generic config tests
+
+Allowed style:
+- compare generic config fields against TradingBot defaults
+- assert fields are non-empty strings
+- assert optional fields remain usable
+
+Avoid brittle exact-string expectations like:
+- `"generic_tasks/"`
+- `"feature/generic/*"`
+- `"flake8 ."`
+- `"pytest tests/test_generic.py"`
+
+unless those exact strings are confirmed on the current baseline.
 
 ## Exact forbidden patterns
 
@@ -138,6 +210,8 @@ Do NOT assert symbolic stop codes like:
   - `TaskRecord`
   - `TaskState`
   - `ExecutionResult`
+- asserting `runner.initial_state`
+- asserting `run_loop(max_tasks=1)` returns `final_status == "completed"` for a single patched success result
 
 ## Acceptance criteria
 
