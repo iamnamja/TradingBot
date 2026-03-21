@@ -26,6 +26,7 @@ import os
 import random
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -36,6 +37,7 @@ FILE_END = "END_FILE"
 
 DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
 FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
+BUNDLE_FILE_HEADER_RE = re.compile(r"^FILE:\s*(.+?)\s*$")
 RUNNER_METHOD_HEADER_RE = re.compile(r"^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILINE)
 TASK_FILE_POLICY_RE = re.compile(r"^\s*-\s*FILE:\s*(?P<path>\S+)(?P<rest>.*)$")
 TASK_FILE_ATTR_RE = re.compile(r'([A-Z_]+)=(".*?"|\'.*?\'|[^\s]+)')
@@ -54,6 +56,16 @@ MODULE_NOT_FOUND_RE = re.compile(r"ModuleNotFoundError: No module named '([^']+)
 NAME_ERROR_RE = re.compile(r"NameError: name '([^']+)' is not defined")
 KEY_ERROR_RE = re.compile(r"KeyError: '([^']+)'")
 WIN_ECHO_RE = re.compile(r"FileNotFoundError: \[WinError 2\]", re.MULTILINE)
+
+def _ensure_repo_root_on_sys_path() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    repo_root_str = str(repo_root)
+    if repo_root_str not in sys.path:
+        sys.path.insert(0, repo_root_str)
+
+
+_ensure_repo_root_on_sys_path()
+
 
 
 class FileBundleError(ValueError):
@@ -2147,6 +2159,8 @@ def request_and_parse_bundle(
             "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n"
             "There must be an END_FILE before any later FILE header.\n"
             "Do not open a new FILE block until the previous FILE block is closed.\n"
+            "If generated source or tests need literal bundle markers, do not place raw BEGIN_FILE_BUNDLE, FILE:, END_FILE, or END_FILE_BUNDLE at the start of a source line.\n"
+            "Instead use split string tokens such as 'FI' + 'LE:' and 'END_' + 'FILE'.\n"
             + forbidden_hint
             + "\nRequired structure:\n"
             "BEGIN_FILE_BUNDLE\n"

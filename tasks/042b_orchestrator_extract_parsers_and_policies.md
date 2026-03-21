@@ -73,6 +73,31 @@ Do NOT emit a normal full-file `FILE: agents/run_task.py` bundle for the protect
 
 Do NOT relax protected-file enforcement to make the extraction easier.
 
+## Bundle transport safety requirement
+
+This task is transmitted through the runner's file-bundle protocol.
+
+When generated source or tests need to refer to literal bundle markers such as:
+
+- `BEGIN_FILE_BUNDLE`
+- `FILE:`
+- `END_FILE`
+- `END_FILE_BUNDLE`
+- `BEGIN_METHOD_INSERTION`
+- `BEGIN_METHOD`
+- `END_METHOD`
+- `END_METHOD_INSERTION`
+
+do NOT place those raw marker strings at the start of a source line inside the generated file content.
+
+Instead, encode them safely using split string tokens or concatenation, for example:
+
+- `"FI" + "LE: sample.py\n"`
+- `"END_" + "FILE\n"`
+- `"BEGIN_" + "FILE_BUNDLE"`
+
+This is required so the bundle transport cannot misparse generated test/source content as outer bundle structure.
+
 ## Test requirements
 
 Add deterministic tests for:
