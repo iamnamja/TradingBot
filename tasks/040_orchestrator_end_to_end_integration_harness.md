@@ -30,7 +30,7 @@ The listed file must be materially updated.
 - CONSTRUCTOR: builder.orchestrator.runner.OrchestratorRunner(config, backlog_tracker, initial_state)
 - CONFIG_WRAPPER: builder.orchestrator.runner.OrchestratorRunner first_arg_requires=.config unless=ProjectConfig
 - ALLOWED_METHODS: builder.orchestrator.runner.OrchestratorRunner run_next_task run_loop
-- FORBID_IMPORTS: builder.orchestrator.backlog BacklogTask BacklogItem BacklogStore TaskRecord
+- FORBID_IMPORTS: builder.orchestrator.backlog BacklogTask BacklogItem BacklogStore TaskRecord TaskState
 - FORBID_IMPORTS: builder.orchestrator.execution_result ExecutionResult
 - FORBID_CALLS: runner.run runner.run_all_tasks
 - RESULT_KEYS: run_loop processed_tasks stopped_reason final_status approval_required planned_actions
@@ -66,10 +66,15 @@ The tests must target the current real baseline on `main`:
 - no task:
   - `task_name == "none"`
   - `status == "no_task"`
+  - `message == "No pending tasks available."`
+  - `outcome == "noop"`
+  - `next_action == "none"`
 - dry run:
   - `status == "planned"`
+  - `message == "Task is planned for execution."`
 - failure:
   - `status == "failed"`
+  - `message == "Execution failed."` or begins with `"Execution failed:"`
 - blocked review:
   - `status == "running"`
   - `requires_approval == True`
@@ -110,6 +115,46 @@ Use lightweight stub task objects that expose:
 
 Do not rely on undocumented backlog types.
 
+## CRITICAL baseline behavior details
+
+Use the exact current runner behavior below when writing assertions:
+
+### `read_backlog()`
+`backlog_tracker.load_state(path)` is iterated directly by `read_backlog()`.  
+So in `run_next_task()` tests, when patching `load_state`, return a plain list such as `[]`, not an `OrchestratorState(...)`.
+
+### `run_loop()` stopped_reason values
+Assert the current human-readable message strings, not symbolic codes:
+
+- no-task stop:
+  - `"No pending tasks available."`
+- failure stop:
+  - `"Execution failed."` or the exact failure message returned by the patched result
+- approval stop:
+  - `"Approval required"`
+
+Do NOT assert symbolic values like:
+- `"no_task"`
+- `"failed"`
+- `"approval_required"`
+
+### `run_loop()` planned_actions behavior
+`run_loop()` appends:
+- `f"Task {task_name} completed successfully."`
+
+for every non-failed task immediately after `run_next_task()` returns a non-failed result, before it checks `requires_approval`.
+
+That means:
+
+- full success path planned actions:
+  - `["Task 001_task.py completed successfully.", "Task 002_task.py completed successfully."]`
+- execution failure path planned actions:
+  - `[]`
+- approval-blocked path planned actions:
+  - `["Task 001_task.py completed successfully.", "Task 002_task.py completed successfully."]`
+
+Do NOT expect the approval-blocked path to stop before appending the second task’s success action.
+
 ## Required integration scenarios
 
 ### Scenario 1 — Full success path
@@ -124,6 +169,8 @@ Assert:
 - `processed_tasks == ["001_task.py", "002_task.py"]`
 - `final_status == "completed"`
 - `approval_required is False`
+- `stopped_reason == "No pending tasks available."`
+- `planned_actions == ["Task 001_task.py completed successfully.", "Task 002_task.py completed successfully."]`
 
 ### Scenario 2 — Execution failure stops the loop
 
@@ -134,6 +181,9 @@ Use the real `run_loop()` and patch `runner.run_next_task` to return:
 Assert:
 - `processed_tasks == ["001_task.py"]`
 - `final_status == "failed"`
+- `approval_required is False`
+- `stopped_reason == "Execution failed."`
+- `planned_actions == []`
 
 ### Scenario 3 — Approval checkpoint blocks run
 
@@ -146,20 +196,28 @@ Assert:
 - `processed_tasks == ["001_task.py", "002_task.py"]`
 - `approval_required is True`
 - `final_status == "blocked"`
+- `stopped_reason == "Approval required"`
+- `planned_actions == ["Task 001_task.py completed successfully.", "Task 002_task.py completed successfully."]`
 
 ### Scenario 4 — Empty backlog
 
 Construct the real runner and patch only the backlog/state read path as needed so `run_next_task()` sees no pending task.
 
+When patching `load_state`, return `[]`.
+
 Assert:
 - `run_next_task()["status"] == "no_task"`
+- `run_next_task()["task_name"] == "none"`
 
 ### Scenario 5 — Dry run
 
 Construct the real runner and patch only the backlog/state read path as needed so `run_next_task(dry_run=True)` sees one pending task without executing it.
 
+When patching `load_state`, return `[]`.
+
 Assert:
 - `status == "planned"`
+- `task_name == "001_task.py"`
 
 ## Test rules
 
