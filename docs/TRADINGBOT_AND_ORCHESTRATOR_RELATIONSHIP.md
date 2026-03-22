@@ -1,33 +1,23 @@
 # TradingBot and Orchestrator Relationship
 
-## Two products in one repository
+## Current repository reality
 
-This repository contains two related but distinct products.
+This repository contains **two products**:
 
-### 1. TradingBot
+1. **TradingBot** — the application being built
+2. **Orchestrator** — the reusable software-delivery engine that is building and hardening the repository
 
-A safe, testable algorithmic trading bot with paper-trading readiness. This remains the immediate application goal.
-
-### 2. Orchestrator
-
-A reusable software-delivery engine that builds and evolves software projects through a task-driven agent workflow. TradingBot is its first client and testbed.
-
-## Why this separation matters
-
-The orchestrator must not be tightly coupled to TradingBot. TradingBot is the first project adapter — not the permanent center of the orchestration engine.
-
-The work through Task 041 has proven that the engine can already support multiple project configs. The next tranche is about turning that portability into a cleaner reusable product.
+TradingBot remains the first client project and the testbed for the orchestrator.
 
 ## Current TradingBot status
 
-- Tasks 001–003: completed manually
-- Tasks 004–014: completed through the task-driven agent workflow
-- Current milestone: **manual paper-trading readiness**
-- The bot can run a one-shot paper-trading cycle once credentials and environment are in place
+TradingBot is at **manual paper-trading readiness**.
+
+That means the repository can support a controlled manual paper-trading cycle once credentials and environment are in place.
 
 ## Current orchestrator status
 
-Completed and stable:
+Completed and stable in substance:
 
 - backlog/state tracking
 - review/compliance checking
@@ -42,33 +32,37 @@ Completed and stable:
 - harness semantic hardening
 - deterministic end-to-end integration harness
 - multi-project config/adapter hardening
+- harness modularization tranche
+- runtime artifact quarantine
+- spec/execution split
+- structured failure journaling
+- bootstrap/project adapter scaffolding
+- validator plugins
+- safe parallelism controls
 
-Next productization tranche:
+## Where the relationship stands now
 
-- modularize `run_task.py` into reusable modules
-- auto-quarantine known runtime artifacts
-- separate spec mode from execution mode
-- persist a structured failure journal
-- bootstrap new project adapters
-- support validator plugins
-- add safe limited parallelism
+The orchestrator is already a second product, but it is **not yet ready to be split cleanly**.
+
+Why:
+- the core feature set through 048 is now present
+- but the public surface is not frozen yet
+- `agents/run_task.py` is still too monolithic
+- portability has not yet been proven with a second non-TradingBot project fixture
+- the docs still lag the real baseline
 
 ## Recommendation on repo separation
 
-### Recommendation: **separate later, not immediately**
+### Recommendation: **separate later, after one more stabilization tranche**
 
-A split now is possible, but not yet optimal.
-
-Why:
-- the orchestrator is now clearly a second product
-- the docs already treat it as a generic engine with project adapters
-- but `run_task.py` and the surrounding harness are still being productized
+A split now is possible, but still premature.
 
 Best path:
-1. finish the 042–048 productization tranche
-2. stabilize the module boundaries and bootstrap flow
-3. then extract the orchestrator into its own repository/package
-4. leave TradingBot as the first client adapter
+1. finish the 049–054 stabilization tranche
+2. freeze the public orchestrator surface
+3. prove second-project portability
+4. then extract/package the orchestrator
+5. leave TradingBot as the first client adapter
 
 ## Best eventual split model
 
@@ -82,6 +76,7 @@ Contains:
 - shared docs and task templates
 - bootstrap tooling
 - generic validator/plugin framework
+- public config / adapter / task-spec documentation
 
 ### TradingBot repository
 
@@ -90,7 +85,7 @@ Contains:
 - `tests/...`
 - TradingBot task backlog
 - TradingBot project adapter/config
-- orchestrator dependency pinned by version
+- orchestrator dependency pinned by version or git SHA
 
 ## Best migration approach
 
