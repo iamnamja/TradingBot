@@ -2644,6 +2644,84 @@ def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
         except Exception:
             pass
 def _report_failure(kind: str, message: str) -> None:
+    exports = _failure_journal_exports()
+    classify = exports.get("classify_failure")
+    fingerprint_fn = exports.get("failure_fingerprint")
+    bound_snippet = exports.get("bounded_failure_snippet")
+    recommend = exports.get("recommended_next_action")
+    choose = exports.get("chosen_remediation_path")
+    append_entry = exports.get("append_failure_journal_entry")
+
+    category = str(classify(kind, message)) if callable(classify) else str(kind or "unknown")
+    raw_snippet = (
+        str(bound_snippet(message, max_chars=400))
+        if callable(bound_snippet)
+        else str(message or "")
+    )
+    fingerprint = (
+        str(fingerprint_fn(kind=kind, message=message, category=category))
+        if callable(fingerprint_fn)
+        else f"{category}:untracked"
+    )
+
+    state = globals().setdefault("_FAILURE_JOURNAL_STATE", {})
+    retry_count_fn = exports.get("retry_count_for_fingerprint")
+    if callable(retry_count_fn):
+        retry_count = int(retry_count_fn(fingerprint))
+    else:
+        counts = state.setdefault("retry_counts", {})
+        retry_count = int(counts.get(fingerprint, 0)) + 1
+        counts[fingerprint] = retry_count
+
+    recommended_action = (
+        str(
+            recommend(
+                kind=kind,
+                message=message,
+                category=category,
+                retry_count=retry_count,
+                fingerprint=fingerprint,
+                raw_failure_snippet=raw_snippet,
+            )
+        )
+        if callable(recommend)
+        else "retry_with_targeted_fix"
+    )
+    remediation_path = (
+        str(
+            choose(
+                kind=kind,
+                message=message,
+                category=category,
+                retry_count=retry_count,
+                fingerprint=fingerprint,
+                raw_failure_snippet=raw_snippet,
+                recommended_next_action=recommended_action,
+            )
+        )
+        if callable(choose)
+        else recommended_action
+    )
+
+    task_identifier = (
+        os.getenv("TRADINGBOT_TASK_ID", "").strip()
+        or os.getenv("TRADINGBOT_TASK_IDENTIFIER", "").strip()
+        or "unknown_task"
+    )
+    entry = {
+        "task_identifier": task_identifier,
+        "task_id": task_identifier,
+        "failure_category": category,
+        "retry_count": retry_count,
+        "failure_fingerprint": fingerprint,
+        "raw_failure_snippet": raw_snippet,
+        "recommended_next_action": recommended_action,
+        "chosen_remediation_path": remediation_path,
+    }
+
+    if callable(append_entry):
+        append_entry(entry)
+
     print(f"❌ [{kind}] {message}")
 
 
@@ -3268,6 +3346,46 @@ def _spec_mode_exports() -> Dict[str, object]:
             exports["resolve_execution_task_text"] = resolve_execution
 
     return exports
+
+
+def _failure_journal_exports() -> Dict[str, object]:
+    cache = getattr(_failure_journal_exports, "_cache", None)
+    if isinstance(cache, dict):
+        return cache
+
+    try:
+        from agents.lib import failure_journal as _failure_journal  # type: ignore
+    except Exception:
+        _failure_journal = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {
+        "failure_journal": _failure_journal,
+        "classify_failure": None,
+        "failure_fingerprint": None,
+        "bounded_failure_snippet": None,
+        "recommended_next_action": None,
+        "chosen_remediation_path": None,
+        "append_failure_journal_entry": None,
+        "retry_count_for_fingerprint": None,
+    }
+
+    if _failure_journal is not None:
+        for name in (
+            "classify_failure",
+            "failure_fingerprint",
+            "bounded_failure_snippet",
+            "recommended_next_action",
+            "chosen_remediation_path",
+            "append_failure_journal_entry",
+            "retry_count_for_fingerprint",
+        ):
+            obj = getattr(_failure_journal, name, None)
+            if callable(obj):
+                exports[name] = obj
+
+    setattr(_failure_journal_exports, "_cache", exports)
+    return exports
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
