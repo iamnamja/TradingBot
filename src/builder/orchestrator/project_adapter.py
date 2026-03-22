@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from pathlib import Path
 from typing import Any, Dict
 
 from .project_config import GenericProjectConfig, ProjectConfig
@@ -53,3 +56,89 @@ class ProjectAdapter:
             task_file_pattern="*.task.md",
             audit_path=None,
         )
+
+
+def build_bootstrap_starter_docs_text() -> str:
+    return (
+        "# Orchestrator Starter Notes\n\n"
+        "This scaffold is intentionally generic and reusable for new repositories.\n\n"
+        "## Where tasks live\n"
+        "- Put markdown tasks under `tasks/`.\n\n"
+        "## Task template reference\n"
+        "Use `tasks/task_template.md` for new tasks.\n"
+        "An example task is also provided at `tasks/001_example_task.md`.\n"
+    )
+
+
+def build_bootstrap_task_template_text() -> str:
+    return (
+        "# Task NNN — Title\n\n"
+        "## Goal\n"
+        "Describe what should be implemented.\n\n"
+        "## Deliverables\n"
+        "- `src/...`\n"
+        "- `tests/...`\n\n"
+        "## Acceptance criteria\n"
+        "- `ruff check .` passes\n"
+        "- `pytest -q` passes\n"
+    )
+
+
+def build_bootstrap_adapter_stub_text() -> str:
+    return (
+        "from builder.orchestrator.project_adapter import ProjectAdapter\n"
+        "from builder.orchestrator.project_config import ProjectConfig\n\n\n"
+        "def build_project_adapter() -> ProjectAdapter:\n"
+        "    config = ProjectConfig(\n"
+        "        tasks_directory=\"tasks/\",\n"
+        "        lint_command=\"ruff check .\",\n"
+        "        test_command=\"pytest -q\",\n"
+        "        branch_naming_pattern=\"feature/*\",\n"
+        "        protected_file_patterns=[\"*.pyc\", \"*.log\"],\n"
+        "        artifact_path_patterns=[\"artifacts/*\"],\n"
+        "        approval_required_file_patterns=[\"README.md\"],\n"
+        "        task_runner_command=None,\n"
+        "        state_path=\"tasks/state.json\",\n"
+        "        task_file_pattern=\"*.md\",\n"
+        "        audit_path=\"logs/orchestrator_audit.jsonl\",\n"
+        "    )\n"
+        "    return ProjectAdapter(config)\n"
+    )
+
+
+def bootstrap_project_adapter_scaffold(target_dir: Path) -> dict[str, Path]:
+    target = Path(target_dir)
+    tasks_dir = target / "tasks"
+    docs_dir = target / "docs"
+    adapter_dir = target / "src" / "builder" / "orchestrator"
+
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    adapter_dir.mkdir(parents=True, exist_ok=True)
+
+    template_path = tasks_dir / "task_template.md"
+    example_path = tasks_dir / "001_example_task.md"
+    docs_path = docs_dir / "orchestrator_starter.md"
+    adapter_stub_path = adapter_dir / "project_adapter_factory.py"
+    validator_path = target / ".orchestrator_validator.json"
+
+    template_text = build_bootstrap_task_template_text()
+    template_path.write_text(template_text, encoding="utf-8")
+    example_path.write_text(template_text.replace("NNN", "001").replace("Title", "Example"), encoding="utf-8")
+    docs_path.write_text(build_bootstrap_starter_docs_text(), encoding="utf-8")
+    adapter_stub_path.write_text(build_bootstrap_adapter_stub_text(), encoding="utf-8")
+    validator_path.write_text(
+        "{\n"
+        "  \"required_tools\": [\"ruff\", \"pytest\"],\n"
+        "  \"required_commands\": [\"ruff check .\", \"pytest -q\"]\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    return {
+        "docs": docs_path,
+        "task_template": template_path,
+        "task_example": example_path,
+        "adapter_factory": adapter_stub_path,
+        "validator_config": validator_path,
+    }
