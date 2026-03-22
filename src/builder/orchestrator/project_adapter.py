@@ -23,6 +23,7 @@ class ProjectAdapter:
             "state_path": getattr(self.config, "state_path", None),
             "task_file_pattern": getattr(self.config, "task_file_pattern", "*.md"),
             "audit_path": getattr(self.config, "audit_path", None),
+            "validators": getattr(self.config, "validators", None),
         }
 
     @staticmethod
@@ -39,6 +40,10 @@ class ProjectAdapter:
             state_path=None,
             task_file_pattern="*.md",
             audit_path=None,
+            validators=[
+                {"name": "ruff", "command": ["ruff", "check", "."], "enabled": True, "required": True},
+                {"name": "pytest", "command": ["pytest", "-q"], "enabled": True, "required": True},
+            ],
         )
 
     @staticmethod
@@ -55,6 +60,10 @@ class ProjectAdapter:
             state_path=None,
             task_file_pattern="*.task.md",
             audit_path=None,
+            validators=[
+                {"name": "lint", "command": ["flake8", "."], "enabled": True, "required": True},
+                {"name": "tests", "command": ["pytest", "tests/test_generic.py"], "enabled": True, "required": True},
+            ],
         )
 
 

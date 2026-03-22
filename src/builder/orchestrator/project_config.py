@@ -18,6 +18,7 @@ class ProjectConfig:
     state_path: str | None = None
     task_file_pattern: str = "*.md"
     audit_path: str | None = None
+    validators: list[dict[str, object]] | None = None
 
 
 @dataclass
@@ -48,6 +49,10 @@ def build_bootstrap_project_config() -> dict[str, object]:
         state_path="tasks/state.json",
         task_file_pattern="*.md",
         audit_path="logs/orchestrator_audit.jsonl",
+        validators=[
+            {"name": "ruff", "command": ["ruff", "check", "."], "enabled": True, "required": True},
+            {"name": "pytest", "command": ["pytest", "-q"], "enabled": True, "required": True},
+        ],
     )
     return asdict(cfg)
 
@@ -62,3 +67,12 @@ def bootstrap_project_config_scaffold(target_dir: Path) -> Path:
         encoding="utf-8",
     )
     return config_path
+
+
+def load_project_config(config_path: str | Path = "orchestrator_project_config.json") -> ProjectConfig:
+    path = Path(config_path)
+    if not path.exists():
+        return ProjectConfig(**build_bootstrap_project_config())
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return ProjectConfig(**data)

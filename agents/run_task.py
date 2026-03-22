@@ -2619,20 +2619,6 @@ def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> L
 
 
 def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
-    exports = _artifact_quarantine_exports()
-    quarantine = exports.get("quarantine_runtime_artifacts")
-    known_safe = exports.get("known_safe_artifact_names", RUNTIME_ARTIFACT_NAMES)
-
-    if callable(quarantine):
-        quarantine(
-            paths,
-            run_git_command=run,
-            path_exists=lambda p: p.exists(),
-            unlink_path=lambda p: p.unlink(),
-            known_safe_names=known_safe,
-        )
-        return
-
     for path in paths:
         try:
             run(["git", "rm", "--cached", "--quiet", "--ignore-unmatch", path.as_posix()], check=False)
@@ -2643,85 +2629,9 @@ def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
                 path.unlink()
         except Exception:
             pass
+
+
 def _report_failure(kind: str, message: str) -> None:
-    exports = _failure_journal_exports()
-    classify = exports.get("classify_failure")
-    fingerprint_fn = exports.get("failure_fingerprint")
-    bound_snippet = exports.get("bounded_failure_snippet")
-    recommend = exports.get("recommended_next_action")
-    choose = exports.get("chosen_remediation_path")
-    append_entry = exports.get("append_failure_journal_entry")
-
-    category = str(classify(kind, message)) if callable(classify) else str(kind or "unknown")
-    raw_snippet = (
-        str(bound_snippet(message, max_chars=400))
-        if callable(bound_snippet)
-        else str(message or "")
-    )
-    fingerprint = (
-        str(fingerprint_fn(kind=kind, message=message, category=category))
-        if callable(fingerprint_fn)
-        else f"{category}:untracked"
-    )
-
-    state = globals().setdefault("_FAILURE_JOURNAL_STATE", {})
-    retry_count_fn = exports.get("retry_count_for_fingerprint")
-    if callable(retry_count_fn):
-        retry_count = int(retry_count_fn(fingerprint))
-    else:
-        counts = state.setdefault("retry_counts", {})
-        retry_count = int(counts.get(fingerprint, 0)) + 1
-        counts[fingerprint] = retry_count
-
-    recommended_action = (
-        str(
-            recommend(
-                kind=kind,
-                message=message,
-                category=category,
-                retry_count=retry_count,
-                fingerprint=fingerprint,
-                raw_failure_snippet=raw_snippet,
-            )
-        )
-        if callable(recommend)
-        else "retry_with_targeted_fix"
-    )
-    remediation_path = (
-        str(
-            choose(
-                kind=kind,
-                message=message,
-                category=category,
-                retry_count=retry_count,
-                fingerprint=fingerprint,
-                raw_failure_snippet=raw_snippet,
-                recommended_next_action=recommended_action,
-            )
-        )
-        if callable(choose)
-        else recommended_action
-    )
-
-    task_identifier = (
-        os.getenv("TRADINGBOT_TASK_ID", "").strip()
-        or os.getenv("TRADINGBOT_TASK_IDENTIFIER", "").strip()
-        or "unknown_task"
-    )
-    entry = {
-        "task_identifier": task_identifier,
-        "task_id": task_identifier,
-        "failure_category": category,
-        "retry_count": retry_count,
-        "failure_fingerprint": fingerprint,
-        "raw_failure_snippet": raw_snippet,
-        "recommended_next_action": recommended_action,
-        "chosen_remediation_path": remediation_path,
-    }
-
-    if callable(append_entry):
-        append_entry(entry)
-
     print(f"❌ [{kind}] {message}")
 
 
@@ -2816,7 +2726,30 @@ def ensure_branch(branch: str) -> None:
 
 
 def run_checks() -> Tuple[bool, str]:
-    result = _runtime_foundations_exports()["run_checks"]()  # type: ignore[misc]
+    exports = _validator_runner_exports()
+    helper = exports.get("run_checks")
+    load_config = exports.get("load_project_config")
+    fallback = _runtime_foundations_exports()["run_checks"]
+
+    config = None
+    config_path = Path("orchestrator_project_config.json")
+    if callable(load_config) and config_path.exists():
+        try:
+            config = load_config(config_path)
+        except Exception:
+            config = None
+
+    if callable(helper):
+        try:
+            result = helper(config=config, default_runner=fallback)
+        except TypeError:
+            try:
+                result = helper(config)
+            except TypeError:
+                result = helper()
+    else:
+        result = fallback()
+
     if (
         isinstance(result, tuple)
         and len(result) == 2
@@ -2831,121 +2764,29 @@ def run_checks() -> Tuple[bool, str]:
         return (lint_ok and test_ok), output_text.strip()
     raise TypeError(f"Unsupported run_checks() result shape: {type(result).__name__}")
 
-
 def main() -> int:
     _load_dotenv_if_available()
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("task", nargs="?", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
+    ap.add_argument("task", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
     ap.add_argument("--provider", default=None, choices=["openai", "anthropic"])
     ap.add_argument("--model", default=None)
     ap.add_argument("--max-iters", type=int, default=4)
     ap.add_argument("--policy-block-limit", type=int, default=_int_env("TRADINGBOT_POLICY_BLOCK_LIMIT", 2))
-    ap.add_argument("--spec-mode", action="store_true", help="Generate a frozen spec artifact only (no implementation)")
-    ap.add_argument("--bootstrap-project", default="", help="Bootstrap orchestrator scaffold into the target directory and exit")
     args = ap.parse_args()
     if not getattr(args, "provider", None):
         args.provider = default_provider()
     if not getattr(args, "model", None):
         args.model = default_model_for_provider(args.provider)
 
-    if str(getattr(args, "bootstrap_project", "") or "").strip():
-        target_dir = Path(str(args.bootstrap_project).strip())
-        try:
-            from builder.orchestrator.project_adapter import bootstrap_project_adapter_scaffold
-            from builder.orchestrator.project_config import bootstrap_project_config_scaffold
-        except Exception as exc:
-            print(f"❌ Bootstrap unavailable: {exc}")
-            return 1
-        bootstrap_project_config_scaffold(target_dir)
-        bootstrap_project_adapter_scaffold(target_dir)
-        print(f"✅ Bootstrapped project scaffold at: {target_dir.as_posix()}")
-        return 0
-
-    if not getattr(args, "task", None):
-        raise SystemExit("Task file path is required unless --bootstrap-project is used.")
-
     task_path = Path(args.task)
     if not task_path.exists():
         raise SystemExit(f"Task file not found: {task_path}")
 
-    task_text = task_path.read_text(encoding="utf-8", errors="replace")
-    spec_exports = _spec_mode_exports()
-
-    if getattr(args, "spec_mode", False):
-        build_artifact = spec_exports.get("build_frozen_spec_artifact")
-        should_trigger = spec_exports.get("task_is_underspecified")
-        write_artifact = spec_exports.get("write_frozen_spec_artifact")
-        if callable(build_artifact):
-            trigger = True
-            if callable(should_trigger):
-                try:
-                    trigger = bool(should_trigger(task_text))
-                except Exception:
-                    trigger = True
-            artifact = build_artifact(task_text, task_path.as_posix(), force=trigger)
-            out_path = Path(str(artifact.get("artifact_path", "") or "artifacts/spec_mode/frozen_spec.json"))
-            if callable(write_artifact):
-                try:
-                    write_artifact(artifact, out_path)
-                except Exception:
-                    out_path.parent.mkdir(parents=True, exist_ok=True)
-                    out_path.write_text(
-                        __import__("json").dumps(artifact, indent=2, sort_keys=True) + "\n",
-                        encoding="utf-8",
-                        newline="\n",
-                    )
-            else:
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(
-                    __import__("json").dumps(artifact, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8",
-                    newline="\n",
-                )
-            print(f"🧊 Spec artifact generated: {out_path.as_posix()}")
-            return 0
-        print("❌ Spec mode unavailable: agents.lib.spec_mode not importable.")
-        return 1
-
-    resolve_frozen = spec_exports.get("resolve_execution_task_text")
-    read_frozen = spec_exports.get("read_frozen_spec_artifact")
-    if callable(resolve_frozen):
-        try:
-            resolved = resolve_frozen(task_text, task_path.as_posix())
-        except TypeError:
-            resolved = resolve_frozen(task_text)
-        except Exception:
-            resolved = None
-        if isinstance(resolved, dict):
-            resolved_text = resolved.get("task_text")
-            if isinstance(resolved_text, str) and resolved_text.strip():
-                if resolved.get("resolved_from_frozen"):
-                    print(f"🧊 Execution mode: using frozen spec artifact {resolved.get('artifact_path', task_path.as_posix())}")
-                task_text = resolved_text
-        elif isinstance(resolved, str) and resolved.strip():
-            task_text = resolved
-    elif callable(read_frozen):
-        try:
-            artifact = read_frozen(task_path)
-        except Exception:
-            artifact = None
-        if isinstance(artifact, dict):
-            canonical = artifact.get("canonical_task_text")
-            if not isinstance(canonical, str) or not canonical.strip():
-                canonical = artifact.get("task_text")
-            if not isinstance(canonical, str) or not canonical.strip():
-                frozen = artifact.get("frozen_spec")
-                if isinstance(frozen, dict):
-                    maybe = frozen.get("canonical_task_text")
-                    if isinstance(maybe, str) and maybe.strip():
-                        canonical = maybe
-            if isinstance(canonical, str) and canonical.strip():
-                print(f"🧊 Execution mode: using frozen spec artifact {task_path.as_posix()}")
-                task_text = canonical
-
     ensure_clean_worktree()
 
+    task_text = task_path.read_text(encoding="utf-8", errors="replace")
     required = parse_required_files(task_text)
     require_material_update = task_requires_material_update(task_text)
     allow_unchanged_cli = task_allows_unchanged_cli(task_text)
@@ -3207,6 +3048,8 @@ def main() -> int:
     print("Model output saved to: _last_agent_model_output.txt")
     print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
     return 1
+
+
 def _parser_policy_exports() -> Dict[str, object]:
     try:
         from agents.lib import bundle_parser as _bundle_parser  # type: ignore
@@ -3282,149 +3125,36 @@ def _semantic_preflight_exports() -> Dict[str, object]:
         exports["validate_static_bundle_contracts"] = validate_static_bundle_contracts
     return exports
 
-def _artifact_quarantine_exports() -> Dict[str, object]:
+
+def _validator_runner_exports() -> Dict[str, object]:
     try:
-        from agents.lib import artifact_quarantine as _artifact_quarantine  # type: ignore
+        from agents.lib import validator_runner as _validator_runner  # type: ignore
     except Exception:
-        _artifact_quarantine = None  # type: ignore[assignment]
+        _validator_runner = None  # type: ignore[assignment]
 
-    exports: Dict[str, object] = {
-        "artifact_quarantine": _artifact_quarantine,
-        "known_safe_artifact_names": RUNTIME_ARTIFACT_NAMES,
-        "quarantine_runtime_artifacts": None,
-    }
-
-    if _artifact_quarantine is not None:
-        known = getattr(_artifact_quarantine, "KNOWN_SAFE_ARTIFACT_NAMES", None)
-        if isinstance(known, (tuple, list, set)):
-            exports["known_safe_artifact_names"] = tuple(str(x) for x in known)
-        quarantine = getattr(_artifact_quarantine, "quarantine_runtime_artifacts", None)
-        if callable(quarantine):
-            exports["quarantine_runtime_artifacts"] = quarantine
-
-    return exports
-
-def _spec_mode_exports() -> Dict[str, object]:
-    try:
-        from agents.lib import spec_mode as _spec_mode  # type: ignore
-    except Exception:
-        _spec_mode = None  # type: ignore[assignment]
-
-    exports: Dict[str, object] = {
-        "spec_mode": _spec_mode,
-        "task_is_underspecified": None,
-        "build_frozen_spec_artifact": None,
-        "write_frozen_spec_artifact": None,
-    }
-
-    if _spec_mode is not None:
-        is_under = getattr(_spec_mode, "task_is_underspecified", None)
-        build_artifact = getattr(_spec_mode, "build_frozen_spec_artifact", None)
-        write_artifact = getattr(_spec_mode, "write_frozen_spec_artifact", None)
-        if callable(is_under):
-            exports["task_is_underspecified"] = is_under
-        if callable(build_artifact):
-            exports["build_frozen_spec_artifact"] = build_artifact
-        if callable(write_artifact):
-            exports["write_frozen_spec_artifact"] = write_artifact
-
-    return exports
-
-def _spec_mode_exports() -> Dict[str, object]:
-    try:
-        from agents.lib import spec_mode as _spec_mode  # type: ignore
-    except Exception:
-        _spec_mode = None  # type: ignore[assignment]
-
-    exports: Dict[str, object] = {
-        "spec_mode": _spec_mode,
-        "task_is_underspecified": None,
-        "build_frozen_spec_artifact": None,
-        "write_frozen_spec_artifact": None,
-        "read_frozen_spec_artifact": None,
-        "resolve_execution_task_text": None,
-    }
-
-    if _spec_mode is not None:
-        is_under = getattr(_spec_mode, "task_is_underspecified", None)
-        build_artifact = getattr(_spec_mode, "build_frozen_spec_artifact", None)
-        write_artifact = getattr(_spec_mode, "write_frozen_spec_artifact", None)
-        read_artifact = getattr(_spec_mode, "read_frozen_spec_artifact", None)
-        resolve_execution = getattr(_spec_mode, "resolve_execution_task_text", None)
-        if callable(is_under):
-            exports["task_is_underspecified"] = is_under
-        if callable(build_artifact):
-            exports["build_frozen_spec_artifact"] = build_artifact
-        if callable(write_artifact):
-            exports["write_frozen_spec_artifact"] = write_artifact
-        if callable(read_artifact):
-            exports["read_frozen_spec_artifact"] = read_artifact
-        if callable(resolve_execution):
-            exports["resolve_execution_task_text"] = resolve_execution
-
-    return exports
-
-
-def _failure_journal_exports() -> Dict[str, object]:
-    cache = getattr(_failure_journal_exports, "_cache", None)
-    if isinstance(cache, dict):
-        return cache
-
-    try:
-        from agents.lib import failure_journal as _failure_journal  # type: ignore
-    except Exception:
-        _failure_journal = None  # type: ignore[assignment]
-
-    exports: Dict[str, object] = {
-        "failure_journal": _failure_journal,
-        "classify_failure": None,
-        "failure_fingerprint": None,
-        "bounded_failure_snippet": None,
-        "recommended_next_action": None,
-        "chosen_remediation_path": None,
-        "append_failure_journal_entry": None,
-        "retry_count_for_fingerprint": None,
-    }
-
-    if _failure_journal is not None:
-        for name in (
-            "classify_failure",
-            "failure_fingerprint",
-            "bounded_failure_snippet",
-            "recommended_next_action",
-            "chosen_remediation_path",
-            "append_failure_journal_entry",
-            "retry_count_for_fingerprint",
-        ):
-            obj = getattr(_failure_journal, name, None)
-            if callable(obj):
-                exports[name] = obj
-
-    setattr(_failure_journal_exports, "_cache", exports)
-    return exports
-
-
-def _bootstrap_exports() -> Dict[str, object]:
-    try:
-        from builder.orchestrator import project_adapter as _project_adapter  # type: ignore
-    except Exception:
-        _project_adapter = None  # type: ignore[assignment]
     try:
         from builder.orchestrator import project_config as _project_config  # type: ignore
     except Exception:
         _project_config = None  # type: ignore[assignment]
 
-    exports: Dict[str, object] = {}
+    exports: Dict[str, object] = {
+        "validator_runner": _validator_runner,
+        "run_checks": None,
+        "select_validators": None,
+        "load_project_config": None,
+    }
 
-    if _project_adapter is not None:
-        bootstrap_adapter = getattr(_project_adapter, "bootstrap_project_adapter_scaffold", None)
-        if callable(bootstrap_adapter):
-            exports["bootstrap_project_adapter_scaffold"] = bootstrap_adapter
-
+    if _validator_runner is not None:
+        helper = getattr(_validator_runner, "run_checks", None)
+        select = getattr(_validator_runner, "select_validators", None)
+        if callable(helper):
+            exports["run_checks"] = helper
+        if callable(select):
+            exports["select_validators"] = select
     if _project_config is not None:
-        bootstrap_config = getattr(_project_config, "bootstrap_project_config_scaffold", None)
-        if callable(bootstrap_config):
-            exports["bootstrap_project_config_scaffold"] = bootstrap_config
+        load = getattr(_project_config, "load_project_config", None)
+        if callable(load):
+            exports["load_project_config"] = load
 
     return exports
 
