@@ -4,6 +4,8 @@
 
 Persist classified failures, repeated failure fingerprints, raw failure snippets, and chosen remediation paths to improve retries and postmortems.
 
+Continue shrinking `agents/run_task.py` by extracting failure-journaling logic into `agents/lib/failure_journal.py`.
+
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
@@ -15,7 +17,8 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 ## Harness policy
 
-- FILE: agents/run_task.py MODE=PROTECTED_FORBID
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD METHOD=_report_failure
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD APPEND_METHOD=_failure_journal_exports ANCHOR_BEFORE=if __name__ == "__main__":
 
 ## Current shell / CLI guidance
 
@@ -67,11 +70,12 @@ Add deterministic tests that validate:
 1. repeated failure patterns are fingerprinted and journaled
 2. raw failure snippets remain bounded
 3. bundle-marker-like failure snippets do not break generated tests or transport
-4. the journal records both recommended next action and chosen remediation path
-5. retry context uses only bounded/focused raw failure snippets
+4. `agents.run_task._report_failure(...)` delegates through `agents.lib.failure_journal`
+5. the journal records both recommended next action and chosen remediation path
 
 ## Acceptance criteria
 
 - `ruff check .` passes
 - `pytest -q` is fully green
 - repeated failure patterns are journaled and reusable
+- `agents/run_task.py` is thinner after delegating failure-journal logic

@@ -6,7 +6,7 @@ Do NOT run this umbrella task directly with the agent.
 
 ## Goal
 
-Separate ambiguous-task clarification from implementation.
+Separate ambiguous-task clarification from implementation while continuing to shrink `agents/run_task.py` into a thin shell over extracted helper modules.
 
 ## Run order
 
@@ -20,3 +20,8 @@ Recent tasks repeatedly showed that many retries were caused by baseline-guessin
 This tranche formalizes:
 - **Spec mode** — clarify and freeze the task
 - **Execution mode** — implement only the frozen task
+
+Both tasks should prefer:
+- reusable helper modules under `agents/lib/`
+- additive/narrow shell changes in `agents/run_task.py`
+- no broad CLI rewrite

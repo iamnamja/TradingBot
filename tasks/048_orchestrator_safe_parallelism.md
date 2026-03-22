@@ -4,6 +4,8 @@
 
 Allow limited parallel execution only for task classes explicitly marked independent and safe.
 
+This work should live in the reusable orchestrator engine layer, not in `agents/run_task.py`, unless a later follow-up explicitly introduces additive shell routing.
+
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
