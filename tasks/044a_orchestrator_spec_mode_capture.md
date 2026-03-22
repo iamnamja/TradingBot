@@ -18,8 +18,8 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 ## Harness policy
 
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD METHOD=main
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD APPEND_METHOD=_spec_mode_exports ANCHOR_BEFORE=if __name__ == "__main__":
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD REPLACE_METHOD=main
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=_spec_mode_exports ANCHOR_BEFORE=if __name__ == "__main__":
 
 ## Critical compatibility requirement
 
