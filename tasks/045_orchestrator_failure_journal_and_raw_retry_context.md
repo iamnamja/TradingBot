@@ -40,11 +40,37 @@ Specifically in `agents/run_task.py`:
   - `ensure_clean_worktree`
   - `ensure_branch`
   - `run_checks`
+- do **not** add, remove, rename, or move these existing 042 runtime-foundations compatibility locals:
+  - `_default_provider_local`
+  - `_default_model_for_provider_local`
+  - `_chat_openai_local`
+  - `_chat_anthropic_local`
+  - `_chat_local`
+  - `_run_local`
+  - `_capture_local`
+  - `_capture_result_local`
+  - `_ensure_clean_worktree_local`
+  - `_ensure_branch_local`
+  - `_run_checks_local`
+- do **not** add duplicate redefinitions of any existing runtime-foundations wrapper function
 - do **not** add or rewrite `_runtime_foundations_exports()` in this task
 - do **not** change existing provider, git, or check-runner delegation seams in this task
 - only replace `_report_failure(...)` and add `_failure_journal_exports()` additively before the existing `if __name__ == "__main__":` anchor
 
 If you need any failure-journal helper behavior, route it through the new `agents.lib.failure_journal` module and the new additive `_failure_journal_exports()` seam only.
+
+## Delegation seam requirement
+
+`agents.run_task._report_failure(...)` must resolve its classification, fingerprinting, snippet bounding, next-action recommendation, remediation-path selection, and append behavior through `_failure_journal_exports()` at runtime.
+
+The export seam must be patchable from tests.
+
+Acceptable patterns:
+
+- `_failure_journal_exports()` returns a stable mutable export mapping cached at module scope, or
+- tests monkeypatch `agents.run_task._failure_journal_exports` itself and `_report_failure(...)` uses that seam directly
+
+Avoid an implementation where tests mutate one returned export dict but `_report_failure(...)` calls a fresh unrelated dict on every invocation.
 
 ## Current shell / CLI guidance
 
@@ -110,8 +136,10 @@ Add deterministic tests that validate:
 1. repeated failure patterns are fingerprinted and journaled
 2. raw failure snippets remain bounded
 3. bundle-marker-like failure snippets do not break generated tests or transport
-4. `agents.run_task._report_failure(...)` delegates through `agents.lib.failure_journal`
+4. `agents.run_task._report_failure(...)` delegates through the live `_failure_journal_exports()` seam
 5. the journal records both recommended next action and chosen remediation path
+
+Generated tests must not require rewriting or bypassing the current runtime-foundations shell wrappers.
 
 ## Compatibility requirements
 
@@ -121,11 +149,9 @@ The following existing tests must remain green **without modification of their i
 - `tests/test_run_task_shell_parity.py`
 - `tests/test_execution_mode_frozen_task.py`
 
-In particular, do not break current runtime-foundations exports, shell wrapper delegation, or existing spec/execution behavior while implementing failure journaling.
+In particular:
 
-## Acceptance criteria
-
-- `ruff check .` passes
-- `pytest -q` is fully green
-- repeated failure patterns are journaled and reusable
-- `agents/run_task.py` is thinner after delegating failure-journal logic
+- do not break current runtime-foundations exports
+- do not break current shell wrapper delegation
+- do not change existing 044 spec/execution behavior
+- do not change the current `
