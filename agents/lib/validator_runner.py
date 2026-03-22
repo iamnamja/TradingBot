@@ -17,6 +17,12 @@ class ValidatorSpec:
     required: bool = True
 
 
+_LEGACY_BUILTIN_COMMANDS: tuple[str, ...] = (
+    "ruff check .",
+    "pytest -q",
+)
+
+
 def _normalize_spec(raw: Any) -> ValidatorSpec | None:
     if isinstance(raw, ValidatorSpec):
         return raw
@@ -52,6 +58,13 @@ def select_validators(config: ProjectConfig | None = None) -> list[ValidatorSpec
     if isinstance(raw_validators, list):
         return normalize_validator_specs(raw_validators)
     return []
+
+
+def _uses_legacy_builtin_suite(validators: list[ValidatorSpec]) -> bool:
+    commands = tuple(spec.command.strip() for spec in validators)
+    if commands != _LEGACY_BUILTIN_COMMANDS:
+        return False
+    return all(spec.required for spec in validators)
 
 
 def run_validator(
@@ -95,7 +108,8 @@ def _coerce_check_runner_result(result: dict[str, Any] | tuple[bool, str]) -> tu
 def run_checks(config: ProjectConfig | None = None) -> tuple[bool, str]:
     cfg = config or load_project_config()
     validators = select_validators(cfg)
-    if not validators:
+
+    if not validators or _uses_legacy_builtin_suite(validators):
         return _coerce_check_runner_result(check_runner.run_checks())
 
     all_ok = True
