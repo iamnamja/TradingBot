@@ -17,8 +17,8 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 ## Harness policy
 
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD METHOD=_report_failure
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD APPEND_METHOD=_failure_journal_exports ANCHOR_BEFORE=if __name__ == "__main__":
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD REPLACE_METHOD=_report_failure
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=_failure_journal_exports ANCHOR_BEFORE=if __name__ == "__main__":
 
 ## Current shell / CLI guidance
 

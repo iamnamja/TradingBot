@@ -19,8 +19,8 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 ## Harness policy
 
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD METHOD=run_checks
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD APPEND_METHOD=_validator_runner_exports ANCHOR_BEFORE=if __name__ == "__main__":
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD REPLACE_METHOD=run_checks
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=_validator_runner_exports ANCHOR_BEFORE=if __name__ == "__main__":
 
 ## Critical compatibility requirement
 
