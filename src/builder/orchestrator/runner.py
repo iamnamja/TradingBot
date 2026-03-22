@@ -1,6 +1,10 @@
+from __future__ import annotations
+
+import fnmatch
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
-import subprocess
 
 from .approval import create_approval_checkpoint
 from .audit import (
@@ -77,10 +81,7 @@ class OrchestratorRunner:
         scanned_tasks = self.backlog_tracker.scan_tasks()
         persisted_tasks = self.backlog_tracker.load_state(state_file)
 
-        persisted_lookup = {
-            (task.order, task.name): task
-            for task in persisted_tasks
-        }
+        persisted_lookup = {(task.order, task.name): task for task in persisted_tasks}
 
         merged_tasks: List[TaskMetadata] = []
         for task in scanned_tasks:
@@ -90,6 +91,149 @@ class OrchestratorRunner:
 
     def select_next_task(self) -> Optional[TaskMetadata]:
         return self.backlog_tracker.get_next_task(self.state.tasks)
+
+    def _sort_tasks(self, tasks: list[TaskMetadata]) -> list[TaskMetadata]:
+        return sorted(tasks, key=lambda task: (getattr(task, "order", 0), getattr(task, "name", "")))
+
+    def _task_class(self, task: TaskMetadata) -> str:
+        raw = getattr(task, "task_class", None) or getattr(task, "task_type", None) or "default"
+        return str(raw).strip().lower()
+
+    def _task_file_paths(self, task: TaskMetadata) -> set[str]:
+        raw_paths = (
+            getattr(task, "changed_files", None)
+            or getattr(task, "deliverables", None)
+            or getattr(task, "file_paths", None)
+            or getattr(task, "protected_files", None)
+            or []
+        )
+        paths: set[str] = set()
+        for path in raw_paths:
+            text = str(path).replace("\\", "/").strip()
+            if text:
+                paths.add(text)
+        return paths
+
+    def _task_shared_state_keys(self, task: TaskMetadata) -> set[str]:
+        raw_keys = (
+            getattr(task, "shared_state_keys", None)
+            or getattr(task, "shared_state", None)
+            or getattr(task, "state_keys", None)
+            or []
+        )
+        keys: set[str] = set()
+        for key in raw_keys:
+            text = str(key).strip()
+            if text:
+                keys.add(text)
+        return keys
+
+    def _policy_sensitive_patterns(self) -> list[str]:
+        protected = list(getattr(self.config, "protected_file_patterns", []) or [])
+        approval = list(getattr(self.config, "approval_required_file_patterns", []) or [])
+        return protected + approval
+
+    def _matches_any_policy_pattern(self, path: str, patterns: list[str]) -> bool:
+        normalized = path.replace("\\", "/")
+        return any(fnmatch.fnmatch(normalized, pattern) for pattern in patterns)
+
+    def _task_touches_policy_sensitive_surface(self, task: TaskMetadata) -> bool:
+        patterns = self._policy_sensitive_patterns()
+        if not patterns:
+            return False
+        return any(self._matches_any_policy_pattern(path, patterns) for path in self._task_file_paths(task))
+
+    def _task_parallel_eligible(self, task: TaskMetadata) -> bool:
+        if not bool(getattr(self.config, "parallel_execution_enabled", False)):
+            return False
+        if self._task_class(task) not in {"independent_safe", "parallel_safe"}:
+            return False
+        if self._task_touches_policy_sensitive_surface(task):
+            return False
+        return True
+
+    def build_safe_parallel_groups(self, tasks: list[TaskMetadata]) -> list[list[TaskMetadata]]:
+        ordered = self._sort_tasks(list(tasks))
+        if not bool(getattr(self.config, "parallel_execution_enabled", False)):
+            return [[task] for task in ordered]
+
+        groups: list[list[TaskMetadata]] = []
+        active_group: list[TaskMetadata] = []
+        active_paths: set[str] = set()
+        active_shared_state: set[str] = set()
+
+        def flush_active_group() -> None:
+            nonlocal active_group, active_paths, active_shared_state
+            if active_group:
+                groups.append(active_group)
+            active_group = []
+            active_paths = set()
+            active_shared_state = set()
+
+        for task in ordered:
+            if not self._task_parallel_eligible(task):
+                flush_active_group()
+                groups.append([task])
+                continue
+
+            task_paths = self._task_file_paths(task)
+            task_shared_state = self._task_shared_state_keys(task)
+            overlaps_files = bool(active_paths & task_paths)
+            overlaps_state = bool(active_shared_state & task_shared_state)
+
+            if active_group and (overlaps_files or overlaps_state):
+                flush_active_group()
+
+            active_group.append(task)
+            active_paths.update(task_paths)
+            active_shared_state.update(task_shared_state)
+
+        flush_active_group()
+        return groups
+
+    def execute_parallel_groups(
+        self,
+        groups: list[list[TaskMetadata]],
+        executor: Any | None = None,
+        *,
+        max_workers: int | None = None,
+    ) -> list[dict[str, Any]]:
+        task_executor = executor or self.execute_task
+        ordered_groups = sorted(
+            list(groups),
+            key=lambda group: min((getattr(task, "order", 0) for task in group), default=0),
+        )
+
+        results: list[dict[str, Any]] = []
+        for group in ordered_groups:
+            ordered_group = self._sort_tasks(list(group))
+            if len(ordered_group) <= 1:
+                for task in ordered_group:
+                    results.append(task_executor(task))
+                continue
+
+            worker_count = max_workers or len(ordered_group)
+            worker_count = max(1, min(worker_count, len(ordered_group)))
+
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                future_to_task = {pool.submit(task_executor, task): task for task in ordered_group}
+                group_results: list[tuple[int, dict[str, Any]]] = []
+                for future, task in future_to_task.items():
+                    group_results.append((getattr(task, "order", 0), future.result()))
+            group_results.sort(key=lambda item: item[0])
+            results.extend(result for _, result in group_results)
+
+        return results
+
+    def run_safe_parallel_batch(
+        self,
+        tasks: list[TaskMetadata],
+        executor: Any | None = None,
+        *,
+        max_workers: int | None = None,
+    ) -> list[dict[str, Any]]:
+        groups = self.build_safe_parallel_groups(tasks)
+        return self.execute_parallel_groups(groups, executor=executor, max_workers=max_workers)
 
     def run_review(self, changed_files: list[str]) -> dict[str, Any]:
         effective_changed = list(changed_files or [])
@@ -272,7 +416,11 @@ class OrchestratorRunner:
             return {
                 "task_name": task.name,
                 "status": "failed",
-                "message": f"Execution failed: {failure_text}" if failure_text else "Execution failed.",
+                "message": (
+                    f"Execution failed: {failure_text}"
+                    if failure_text
+                    else "Execution failed."
+                ),
                 "outcome": "repair_required",
                 "next_action": next_action,
                 "requires_approval": repair_action.get("requires_approval", True),

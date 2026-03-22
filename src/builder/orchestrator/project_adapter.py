@@ -24,6 +24,9 @@ class ProjectAdapter:
             "task_file_pattern": getattr(self.config, "task_file_pattern", "*.md"),
             "audit_path": getattr(self.config, "audit_path", None),
             "validators": getattr(self.config, "validators", None),
+            "parallel_execution_enabled": getattr(
+                self.config, "parallel_execution_enabled", False
+            ),
         }
 
     @staticmethod
@@ -40,6 +43,11 @@ class ProjectAdapter:
             state_path=None,
             task_file_pattern="*.md",
             audit_path=None,
+            validators=[
+                {"name": "ruff", "command": "ruff check .", "enabled": True, "required": True},
+                {"name": "pytest", "command": "pytest -q", "enabled": True, "required": True},
+            ],
+            parallel_execution_enabled=False,
         )
 
     @staticmethod
@@ -56,6 +64,16 @@ class ProjectAdapter:
             state_path=None,
             task_file_pattern="*.task.md",
             audit_path=None,
+            validators=[
+                {"name": "lint", "command": "flake8 .", "enabled": True, "required": True},
+                {
+                    "name": "tests",
+                    "command": "pytest tests/test_generic.py",
+                    "enabled": True,
+                    "required": True,
+                },
+            ],
+            parallel_execution_enabled=False,
         )
 
 
@@ -67,7 +85,10 @@ def build_bootstrap_starter_docs_text() -> str:
         "- Put markdown tasks under `tasks/`.\n\n"
         "## Task template reference\n"
         "Use `tasks/task_template.md` for new tasks.\n"
-        "An example task is also provided at `tasks/001_example_task.md`.\n"
+        "An example task is also provided at `tasks/001_example_task.md`.\n\n"
+        "## Parallel execution\n"
+        "- Keep `parallel_execution_enabled` false unless a project explicitly opts in.\n"
+        "- Only tasks marked `task_class: independent_safe` may be considered for parallel grouping.\n"
     )
 
 
@@ -81,7 +102,11 @@ def build_bootstrap_task_template_text() -> str:
         "- `tests/...`\n\n"
         "## Acceptance criteria\n"
         "- `ruff check .` passes\n"
-        "- `pytest -q` passes\n"
+        "- `pytest -q` passes\n\n"
+        "## Safety\n"
+        "- `task_class: default` unless the task is explicitly independent and safe\n"
+        "- use `task_class: independent_safe` only when there is no shared mutable state\n"
+        "  and no overlap with protected or approval-sensitive files\n"
     )
 
 
@@ -102,6 +127,11 @@ def build_bootstrap_adapter_stub_text() -> str:
         "        state_path=\"tasks/state.json\",\n"
         "        task_file_pattern=\"*.md\",\n"
         "        audit_path=\"logs/orchestrator_audit.jsonl\",\n"
+        "        validators=[\n"
+        "            {\"name\": \"ruff\", \"command\": \"ruff check .\", \"enabled\": True, \"required\": True},\n"
+        "            {\"name\": \"pytest\", \"command\": \"pytest -q\", \"enabled\": True, \"required\": True},\n"
+        "        ],\n"
+        "        parallel_execution_enabled=False,\n"
         "    )\n"
         "    return ProjectAdapter(config)\n"
     )
@@ -125,7 +155,10 @@ def bootstrap_project_adapter_scaffold(target_dir: Path) -> dict[str, Path]:
 
     template_text = build_bootstrap_task_template_text()
     template_path.write_text(template_text, encoding="utf-8")
-    example_path.write_text(template_text.replace("NNN", "001").replace("Title", "Example"), encoding="utf-8")
+    example_path.write_text(
+        template_text.replace("NNN", "001").replace("Title", "Example"),
+        encoding="utf-8",
+    )
     docs_path.write_text(build_bootstrap_starter_docs_text(), encoding="utf-8")
     adapter_stub_path.write_text(build_bootstrap_adapter_stub_text(), encoding="utf-8")
     validator_path.write_text(
