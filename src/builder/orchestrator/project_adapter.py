@@ -23,6 +23,7 @@ class ProjectAdapter:
             "state_path": getattr(self.config, "state_path", None),
             "task_file_pattern": getattr(self.config, "task_file_pattern", "*.md"),
             "audit_path": getattr(self.config, "audit_path", None),
+            "validators": getattr(self.config, "validators", None),
         }
 
     @staticmethod
