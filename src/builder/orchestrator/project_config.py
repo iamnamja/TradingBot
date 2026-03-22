@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -18,6 +19,7 @@ class ProjectConfig:
     state_path: str | None = None
     task_file_pattern: str = "*.md"
     audit_path: str | None = None
+    validators: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -62,3 +64,13 @@ def bootstrap_project_config_scaffold(target_dir: Path) -> Path:
         encoding="utf-8",
     )
     return config_path
+
+
+def load_project_config(config_path: str | Path = "orchestrator_project_config.json") -> ProjectConfig:
+    path = Path(config_path)
+    if not path.exists():
+        data = build_bootstrap_project_config()
+        return ProjectConfig(**data)
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return ProjectConfig(**data)

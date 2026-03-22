@@ -2816,6 +2816,23 @@ def ensure_branch(branch: str) -> None:
 
 
 def run_checks() -> Tuple[bool, str]:
+    exports = _validator_runner_exports()
+    delegated = exports.get("run_checks")
+    if callable(delegated):
+        result = delegated()
+        if (
+            isinstance(result, tuple)
+            and len(result) == 2
+            and isinstance(result[0], bool)
+            and isinstance(result[1], str)
+        ):
+            return result
+        if isinstance(result, dict):
+            lint_ok = bool(result.get("lint_ok", False))
+            test_ok = bool(result.get("test_ok", False))
+            output_text = str(result.get("output_text", "") or "")
+            return (lint_ok and test_ok), output_text.strip()
+
     result = _runtime_foundations_exports()["run_checks"]()  # type: ignore[misc]
     if (
         isinstance(result, tuple)
@@ -2830,6 +2847,7 @@ def run_checks() -> Tuple[bool, str]:
         output_text = str(result.get("output_text", "") or "")
         return (lint_ok and test_ok), output_text.strip()
     raise TypeError(f"Unsupported run_checks() result shape: {type(result).__name__}")
+
 
 
 def main() -> int:
@@ -3401,6 +3419,30 @@ def _failure_journal_exports() -> Dict[str, object]:
                 exports[name] = obj
 
     setattr(_failure_journal_exports, "_cache", exports)
+    return exports
+
+
+
+def _validator_runner_exports() -> Dict[str, object]:
+    try:
+        from agents.lib import validator_runner as _validator_runner  # type: ignore
+    except Exception:
+        _validator_runner = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {
+        "validator_runner": _validator_runner,
+        "run_checks": None,
+        "select_validators": None,
+    }
+
+    if _validator_runner is not None:
+        run_checks_fn = getattr(_validator_runner, "run_checks", None)
+        select_validators_fn = getattr(_validator_runner, "select_validators", None)
+        if callable(run_checks_fn):
+            exports["run_checks"] = run_checks_fn
+        if callable(select_validators_fn):
+            exports["select_validators"] = select_validators_fn
+
     return exports
 
 
