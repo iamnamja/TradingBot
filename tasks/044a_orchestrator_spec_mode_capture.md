@@ -4,6 +4,8 @@
 
 Add a spec-generation mode that captures clarifications, forbidden patterns, acceptance criteria, verification commands, and expected outputs into a frozen task artifact.
 
+The implementation should continue shrinking `agents/run_task.py` by moving spec-mode logic into `agents/lib/spec_mode.py`.
+
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
@@ -16,13 +18,18 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 ## Harness policy
 
-- FILE: agents/run_task.py MODE=PROTECTED_FORBID
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD METHOD=main
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD APPEND_METHOD=_spec_mode_exports ANCHOR_BEFORE=if __name__ == "__main__":
 
 ## Critical compatibility requirement
 
 This task must preserve the current shell contract unless a new spec-mode path is added **additively**.
 
 Do not replace the current positional `task` argument or existing flags. If spec mode is exposed through CLI, it must be additive and must not break current execution-mode behavior.
+
+The goal is:
+- `agents/lib/spec_mode.py` owns spec-mode logic
+- `agents/run_task.py` remains thin orchestration glue
 
 ## Current shell / CLI guidance
 
@@ -33,7 +40,7 @@ Specifically:
 - Do **not** assume `main(argv)` if the current shell exposes `main()` reading from `sys.argv`
 - Do **not** assume legacy flags like `--task` or `--non-interactive` unless they actually exist
 - If invoking `main()`, monkeypatch `sys.argv` and use the current positional `task` plus existing optional flags only
-- Do **not** invent helper names unless they actually exist in the current shell
+- Do **not** invent helper names unless they actually exist in the current shell or are explicitly added by this task
 
 ## Bundle transport safety requirement
 
@@ -80,8 +87,9 @@ Add deterministic tests that validate:
 
 1. underspecified task inputs are converted into a structured frozen spec artifact
 2. the frozen artifact is deterministic enough to be reused by execution mode
-3. spec mode does **not** perform implementation work
-4. current execution-mode behavior remains available after spec-mode support is added
+3. spec mode logic lives primarily in `agents.lib.spec_mode`
+4. `agents.run_task.main()` only thinly routes into spec-mode behavior
+5. current execution-mode behavior remains available after spec-mode support is added
 
 Tests should validate stable artifact sections/fields, not overfit to incidental prose wording.
 
@@ -90,3 +98,4 @@ Tests should validate stable artifact sections/fields, not overfit to incidental
 - `ruff check .` passes
 - `pytest -q` is fully green
 - a frozen spec artifact can be generated deterministically
+- `agents/run_task.py` is thinner after delegating spec-mode logic

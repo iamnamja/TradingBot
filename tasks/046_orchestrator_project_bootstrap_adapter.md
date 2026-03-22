@@ -4,6 +4,8 @@
 
 Add a bootstrap command that scaffolds a new project adapter/config/task-template set for a new repository.
 
+Continue shrinking `agents/run_task.py` by keeping bootstrap logic in builder/orchestrator/helper modules and limiting the shell to additive routing only.
+
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
@@ -16,13 +18,18 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 ## Harness policy
 
-- FILE: agents/run_task.py MODE=PROTECTED_FORBID
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD METHOD=main
+- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND_METHOD APPEND_METHOD=_bootstrap_exports ANCHOR_BEFORE=if __name__ == "__main__":
 
 ## Critical compatibility requirement
 
 If bootstrap is exposed through `agents/run_task.py`, it must be added **additively** and must not break the current positional `task` workflow.
 
 Do not replace the current execution entrypoint or existing flags.
+
+The goal is:
+- bootstrap logic lives in project adapter/config/helper code
+- `agents.run_task.main()` only routes additively when bootstrap mode is requested
 
 ## Current shell / CLI guidance
 
@@ -69,9 +76,11 @@ Add deterministic tests that validate:
 2. generated config and adapter stubs are reusable starting points rather than TradingBot-specific copies
 3. starter docs/task template references are present
 4. any `agents.run_task.py` bootstrap surface is additive and does not break current execution behavior
+5. bootstrap logic lives primarily outside `agents/run_task.py`
 
 ## Acceptance criteria
 
 - `ruff check .` passes
 - `pytest -q` is fully green
 - a new project adapter/config scaffold can be generated deterministically
+- `agents/run_task.py` is thinner after delegating bootstrap logic
