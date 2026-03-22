@@ -42,6 +42,9 @@ Specifically:
 - Do **not** assume `agents` is importable as a package in tests unless the current repo actually exposes it that way
 - When loading `agents/run_task.py` with `runpy.run_path(...)`, do **not** assume mutating the returned dict automatically patches `main.__globals__`; patch the actual callable seam used by the shell
 - For CLI-surface preservation tests, patch `main.__globals__[...]` or an existing exported seam such as `_runtime_foundations_exports()` rather than inventing a new interception path
+- Do **not** rewrite `main()` to bypass the current thin wrapper call sites for `ensure_clean_worktree()`, `ensure_branch()`, or `run_checks()`
+- Preserve the existing wrapper-based shell seams so current shell-parity tests can continue monkeypatching them
+- Do **not** change `main()` to call `_runtime_foundations_exports()[...]` directly for these existing wrapper call sites unless the current shell already does so
 
 ## 044a artifact-schema compatibility requirement
 
@@ -66,6 +69,16 @@ It is acceptable to add new additive fields for execution mode, such as:
 - `frozen_spec_path`
 
 But those additions must **not** break or rewrite the established 044a artifact shape.
+
+The inner `frozen_spec` payload must also remain compatible with the existing 044a tests. Preserve the stable keys that current tests already validate, including:
+
+- `scope`
+- `forbidden_patterns`
+- `acceptance_criteria`
+- `verification_commands`
+- `expected_outputs`
+
+It is acceptable to keep additive compatibility aliases such as `acceptance_bullets` or `deliverables_bullets`, but the stable 044a keys above must remain present.
 
 ## Bundle transport safety requirement
 
@@ -102,6 +115,9 @@ Tests should:
 - prefer the same import/loading pattern already used successfully in the existing shell-parity/runtime-foundations tests
 - avoid direct `from agents.lib import ...` imports unless that import path is already valid in the repo test environment
 - avoid brittle monkeypatching against a detached `runpy.run_path()` return dict when the live callable uses a different globals dict
+- when patching `main.__globals__`, use `monkeypatch.setitem(main.__globals__, "...", value)` rather than `monkeypatch.setattr(...)` on the globals dict
+- do **not** patch `mod["__builtins__"]` or other incidental internals just to intercept logging; patch the live shell seam or capture stdout normally
+- keep existing shell-parity tests green; new execution-mode work must not break current wrapper-based monkeypatch seams
 
 ## Acceptance criteria
 
