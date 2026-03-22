@@ -1,4 +1,8 @@
-from dataclasses import dataclass
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -19,3 +23,42 @@ class ProjectConfig:
 @dataclass
 class GenericProjectConfig(ProjectConfig):
     pass
+
+
+def build_bootstrap_project_config() -> dict[str, object]:
+    cfg = GenericProjectConfig(
+        tasks_directory="tasks/",
+        lint_command="ruff check .",
+        test_command="pytest -q",
+        branch_naming_pattern="feature/*",
+        protected_file_patterns=[
+            "*.pyc",
+            "*.log",
+            ".env",
+        ],
+        artifact_path_patterns=[
+            "artifacts/*",
+            "logs/*",
+        ],
+        approval_required_file_patterns=[
+            "README.md",
+            ".github/workflows/*",
+        ],
+        task_runner_command=None,
+        state_path="tasks/state.json",
+        task_file_pattern="*.md",
+        audit_path="logs/orchestrator_audit.jsonl",
+    )
+    return asdict(cfg)
+
+
+def bootstrap_project_config_scaffold(target_dir: Path) -> Path:
+    target = Path(target_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    config_path = target / "orchestrator_project_config.json"
+    payload = build_bootstrap_project_config()
+    config_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return config_path

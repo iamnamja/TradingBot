@@ -2836,18 +2836,35 @@ def main() -> int:
     _load_dotenv_if_available()
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("task", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
+    ap.add_argument("task", nargs="?", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
     ap.add_argument("--provider", default=None, choices=["openai", "anthropic"])
     ap.add_argument("--model", default=None)
     ap.add_argument("--max-iters", type=int, default=4)
     ap.add_argument("--policy-block-limit", type=int, default=_int_env("TRADINGBOT_POLICY_BLOCK_LIMIT", 2))
     ap.add_argument("--spec-mode", action="store_true", help="Generate a frozen spec artifact only (no implementation)")
+    ap.add_argument("--bootstrap-project", default="", help="Bootstrap orchestrator scaffold into the target directory and exit")
     args = ap.parse_args()
     if not getattr(args, "provider", None):
         args.provider = default_provider()
     if not getattr(args, "model", None):
         args.model = default_model_for_provider(args.provider)
+
+    if str(getattr(args, "bootstrap_project", "") or "").strip():
+        target_dir = Path(str(args.bootstrap_project).strip())
+        try:
+            from builder.orchestrator.project_adapter import bootstrap_project_adapter_scaffold
+            from builder.orchestrator.project_config import bootstrap_project_config_scaffold
+        except Exception as exc:
+            print(f"❌ Bootstrap unavailable: {exc}")
+            return 1
+        bootstrap_project_config_scaffold(target_dir)
+        bootstrap_project_adapter_scaffold(target_dir)
+        print(f"✅ Bootstrapped project scaffold at: {target_dir.as_posix()}")
+        return 0
+
+    if not getattr(args, "task", None):
+        raise SystemExit("Task file path is required unless --bootstrap-project is used.")
 
     task_path = Path(args.task)
     if not task_path.exists():
@@ -3386,6 +3403,30 @@ def _failure_journal_exports() -> Dict[str, object]:
     setattr(_failure_journal_exports, "_cache", exports)
     return exports
 
+
+def _bootstrap_exports() -> Dict[str, object]:
+    try:
+        from builder.orchestrator import project_adapter as _project_adapter  # type: ignore
+    except Exception:
+        _project_adapter = None  # type: ignore[assignment]
+    try:
+        from builder.orchestrator import project_config as _project_config  # type: ignore
+    except Exception:
+        _project_config = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {}
+
+    if _project_adapter is not None:
+        bootstrap_adapter = getattr(_project_adapter, "bootstrap_project_adapter_scaffold", None)
+        if callable(bootstrap_adapter):
+            exports["bootstrap_project_adapter_scaffold"] = bootstrap_adapter
+
+    if _project_config is not None:
+        bootstrap_config = getattr(_project_config, "bootstrap_project_config_scaffold", None)
+        if callable(bootstrap_config):
+            exports["bootstrap_project_config_scaffold"] = bootstrap_config
+
+    return exports
 
 if __name__ == "__main__":
     raise SystemExit(main())
