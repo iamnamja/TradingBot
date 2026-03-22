@@ -1,0 +1,31 @@
+{
+  "acceptance_criteria": [],
+  "artifact_type": "frozen_task_spec",
+  "edge_cases": [],
+  "expected_outputs": [],
+  "forbidden_patterns": [],
+  "scope": {
+    "summary": "# Task",
+    "task_sections": [
+      "task"
+    ]
+  },
+  "task_hash_sha256": "d93d02dde96bf24a4ec637d02f90a36fd8be2b7e3030ae2d93b2529173b53a69",
+  "task_path": "C:/Users/kimmi/AppData/Local/Temp/pytest-of-kimmi/pytest-426/test_run_task_main_routes_spec0/task.md",
+  "underspecified": {
+    "is_underspecified": true,
+    "missing_signals": [
+      "has_acceptance_criteria",
+      "has_deliverables",
+      "has_verification_commands",
+      "has_forbidden_patterns"
+    ],
+    "signals": {
+      "has_acceptance_criteria": false,
+      "has_deliverables": false,
+      "has_forbidden_patterns": false,
+      "has_verification_commands": false
+    }
+  },
+  "verification_commands": []
+}

@@ -2764,6 +2764,7 @@ def main() -> int:
     ap.add_argument("--model", default=None)
     ap.add_argument("--max-iters", type=int, default=4)
     ap.add_argument("--policy-block-limit", type=int, default=_int_env("TRADINGBOT_POLICY_BLOCK_LIMIT", 2))
+    ap.add_argument("--spec-mode", action="store_true", help="Generate a frozen spec artifact only (no implementation)")
     args = ap.parse_args()
     if not getattr(args, "provider", None):
         args.provider = default_provider()
@@ -2774,9 +2775,46 @@ def main() -> int:
     if not task_path.exists():
         raise SystemExit(f"Task file not found: {task_path}")
 
+    task_text = task_path.read_text(encoding="utf-8", errors="replace")
+
+    if getattr(args, "spec_mode", False):
+        exports = _spec_mode_exports()
+        build_artifact = exports.get("build_frozen_spec_artifact")
+        should_trigger = exports.get("task_is_underspecified")
+        write_artifact = exports.get("write_frozen_spec_artifact")
+        if callable(build_artifact):
+            trigger = True
+            if callable(should_trigger):
+                try:
+                    trigger = bool(should_trigger(task_text))
+                except Exception:
+                    trigger = True
+            artifact = build_artifact(task_text, task_path.as_posix(), force=trigger)
+            out_path = Path(str(artifact.get("artifact_path", "") or "artifacts/spec_mode/frozen_spec.json"))
+            if callable(write_artifact):
+                try:
+                    write_artifact(artifact, out_path)
+                except Exception:
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    out_path.write_text(
+                        __import__("json").dumps(artifact, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                        newline="\n",
+                    )
+            else:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(
+                    __import__("json").dumps(artifact, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
+            print(f"🧊 Spec artifact generated: {out_path.as_posix()}")
+            return 0
+        print("❌ Spec mode unavailable: agents.lib.spec_mode not importable.")
+        return 1
+
     ensure_clean_worktree()
 
-    task_text = task_path.read_text(encoding="utf-8", errors="replace")
     required = parse_required_files(task_text)
     require_material_update = task_requires_material_update(task_text)
     allow_unchanged_cli = task_allows_unchanged_cli(task_text)
@@ -3038,8 +3076,6 @@ def main() -> int:
     print("Model output saved to: _last_agent_model_output.txt")
     print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
     return 1
-
-
 def _parser_policy_exports() -> Dict[str, object]:
     try:
         from agents.lib import bundle_parser as _bundle_parser  # type: ignore
@@ -3134,6 +3170,32 @@ def _artifact_quarantine_exports() -> Dict[str, object]:
         quarantine = getattr(_artifact_quarantine, "quarantine_runtime_artifacts", None)
         if callable(quarantine):
             exports["quarantine_runtime_artifacts"] = quarantine
+
+    return exports
+
+def _spec_mode_exports() -> Dict[str, object]:
+    try:
+        from agents.lib import spec_mode as _spec_mode  # type: ignore
+    except Exception:
+        _spec_mode = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {
+        "spec_mode": _spec_mode,
+        "task_is_underspecified": None,
+        "build_frozen_spec_artifact": None,
+        "write_frozen_spec_artifact": None,
+    }
+
+    if _spec_mode is not None:
+        is_under = getattr(_spec_mode, "task_is_underspecified", None)
+        build_artifact = getattr(_spec_mode, "build_frozen_spec_artifact", None)
+        write_artifact = getattr(_spec_mode, "write_frozen_spec_artifact", None)
+        if callable(is_under):
+            exports["task_is_underspecified"] = is_under
+        if callable(build_artifact):
+            exports["build_frozen_spec_artifact"] = build_artifact
+        if callable(write_artifact):
+            exports["write_frozen_spec_artifact"] = write_artifact
 
     return exports
 
