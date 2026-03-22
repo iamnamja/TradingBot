@@ -1,6 +1,6 @@
 # TradingBot — Task Backlog
 
-This repository currently contains two related products in one codebase:
+This repository contains two related products in one codebase:
 
 - **TradingBot** — the application being built
 - **Orchestrator** — the reusable software-delivery engine that is building and hardening the project
@@ -13,7 +13,7 @@ TradingBot is at **manual paper-trading readiness**.
 
 ### Orchestrator
 
-The orchestrator hardening tranche through **Task 041** is now complete on `main`:
+The orchestrator productization tranche through **Task 048** is now complete on `main` in substance:
 
 - 031 — real task execution bridge ✅
 - 032 — execution result normalization ✅
@@ -27,18 +27,26 @@ The orchestrator hardening tranche through **Task 041** is now complete on `main
 - 039a–039c — harness hardening tranche ✅
 - 040 — end-to-end integration harness ✅
 - 041a–041b — multi-project hardening ✅
+- 042a–042d — harness modularization tranche ✅
+- 043 — runtime artifact quarantine ✅
+- 044a–044b — spec / execution two-phase workflow ✅
+- 045 — structured failure journal ✅
+- 046 — project bootstrap adapter ✅
+- 047 — verification plugins / validators ✅
+- 048 — safe parallelism ✅
 
 ## What comes next
 
-The next orchestrator tranche focuses on making the engine more reusable across projects and reducing the cost of future hardening:
+The next orchestrator tranche is a **stabilization and portability tranche**, not a new capability tranche.
 
-- **042** — Harness modularization (split `agents/run_task.py` into reusable modules with no behavior change)
-- **043** — Runtime artifact quarantine
-- **044** — Spec mode / execution mode workflow
-- **045** — Structured failure journal
-- **046** — Project bootstrap adapter
-- **047** — Verification plugins / validators
-- **048** — Safe parallelism
+The main goals are:
+
+- finish shrinking `agents/run_task.py` into a truly thin shell
+- freeze the public orchestrator surface
+- normalize stale docs/status tables after 042–048
+- prove portability with a second non-TradingBot project fixture
+- add integrated end-to-end scenarios across the new 043–048 capabilities
+- prepare the orchestrator for eventual package/repo extraction
 
 ## Repo conventions
 
@@ -63,21 +71,28 @@ Every orchestrator task should continue to include:
 - machine-readable contract directives when useful
 - acceptance criteria tied to the current real baseline
 - narrow scope, ideally one risky production area per task
+- clear distinction between task-shape issues, shell issues, and true product/code issues
 
-## Task order (next tranche)
+## Next task order
 
-### Orchestrator productization
+### Orchestrator stabilization tranche
 
-- `042_orchestrator_harness_modularization_umbrella` (do not run directly)
-- `042a_orchestrator_extract_runtime_foundations`
-- `042b_orchestrator_extract_parsers_and_policies`
-- `042c_orchestrator_extract_semantic_preflight`
-- `042d_orchestrator_thin_run_task_shell_and_parity`
-- `043_orchestrator_runtime_artifact_quarantine`
-- `044_orchestrator_spec_execution_two_phase_umbrella` (do not run directly)
-- `044a_orchestrator_spec_mode_capture`
-- `044b_orchestrator_execution_mode_frozen_task`
-- `045_orchestrator_failure_journal_and_raw_retry_context`
-- `046_orchestrator_project_bootstrap_adapter`
-- `047_orchestrator_verification_plugins`
-- `048_orchestrator_safe_parallelism`
+- `049_orchestrator_run_task_shell_convergence_umbrella` (do not run directly)
+- `049a_orchestrator_run_task_export_and_wrapper_dedupe`
+- `049b_orchestrator_run_task_final_shell_routing_extraction`
+- `050_orchestrator_public_interface_freeze`
+- `051_orchestrator_docs_status_normalization`
+- `052_orchestrator_second_project_portability_proof`
+- `053_orchestrator_integrated_capabilities_e2e`
+- `054_orchestrator_package_extraction_prep`
+
+## Current recommendation
+
+Do **not** switch back to major TradingBot feature expansion yet.
+
+The best next move is to finish the orchestrator stabilization tranche, then either:
+
+1. split/package the orchestrator as its own product, or
+2. keep it in-repo but with a frozen public surface
+
+After that, resume TradingBot functional milestones such as recurring execution, reconciliation, reporting, backtesting, and stronger live-mode safety gates.

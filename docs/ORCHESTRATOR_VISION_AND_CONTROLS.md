@@ -48,7 +48,7 @@ Responsible for:
 - local check execution
 - branch-oriented task loop integration
 
-This layer is now strong enough to warrant modularization as its own reusable subsystem.
+This layer is now materially modularized, but the shell still needs convergence before it is truly thin and package-ready.
 
 ### 3. Project adapter / project config
 
@@ -64,6 +64,7 @@ Project-specific behavior:
 - environment/bootstrap expectations
 - task templates
 - project-specific validators
+- safe-parallelism defaults
 
 ## Controls
 
@@ -80,6 +81,7 @@ Project-specific behavior:
 - do not loop forever
 - if the same failure repeats, escalate instead of blindly retrying
 - preserve raw failure evidence for retries rather than over-compressing it too early
+- use direct patches when repeated retries keep corrupting the same protected surface
 
 ### Scope controls
 
@@ -100,6 +102,7 @@ Human approval required for:
 - live-trading related behavior
 - destructive or cross-cutting repository changes
 - protected-file policy exceptions
+- packaging / extraction surface changes
 
 ### Safety controls
 
@@ -108,18 +111,20 @@ Human approval required for:
 - prevent autonomous merging of risky/meta changes without approval
 - allow safe automation only when the change is structurally recoverable and policy-compliant
 
-## New lessons from tasks 039–041
+## Lessons from tasks 043–048
 
-The orchestrator is now good enough that the next leverage comes from **productizing the harness**, not just tightening prompts.
+The orchestrator is now good enough that the next leverage comes from **stabilizing product boundaries**, not from adding more engine features.
 
 Key lessons:
 
 - task quality is as important as model quality
-- future hardening should prefer production change first, then tests-only validation tasks
-- `run_task.py` is functionally strong but structurally too monolithic
-- runtime artifacts should be auto-quarantined when safely recoverable
-- ambiguity should be handled in a spec-generation phase before execution
-- project reusability now depends more on modularity and bootstrap tooling than on basic engine correctness
+- direct curated patches can be safer than repeated reruns for shell-sensitive work
+- `run_task.py` is functionally strong but structurally still too monolithic
+- runtime artifacts can now be auto-quarantined safely
+- ambiguity can be handled in a spec-generation phase before execution
+- validator selection belongs in config/adapters, but legacy wrapper behavior still matters
+- safe parallelism must be layered onto the real runner surface, not replace it
+- project reusability now depends on interface freeze and portability proof more than on adding new features
 
 ## Portability requirements
 
@@ -131,9 +136,10 @@ To make the orchestrator reusable across future software builds:
 - make lint/test commands configurable
 - allow project-specific protected-file patterns
 - keep merge criteria configurable
-- use `getattr` for all optional config fields
+- use `getattr` for optional config fields where appropriate
 - support project-specific validator plugins
 - support bootstrapping a new project adapter without engine edits
+- prove a second project fixture before extraction
 
 ## What success looks like now
 
@@ -147,3 +153,4 @@ The orchestrator is successful when it can:
 - reject green-but-policy-violating bundles
 - run the same engine against a second project with only a config change
 - bootstrap a third project with a scaffold command rather than manual repo surgery
+- expose a frozen public surface that can later move to its own package/repo

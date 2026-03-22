@@ -4,16 +4,17 @@
 
 This document formalizes the controls that govern orchestrator behavior.
 
-Tasks 032–041 are complete. The next tranche (042–048) focuses on harness modularization, runtime artifact quarantine, spec/execution workflow, structured failure journaling, project bootstrap, validator plugins, and safe parallelism.
+Tasks 032–048 are now complete in substance. The next tranche (049–054) focuses on shell convergence, public interface freeze, docs/status normalization, portability proof, integrated end-to-end scenarios, and package extraction prep.
 
 ## Core controls
 
 ### Repo discipline
 
 - require a clean worktree before starting any task
-- always create a dedicated branch per task (`agent-{task-stem}`)
+- always create a dedicated branch per task (`agent-{task-stem}` or explicit fix branch)
 - never commit directly to `main`
 - sync `main` before starting a new task (`git fetch origin && git reset --hard origin/main && git clean -fd`)
+- distinguish clearly between task-shape failures, shell/harness failures, and true product/code failures
 
 ### Retry discipline
 
@@ -22,6 +23,7 @@ Tasks 032–041 are complete. The next tranche (042–048) focuses on harness mo
 - escalate repeated failures instead of looping forever
 - if the agent produces a structurally invalid bundle, retry once with a format reminder
 - preserve a bounded raw failure snippet for the next retry when useful
+- prefer direct curated patches when repeated retries keep corrupting protected or high-leverage shell surfaces
 
 ### Scope discipline
 
@@ -42,6 +44,7 @@ Human approval is required for changes to any of:
 - live-trading related code paths
 - protected file patterns (defined per project config)
 - repair actions classified as high risk
+- orchestrator packaging / extraction surfaces
 
 ## Merge policy
 
@@ -134,7 +137,7 @@ Task specs should use one of these explicit modes when needed:
 
 ### exact-copy-plus-append-method
 
-Use when a file such as `runner.py` is included only to add one method.
+Use when a protected file is included only to add one helper/export seam.
 
 ### exact-copy-plus-replace-method
 
@@ -157,6 +160,18 @@ Use when work must stay within adapters/config/schema files.
 Use when only markdown or text documentation may change.
 
 Bundles that violate the declared mode must be rejected even if tests pass.
+
+## Thin-shell convergence policy
+
+The public shell `agents/run_task.py` should converge toward:
+
+- one stable definition per exported wrapper/helper
+- no duplicate export-seam definitions
+- no duplicate compatibility wrapper definitions
+- minimal inline business logic once a reusable helper module exists
+- preserved public behavior for the rest of the repo and tests
+
+When the shell is touched, tasks must prefer **behavior-preserving convergence** over adding new shell logic.
 
 ## Machine-readable task contract directives
 
@@ -187,6 +202,8 @@ Projects may define additional validators beyond `ruff` and `pytest`, such as:
 
 These validators should be configured in project adapters/config, not hardcoded in the core engine.
 
+Legacy runtime-foundations wrapper behavior must remain compatible for the built-in `ruff` / `pytest` path unless intentionally changed in a dedicated task.
+
 ## Safe parallelism policy
 
 Parallel task execution is allowed only when tasks are explicitly marked independent.
@@ -197,3 +214,12 @@ Parallel mode must:
 - never bypass approval policy
 - require deterministic fan-in / merge ordering
 - default to off unless the task class is explicitly parallel-safe
+
+## Portability proof policy
+
+Before packaging or repo extraction, the orchestrator must demonstrate:
+
+- a second non-TradingBot project adapter/config path
+- bootstrap outputs that are generic rather than TradingBot-specific
+- validator selection through adapter/config rather than shell hardcoding
+- end-to-end scenarios that combine runtime artifacts, spec mode, failure journaling, validators, and safe parallelism

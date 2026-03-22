@@ -16,6 +16,7 @@ The coding model/provider is configurable. The reliable control surface is:
 4. review/compliance checks
 5. machine-readable contract directives
 6. validator plugins
+7. project config / adapter translation
 
 The runner applies the bundle, runs validators, and retries up to 4 times, but green checks alone are not sufficient if the bundle violates task policy.
 
@@ -28,6 +29,7 @@ The runner applies the bundle, runs validators, and retries up to 4 times, but g
 - provide clear auditability for every decision
 - minimize task-spec patching by making the harness more semantically aware
 - separate spec clarification from execution when tasks are ambiguous
+- shrink the task shell into a stable thin public entrypoint
 
 ## Non-goals
 
@@ -55,6 +57,7 @@ The runner applies the bundle, runs validators, and retries up to 4 times, but g
 - protected API semantic preflight
 - runtime artifact quarantine
 - spec-mode and execution-mode workflow
+- structured failure journaling
 - validator plugin support
 - project bootstrap support
 - safe parallel task execution for explicitly independent work
@@ -76,13 +79,31 @@ The runner applies the bundle, runs validators, and retries up to 4 times, but g
 | Harness semantic hardening tranche | ✅ | 039a–039c |
 | End-to-end integration harness | ✅ | 040 |
 | Multi-project hardening | ✅ | 041a–041b |
-| Harness modularization | 🔜 | 042 |
-| Runtime artifact quarantine | 🔜 | 043 |
-| Spec / execution two-phase workflow | 🔜 | 044 |
-| Structured failure journal | 🔜 | 045 |
-| Project bootstrap adapter | 🔜 | 046 |
-| Verification plugins / validators | 🔜 | 047 |
-| Safe parallelism | 🔜 | 048 |
+| Harness modularization | ✅ | 042a–042d |
+| Runtime artifact quarantine | ✅ | 043 |
+| Spec / execution two-phase workflow | ✅ | 044a–044b |
+| Structured failure journal | ✅ | 045 |
+| Project bootstrap adapter | ✅ | 046 |
+| Verification plugins / validators | ✅ | 047 |
+| Safe parallelism | ✅ | 048 |
+| Thin-shell convergence | 🔜 | 049 |
+| Public interface freeze | 🔜 | 050 |
+| Status/docs normalization | 🔜 | 051 |
+| Second-project portability proof | 🔜 | 052 |
+| Integrated capability scenarios | 🔜 | 053 |
+| Package extraction prep | 🔜 | 054 |
+
+## Current phase
+
+The orchestrator has finished the 042–048 productization tranche in substance.
+
+The next phase is **stabilization and portability proof**, focused on:
+
+- converging `agents/run_task.py` into a truly thin shell
+- freezing public config / adapter / validator / task-spec surfaces
+- proving reuse against a second project fixture
+- updating stale docs/status surfaces
+- preparing extraction into its own package/repository later
 
 ## Safety model
 
@@ -92,7 +113,7 @@ The runner applies the bundle, runs validators, and retries up to 4 times, but g
 - task branch creation
 - local validator execution
 - deliverable review
-- runtime artifact detection
+- runtime artifact detection/quarantine
 - task state update
 
 ### Automatic if policy allows
@@ -101,6 +122,7 @@ The runner applies the bundle, runs validators, and retries up to 4 times, but g
 - auto-merge after passing CI
 - safe retries
 - cleanup of known runtime artifacts
+- spec-to-execution transition when the frozen artifact is valid
 
 ### Approval required
 
@@ -112,6 +134,7 @@ The runner applies the bundle, runs validators, and retries up to 4 times, but g
 - changes to protected/meta files
 - repeated failure beyond retry policy
 - broad adapter/policy changes
+- orchestrator extraction / packaging surface changes
 
 ## High-level architecture target
 
@@ -135,7 +158,7 @@ src/builder/orchestrator/
     cli.py
 
 agents/
-    run_task.py                — thin task shell
+    run_task.py                — thin task shell / public entrypoint
     lib/
         bundle_parser.py
         task_contracts.py
@@ -150,9 +173,20 @@ agents/
         validator_runner.py
 ```
 
+## Current structural gap
+
+The feature set through 048 is present, but the shell is still not thin enough.
+
+The next tranche should specifically remove duplicate wrapper/export definitions and continue moving inline shell logic into `agents/lib/*` until `run_task.py` is mostly:
+
+- CLI argument parsing
+- top-level routing
+- stable compatibility wrappers
+- export seams used by tests
+
 ## Success criteria
 
-The orchestrator is production-usable when it can:
+The orchestrator is production-usable as a reusable delivery product when it can:
 
 - run a task loop end to end
 - stop safely on risky situations
@@ -164,3 +198,4 @@ The orchestrator is production-usable when it can:
 - reject obviously invalid protected API usage before burning full test iterations
 - quarantine known runtime artifacts automatically without weakening policy
 - switch cleanly between spec generation and execution
+- expose a frozen public surface that can be packaged outside TradingBot
