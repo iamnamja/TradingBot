@@ -2776,12 +2776,12 @@ def main() -> int:
         raise SystemExit(f"Task file not found: {task_path}")
 
     task_text = task_path.read_text(encoding="utf-8", errors="replace")
+    spec_exports = _spec_mode_exports()
 
     if getattr(args, "spec_mode", False):
-        exports = _spec_mode_exports()
-        build_artifact = exports.get("build_frozen_spec_artifact")
-        should_trigger = exports.get("task_is_underspecified")
-        write_artifact = exports.get("write_frozen_spec_artifact")
+        build_artifact = spec_exports.get("build_frozen_spec_artifact")
+        should_trigger = spec_exports.get("task_is_underspecified")
+        write_artifact = spec_exports.get("write_frozen_spec_artifact")
         if callable(build_artifact):
             trigger = True
             if callable(should_trigger):
@@ -2812,6 +2812,42 @@ def main() -> int:
             return 0
         print("❌ Spec mode unavailable: agents.lib.spec_mode not importable.")
         return 1
+
+    resolve_frozen = spec_exports.get("resolve_execution_task_text")
+    read_frozen = spec_exports.get("read_frozen_spec_artifact")
+    if callable(resolve_frozen):
+        try:
+            resolved = resolve_frozen(task_text, task_path.as_posix())
+        except TypeError:
+            resolved = resolve_frozen(task_text)
+        except Exception:
+            resolved = None
+        if isinstance(resolved, dict):
+            resolved_text = resolved.get("task_text")
+            if isinstance(resolved_text, str) and resolved_text.strip():
+                if resolved.get("resolved_from_frozen"):
+                    print(f"🧊 Execution mode: using frozen spec artifact {resolved.get('artifact_path', task_path.as_posix())}")
+                task_text = resolved_text
+        elif isinstance(resolved, str) and resolved.strip():
+            task_text = resolved
+    elif callable(read_frozen):
+        try:
+            artifact = read_frozen(task_path)
+        except Exception:
+            artifact = None
+        if isinstance(artifact, dict):
+            canonical = artifact.get("canonical_task_text")
+            if not isinstance(canonical, str) or not canonical.strip():
+                canonical = artifact.get("task_text")
+            if not isinstance(canonical, str) or not canonical.strip():
+                frozen = artifact.get("frozen_spec")
+                if isinstance(frozen, dict):
+                    maybe = frozen.get("canonical_task_text")
+                    if isinstance(maybe, str) and maybe.strip():
+                        canonical = maybe
+            if isinstance(canonical, str) and canonical.strip():
+                print(f"🧊 Execution mode: using frozen spec artifact {task_path.as_posix()}")
+                task_text = canonical
 
     ensure_clean_worktree()
 
@@ -3196,6 +3232,40 @@ def _spec_mode_exports() -> Dict[str, object]:
             exports["build_frozen_spec_artifact"] = build_artifact
         if callable(write_artifact):
             exports["write_frozen_spec_artifact"] = write_artifact
+
+    return exports
+
+def _spec_mode_exports() -> Dict[str, object]:
+    try:
+        from agents.lib import spec_mode as _spec_mode  # type: ignore
+    except Exception:
+        _spec_mode = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {
+        "spec_mode": _spec_mode,
+        "task_is_underspecified": None,
+        "build_frozen_spec_artifact": None,
+        "write_frozen_spec_artifact": None,
+        "read_frozen_spec_artifact": None,
+        "resolve_execution_task_text": None,
+    }
+
+    if _spec_mode is not None:
+        is_under = getattr(_spec_mode, "task_is_underspecified", None)
+        build_artifact = getattr(_spec_mode, "build_frozen_spec_artifact", None)
+        write_artifact = getattr(_spec_mode, "write_frozen_spec_artifact", None)
+        read_artifact = getattr(_spec_mode, "read_frozen_spec_artifact", None)
+        resolve_execution = getattr(_spec_mode, "resolve_execution_task_text", None)
+        if callable(is_under):
+            exports["task_is_underspecified"] = is_under
+        if callable(build_artifact):
+            exports["build_frozen_spec_artifact"] = build_artifact
+        if callable(write_artifact):
+            exports["write_frozen_spec_artifact"] = write_artifact
+        if callable(read_artifact):
+            exports["read_frozen_spec_artifact"] = read_artifact
+        if callable(resolve_execution):
+            exports["resolve_execution_task_text"] = resolve_execution
 
     return exports
 
