@@ -2619,6 +2619,20 @@ def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> L
 
 
 def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
+    exports = _artifact_quarantine_exports()
+    quarantine = exports.get("quarantine_runtime_artifacts")
+    known_safe = exports.get("known_safe_artifact_names", RUNTIME_ARTIFACT_NAMES)
+
+    if callable(quarantine):
+        quarantine(
+            paths,
+            run_git_command=run,
+            path_exists=lambda p: p.exists(),
+            unlink_path=lambda p: p.unlink(),
+            known_safe_names=known_safe,
+        )
+        return
+
     for path in paths:
         try:
             run(["git", "rm", "--cached", "--quiet", "--ignore-unmatch", path.as_posix()], check=False)
@@ -2629,8 +2643,6 @@ def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
                 path.unlink()
         except Exception:
             pass
-
-
 def _report_failure(kind: str, message: str) -> None:
     print(f"❌ [{kind}] {message}")
 
@@ -3101,6 +3113,28 @@ def _semantic_preflight_exports() -> Dict[str, object]:
         exports["_protected_python_semantic_issues"] = _protected_python_semantic_issues
     if "validate_static_bundle_contracts" not in exports:
         exports["validate_static_bundle_contracts"] = validate_static_bundle_contracts
+    return exports
+
+def _artifact_quarantine_exports() -> Dict[str, object]:
+    try:
+        from agents.lib import artifact_quarantine as _artifact_quarantine  # type: ignore
+    except Exception:
+        _artifact_quarantine = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {
+        "artifact_quarantine": _artifact_quarantine,
+        "known_safe_artifact_names": RUNTIME_ARTIFACT_NAMES,
+        "quarantine_runtime_artifacts": None,
+    }
+
+    if _artifact_quarantine is not None:
+        known = getattr(_artifact_quarantine, "KNOWN_SAFE_ARTIFACT_NAMES", None)
+        if isinstance(known, (tuple, list, set)):
+            exports["known_safe_artifact_names"] = tuple(str(x) for x in known)
+        quarantine = getattr(_artifact_quarantine, "quarantine_runtime_artifacts", None)
+        if callable(quarantine):
+            exports["quarantine_runtime_artifacts"] = quarantine
+
     return exports
 
 if __name__ == "__main__":
