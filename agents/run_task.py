@@ -123,7 +123,7 @@ def _load_dotenv_if_available() -> None:
     load_dotenv()
 
 
-def default_provider() -> str:
+def _default_provider_impl() -> str:
     provider = os.getenv("TRADINGBOT_AGENT_PROVIDER", "").strip().lower()
     if provider:
         return provider
@@ -1980,7 +1980,7 @@ def bundle_similarity(a: Dict[str, str] | None, b: Dict[str, str] | None) -> flo
     return difflib.SequenceMatcher(None, left, right).ratio()
 
 
-def run_checks() -> Tuple[bool, str]:
+def _run_checks_impl() -> Tuple[bool, str]:
     try:
         from agents.lib.check_runner import run_checks as _run_checks  # type: ignore
 
@@ -2729,7 +2729,7 @@ def _report_failure(kind: str, message: str) -> None:
 # Runtime foundations compatibility wrappers (042a)
 # Keep thin public wrappers in agents.run_task while delegating to extracted modules
 # so tests and downstream callers can still patch/use the extracted surfaces.
-_default_provider_local = default_provider
+_default_provider_local = _default_provider_impl
 _default_model_for_provider_local = default_model_for_provider
 _chat_openai_local = chat_openai
 _chat_anthropic_local = chat_anthropic
@@ -2739,7 +2739,7 @@ _capture_local = capture
 _capture_result_local = capture_result
 _ensure_clean_worktree_local = ensure_clean_worktree
 _ensure_branch_local = ensure_branch
-_run_checks_local = run_checks
+_run_checks_local = _run_checks_impl
 
 
 def _runtime_foundations_exports() -> Dict[str, object]:
@@ -3319,32 +3319,6 @@ def _artifact_quarantine_exports() -> Dict[str, object]:
         quarantine = getattr(_artifact_quarantine, "quarantine_runtime_artifacts", None)
         if callable(quarantine):
             exports["quarantine_runtime_artifacts"] = quarantine
-
-    return exports
-
-def _spec_mode_exports() -> Dict[str, object]:
-    try:
-        from agents.lib import spec_mode as _spec_mode  # type: ignore
-    except Exception:
-        _spec_mode = None  # type: ignore[assignment]
-
-    exports: Dict[str, object] = {
-        "spec_mode": _spec_mode,
-        "task_is_underspecified": None,
-        "build_frozen_spec_artifact": None,
-        "write_frozen_spec_artifact": None,
-    }
-
-    if _spec_mode is not None:
-        is_under = getattr(_spec_mode, "task_is_underspecified", None)
-        build_artifact = getattr(_spec_mode, "build_frozen_spec_artifact", None)
-        write_artifact = getattr(_spec_mode, "write_frozen_spec_artifact", None)
-        if callable(is_under):
-            exports["task_is_underspecified"] = is_under
-        if callable(build_artifact):
-            exports["build_frozen_spec_artifact"] = build_artifact
-        if callable(write_artifact):
-            exports["write_frozen_spec_artifact"] = write_artifact
 
     return exports
 
