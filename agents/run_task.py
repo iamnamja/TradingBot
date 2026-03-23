@@ -123,7 +123,7 @@ def _load_dotenv_if_available() -> None:
     load_dotenv()
 
 
-def _default_provider_impl() -> str:
+def default_provider() -> str:
     provider = os.getenv("TRADINGBOT_AGENT_PROVIDER", "").strip().lower()
     if provider:
         return provider
@@ -1980,7 +1980,7 @@ def bundle_similarity(a: Dict[str, str] | None, b: Dict[str, str] | None) -> flo
     return difflib.SequenceMatcher(None, left, right).ratio()
 
 
-def _run_checks_impl() -> Tuple[bool, str]:
+def run_checks() -> Tuple[bool, str]:
     try:
         from agents.lib.check_runner import run_checks as _run_checks  # type: ignore
 
@@ -2433,7 +2433,10 @@ def build_messages(
 
 
 
-def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], List[str]]:
+def _parse_file_bundle_transport_resilient(
+    text: str,
+    expected_paths: List[str] | None = None,
+) -> Tuple[Dict[str, str], List[str]]:
     """
     Best-effort recovery for malformed outer file-bundle transport.
 
@@ -2442,29 +2445,80 @@ def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], L
     """
     normalized = normalize_newlines(text)
     lines = normalized.split("\n")
+    expected = {p.replace("\\", "/") for p in (expected_paths or []) if p}
 
     begin_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_BEGIN]
     end_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_END]
 
-    if len(begin_idxs) == 1 and len(end_idxs) == 1:
+    markerless = False
+    warnings: List[str] = []
+    if begin_idxs and end_idxs:
         b = begin_idxs[0]
-        e = end_idxs[0]
+        e = end_idxs[-1]
         if e < b:
             raise FileBundleError("END_FILE_BUNDLE appears before BEGIN_FILE_BUNDLE.")
         inner = lines[b + 1 : e]
-        markerless = False
-    elif len(begin_idxs) == 0 and len(end_idxs) == 0:
+        if len(begin_idxs) > 1 or len(end_idxs) > 1:
+            warnings.append(
+                "recovered nested/raw bundle markers by using outermost BEGIN_FILE_BUNDLE/END_FILE_BUNDLE"
+            )
+    elif not begin_idxs and not end_idxs:
         inner = lines
         markerless = True
     else:
         raise FileBundleError("Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.")
 
     files: Dict[str, str] = {}
-    warnings: List[str] = []
     cur_path: str | None = None
     cur_lines: List[str] = []
     started = False
     trailing_text_ignored = False
+
+    def _normalize_path(path: str) -> str:
+        return path.strip().replace("\\", "/")
+
+    def _header_path(line: str) -> str | None:
+        m = BUNDLE_FILE_HEADER_RE.match(line)
+        if not m:
+            return None
+        path = _normalize_path(m.group(1))
+        return path or None
+
+    def _looks_expected(path: str) -> bool:
+        return not expected or path in expected
+
+    def _next_significant_index(start: int) -> int | None:
+        j = start
+        while j < len(inner):
+            stripped = inner[j].strip()
+            if not stripped or stripped in {"```", "~~~"}:
+                j += 1
+                continue
+            return j
+        return None
+
+    def _should_close_on_end_file(i: int) -> bool:
+        j = _next_significant_index(i + 1)
+        if j is None:
+            return True
+        path = _header_path(inner[j])
+        if path is None:
+            return False
+        return _looks_expected(path)
+
+    def _should_start_new_file_from_header(i: int, path: str) -> bool:
+        if not _looks_expected(path):
+            return False
+        j = _next_significant_index(i + 1)
+        if j is None:
+            return False
+        # A plausible new file block should have some following content and eventually
+        # terminate at a real END_FILE later in the transport. This avoids treating
+        # literal FILE: lines inside generated source/docstrings as structural headers.
+        for k in range(j, len(inner)):
+            if inner[k] == FILE_END and _should_close_on_end_file(k):
+                return True
+        return False
 
     def close_current(reason: str) -> None:
         nonlocal cur_path, cur_lines
@@ -2485,8 +2539,8 @@ def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], L
                 i += 1
                 continue
 
-            m = BUNDLE_FILE_HEADER_RE.match(line)
-            if not m:
+            path = _header_path(line)
+            if path is None:
                 if markerless and not started:
                     i += 1
                     continue
@@ -2495,24 +2549,27 @@ def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], L
                     break
                 raise FileBundleError(f"Expected FILE header, got: {line!r}")
 
-            path = m.group(1).strip().replace("\\", "/")
-            if not path:
-                raise FileBundleError("Empty FILE path.")
             if path in files:
                 raise FileBundleError(f"Duplicate FILE path in bundle: {path}")
+            if expected and path not in expected:
+                if markerless and not started:
+                    i += 1
+                    continue
+                raise FileBundleError(f"Unexpected FILE path in bundle: {path}")
+
             cur_path = path
             cur_lines = []
             started = True
             i += 1
             continue
 
-        if line == FILE_END:
+        if line == FILE_END and _should_close_on_end_file(i):
             close_current("closed explicit END_FILE")
             i += 1
             continue
 
-        m = BUNDLE_FILE_HEADER_RE.match(line)
-        if m:
+        path = _header_path(line)
+        if path is not None and _should_start_new_file_from_header(i, path):
             close_current("auto-closed missing END_FILE before next FILE")
             continue
 
@@ -2541,6 +2598,7 @@ def request_and_parse_bundle(
     provider: str,
     last_output_path: Path,
     forbidden_paths: List[str] | None = None,
+    expected_paths: List[str] | None = None,
 ) -> Dict[str, str]:
     def _validate_transport(parsed: Dict[str, str]) -> Dict[str, str]:
         overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
@@ -2552,7 +2610,10 @@ def request_and_parse_bundle(
         try:
             return _validate_transport(parse_file_bundle(raw))
         except Exception:
-            salvaged, warnings = _parse_file_bundle_transport_resilient(raw)
+            salvaged, warnings = _parse_file_bundle_transport_resilient(
+                raw,
+                expected_paths=expected_paths,
+            )
             validated = _validate_transport(salvaged)
             if warnings:
                 print("⚠️ Recovered malformed file bundle transport:")
@@ -2755,7 +2816,7 @@ def _report_failure(kind: str, message: str) -> None:
 # Runtime foundations compatibility wrappers (042a)
 # Keep thin public wrappers in agents.run_task while delegating to extracted modules
 # so tests and downstream callers can still patch/use the extracted surfaces.
-_default_provider_local = _default_provider_impl
+_default_provider_local = default_provider
 _default_model_for_provider_local = default_model_for_provider
 _chat_openai_local = chat_openai
 _chat_anthropic_local = chat_anthropic
@@ -2765,7 +2826,7 @@ _capture_local = capture
 _capture_result_local = capture_result
 _ensure_clean_worktree_local = ensure_clean_worktree
 _ensure_branch_local = ensure_branch
-_run_checks_local = _run_checks_impl
+_run_checks_local = run_checks
 
 
 def _runtime_foundations_exports() -> Dict[str, object]:
@@ -2893,11 +2954,6 @@ def main() -> int:
         args.provider = default_provider()
     if not getattr(args, "model", None):
         args.model = default_model_for_provider(args.provider)
-
-    exports = _shell_router_exports()
-    route_shell_main = exports.get("route_shell_main")
-    if callable(route_shell_main):
-        return int(route_shell_main(args, globals()))
 
     if str(getattr(args, "bootstrap_project", "") or "").strip():
         target_dir = Path(str(args.bootstrap_project).strip())
@@ -3100,6 +3156,7 @@ def main() -> int:
                     args.provider,
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
+                    expected_paths=sorted(bundle_required),
                 )
                 files.update(generated)
             elif not files:
@@ -3117,6 +3174,7 @@ def main() -> int:
                     args.provider,
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
+                    expected_paths=sorted(required),
                 )
         except FileBundleError as e:
             _report_failure("bundle_transport", str(e))
@@ -3364,6 +3422,32 @@ def _spec_mode_exports() -> Dict[str, object]:
         "task_is_underspecified": None,
         "build_frozen_spec_artifact": None,
         "write_frozen_spec_artifact": None,
+    }
+
+    if _spec_mode is not None:
+        is_under = getattr(_spec_mode, "task_is_underspecified", None)
+        build_artifact = getattr(_spec_mode, "build_frozen_spec_artifact", None)
+        write_artifact = getattr(_spec_mode, "write_frozen_spec_artifact", None)
+        if callable(is_under):
+            exports["task_is_underspecified"] = is_under
+        if callable(build_artifact):
+            exports["build_frozen_spec_artifact"] = build_artifact
+        if callable(write_artifact):
+            exports["write_frozen_spec_artifact"] = write_artifact
+
+    return exports
+
+def _spec_mode_exports() -> Dict[str, object]:
+    try:
+        from agents.lib import spec_mode as _spec_mode  # type: ignore
+    except Exception:
+        _spec_mode = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {
+        "spec_mode": _spec_mode,
+        "task_is_underspecified": None,
+        "build_frozen_spec_artifact": None,
+        "write_frozen_spec_artifact": None,
         "read_frozen_spec_artifact": None,
         "resolve_execution_task_text": None,
     }
@@ -3472,24 +3556,6 @@ def _bootstrap_exports() -> Dict[str, object]:
         bootstrap_config = getattr(_project_config, "bootstrap_project_config_scaffold", None)
         if callable(bootstrap_config):
             exports["bootstrap_project_config_scaffold"] = bootstrap_config
-
-    return exports
-
-def _shell_router_exports() -> Dict[str, object]:
-    try:
-        from agents.lib import shell_router as _shell_router  # type: ignore
-    except Exception:
-        _shell_router = None  # type: ignore[assignment]
-
-    exports: Dict[str, object] = {
-        "shell_router": _shell_router,
-        "route_shell_main": None,
-    }
-
-    if _shell_router is not None:
-        route_shell_main = getattr(_shell_router, "route_shell_main", None)
-        if callable(route_shell_main):
-            exports["route_shell_main"] = route_shell_main
 
     return exports
 

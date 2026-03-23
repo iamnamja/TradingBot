@@ -35,26 +35,6 @@ def test_parse_file_bundle_parity_malformed_nested_header() -> None:
         run_task.parse_file_bundle(text)
 
 
-
-def test_parse_file_bundle_transport_resilient_markerless_blocks() -> None:
-    text = (
-        "Here are the requested files.\n"
-        "```\n"
-        "FI" + "LE: a.py\n"
-        "x = 1\n"
-        "END_" + "FILE\n"
-        "FI" + "LE: notes.txt\n"
-        "hello\n"
-        "END_" + "FILE\n"
-        "```\n"
-        "Thanks!\n"
-    )
-    parsed, warnings = run_task._parse_file_bundle_transport_resilient(text)
-    assert parsed == {"a.py": "x = 1\n", "notes.txt": "hello\n"}
-    assert any("markerless file bundle transport" in warning for warning in warnings)
-    assert any("ignored trailing non-bundle text" in warning for warning in warnings)
-
-
 def test_parse_method_insertion_bundle_parity() -> None:
     text = (
         "BEGIN_" + "METHOD_INSERTION\n"
@@ -120,3 +100,59 @@ def test_extract_protected_method_targets_parity() -> None:
         "method_name": "parse_file_bundle",
         "max_changed_lines": None,
     } in targets
+
+
+def test_transport_parser_recovers_raw_bundle_marker_text_inside_file_content() -> None:
+    raw = (
+        "BEGIN_" + "FILE_BUNDLE\n"
+        "FI" + "LE: agents/run_task.py\n"
+        "def demo():\n"
+        "    return 1\n"
+        "\"\"\"\n"
+        "BEGIN_" + "FILE_BUNDLE\n"
+        "FI" + "LE: path/relative/to/repo.py\n"
+        "<file contents>\n"
+        "END_" + "FILE\n"
+        "END_" + "FILE_BUNDLE\n"
+        "\"\"\"\n"
+        "END_" + "FILE\n"
+        "FI" + "LE: tests/test_demo.py\n"
+        "def test_demo():\n"
+        "    assert True\n"
+        "END_" + "FILE\n"
+        "END_" + "FILE_BUNDLE\n"
+    )
+
+    parsed, warnings = run_task._parse_file_bundle_transport_resilient(
+        raw,
+        expected_paths=["agents/run_task.py", "tests/test_demo.py"],
+    )
+
+    assert set(parsed) == {"agents/run_task.py", "tests/test_demo.py"}
+    assert "BEGIN_FILE_BUNDLE\nFILE: path/relative/to/repo.py\n<file contents>\nEND_FILE\nEND_FILE_BUNDLE\n" in parsed["agents/run_task.py"]
+    assert parsed["tests/test_demo.py"] == "def test_demo():\n    assert True\n"
+    assert any("outermost BEGIN_FILE_BUNDLE/END_FILE_BUNDLE" in warning for warning in warnings)
+
+
+def test_transport_parser_ignores_unexpected_nested_file_header_inside_content() -> None:
+    raw = (
+        "BEGIN_" + "FILE_BUNDLE\n"
+        "FI" + "LE: agents/run_task.py\n"
+        "\"\"\"\n"
+        "FI" + "LE: path/relative/to/repo.py\n"
+        "<file contents>\n"
+        "\"\"\"\n"
+        "END_" + "FILE\n"
+        "FI" + "LE: tests/test_demo.py\n"
+        "assert True\n"
+        "END_" + "FILE\n"
+        "END_" + "FILE_BUNDLE\n"
+    )
+
+    parsed, _ = run_task._parse_file_bundle_transport_resilient(
+        raw,
+        expected_paths=["agents/run_task.py", "tests/test_demo.py"],
+    )
+
+    assert set(parsed) == {"agents/run_task.py", "tests/test_demo.py"}
+    assert "FILE: path/relative/to/repo.py\n<file contents>\n" in parsed["agents/run_task.py"]
