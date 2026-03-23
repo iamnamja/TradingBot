@@ -35,6 +35,26 @@ def test_parse_file_bundle_parity_malformed_nested_header() -> None:
         run_task.parse_file_bundle(text)
 
 
+
+def test_parse_file_bundle_transport_resilient_markerless_blocks() -> None:
+    text = (
+        "Here are the requested files.\n"
+        "```\n"
+        "FI" + "LE: a.py\n"
+        "x = 1\n"
+        "END_" + "FILE\n"
+        "FI" + "LE: notes.txt\n"
+        "hello\n"
+        "END_" + "FILE\n"
+        "```\n"
+        "Thanks!\n"
+    )
+    parsed, warnings = run_task._parse_file_bundle_transport_resilient(text)
+    assert parsed == {"a.py": "x = 1\n", "notes.txt": "hello\n"}
+    assert any("markerless file bundle transport" in warning for warning in warnings)
+    assert any("ignored trailing non-bundle text" in warning for warning in warnings)
+
+
 def test_parse_method_insertion_bundle_parity() -> None:
     text = (
         "BEGIN_" + "METHOD_INSERTION\n"
