@@ -14,13 +14,12 @@ Create or update these exact files. Every listed file must appear in the bundle:
 - `tests/test_run_task_shell_parity.py`
 - `tests/test_run_task_runtime_foundations.py`
 - `tests/test_run_task_shell_convergence.py`
-- `README.md`
 
 ## Harness policy
 
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD REPLACE_METHOD=default_provider
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD REPLACE_METHOD=run_checks
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_REPLACE_METHOD REPLACE_METHOD=_spec_mode_exports
+- FILE: tests/test_run_task_shell_parity.py MODE=TESTS_ONLY
+- FILE: tests/test_run_task_runtime_foundations.py MODE=TESTS_ONLY
+- FILE: tests/test_run_task_shell_convergence.py MODE=TESTS_ONLY
 
 ## Critical compatibility requirement
 
@@ -34,6 +33,14 @@ In particular, keep these seams present and behaviorally compatible:
 - `_bootstrap_exports()`
 - `run_checks()`
 
+## Task-shape guidance
+
+This task intentionally does **not** put `agents/run_task.py` under protected method-replacement mode.
+
+The dedupe work crosses duplicated definitions and surrounding shared shell lines, so `agents/run_task.py` should be handled as a normal surgical full-file patch in this task.
+
+Do **not** use this task to redesign the shell or move major routing logic out of the file. That belongs to `049b`.
+
 ## Required behavior
 
 1. `agents/run_task.py` should contain only **one active definition** for each of:
@@ -42,6 +49,12 @@ In particular, keep these seams present and behaviorally compatible:
    - `_spec_mode_exports`
 2. current runtime-foundations, shell-parity, and spec/execution behavior must remain green
 3. add a deterministic test that asserts the shell no longer contains duplicate definitions for those public surfaces
+4. do not rename, remove, or relocate the public shell seams stabilized in 043–048
+
+## Failure classification guidance
+
+- if the work fails because protected method mode cannot remove duplicate definitions across the file, that is a **task-shape failure**, not a product failure
+- if the dedupe patch lands but compatibility tests fail, that is a **shell/code failure** and should be fixed directly rather than retried blindly
 
 ## Acceptance criteria
 

@@ -16,6 +16,13 @@ Create or update these exact files. Every listed file must appear in the bundle:
 - `agents/lib/validator_runner.py`
 - `tests/test_orchestrator_public_surface.py`
 
+## Harness policy
+
+- FILE: ORCHESTRATOR_PRODUCT_SPEC.md MODE=DOCS_ONLY
+- FILE: ORCHESTRATOR_CONTROLS_AND_POLICIES.md MODE=DOCS_ONLY
+- FILE: ORCHESTRATOR_VISION_AND_CONTROLS.md MODE=DOCS_ONLY
+- FILE: tests/test_orchestrator_public_surface.py MODE=TESTS_ONLY
+
 ## Required behavior
 
 Document and freeze the intended public/stable surface for:
@@ -32,9 +39,19 @@ This is an interface freeze task, not a redesign task.
 
 Prefer additive documentation, typed surfaces, and deterministic tests over broad engine behavior changes.
 
+Do not change command-line behavior or repo wiring merely to make the docs cleaner.
+
+## Required implementation emphasis
+
+- make the frozen surface explicit and named
+- distinguish public/stable interfaces from internal implementation details
+- favor narrow typed helpers, dataclasses, Protocol-style contracts, or well-documented adapters over hidden convention
+- keep the frozen surface compatible with the post-049 shell baseline
+
 ## Acceptance criteria
 
 - `ruff check .` passes
 - `pytest -q` is fully green
 - a dedicated public-surface test verifies the frozen public interface
 - docs explicitly distinguish public/stable interfaces from internal implementation details
+- the frozen public surface is sequence-aware and compatible with later extraction work

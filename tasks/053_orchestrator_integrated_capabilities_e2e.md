@@ -33,9 +33,18 @@ Add realistic integrated scenarios covering combinations such as:
 - bootstrap/project adapter + validator plugins
 - safe parallelism gating + protected-file restrictions
 
+## Test-shape guidance
+
+Prefer composing the existing focused helpers/fixtures rather than re-implementing large bespoke setups.
+
+These integrated tests should **layer on top of** the existing focused unit tests, not replace or weaken them.
+
+At least one scenario should exercise **three or more** of the 043–048 capabilities in one realistic flow.
+
 ## Acceptance criteria
 
 - `ruff check .` passes
 - `pytest -q` is fully green
 - at least one new integrated scenario uses 3 or more of the 043–048 capabilities together
 - integrated tests do not weaken the existing focused unit tests
+- the product spec notes the existence and purpose of the integrated scenario coverage
