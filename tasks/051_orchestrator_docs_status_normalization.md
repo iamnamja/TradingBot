@@ -34,9 +34,17 @@ Create or update these exact files. Every listed file must appear in the bundle:
 2. describe the next stabilization tranche 049–054
 3. keep TradingBot status accurate: still manual paper-trading readiness
 4. update the repo-separation recommendation to “separate later, after stabilization tranche”
+5. keep the orchestrator described as reusable and increasingly productized, but not yet extracted into its own repo/package
+
+## Constraints
+
+This is a docs-only normalization sweep.
+
+Do not use this task to change engine behavior, CLI behavior, or task ordering.
 
 ## Acceptance criteria
 
 - docs are internally consistent
 - no doc still claims 042–048 is merely upcoming
 - the next tranche is named and ordered consistently across files
+- no doc claims the orchestrator has already been extracted into its own repository

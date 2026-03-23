@@ -13,13 +13,26 @@ Create or update these exact files. Every listed file must appear in the bundle:
 - `tests/fixtures/sample_app/project_config.json`
 - `tests/fixtures/sample_app/tasks/001_sample_task.md`
 - `tests/test_second_project_portability.py`
-- `README.md`
+
+## Harness policy
+
+- FILE: tests/test_second_project_portability.py MODE=TESTS_ONLY
 
 ## Required behavior
 
 1. add a minimal second project fixture that is clearly not TradingBot-specific
 2. prove bootstrap/config/adapter behavior works against that fixture
 3. prove validator selection and protected-file settings come from the fixture config/adapter, not TradingBot hardcoding
+4. make the portability proof fixture-local and self-contained; it should not depend on TradingBot repo paths, TradingBot task names, or TradingBot package assumptions
+
+## Portability constraints
+
+The portability proof should explicitly avoid assumptions such as:
+
+- hardcoded `TradingBot` project names
+- hardcoded TradingBot task directories or repo-root layout
+- TradingBot-only validator or protected-file defaults
+- hidden dependence on app-specific paths when running the fixture test from a temporary copied directory
 
 ## Acceptance criteria
 
@@ -27,3 +40,4 @@ Create or update these exact files. Every listed file must appear in the bundle:
 - `pytest -q` is fully green
 - `tests/test_second_project_portability.py` proves the engine can reason about the second project fixture
 - no TradingBot-specific path assumptions are required for the second project test to pass
+- the test demonstrates that validator selection and protected-file settings originate from the fixture config/adapter path, not TradingBot hardcoding
