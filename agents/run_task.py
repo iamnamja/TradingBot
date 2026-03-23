@@ -2868,6 +2868,11 @@ def main() -> int:
     if not getattr(args, "model", None):
         args.model = default_model_for_provider(args.provider)
 
+    exports = _shell_router_exports()
+    route_shell_main = exports.get("route_shell_main")
+    if callable(route_shell_main):
+        return int(route_shell_main(args, globals()))
+
     if str(getattr(args, "bootstrap_project", "") or "").strip():
         target_dir = Path(str(args.bootstrap_project).strip())
         try:
@@ -3441,6 +3446,24 @@ def _bootstrap_exports() -> Dict[str, object]:
         bootstrap_config = getattr(_project_config, "bootstrap_project_config_scaffold", None)
         if callable(bootstrap_config):
             exports["bootstrap_project_config_scaffold"] = bootstrap_config
+
+    return exports
+
+def _shell_router_exports() -> Dict[str, object]:
+    try:
+        from agents.lib import shell_router as _shell_router  # type: ignore
+    except Exception:
+        _shell_router = None  # type: ignore[assignment]
+
+    exports: Dict[str, object] = {
+        "shell_router": _shell_router,
+        "route_shell_main": None,
+    }
+
+    if _shell_router is not None:
+        route_shell_main = getattr(_shell_router, "route_shell_main", None)
+        if callable(route_shell_main):
+            exports["route_shell_main"] = route_shell_main
 
     return exports
 
