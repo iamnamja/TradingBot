@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib
 import sys
 from pathlib import Path
@@ -145,3 +146,41 @@ def test_shell_failing_path_returns_nonzero(monkeypatch: pytest.MonkeyPatch, tmp
     rc = _invoke_main(run_task_mod, task_file, push=False)
 
     assert rc != 0
+
+
+def test_shell_convergence_targets_are_defined_once() -> None:
+    run_task_mod = _import_run_task_module()
+    source = Path(run_task_mod.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    counts: dict[str, int] = {}
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            counts[node.name] = counts.get(node.name, 0) + 1
+
+    assert counts.get("default_provider") == 1
+    assert counts.get("run_checks") == 1
+    assert counts.get("_spec_mode_exports") == 1
+
+
+def test_repo_root_bootstrap_precedes_agents_lib_imports() -> None:
+    run_task_mod = _import_run_task_module()
+    source = Path(run_task_mod.__file__).read_text(encoding="utf-8")
+
+    bootstrap_idx = source.index("_ensure_repo_root_on_sys_path()")
+    lib_import_idx = source.index("from agents.lib import")
+    assert bootstrap_idx < lib_import_idx
+
+
+def test_spec_mode_exports_preserve_execution_resolvers() -> None:
+    run_task_mod = _import_run_task_module()
+    exports = run_task_mod._spec_mode_exports()
+
+    assert set(exports) >= {
+        "spec_mode",
+        "task_is_underspecified",
+        "build_frozen_spec_artifact",
+        "write_frozen_spec_artifact",
+        "read_frozen_spec_artifact",
+        "resolve_execution_task_text",
+    }
