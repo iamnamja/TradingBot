@@ -215,6 +215,7 @@ _last_agent_patch_lf.diff
 _last_agent_patch_fixed.diff
 _last_agent_patch_fixed_lf.diff
 *.rej
+artifacts/failure_journal.jsonl
 
 # Runtime audit artifacts
 logs/
