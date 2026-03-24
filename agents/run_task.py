@@ -29,7 +29,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, NoReturn, Tuple
 
 FILE_BUNDLE_BEGIN = "BEGIN_FILE_BUNDLE"
 FILE_BUNDLE_END = "END_FILE_BUNDLE"
@@ -67,6 +67,20 @@ RUNTIME_ARTIFACT_NAMES = (
 
 class FileBundleError(ValueError):
     pass
+
+
+class ProviderRequestPhaseError(RuntimeError):
+    pass
+
+
+def _raise_provider_request_phase_error(exc: Exception, *, phase: str, provider: str, model: str) -> "NoReturn":
+    provider_name = (provider or "unknown").strip() or "unknown"
+    model_name = (model or "unknown").strip() or "unknown"
+    detail = f"{exc.__class__.__name__}: {exc}"
+    raise ProviderRequestPhaseError(
+        f"{provider_name} provider request failed during {phase} for model `{model_name}`. "
+        f"{detail}. Try a different model or provider, reduce the task size, or adjust the provider timeout settings."
+    ) from exc
 
 
 def _ensure_repo_root_on_sys_path() -> None:
@@ -1136,7 +1150,16 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     expected_method_name = str(expected_method_name)
     _phase_log(f"→ Requesting protected method patch for {expected_path}:{expected_method_name}")
     request_started = time.monotonic()
-    out = chat(messages, model=model, provider=provider)
+    try:
+        out = chat(messages, model=model, provider=provider)
+    except Exception as exc:
+        _phase_timing("→ Protected method response failed", request_started)
+        _raise_provider_request_phase_error(
+            exc,
+            phase=f"protected method patch for {expected_path}:{expected_method_name}",
+            provider=provider,
+            model=model,
+        )
     _phase_timing("→ Protected method response received", request_started)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
     _phase_log("→ Parsing protected method insertion bundle")
@@ -1166,7 +1189,16 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     )
     _phase_log("→ Retrying protected method patch with stricter insertion reminder")
     retry_started = time.monotonic()
-    out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+    try:
+        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+    except Exception as exc:
+        _phase_timing("→ Retry protected method response failed", retry_started)
+        _raise_provider_request_phase_error(
+            exc,
+            phase=f"protected method patch retry for {expected_path}:{expected_method_name}",
+            provider=provider,
+            model=model,
+        )
     _phase_timing("→ Retry protected method response received", retry_started)
     last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
     retry_error = None
@@ -2664,7 +2696,16 @@ def request_and_parse_bundle(
 
     _phase_log("→ Requesting model file bundle")
     request_started = time.monotonic()
-    out = chat(messages, model=model, provider=provider)
+    try:
+        out = chat(messages, model=model, provider=provider)
+    except Exception as exc:
+        _phase_timing("→ Model file bundle request failed", request_started)
+        _raise_provider_request_phase_error(
+            exc,
+            phase="bundle generation",
+            provider=provider,
+            model=model,
+        )
     _phase_timing("→ Model file bundle response received", request_started)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
@@ -2706,7 +2747,16 @@ def request_and_parse_bundle(
         )
         _phase_log("→ Retrying model file bundle with stricter reminder")
         retry_started = time.monotonic()
-        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+        try:
+            out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+        except Exception as exc:
+            _phase_timing("→ Retry model file bundle request failed", retry_started)
+            _raise_provider_request_phase_error(
+                exc,
+                phase="bundle retry generation",
+                provider=provider,
+                model=model,
+            )
         _phase_timing("→ Retry model file bundle response received", retry_started)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
         _phase_log("→ Parsing and validating retried file bundle")
@@ -3238,6 +3288,13 @@ def main() -> int:
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=required,
                 )
+        except ProviderRequestPhaseError as e:
+            _report_failure("provider_timeout", str(e))
+            print("Provider request failed before bundle generation completed.")
+            print("Try a different model/provider, reduce task size, or adjust provider timeout settings.")
+            print(f"Model output saved to: {last_output_path}")
+            print(f"Parsed file bundle saved to: {last_bundle_path}")
+            return 1
         except FileBundleError as e:
             _report_failure("bundle_transport", str(e))
             print(f"Model output saved to: {last_output_path}")
