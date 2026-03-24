@@ -11,7 +11,6 @@ Create or update these exact files. Every listed file must appear in the bundle:
 - `ORCHESTRATOR_PRODUCT_SPEC.md`
 - `ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
 - `ORCHESTRATOR_VISION_AND_CONTROLS.md`
-- `agents/run_task.py`
 - `src/builder/orchestrator/project_config.py`
 - `src/builder/orchestrator/project_adapter.py`
 - `agents/lib/validator_runner.py`
@@ -23,8 +22,7 @@ Create or update these exact files. Every listed file must appear in the bundle:
 - FILE: ORCHESTRATOR_CONTROLS_AND_POLICIES.md MODE=DOCS_ONLY
 - FILE: ORCHESTRATOR_VISION_AND_CONTROLS.md MODE=DOCS_ONLY
 - FILE: tests/test_orchestrator_public_surface.py MODE=TESTS_ONLY
-- FILE: agents/run_task.py MODE=EXACT_COPY_PLUS_APPEND
-- APPEND_SECTION: _bootstrap_exports
+- HARNESS_POLICY: agents/run_task.py forbid
 
 ## Required behavior
 
@@ -56,16 +54,16 @@ The frozen public surface must remain compatible with the post-049 shell baselin
 
 ## Specific shell freeze requirement
 
-In `agents/run_task.py`, preserve existing shell behavior and expose a small explicit compatibility export section for the bootstrap wrappers.
+Do **not** rewrite or miniaturize `agents/run_task.py` in this task.
 
-The frozen shell compatibility surface for this task must keep these wrapper names importable and callable:
+The shell compatibility wrappers already relied on by the post-049 shell baseline are the public names that this task is freezing:
 
 - `bootstrap_project_adapter_scaffold`
 - `bootstrap_project_config_scaffold`
 
-These wrappers may delegate to typed internals, but their names and callability must remain stable.
+This task should freeze those names via docs and dedicated tests against the existing shell baseline, not by replacing the shell entry module.
 
-Do not refactor unrelated shell logic in this task.
+If supporting tests need to reference the shell wrapper surface, they must validate the current exported behavior without broad shell refactors.
 
 ## Specific test requirement
 
