@@ -236,17 +236,32 @@ def _normalize_anthropic_response(resp: Any) -> NormalizedLLMResponse:
     )
 
 
-def _maybe_validate_openai_model(client: Any, model: str) -> None:
+def _should_skip_openai_model_validation() -> bool:
     if not _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL", False):
+        return True
+    if _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL_STRICT", False):
+        return False
+    # The OpenAI Models API preflight has proven brittle on Windows shells because
+    # the SDK may trigger local platform/WMI inspection before generation starts.
+    # Keep validation best-effort by default and allow strict mode to opt back in.
+    return os.name == "nt"
+
+
+def _maybe_validate_openai_model(client: Any, model: str) -> None:
+    if _should_skip_openai_model_validation():
         return
     if model in _MODEL_VALIDATION_CACHE["openai"]:
         return
+    strict = _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL_STRICT", False)
     try:
         client.models.retrieve(model)
     except Exception as exc:
-        raise RuntimeError(
-            f"OpenAI model `{model}` could not be retrieved via the Models API. Check the model ID and project access. Original error: {exc}"
-        ) from exc
+        status = _status_code_from_exception(exc)
+        if strict or status in {400, 401, 403, 404}:
+            raise RuntimeError(
+                f"OpenAI model `{model}` could not be retrieved via the Models API. Check the model ID and project access. Original error: {exc}"
+            ) from exc
+        return
     _MODEL_VALIDATION_CACHE["openai"].add(model)
 
 
