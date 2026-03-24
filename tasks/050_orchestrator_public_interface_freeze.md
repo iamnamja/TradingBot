@@ -40,7 +40,7 @@ This is an interface freeze task, not a redesign task.
 
 Prefer additive documentation, typed surfaces, compatibility wrappers, and deterministic tests over broad engine behavior changes.
 
-Do not change command-line behavior, repo wiring, routing flow, import/bootstrap order, or shell entrypoint structure merely to make the docs cleaner.
+Do not change command-line behavior, repo wiring, routing flow, import/bootstrap order, shell entrypoint structure, or bootstrap/export ownership merely to make the docs cleaner.
 
 The frozen public surface must remain compatible with the post-049 shell baseline and the existing bootstrap/config/validator tests already present in this repository.
 
@@ -90,15 +90,25 @@ Do not move these adapter-side symbols into `project_config.py` or any other mod
 
 ## Exact config/default compatibility requirement
 
-Preserve the current generic project-config compatibility contract exactly.
+Preserve the current config/default compatibility contracts exactly.
 
-The public/default behavior must continue to satisfy the existing repository tests for:
+### Generic project defaults
+The public/default behavior for the generic project config must continue to satisfy the existing repository tests for:
 
 - `state_path is None`
 - `audit_path is None`
 - `task_file_pattern == "*.task.md"`
+- `artifact_path_patterns == ["generic_artifacts/*"]`
+- `approval_required_file_patterns == ["README.md"]`
 
 Do not change these defaults in this task.
+
+### TradingBot defaults
+The TradingBot-default config compatibility contract must continue to satisfy the existing repository tests, including:
+
+- `task_file_pattern == "*.md"`
+
+Do not change existing TradingBot default values in this task unless required solely to preserve current tests.
 
 ## Exact bootstrap scaffold compatibility requirement
 
@@ -107,10 +117,25 @@ Preserve the existing bootstrap scaffold contract exactly.
 The bootstrap scaffolding behavior must remain compatible with the existing repository tests, including:
 
 - deterministic file locations and filenames
-- existing scaffold return keys, including `docs`, `task_template`, and `task_example`
+- return values represented as `Path` objects where the current tests expect `Path`
+- existing scaffold return keys, including:
+  - `docs`
+  - `task_template`
+  - `task_example`
+  - `adapter_factory`
+  - `validator_config`
 - expected scaffold text/content shape used by the current bootstrap tests
 
-Do not rename those keys or shift the returned artifact contract in this task.
+Do not rename these keys, remove them, or shift the returned artifact contract in this task.
+
+### Exact starter-doc content requirement
+
+The starter docs text produced by the adapter-side bootstrap helpers must remain compatible with the repository tests, including continued generic/reusable wording and continued reference to:
+
+- `tasks/001_example_task.md`
+- `task_template.md`
+
+Do not remove those references in this task.
 
 ## Exact validator compatibility requirement
 
@@ -131,6 +156,16 @@ For the current repository baseline, the following default compatibility behavio
 - do not change `run_checks(config=None)` so that repository tests recursively shell out to `pytest -q`, `ruff`, or similar subprocess validators from inside normal pytest compatibility tests
 
 Do not redefine the default compatibility path around validator plugins in this task.
+
+### Exact validator plugin interface details to preserve
+
+The repository's existing validator compatibility tests also rely on these concrete interface details remaining stable:
+
+- `agents/lib/validator_runner.py` continues to expose module-level `subprocess`
+- `run_checks(...)` continues to return `tuple[bool, str]`
+- successful plugin validator execution continues to emit the compatibility output shape `"[<validator_name>] ok"`
+
+Do not change these interface details in this task.
 
 ## Dedicated public-surface test constraint
 
@@ -165,7 +200,9 @@ In particular, do not break the expectations currently encoded in the repository
 - bootstrap adapter exports and scaffold helpers
 - bootstrap config compatibility wrappers
 - generic project config defaults
+- TradingBot default config expectations
 - validator compatibility behavior
+- bootstrap scaffold content, keys, and `Path`-typed return values
 
 The dedicated public-surface test added by this task is additive; it does not replace the existing repository tests.
 
@@ -179,8 +216,22 @@ The dedicated public-surface test added by this task is additive; it does not re
 - the dedicated public-surface test validates the current shell-compatible bootstrap mapping through `_bootstrap_exports()` rather than requiring new top-level shell names
 - `bootstrap_project_config_scaffold` remains publicly owned by `src/builder/orchestrator/project_config.py`
 - `bootstrap_project_adapter_scaffold`, `build_bootstrap_starter_docs_text`, and `build_bootstrap_task_template_text` remain publicly owned by `src/builder/orchestrator/project_adapter.py`
-- generic project config defaults remain exact: `state_path is None`, `audit_path is None`, and `task_file_pattern == "*.task.md"`
-- bootstrap scaffold compatibility remains exact, including `docs`, `task_template`, and `task_example`
+- generic project config defaults remain exact:
+  - `state_path is None`
+  - `audit_path is None`
+  - `task_file_pattern == "*.task.md"`
+  - `artifact_path_patterns == ["generic_artifacts/*"]`
+  - `approval_required_file_patterns == ["README.md"]`
+- TradingBot default config compatibility remains exact, including `task_file_pattern == "*.md"`
+- bootstrap scaffold compatibility remains exact, including:
+  - `docs`
+  - `task_template`
+  - `task_example`
+  - `adapter_factory`
+  - `validator_config`
+- scaffold return values remain compatible with existing tests, including `Path`-typed expectations where present
+- starter docs text remains generic/reusable and still references `tasks/001_example_task.md` and `task_template.md`
 - validator compatibility remains green, including legacy `run_checks()` behavior
 - `run_checks(config=None)` preserves the legacy non-plugin/default path and does not recursively trigger plugin subprocess validators
+- `agents/lib/validator_runner.py` retains module-level `subprocess`, `run_checks(...) -> tuple[bool, str]`, and compatibility output shape `"[<validator_name>] ok"`
 - the frozen public surface is sequence-aware and compatible with later extraction work
