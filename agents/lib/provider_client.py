@@ -233,7 +233,7 @@ def _wait_for_provider_response(label: str, fn: Any, *, timeout_seconds: float, 
 
 def _is_retryable_openai_error(exc: Exception) -> bool:
     if isinstance(exc, ProviderRequestTimeoutError):
-        return False
+        return True
     name = exc.__class__.__name__
     if name in {"RateLimitError", "APITimeoutError", "APIConnectionError", "InternalServerError"}:
         return True
@@ -246,7 +246,7 @@ def _is_retryable_openai_error(exc: Exception) -> bool:
 
 def _is_retryable_anthropic_error(exc: Exception) -> bool:
     if isinstance(exc, ProviderRequestTimeoutError):
-        return False
+        return True
     name = exc.__class__.__name__.lower()
     if "timeout" in name or "connection" in name or "rate" in name:
         return True
@@ -255,6 +255,20 @@ def _is_retryable_anthropic_error(exc: Exception) -> bool:
         return True
     text = str(exc).lower()
     return "rate limit" in text or "timed out" in text or "temporarily unavailable" in text
+
+
+def _should_fallback_openai_mode(current_mode: str, exc: Exception) -> bool:
+    if current_mode == "chat_completions":
+        return False
+    if not _bool_env("TRADINGBOT_OPENAI_FALLBACK_TO_CHAT_COMPLETIONS_ON_TIMEOUT", True):
+        return False
+    if isinstance(exc, ProviderRequestTimeoutError):
+        return True
+    name = exc.__class__.__name__
+    if name in {"APITimeoutError", "APIConnectionError"}:
+        return True
+    text = str(exc).lower()
+    return "timed out" in text or "timeout" in text or "temporarily unavailable" in text
 
 
 def _extract_openai_response_text(resp: Any) -> str:
@@ -416,13 +430,14 @@ def chat_openai(messages: List[dict], model: str) -> str:
     heartbeat_seconds = _provider_heartbeat_seconds("openai")
     client = _make_openai_client(timeout_seconds)
     _maybe_validate_openai_model(client, model)
-    api_mode = default_api_mode_for_provider("openai")
+    preferred_mode = default_api_mode_for_provider("openai") or "responses"
+    current_mode = preferred_mode
     retries = max(1, _int_env("TRADINGBOT_AGENT_PROVIDER_RETRIES", 3))
     last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            label = f"OpenAI {api_mode or 'responses'} request (attempt {attempt}/{retries}, model {model})"
-            if api_mode == "chat_completions":
+            label = f"OpenAI {current_mode} request (attempt {attempt}/{retries}, model {model})"
+            if current_mode == "chat_completions":
                 result = _wait_for_provider_response(
                     label,
                     lambda: _openai_generate_via_chat_completions(client, messages, model),
@@ -439,10 +454,20 @@ def chat_openai(messages: List[dict], model: str) -> str:
             return (result.text or "").strip()
         except Exception as exc:
             last_exc = exc
+            fallback_now = _should_fallback_openai_mode(current_mode, exc)
+            if fallback_now:
+                current_mode = "chat_completions"
+                print(
+                    f"↻ Falling back to OpenAI chat_completions after {exc.__class__.__name__}: {exc}",
+                    flush=True,
+                )
             if attempt >= retries or not _is_retryable_openai_error(exc):
                 raise
             delay = _backoff_delay_seconds(attempt, _extract_retry_after_seconds(exc))
-            print(f"↻ Retrying OpenAI request after {delay:.1f}s due to: {exc}", flush=True)
+            print(
+                f"↻ Retrying OpenAI request after {delay:.1f}s due to: {exc}",
+                flush=True,
+            )
             time.sleep(delay)
     if last_exc is not None:
         raise last_exc
