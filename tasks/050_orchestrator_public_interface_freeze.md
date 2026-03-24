@@ -116,9 +116,33 @@ Do not rename those keys or shift the returned artifact contract in this task.
 
 Preserve the current legacy validator compatibility behavior.
 
-The public validator surface must remain green with the repository's existing validator tests, including compatibility around `run_checks()` and the default non-plugin path behavior.
+The frozen validator surface must remain compatible with the repository's existing validator tests, including compatibility around `run_checks()` and the default non-plugin path behavior.
 
 This task may document and freeze that surface, but it must not break the current compatibility path.
+
+### Exact legacy validator behavior to preserve
+
+For the current repository baseline, the following default compatibility behavior is part of the frozen public surface:
+
+- `load_project_config()` generic/default compatibility fallback must not inject plugin validator entries for the `config=None` path
+- `select_validators(config=None)` must preserve the legacy non-plugin/default behavior
+- `run_checks(config=None)` must preserve the legacy non-plugin/default path and must **not** activate plugin subprocess validators merely because a generic fallback config was synthesized
+- plugin subprocess execution in this task must require an explicit project config / validator configuration, not the default compatibility path
+- do not change `run_checks(config=None)` so that repository tests recursively shell out to `pytest -q`, `ruff`, or similar subprocess validators from inside normal pytest compatibility tests
+
+Do not redefine the default compatibility path around validator plugins in this task.
+
+## Dedicated public-surface test constraint
+
+The dedicated `tests/test_orchestrator_public_surface.py` test is intended to verify naming, ownership, and surface stability.
+
+It is **not** the place to force plugin subprocess execution.
+
+In particular:
+
+- do not write the public-surface test so it relies on `run_checks(config=None)` spawning subprocess validators
+- prefer source inspection, explicit import-time assertions, or monkeypatched/non-executing inspection of validator selection behavior over live recursive subprocess execution
+- keep the dedicated public-surface test safe under normal pytest collection and repository test execution
 
 ## Specific test requirement
 
@@ -158,4 +182,5 @@ The dedicated public-surface test added by this task is additive; it does not re
 - generic project config defaults remain exact: `state_path is None`, `audit_path is None`, and `task_file_pattern == "*.task.md"`
 - bootstrap scaffold compatibility remains exact, including `docs`, `task_template`, and `task_example`
 - validator compatibility remains green, including legacy `run_checks()` behavior
+- `run_checks(config=None)` preserves the legacy non-plugin/default path and does not recursively trigger plugin subprocess validators
 - the frozen public surface is sequence-aware and compatible with later extraction work
