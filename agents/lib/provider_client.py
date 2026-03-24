@@ -54,6 +54,11 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _str_env(name: str, default: str = "") -> str:
+    raw = os.getenv(name, "")
+    return raw.strip() if isinstance(raw, str) else default
+
+
 def _float_env(name: str, default: float) -> float:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -232,6 +237,21 @@ def _provider_max_attempts(provider: str) -> int:
     if general > 0:
         return max(1, general)
     return max(1, _int_env("TRADINGBOT_AGENT_PROVIDER_RETRIES", 3))
+
+
+def _openai_fallback_model(model: str) -> str | None:
+    raw = _str_env("TRADINGBOT_OPENAI_FALLBACK_MODEL", "")
+    if not raw:
+        return None
+    return raw if raw != model else None
+
+
+def _openai_force_chat_completions() -> bool:
+    return _bool_env("TRADINGBOT_OPENAI_FORCE_CHAT_COMPLETIONS", False)
+
+
+def _openai_disable_mode_fallback() -> bool:
+    return _bool_env("TRADINGBOT_OPENAI_DISABLE_MODE_FALLBACK", False)
 
 
 def _remaining_budget_seconds(deadline: float | None) -> float | None:
@@ -500,6 +520,10 @@ def _raise_overall_timeout(provider: str, model: str, total_timeout_seconds: flo
         f"{provider} request sequence for model {model}{suffix} exceeded overall timeout of "
         f"{int(round(total_timeout_seconds))}s after {attempts_started} attempt(s)"
     )
+
+
+def _format_openai_attempt_plan(mode: str, model: str) -> str:
+    return f"{mode}:{model}"
 
 
 def chat_openai(messages: List[dict], model: str) -> str:
