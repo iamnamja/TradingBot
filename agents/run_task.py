@@ -179,6 +179,21 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+def _progress_enabled() -> bool:
+    return _bool_env("TRADINGBOT_AGENT_SHOW_PROGRESS", True)
+
+
+def _phase_log(message: str) -> None:
+    if _progress_enabled():
+        print(message, flush=True)
+
+
+def _phase_timing(label: str, start_time: float) -> None:
+    if _progress_enabled():
+        elapsed = time.monotonic() - start_time
+        print(f"{label} ({elapsed:.2f}s)", flush=True)
+
+
 def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=check, text=True, capture_output=False)
 
@@ -218,8 +233,12 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
     except Exception:
         _parse_file_bundle = None  # type: ignore[assignment]
 
-    if _parse_file_bundle is not None:
-        return _parse_file_bundle(
+    use_local_parser = _bool_env("TRADINGBOT_AGENT_FORCE_LOCAL_BUNDLE_PARSER", False)
+
+    if _parse_file_bundle is not None and not use_local_parser:
+        parse_started = time.monotonic()
+        _phase_log("→ Parsing file bundle via agents.lib.bundle_parser")
+        parsed = _parse_file_bundle(
             text=text,
             normalize_newlines=normalize_newlines,
             file_bundle_begin=FILE_BUNDLE_BEGIN,
@@ -228,6 +247,11 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
             file_end=FILE_END,
             error_cls=FileBundleError,
         )
+        _phase_timing(f"→ Parsed file bundle via agents.lib.bundle_parser ({len(parsed)} files)", parse_started)
+        return parsed
+
+    if use_local_parser:
+        _phase_log("→ Parsing file bundle via local fallback parser (TRADINGBOT_AGENT_FORCE_LOCAL_BUNDLE_PARSER=true)")
 
     text = normalize_newlines(text)
 
@@ -1110,10 +1134,17 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     last_output_path = Path(last_output_path)
     expected_path = str(expected_path)
     expected_method_name = str(expected_method_name)
+    _phase_log(f"→ Requesting protected method patch for {expected_path}:{expected_method_name}")
+    request_started = time.monotonic()
     out = chat(messages, model=model, provider=provider)
+    _phase_timing("→ Protected method response received", request_started)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
+    _phase_log("→ Parsing protected method insertion bundle")
+    parse_started = time.monotonic()
     try:
-        return parse_method_insertion_bundle(out, expected_path, expected_method_name)
+        parsed = parse_method_insertion_bundle(out, expected_path, expected_method_name)
+        _phase_timing("→ Parsed protected method insertion bundle", parse_started)
+        return parsed
     except Exception as exc:
         first_error = str(exc)
 
@@ -1133,11 +1164,18 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         "END_METHOD_INSERTION\n\n"
         f"Parser error: {first_error}"
     )
+    _phase_log("→ Retrying protected method patch with stricter insertion reminder")
+    retry_started = time.monotonic()
     out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+    _phase_timing("→ Retry protected method response received", retry_started)
     last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
     retry_error = None
+    _phase_log("→ Parsing retried protected method insertion bundle")
+    retry_parse_started = time.monotonic()
     try:
-        return parse_method_insertion_bundle(out2, expected_path, expected_method_name)
+        parsed_retry = parse_method_insertion_bundle(out2, expected_path, expected_method_name)
+        _phase_timing("→ Parsed retried protected method insertion bundle", retry_parse_started)
+        return parsed_retry
     except Exception as exc:
         retry_error = str(exc)
 
@@ -2624,12 +2662,20 @@ def request_and_parse_bundle(
                     print(f"  - {warning}")
             return validated
 
+    _phase_log("→ Requesting model file bundle")
+    request_started = time.monotonic()
     out = chat(messages, model=model, provider=provider)
+    _phase_timing("→ Model file bundle response received", request_started)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
+    _phase_log("→ Parsing and validating file bundle")
+    parse_started = time.monotonic()
     try:
-        return _parse_validate_or_salvage(out)
+        parsed = _parse_validate_or_salvage(out)
+        _phase_timing(f"→ Parsed and validated file bundle ({len(parsed)} files)", parse_started)
+        return parsed
     except Exception as e:
+        _phase_timing("→ Initial file bundle parse/validation failed", parse_started)
         forbidden_hint = ""
         if forbidden_paths:
             forbidden_hint = (
@@ -2658,11 +2704,19 @@ def request_and_parse_bundle(
             "END_FILE_BUNDLE\n\n"
             f"Parser/policy error: {e}"
         )
+        _phase_log("→ Retrying model file bundle with stricter reminder")
+        retry_started = time.monotonic()
         out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+        _phase_timing("→ Retry model file bundle response received", retry_started)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+        _phase_log("→ Parsing and validating retried file bundle")
+        retry_parse_started = time.monotonic()
         try:
-            return _parse_validate_or_salvage(out2)
+            parsed_retry = _parse_validate_or_salvage(out2)
+            _phase_timing(f"→ Parsed and validated retried file bundle ({len(parsed_retry)} files)", retry_parse_started)
+            return parsed_retry
         except Exception as e2:
+            _phase_timing("→ Retried file bundle parse/validation failed", retry_parse_started)
             raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
 
 
@@ -3190,6 +3244,7 @@ def main() -> int:
             print(f"Parsed file bundle saved to: {last_bundle_path}")
             return 1
 
+        _phase_log(f"→ Candidate bundle assembled ({len(files)} files)")
         pretty: List[str] = [FILE_BUNDLE_BEGIN]
         for p, c in files.items():
             pretty.append(f"FILE: {p}")
@@ -3198,6 +3253,7 @@ def main() -> int:
         pretty.append(FILE_BUNDLE_END)
         last_bundle_path.write_text("\n".join(pretty) + "\n", encoding="utf-8", newline="\n")
 
+        _phase_log("→ Validating Python syntax for candidate bundle")
         ok_syntax, syntax_msg = validate_python_syntax(files)
         if not ok_syntax:
             _report_failure("python_syntax", syntax_msg)
@@ -3264,10 +3320,12 @@ def main() -> int:
             prev_files = files
             continue
 
+        _phase_log(f"→ Writing {len(files)} files into the worktree")
         pre_write_snapshot = snapshot_file_contents(list(files.keys()))
         write_files(files)
         violation_counts.clear()
 
+        _phase_log("→ Running repository checks")
         ok, details = run_checks()
         if ok:
             print("✅ Green.")
@@ -3284,6 +3342,7 @@ def main() -> int:
                 print("Create a PR on GitHub for this branch (repo rules require PR).")
             return 0
 
+        _phase_log("→ Restoring worktree snapshot after failed checks")
         restore_file_snapshot(pre_write_snapshot)
 
         print("❌ Checks failed after applying changes:")
