@@ -4,10 +4,15 @@ import os
 import random
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Dict, List
 
 
 _MODEL_VALIDATION_CACHE: Dict[str, set[str]] = {"openai": set(), "anthropic": set()}
+
+
+class ProviderRequestTimeoutError(RuntimeError):
+    pass
 
 
 def default_provider() -> str:
@@ -45,6 +50,16 @@ def _int_env(name: str, default: int) -> int:
         return default
     try:
         return int(raw)
+    except ValueError:
+        return default
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
     except ValueError:
         return default
 
@@ -160,7 +175,65 @@ def _status_code_from_exception(exc: Exception) -> int | None:
     return None
 
 
+def _provider_timeout_seconds(provider: str) -> float:
+    provider = (provider or "").strip().lower()
+    specific_name = ""
+    if provider == "openai":
+        specific_name = "TRADINGBOT_OPENAI_REQUEST_TIMEOUT_SECONDS"
+    elif provider == "anthropic":
+        specific_name = "TRADINGBOT_ANTHROPIC_REQUEST_TIMEOUT_SECONDS"
+    if specific_name:
+        specific = _float_env(specific_name, 0.0)
+        if specific > 0:
+            return specific
+    return _float_env("TRADINGBOT_AGENT_PROVIDER_TIMEOUT_SECONDS", 120.0)
+
+
+def _provider_heartbeat_seconds(provider: str) -> float:
+    provider = (provider or "").strip().lower()
+    specific_name = ""
+    if provider == "openai":
+        specific_name = "TRADINGBOT_OPENAI_REQUEST_HEARTBEAT_SECONDS"
+    elif provider == "anthropic":
+        specific_name = "TRADINGBOT_ANTHROPIC_REQUEST_HEARTBEAT_SECONDS"
+    if specific_name:
+        specific = _float_env(specific_name, 0.0)
+        if specific > 0:
+            return specific
+    return _float_env("TRADINGBOT_AGENT_PROVIDER_HEARTBEAT_SECONDS", 15.0)
+
+
+def _wait_for_provider_response(label: str, fn: Any, *, timeout_seconds: float, heartbeat_seconds: float) -> Any:
+    start = time.monotonic()
+    wait_seconds = heartbeat_seconds if heartbeat_seconds > 0 else 15.0
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(fn)
+    print(f"→ Waiting for {label}", flush=True)
+    try:
+        while True:
+            remaining: float | None = None
+            if timeout_seconds > 0:
+                elapsed = time.monotonic() - start
+                remaining = timeout_seconds - elapsed
+                if remaining <= 0:
+                    future.cancel()
+                    raise ProviderRequestTimeoutError(f"{label} timed out after {int(round(timeout_seconds))}s")
+            wait_for = wait_seconds if remaining is None else min(wait_seconds, remaining)
+            try:
+                result = future.result(timeout=wait_for)
+                elapsed = time.monotonic() - start
+                print(f"✔ {label} returned in {int(round(elapsed))}s", flush=True)
+                return result
+            except FuturesTimeoutError:
+                elapsed = time.monotonic() - start
+                print(f"⏳ Still waiting for {label}... {int(round(elapsed))}s elapsed", flush=True)
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 def _is_retryable_openai_error(exc: Exception) -> bool:
+    if isinstance(exc, ProviderRequestTimeoutError):
+        return False
     name = exc.__class__.__name__
     if name in {"RateLimitError", "APITimeoutError", "APIConnectionError", "InternalServerError"}:
         return True
@@ -172,6 +245,8 @@ def _is_retryable_openai_error(exc: Exception) -> bool:
 
 
 def _is_retryable_anthropic_error(exc: Exception) -> bool:
+    if isinstance(exc, ProviderRequestTimeoutError):
+        return False
     name = exc.__class__.__name__.lower()
     if "timeout" in name or "connection" in name or "rate" in name:
         return True
@@ -314,26 +389,60 @@ def _openai_generate_via_chat_completions(client: Any, messages: List[dict], mod
     )
 
 
-def chat_openai(messages: List[dict], model: str) -> str:
+def _make_openai_client(timeout_seconds: float) -> Any:
     from openai import OpenAI
 
-    client = OpenAI()
+    if timeout_seconds > 0:
+        try:
+            return OpenAI(timeout=timeout_seconds)
+        except TypeError:
+            pass
+    return OpenAI()
+
+
+def _make_anthropic_client(timeout_seconds: float) -> Any:
+    from anthropic import Anthropic
+
+    if timeout_seconds > 0:
+        try:
+            return Anthropic(timeout=timeout_seconds)
+        except TypeError:
+            pass
+    return Anthropic()
+
+
+def chat_openai(messages: List[dict], model: str) -> str:
+    timeout_seconds = _provider_timeout_seconds("openai")
+    heartbeat_seconds = _provider_heartbeat_seconds("openai")
+    client = _make_openai_client(timeout_seconds)
     _maybe_validate_openai_model(client, model)
     api_mode = default_api_mode_for_provider("openai")
     retries = max(1, _int_env("TRADINGBOT_AGENT_PROVIDER_RETRIES", 3))
     last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
+            label = f"OpenAI {api_mode or 'responses'} request (attempt {attempt}/{retries}, model {model})"
             if api_mode == "chat_completions":
-                result = _openai_generate_via_chat_completions(client, messages, model)
+                result = _wait_for_provider_response(
+                    label,
+                    lambda: _openai_generate_via_chat_completions(client, messages, model),
+                    timeout_seconds=timeout_seconds,
+                    heartbeat_seconds=heartbeat_seconds,
+                )
             else:
-                result = _openai_generate_via_responses(client, messages, model)
+                result = _wait_for_provider_response(
+                    label,
+                    lambda: _openai_generate_via_responses(client, messages, model),
+                    timeout_seconds=timeout_seconds,
+                    heartbeat_seconds=heartbeat_seconds,
+                )
             return (result.text or "").strip()
         except Exception as exc:
             last_exc = exc
             if attempt >= retries or not _is_retryable_openai_error(exc):
                 raise
             delay = _backoff_delay_seconds(attempt, _extract_retry_after_seconds(exc))
+            print(f"↻ Retrying OpenAI request after {delay:.1f}s due to: {exc}", flush=True)
             time.sleep(delay)
     if last_exc is not None:
         raise last_exc
@@ -341,9 +450,9 @@ def chat_openai(messages: List[dict], model: str) -> str:
 
 
 def chat_anthropic(messages: List[dict], model: str) -> str:
-    from anthropic import Anthropic
-
-    client = Anthropic()
+    timeout_seconds = _provider_timeout_seconds("anthropic")
+    heartbeat_seconds = _provider_heartbeat_seconds("anthropic")
+    client = _make_anthropic_client(timeout_seconds)
     _maybe_validate_anthropic_model(client, model)
     retries = max(1, _int_env("TRADINGBOT_AGENT_PROVIDER_RETRIES", 3))
     last_exc: Exception | None = None
@@ -358,7 +467,13 @@ def chat_anthropic(messages: List[dict], model: str) -> str:
             }
             if system_text:
                 request["system"] = system_text
-            resp = client.messages.create(**request)
+            label = f"Anthropic messages request (attempt {attempt}/{retries}, model {model})"
+            resp = _wait_for_provider_response(
+                label,
+                lambda: client.messages.create(**request),
+                timeout_seconds=timeout_seconds,
+                heartbeat_seconds=heartbeat_seconds,
+            )
             result = _normalize_anthropic_response(resp)
             return (result.text or "").strip()
         except Exception as exc:
@@ -366,6 +481,7 @@ def chat_anthropic(messages: List[dict], model: str) -> str:
             if attempt >= retries or not _is_retryable_anthropic_error(exc):
                 raise
             delay = _backoff_delay_seconds(attempt, _extract_retry_after_seconds(exc))
+            print(f"↻ Retrying Anthropic request after {delay:.1f}s due to: {exc}", flush=True)
             time.sleep(delay)
     if last_exc is not None:
         raise last_exc
