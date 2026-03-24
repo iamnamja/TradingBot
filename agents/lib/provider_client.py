@@ -5,7 +5,8 @@ import os
 import random
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+import queue
+import threading
 from typing import Any, Dict, List
 
 _MODEL_VALIDATION_CACHE: Dict[str, set[str]] = {"openai": set(), "anthropic": set()}
@@ -259,45 +260,62 @@ def _wait_for_provider_response(
 ) -> Any:
     start = time.monotonic()
     wait_seconds = heartbeat_seconds if heartbeat_seconds > 0 else 15.0
-    executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(fn)
-    print(f"â†’ Waiting for {label}", flush=True)
-    try:
-        while True:
-            remaining_attempt = timeout_seconds if timeout_seconds > 0 else None
-            remaining_total = _remaining_budget_seconds(total_deadline)
-            if remaining_total is not None and remaining_total <= 0:
-                future.cancel()
-                raise ProviderRequestTimeoutError(
-                    f"{label} exceeded the overall provider deadline after {_format_elapsed_seconds(start)}s"
-                )
+    result_queue: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
 
-            effective_remaining = remaining_attempt
-            if remaining_total is not None:
-                effective_remaining = remaining_total if effective_remaining is None else min(effective_remaining, remaining_total)
+    def _runner() -> None:
+        try:
+            payload: tuple[str, Any] = ("result", fn())
+        except BaseException as exc:  # pragma: no cover - defensive transport shim
+            payload = ("error", exc)
+        try:
+            result_queue.put_nowait(payload)
+        except Exception:
+            pass
 
-            if effective_remaining is not None and effective_remaining <= 0:
-                future.cancel()
+    worker = threading.Thread(
+        target=_runner,
+        name=f"provider-request:{label[:40]}",
+        daemon=True,
+    )
+    worker.start()
+    print(f"-> Waiting for {label}", flush=True)
+
+    while True:
+        remaining_attempt = timeout_seconds if timeout_seconds > 0 else None
+        remaining_total = _remaining_budget_seconds(total_deadline)
+
+        if remaining_total is not None and remaining_total <= 0:
+            raise ProviderRequestTimeoutError(
+                f"{label} exceeded the overall provider deadline after {_format_elapsed_seconds(start)}s"
+            )
+
+        effective_remaining = remaining_attempt
+        if remaining_total is not None:
+            effective_remaining = remaining_total if effective_remaining is None else min(effective_remaining, remaining_total)
+
+        if effective_remaining is not None and effective_remaining <= 0:
+            raise ProviderRequestTimeoutError(
+                f"{label} timed out after {int(round(timeout_seconds))}s"
+            )
+
+        wait_for = wait_seconds if effective_remaining is None else min(wait_seconds, effective_remaining)
+
+        try:
+            kind, payload = result_queue.get(timeout=wait_for)
+        except queue.Empty:
+            elapsed = _format_elapsed_seconds(start)
+            print(f"... Still waiting for {label}... {elapsed}s elapsed", flush=True)
+            if timeout_seconds > 0 and elapsed >= int(round(timeout_seconds)):
                 raise ProviderRequestTimeoutError(
                     f"{label} timed out after {int(round(timeout_seconds))}s"
                 )
+            continue
 
-            wait_for = wait_seconds if effective_remaining is None else min(wait_seconds, effective_remaining)
-            try:
-                result = future.result(timeout=wait_for)
-                elapsed = _format_elapsed_seconds(start)
-                print(f"âœ” {label} returned in {elapsed}s", flush=True)
-                return result
-            except FuturesTimeoutError:
-                elapsed = _format_elapsed_seconds(start)
-                print(f"â³ Still waiting for {label}... {elapsed}s elapsed", flush=True)
-                if timeout_seconds > 0 and elapsed >= int(round(timeout_seconds)):
-                    future.cancel()
-                    raise ProviderRequestTimeoutError(
-                        f"{label} timed out after {int(round(timeout_seconds))}s"
-                    )
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
+        elapsed = _format_elapsed_seconds(start)
+        if kind == "error":
+            raise payload
+        print(f"OK {label} returned in {elapsed}s", flush=True)
+        return payload
 
 
 def _is_retryable_openai_error(exc: Exception) -> bool:
@@ -480,7 +498,7 @@ def _make_anthropic_client(timeout_seconds: float) -> Any:
 def _log_provider_retry(provider: str, attempt: int, max_attempts: int, exc: Exception, delay: float, *, plan: str = "") -> None:
     suffix = f" [{plan}]" if plan else ""
     print(
-        f"â†» Retrying {provider}{suffix} request (attempt {attempt}/{max_attempts}) after {delay:.1f}s due to: {exc}",
+        f"-> Retrying {provider}{suffix} request (attempt {attempt}/{max_attempts}) after {delay:.1f}s due to: {exc}",
         flush=True,
     )
 
@@ -624,7 +642,7 @@ def chat_openai(messages: List[dict], model: str) -> str:
             if next_index < len(attempt_plan) and attempts_started < max_attempts:
                 next_candidate = attempt_plan[next_index]
                 print(
-                    f"â†» Switching OpenAI attempt plan from {_format_openai_attempt_plan(candidate_mode, candidate_model)} "
+                    f"-> Switching OpenAI attempt plan from {_format_openai_attempt_plan(candidate_mode, candidate_model)} "
                     f"to {_format_openai_attempt_plan(next_candidate['mode'], next_candidate['model'])} "
                     f"after {exc.__class__.__name__}: {exc}",
                     flush=True,
