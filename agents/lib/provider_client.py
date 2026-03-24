@@ -15,6 +15,10 @@ class ProviderRequestTimeoutError(RuntimeError):
     pass
 
 
+class ProviderPlanError(RuntimeError):
+    pass
+
+
 def default_provider() -> str:
     return os.getenv("TRADINGBOT_LLM_PROVIDER", "openai").strip().lower()
 
@@ -24,7 +28,7 @@ def default_model_for_provider(provider: str) -> str:
     if provider == "openai":
         return os.getenv("TRADINGBOT_OPENAI_MODEL", "gpt-5")
     if provider == "anthropic":
-        return os.getenv("TRADINGBOT_ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
+        return os.getenv("TRADINGBOT_ANTHROPIC_MODEL", "claude-sonnet-4-5")
     return os.getenv("TRADINGBOT_LLM_MODEL", "gpt-5")
 
 
@@ -54,11 +58,6 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-def _str_env(name: str, default: str = "") -> str:
-    raw = os.getenv(name, "")
-    return raw.strip() if isinstance(raw, str) else default
-
-
 def _float_env(name: str, default: float) -> float:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -67,6 +66,10 @@ def _float_env(name: str, default: float) -> float:
         return float(raw)
     except ValueError:
         return default
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
 
 
 class NormalizedLLMResponse:
@@ -161,7 +164,13 @@ def _extract_retry_after_seconds(exc: Exception) -> float | None:
     return None
 
 
-def _backoff_delay_seconds(attempt: int, retry_after: float | None = None, *, base: float = 1.0, cap: float = 30.0) -> float:
+def _backoff_delay_seconds(
+    attempt: int,
+    retry_after: float | None = None,
+    *,
+    base: float = 1.0,
+    cap: float = 30.0,
+) -> float:
     if retry_after is not None and retry_after > 0:
         return min(cap, retry_after)
     delay = min(cap, base * (2 ** max(0, attempt - 1)))
@@ -205,7 +214,7 @@ def _provider_total_timeout_seconds(provider: str) -> float:
         specific = _float_env(specific_name, 0.0)
         if specific > 0:
             return specific
-    return _float_env("TRADINGBOT_AGENT_PROVIDER_TOTAL_TIMEOUT_SECONDS", 180.0)
+    return _float_env("TRADINGBOT_AGENT_PROVIDER_TOTAL_TIMEOUT_SECONDS", 0.0)
 
 
 def _provider_heartbeat_seconds(provider: str) -> float:
@@ -232,36 +241,12 @@ def _provider_max_attempts(provider: str) -> int:
     if specific_name:
         specific = _int_env(specific_name, 0)
         if specific > 0:
-            return max(1, specific)
-    general = _int_env("TRADINGBOT_AGENT_PROVIDER_MAX_ATTEMPTS", 0)
-    if general > 0:
-        return max(1, general)
-    return max(1, _int_env("TRADINGBOT_AGENT_PROVIDER_RETRIES", 3))
-
-
-def _openai_fallback_model(model: str) -> str | None:
-    raw = _str_env("TRADINGBOT_OPENAI_FALLBACK_MODEL", "")
-    if not raw:
-        return None
-    return raw if raw != model else None
-
-
-def _openai_force_chat_completions() -> bool:
-    return _bool_env("TRADINGBOT_OPENAI_FORCE_CHAT_COMPLETIONS", False)
-
-
-def _openai_disable_mode_fallback() -> bool:
-    return _bool_env("TRADINGBOT_OPENAI_DISABLE_MODE_FALLBACK", False)
-
-
-def _remaining_budget_seconds(deadline: float | None) -> float | None:
-    if deadline is None:
-        return None
-    return deadline - time.monotonic()
-
-
-def _format_elapsed_seconds(start: float) -> int:
-    return int(round(max(0.0, time.monotonic() - start)))
+            return specific
+    env_max = _int_env("TRADINGBOT_AGENT_PROVIDER_MAX_ATTEMPTS", 0)
+    if env_max > 0:
+        return env_max
+    retries = _int_env("TRADINGBOT_AGENT_PROVIDER_RETRIES", 3)
+    return max(1, retries)
 
 
 def _wait_for_provider_response(
@@ -279,38 +264,37 @@ def _wait_for_provider_response(
     print(f"→ Waiting for {label}", flush=True)
     try:
         while True:
-            remaining_attempt = timeout_seconds if timeout_seconds > 0 else None
-            remaining_total = _remaining_budget_seconds(total_deadline)
-            if remaining_total is not None and remaining_total <= 0:
-                future.cancel()
-                raise ProviderRequestTimeoutError(
-                    f"{label} exceeded the overall provider deadline after {_format_elapsed_seconds(start)}s"
-                )
-
-            effective_remaining = remaining_attempt
-            if remaining_total is not None:
-                effective_remaining = remaining_total if effective_remaining is None else min(effective_remaining, remaining_total)
-
-            if effective_remaining is not None and effective_remaining <= 0:
-                future.cancel()
-                raise ProviderRequestTimeoutError(
-                    f"{label} timed out after {int(round(timeout_seconds))}s"
-                )
-
-            wait_for = wait_seconds if effective_remaining is None else min(wait_seconds, effective_remaining)
-            try:
-                result = future.result(timeout=wait_for)
-                elapsed = _format_elapsed_seconds(start)
-                print(f"✔ {label} returned in {elapsed}s", flush=True)
-                return result
-            except FuturesTimeoutError:
-                elapsed = _format_elapsed_seconds(start)
-                print(f"⏳ Still waiting for {label}... {elapsed}s elapsed", flush=True)
-                if timeout_seconds > 0 and elapsed >= int(round(timeout_seconds)):
+            remaining_attempt: float | None = None
+            if timeout_seconds > 0:
+                elapsed = time.monotonic() - start
+                remaining_attempt = timeout_seconds - elapsed
+                if remaining_attempt <= 0:
                     future.cancel()
                     raise ProviderRequestTimeoutError(
                         f"{label} timed out after {int(round(timeout_seconds))}s"
                     )
+            if total_deadline is not None:
+                remaining_total = total_deadline - time.monotonic()
+                if remaining_total <= 0:
+                    future.cancel()
+                    raise ProviderRequestTimeoutError(f"{label} exceeded overall provider deadline")
+            else:
+                remaining_total = None
+
+            waits: List[float] = [wait_seconds]
+            if remaining_attempt is not None:
+                waits.append(remaining_attempt)
+            if remaining_total is not None:
+                waits.append(remaining_total)
+            wait_for = max(0.1, min(waits))
+            try:
+                result = future.result(timeout=wait_for)
+                elapsed = time.monotonic() - start
+                print(f"✔ {label} returned in {int(round(elapsed))}s", flush=True)
+                return result
+            except FuturesTimeoutError:
+                elapsed = time.monotonic() - start
+                print(f"⏳ Still waiting for {label}... {int(round(elapsed))}s elapsed", flush=True)
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 
@@ -341,52 +325,40 @@ def _is_retryable_anthropic_error(exc: Exception) -> bool:
     return "rate limit" in text or "timed out" in text or "temporarily unavailable" in text
 
 
-def _should_fallback_openai_mode(current_mode: str, exc: Exception) -> bool:
-    if current_mode == "chat_completions":
-        return False
-    if not _bool_env("TRADINGBOT_OPENAI_FALLBACK_TO_CHAT_COMPLETIONS_ON_TIMEOUT", True):
-        return False
-    if isinstance(exc, ProviderRequestTimeoutError):
-        return True
-    name = exc.__class__.__name__
-    if name in {"APITimeoutError", "APIConnectionError"}:
-        return True
+def _is_openai_mode_mismatch_error(exc: Exception) -> bool:
+    status = _status_code_from_exception(exc)
     text = str(exc).lower()
-    return "timed out" in text or "timeout" in text or "temporarily unavailable" in text
-
-
-def _extract_openai_response_text(resp: Any) -> str:
-    output_text = getattr(resp, "output_text", None)
-    if isinstance(output_text, str) and output_text.strip():
-        return output_text.strip()
-
-    outputs = getattr(resp, "output", None)
-    collected: List[str] = []
-    if outputs:
-        for item in outputs:
-            item_type = getattr(item, "type", None) or (item.get("type") if isinstance(item, dict) else None)
-            if item_type == "message":
-                content_list = getattr(item, "content", None) or (item.get("content") if isinstance(item, dict) else None) or []
-                for block in content_list:
-                    block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
-                    if block_type in {"output_text", "text"}:
-                        text_val = getattr(block, "text", None) or (block.get("text") if isinstance(block, dict) else None)
-                        if isinstance(text_val, str) and text_val:
-                            collected.append(text_val)
-            elif item_type in {"output_text", "text"}:
-                text_val = getattr(item, "text", None) or (item.get("text") if isinstance(item, dict) else None)
-                if isinstance(text_val, str) and text_val:
-                    collected.append(text_val)
-    return "\n".join(part.strip() for part in collected if part and part.strip()).strip()
+    if status in {400, 404} and (
+        "chat/completions" in text or "responses" in text or "not supported" in text or "unsupported" in text
+    ):
+        return True
+    return False
 
 
 def _normalize_openai_response(resp: Any) -> NormalizedLLMResponse:
+    text = getattr(resp, "output_text", None)
+    if isinstance(text, str):
+        output_text = text
+    else:
+        pieces: List[str] = []
+        for item in getattr(resp, "output", []) or []:
+            for block in getattr(item, "content", []) or []:
+                if getattr(block, "type", None) in {"output_text", "text"}:
+                    t = getattr(block, "text", None)
+                    if isinstance(t, str) and t:
+                        pieces.append(t)
+        output_text = "\n".join(piece.strip() for piece in pieces if piece and piece.strip()).strip()
     usage = getattr(resp, "usage", None)
+    in_tokens = None
+    out_tokens = None
+    if usage is not None:
+        in_tokens = getattr(usage, "input_tokens", None)
+        out_tokens = getattr(usage, "output_tokens", None)
     return NormalizedLLMResponse(
-        text=_extract_openai_response_text(resp),
+        text=output_text.strip(),
         stop_reason=getattr(resp, "status", None),
-        usage_input_tokens=getattr(usage, "input_tokens", None) if usage is not None else None,
-        usage_output_tokens=getattr(usage, "output_tokens", None) if usage is not None else None,
+        usage_input_tokens=in_tokens,
+        usage_output_tokens=out_tokens,
         request_id=getattr(resp, "id", None),
         raw_provider_response=resp,
     )
@@ -409,29 +381,19 @@ def _normalize_anthropic_response(resp: Any) -> NormalizedLLMResponse:
     )
 
 
-def _should_skip_openai_model_validation() -> bool:
-    if not _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL", False):
-        return True
-    if _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL_STRICT", False):
-        return False
-    return os.name == "nt"
-
-
 def _maybe_validate_openai_model(client: Any, model: str) -> None:
-    if _should_skip_openai_model_validation():
+    if not _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL", False):
+        return
+    if _is_windows() and not _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL_STRICT", False):
         return
     if model in _MODEL_VALIDATION_CACHE["openai"]:
         return
-    strict = _bool_env("TRADINGBOT_AGENT_VALIDATE_MODEL_STRICT", False)
     try:
         client.models.retrieve(model)
     except Exception as exc:
-        status = _status_code_from_exception(exc)
-        if strict or status in {400, 401, 403, 404}:
-            raise RuntimeError(
-                f"OpenAI model `{model}` could not be retrieved via the Models API. Check the model ID and project access. Original error: {exc}"
-            ) from exc
-        return
+        raise RuntimeError(
+            f"OpenAI model `{model}` could not be retrieved via the Models API. Check the model ID and project access. Original error: {exc}"
+        ) from exc
     _MODEL_VALIDATION_CACHE["openai"].add(model)
 
 
@@ -484,150 +446,187 @@ def _openai_generate_via_chat_completions(client: Any, messages: List[dict], mod
     )
 
 
-def _make_openai_client(timeout_seconds: float) -> Any:
+def _is_codex_like_model(model: str) -> bool:
+    return "codex" in (model or "").strip().lower()
+
+
+def _can_use_openai_mode(model: str, mode: str) -> bool:
+    mode = (mode or "").strip().lower()
+    if mode == "responses":
+        return True
+    if mode == "chat_completions":
+        if _is_codex_like_model(model) and not _bool_env(
+            "TRADINGBOT_OPENAI_ALLOW_CHAT_COMPLETIONS_FOR_CODEX", False
+        ):
+            return False
+        return True
+    return False
+
+
+def _preferred_openai_mode_for_model(model: str) -> str:
+    configured = default_api_mode_for_provider("openai")
+    if configured and _can_use_openai_mode(model, configured):
+        return configured
+    if _is_codex_like_model(model):
+        return "responses"
+    return "responses"
+
+
+def _dedupe_attempt_plan(plan: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    seen: set[tuple[str, str]] = set()
+    out: List[Dict[str, str]] = []
+    for item in plan:
+        key = (item["model"], item["mode"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def _build_openai_attempt_plan(model: str) -> List[Dict[str, str]]:
+    plan: List[Dict[str, str]] = []
+    primary_mode = _preferred_openai_mode_for_model(model)
+    plan.append({"model": model, "mode": primary_mode, "reason": "primary"})
+
+    allow_endpoint_fallback = _bool_env("TRADINGBOT_OPENAI_ALLOW_ENDPOINT_FALLBACK", True)
+    if allow_endpoint_fallback and primary_mode != "chat_completions" and _can_use_openai_mode(model, "chat_completions"):
+        plan.append({"model": model, "mode": "chat_completions", "reason": "endpoint_fallback"})
+
+    fallback_model = os.getenv("TRADINGBOT_OPENAI_FALLBACK_MODEL", "").strip()
+    if fallback_model and fallback_model != model:
+        fallback_mode = _preferred_openai_mode_for_model(fallback_model)
+        plan.append({"model": fallback_model, "mode": fallback_mode, "reason": "model_fallback"})
+        if allow_endpoint_fallback and fallback_mode != "chat_completions" and _can_use_openai_mode(fallback_model, "chat_completions"):
+            plan.append(
+                {
+                    "model": fallback_model,
+                    "mode": "chat_completions",
+                    "reason": "model_endpoint_fallback",
+                }
+            )
+
+    return _dedupe_attempt_plan(plan)
+
+
+def _instantiate_openai_client(timeout_seconds: float) -> Any:
     from openai import OpenAI
 
-    if timeout_seconds > 0:
-        try:
-            return OpenAI(timeout=timeout_seconds)
-        except TypeError:
-            pass
-    return OpenAI()
+    timeout_value: float | None = timeout_seconds if timeout_seconds > 0 else None
+    try:
+        return OpenAI(timeout=timeout_value)
+    except TypeError:
+        return OpenAI()
 
 
-def _make_anthropic_client(timeout_seconds: float) -> Any:
+def _instantiate_anthropic_client(timeout_seconds: float) -> Any:
     from anthropic import Anthropic
 
-    if timeout_seconds > 0:
-        try:
-            return Anthropic(timeout=timeout_seconds)
-        except TypeError:
-            pass
-    return Anthropic()
-
-
-def _log_provider_retry(provider: str, attempt: int, max_attempts: int, exc: Exception, delay: float, *, mode: str = "") -> None:
-    suffix = f" [{mode}]" if mode else ""
-    print(
-        f"↻ Retrying {provider}{suffix} request (attempt {attempt}/{max_attempts}) after {delay:.1f}s due to: {exc}",
-        flush=True,
-    )
-
-
-def _raise_overall_timeout(provider: str, model: str, total_timeout_seconds: float, attempts_started: int, *, mode: str = "") -> None:
-    suffix = f" using {mode}" if mode else ""
-    raise ProviderRequestTimeoutError(
-        f"{provider} request sequence for model {model}{suffix} exceeded overall timeout of "
-        f"{int(round(total_timeout_seconds))}s after {attempts_started} attempt(s)"
-    )
-
-
-def _format_openai_attempt_plan(mode: str, model: str) -> str:
-    return f"{mode}:{model}"
+    timeout_value: float | None = timeout_seconds if timeout_seconds > 0 else None
+    try:
+        return Anthropic(timeout=timeout_value)
+    except TypeError:
+        return Anthropic()
 
 
 def chat_openai(messages: List[dict], model: str) -> str:
-    per_attempt_timeout = _provider_timeout_seconds("openai")
-    total_timeout_seconds = _provider_total_timeout_seconds("openai")
+    timeout_seconds = _provider_timeout_seconds("openai")
     heartbeat_seconds = _provider_heartbeat_seconds("openai")
-    client = _make_openai_client(per_attempt_timeout)
-    _maybe_validate_openai_model(client, model)
-    preferred_mode = default_api_mode_for_provider("openai") or "responses"
-    current_mode = preferred_mode
+    total_timeout_seconds = _provider_total_timeout_seconds("openai")
     max_attempts = _provider_max_attempts("openai")
+    client = _instantiate_openai_client(timeout_seconds)
+
+    attempt_plan = _build_openai_attempt_plan(model)
+    if not attempt_plan:
+        raise ProviderPlanError(f"No OpenAI attempt plan could be built for model: {model}")
+    total_attempts = min(max_attempts, len(attempt_plan))
     overall_deadline = time.monotonic() + total_timeout_seconds if total_timeout_seconds > 0 else None
+
     last_exc: Exception | None = None
-    attempts_started = 0
-
-    while attempts_started < max_attempts:
-        remaining_total = _remaining_budget_seconds(overall_deadline)
-        if remaining_total is not None and remaining_total <= 0:
-            _raise_overall_timeout("OpenAI", model, total_timeout_seconds, attempts_started, mode=current_mode)
-
-        attempts_started += 1
-        label = f"OpenAI {current_mode} request (attempt {attempts_started}/{max_attempts}, model {model})"
-        effective_timeout = per_attempt_timeout
-        if remaining_total is not None:
-            effective_timeout = min(per_attempt_timeout, max(1.0, remaining_total))
-
+    for attempt_index, candidate in enumerate(attempt_plan[:total_attempts], start=1):
+        candidate_model = candidate["model"]
+        candidate_mode = candidate["mode"]
+        _maybe_validate_openai_model(client, candidate_model)
+        label = f"OpenAI {candidate_mode} request (attempt {attempt_index}/{total_attempts}, model {candidate_model})"
         try:
-            if current_mode == "chat_completions":
+            if candidate_mode == "chat_completions":
                 result = _wait_for_provider_response(
                     label,
-                    lambda: _openai_generate_via_chat_completions(client, messages, model),
-                    timeout_seconds=effective_timeout,
+                    lambda cm=candidate_model: _openai_generate_via_chat_completions(client, messages, cm),
+                    timeout_seconds=timeout_seconds,
                     heartbeat_seconds=heartbeat_seconds,
                     total_deadline=overall_deadline,
                 )
             else:
                 result = _wait_for_provider_response(
                     label,
-                    lambda: _openai_generate_via_responses(client, messages, model),
-                    timeout_seconds=effective_timeout,
+                    lambda cm=candidate_model: _openai_generate_via_responses(client, messages, cm),
+                    timeout_seconds=timeout_seconds,
                     heartbeat_seconds=heartbeat_seconds,
                     total_deadline=overall_deadline,
                 )
             return (result.text or "").strip()
         except Exception as exc:
             last_exc = exc
-            if _should_fallback_openai_mode(current_mode, exc):
-                current_mode = "chat_completions"
-                print(f"↻ Falling back to OpenAI chat_completions after {exc.__class__.__name__}: {exc}", flush=True)
-
-            if attempts_started >= max_attempts or not _is_retryable_openai_error(exc):
+            has_more = attempt_index < total_attempts
+            retryable = _is_retryable_openai_error(exc) or (_is_openai_mode_mismatch_error(exc) and has_more)
+            if not has_more or not retryable:
                 raise
-
-            delay = _backoff_delay_seconds(attempts_started, _extract_retry_after_seconds(exc))
-            remaining_total = _remaining_budget_seconds(overall_deadline)
-            if remaining_total is not None and remaining_total <= 0:
-                _raise_overall_timeout("OpenAI", model, total_timeout_seconds, attempts_started, mode=current_mode)
-            if remaining_total is not None:
-                if remaining_total <= delay:
-                    _raise_overall_timeout("OpenAI", model, total_timeout_seconds, attempts_started, mode=current_mode)
-                delay = min(delay, max(0.0, remaining_total - 0.1))
-            _log_provider_retry("OpenAI", attempts_started, max_attempts, exc, delay, mode=current_mode)
-            time.sleep(delay)
-
+            next_candidate = attempt_plan[attempt_index]
+            print(
+                f"↻ Switching OpenAI route after {exc.__class__.__name__}: "
+                f"{candidate_model}/{candidate_mode} -> {next_candidate['model']}/{next_candidate['mode']} ({next_candidate['reason']})",
+                flush=True,
+            )
+            delay = _backoff_delay_seconds(attempt_index, _extract_retry_after_seconds(exc))
+            if overall_deadline is not None:
+                remaining = overall_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ProviderRequestTimeoutError("OpenAI overall provider deadline exceeded")
+                delay = min(delay, max(0.0, remaining))
+            if delay > 0:
+                print(
+                    f"↻ Retrying OpenAI plan after {delay:.1f}s due to: {exc}",
+                    flush=True,
+                )
+                time.sleep(delay)
     if last_exc is not None:
         raise last_exc
     return ""
 
 
 def chat_anthropic(messages: List[dict], model: str) -> str:
-    per_attempt_timeout = _provider_timeout_seconds("anthropic")
-    total_timeout_seconds = _provider_total_timeout_seconds("anthropic")
-    heartbeat_seconds = _provider_heartbeat_seconds("anthropic")
-    client = _make_anthropic_client(per_attempt_timeout)
+    client = _instantiate_anthropic_client(_provider_timeout_seconds("anthropic"))
     _maybe_validate_anthropic_model(client, model)
+    timeout_seconds = _provider_timeout_seconds("anthropic")
+    heartbeat_seconds = _provider_heartbeat_seconds("anthropic")
+    total_timeout_seconds = _provider_total_timeout_seconds("anthropic")
     max_attempts = _provider_max_attempts("anthropic")
     overall_deadline = time.monotonic() + total_timeout_seconds if total_timeout_seconds > 0 else None
     last_exc: Exception | None = None
-    attempts_started = 0
 
-    while attempts_started < max_attempts:
-        remaining_total = _remaining_budget_seconds(overall_deadline)
-        if remaining_total is not None and remaining_total <= 0:
-            _raise_overall_timeout("Anthropic", model, total_timeout_seconds, attempts_started)
-
-        attempts_started += 1
-        effective_timeout = per_attempt_timeout
-        if remaining_total is not None:
-            effective_timeout = min(per_attempt_timeout, max(1.0, remaining_total))
+    for attempt in range(1, max_attempts + 1):
+        system_text = _join_system_messages(messages)
+        non_system = _non_system_messages(messages)
+        request: Dict[str, Any] = {
+            "model": model,
+            "max_tokens": max(1, _int_env("TRADINGBOT_ANTHROPIC_MAX_TOKENS", 20000)),
+            "messages": [
+                {
+                    "role": m["role"] if m["role"] in {"user", "assistant"} else "user",
+                    "content": m["content"],
+                }
+                for m in non_system
+            ],
+        }
+        if system_text:
+            request["system"] = system_text
+        label = f"Anthropic messages request (attempt {attempt}/{max_attempts}, model {model})"
         try:
-            system_text = _join_system_messages(messages)
-            non_system = _non_system_messages(messages)
-            request: Dict[str, Any] = {
-                "model": model,
-                "max_tokens": max(1, _int_env("TRADINGBOT_ANTHROPIC_MAX_TOKENS", 20000)),
-                "messages": [{"role": m["role"] if m["role"] in {"user", "assistant"} else "user", "content": m["content"]} for m in non_system],
-            }
-            if system_text:
-                request["system"] = system_text
-            label = f"Anthropic messages request (attempt {attempts_started}/{max_attempts}, model {model})"
             resp = _wait_for_provider_response(
                 label,
-                lambda: client.messages.create(**request),
-                timeout_seconds=effective_timeout,
+                lambda req=request: client.messages.create(**req),
+                timeout_seconds=timeout_seconds,
                 heartbeat_seconds=heartbeat_seconds,
                 total_deadline=overall_deadline,
             )
@@ -635,19 +634,17 @@ def chat_anthropic(messages: List[dict], model: str) -> str:
             return (result.text or "").strip()
         except Exception as exc:
             last_exc = exc
-            if attempts_started >= max_attempts or not _is_retryable_anthropic_error(exc):
+            if attempt >= max_attempts or not _is_retryable_anthropic_error(exc):
                 raise
-            delay = _backoff_delay_seconds(attempts_started, _extract_retry_after_seconds(exc))
-            remaining_total = _remaining_budget_seconds(overall_deadline)
-            if remaining_total is not None and remaining_total <= 0:
-                _raise_overall_timeout("Anthropic", model, total_timeout_seconds, attempts_started)
-            if remaining_total is not None:
-                if remaining_total <= delay:
-                    _raise_overall_timeout("Anthropic", model, total_timeout_seconds, attempts_started)
-                delay = min(delay, max(0.0, remaining_total - 0.1))
-            _log_provider_retry("Anthropic", attempts_started, max_attempts, exc, delay)
-            time.sleep(delay)
-
+            delay = _backoff_delay_seconds(attempt, _extract_retry_after_seconds(exc))
+            if overall_deadline is not None:
+                remaining = overall_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ProviderRequestTimeoutError("Anthropic overall provider deadline exceeded")
+                delay = min(delay, max(0.0, remaining))
+            if delay > 0:
+                print(f"↻ Retrying Anthropic after {delay:.1f}s due to: {exc}", flush=True)
+                time.sleep(delay)
     if last_exc is not None:
         raise last_exc
     return ""
@@ -655,8 +652,11 @@ def chat_anthropic(messages: List[dict], model: str) -> str:
 
 def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
     selected = (provider or default_provider()).strip().lower()
-    if selected == "openai":
-        return chat_openai(messages, model)
-    if selected == "anthropic":
-        return chat_anthropic(messages, model)
-    raise ValueError(f"Unsupported provider: {selected}")
+    dispatch = {
+        "openai": chat_openai,
+        "anthropic": chat_anthropic,
+    }
+    handler = dispatch.get(selected)
+    if handler is None:
+        raise ValueError(f"Unsupported provider: {selected}")
+    return handler(messages, model)
