@@ -29,7 +29,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, NoReturn, Tuple
+from typing import Any, Dict, List, Tuple
 
 FILE_BUNDLE_BEGIN = "BEGIN_FILE_BUNDLE"
 FILE_BUNDLE_END = "END_FILE_BUNDLE"
@@ -67,20 +67,6 @@ RUNTIME_ARTIFACT_NAMES = (
 
 class FileBundleError(ValueError):
     pass
-
-
-class ProviderRequestPhaseError(RuntimeError):
-    pass
-
-
-def _raise_provider_request_phase_error(exc: Exception, *, phase: str, provider: str, model: str) -> "NoReturn":
-    provider_name = (provider or "unknown").strip() or "unknown"
-    model_name = (model or "unknown").strip() or "unknown"
-    detail = f"{exc.__class__.__name__}: {exc}"
-    raise ProviderRequestPhaseError(
-        f"{provider_name} provider request failed during {phase} for model `{model_name}`. "
-        f"{detail}. Try a different model or provider, reduce the task size, or adjust the provider timeout settings."
-    ) from exc
 
 
 def _ensure_repo_root_on_sys_path() -> None:
@@ -193,21 +179,6 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
-def _progress_enabled() -> bool:
-    return _bool_env("TRADINGBOT_AGENT_SHOW_PROGRESS", True)
-
-
-def _phase_log(message: str) -> None:
-    if _progress_enabled():
-        print(message, flush=True)
-
-
-def _phase_timing(label: str, start_time: float) -> None:
-    if _progress_enabled():
-        elapsed = time.monotonic() - start_time
-        print(f"{label} ({elapsed:.2f}s)", flush=True)
-
-
 def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=check, text=True, capture_output=False)
 
@@ -247,12 +218,8 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
     except Exception:
         _parse_file_bundle = None  # type: ignore[assignment]
 
-    use_local_parser = _bool_env("TRADINGBOT_AGENT_FORCE_LOCAL_BUNDLE_PARSER", False)
-
-    if _parse_file_bundle is not None and not use_local_parser:
-        parse_started = time.monotonic()
-        _phase_log("→ Parsing file bundle via agents.lib.bundle_parser")
-        parsed = _parse_file_bundle(
+    if _parse_file_bundle is not None:
+        return _parse_file_bundle(
             text=text,
             normalize_newlines=normalize_newlines,
             file_bundle_begin=FILE_BUNDLE_BEGIN,
@@ -261,11 +228,6 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
             file_end=FILE_END,
             error_cls=FileBundleError,
         )
-        _phase_timing(f"→ Parsed file bundle via agents.lib.bundle_parser ({len(parsed)} files)", parse_started)
-        return parsed
-
-    if use_local_parser:
-        _phase_log("→ Parsing file bundle via local fallback parser (TRADINGBOT_AGENT_FORCE_LOCAL_BUNDLE_PARSER=true)")
 
     text = normalize_newlines(text)
 
@@ -1148,26 +1110,10 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     last_output_path = Path(last_output_path)
     expected_path = str(expected_path)
     expected_method_name = str(expected_method_name)
-    _phase_log(f"→ Requesting protected method patch for {expected_path}:{expected_method_name}")
-    request_started = time.monotonic()
-    try:
-        out = chat(messages, model=model, provider=provider)
-    except Exception as exc:
-        _phase_timing("→ Protected method response failed", request_started)
-        _raise_provider_request_phase_error(
-            exc,
-            phase=f"protected method patch for {expected_path}:{expected_method_name}",
-            provider=provider,
-            model=model,
-        )
-    _phase_timing("→ Protected method response received", request_started)
+    out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
-    _phase_log("→ Parsing protected method insertion bundle")
-    parse_started = time.monotonic()
     try:
-        parsed = parse_method_insertion_bundle(out, expected_path, expected_method_name)
-        _phase_timing("→ Parsed protected method insertion bundle", parse_started)
-        return parsed
+        return parse_method_insertion_bundle(out, expected_path, expected_method_name)
     except Exception as exc:
         first_error = str(exc)
 
@@ -1187,27 +1133,11 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         "END_METHOD_INSERTION\n\n"
         f"Parser error: {first_error}"
     )
-    _phase_log("→ Retrying protected method patch with stricter insertion reminder")
-    retry_started = time.monotonic()
-    try:
-        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
-    except Exception as exc:
-        _phase_timing("→ Retry protected method response failed", retry_started)
-        _raise_provider_request_phase_error(
-            exc,
-            phase=f"protected method patch retry for {expected_path}:{expected_method_name}",
-            provider=provider,
-            model=model,
-        )
-    _phase_timing("→ Retry protected method response received", retry_started)
+    out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
     last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
     retry_error = None
-    _phase_log("→ Parsing retried protected method insertion bundle")
-    retry_parse_started = time.monotonic()
     try:
-        parsed_retry = parse_method_insertion_bundle(out2, expected_path, expected_method_name)
-        _phase_timing("→ Parsed retried protected method insertion bundle", retry_parse_started)
-        return parsed_retry
+        return parse_method_insertion_bundle(out2, expected_path, expected_method_name)
     except Exception as exc:
         retry_error = str(exc)
 
@@ -1858,20 +1788,49 @@ def import_regex_for_roots() -> re.Pattern[str]:
     )
 
 
-def repo_map() -> str:
-    roots = [Path("src"), Path("tests"), Path("agents"), Path("tasks")]
+def repo_map(required: List[str] | None = None) -> str:
+    if not _bool_env("TRADINGBOT_AGENT_INCLUDE_REPO_MAP", False):
+        return "(repo map omitted for prompt size; required deliverables and relevant context are included explicitly)"
+
+    requested_roots: List[Path] = []
+    if required:
+        for rf in required:
+            p = Path(rf)
+            if p.exists():
+                requested_roots.append(p if p.is_dir() else p.parent)
+            if p.parts:
+                top = Path(p.parts[0])
+                if top.exists():
+                    requested_roots.append(top)
+
+    roots: List[Path] = []
+    seen_roots: set[str] = set()
+    for root in requested_roots or [Path("src"), Path("tests"), Path("agents"), Path("tasks")]:
+        normalized = root.as_posix()
+        if normalized in seen_roots:
+            continue
+        seen_roots.add(normalized)
+        roots.append(root)
+
+    max_files = _int_env("TRADINGBOT_AGENT_REPO_MAP_MAX_FILES", 200)
+    shown = 0
     out: List[str] = []
     for root in roots:
         if not root.exists():
             continue
         out.append(f"[{root.as_posix()}]")
-        for path in sorted(root.rglob("*")):
+        iterable = [root] if root.is_file() else sorted(root.rglob("*"))
+        for path in iterable:
             if path.is_dir():
                 continue
             rel = path.as_posix()
             if "__pycache__" in rel or rel.endswith(".pyc"):
                 continue
             out.append(rel)
+            shown += 1
+            if shown >= max_files:
+                out.append("... (repo map truncated)")
+                return "\n".join(out).strip()
         out.append("")
     return "\n".join(out).strip()
 
@@ -1879,24 +1838,34 @@ def repo_map() -> str:
 def relevant_context(required: List[str]) -> str:
     seen: set[str] = set()
     lines: List[str] = []
+    line_limit = _int_env("TRADINGBOT_AGENT_CONTEXT_LINE_LIMIT", 80)
+    max_siblings = _int_env("TRADINGBOT_AGENT_CONTEXT_MAX_SIBLINGS", 4)
 
-    # Only include agents dir and specific required files — skip bulk src/tests injection
-    # to keep prompt size manageable as codebase grows
-    candidates = [
-        Path("agents"),
-    ]
-
+    candidates: List[Path] = []
     for rf in required:
         p = Path(rf)
-        if p.exists():
+        if p.exists() and p.is_file():
             candidates.append(p)
-            if p.parent != Path("."):
-                for sib in sorted(p.parent.glob("*.py")):
+
+            parent = p.parent
+            if parent.exists() and parent != Path("."):
+                sibling_count = 0
+                for sib in sorted(parent.glob("*")):
+                    if sibling_count >= max_siblings:
+                        break
+                    if sib == p or not sib.is_file():
+                        continue
+                    if sib.suffix not in {".py", ".md", ".json"}:
+                        continue
                     candidates.append(sib)
+                    sibling_count += 1
+
+    if _bool_env("TRADINGBOT_AGENT_INCLUDE_AGENT_CONTEXT", False):
+        for extra in [Path("agents/lib/shell_router.py"), Path("agents/lib/check_runner.py")]:
+            if extra.exists():
+                candidates.append(extra)
 
     for p in candidates:
-        if not p.exists() or p.is_dir():
-            continue
         rel = p.as_posix()
         if rel in seen:
             continue
@@ -1905,7 +1874,7 @@ def relevant_context(required: List[str]) -> str:
             content = p.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        snippet = "\n".join(content.splitlines()[:60])
+        snippet = "\n".join(content.splitlines()[:line_limit])
         lines.append(f"### {rel}\n{snippet}\n")
     return "\n".join(lines).strip()
 
@@ -2424,6 +2393,14 @@ def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
     raise RuntimeError(f"Unsupported provider: {chosen}")
 
 
+def _approx_message_char_count(messages: List[dict]) -> int:
+    total = 0
+    for msg in messages:
+        content = msg.get("content", "")
+        total += len(content if isinstance(content, str) else str(content))
+    return total
+
+
 def build_messages(
     task_text: str,
     required: List[str],
@@ -2488,7 +2465,7 @@ def build_messages(
 
     extra.append("")
     extra.append("## Repository map")
-    extra.append(repo_map())
+    extra.append(repo_map(required))
 
     if extra_directives.strip():
         extra.append("")
@@ -2694,29 +2671,12 @@ def request_and_parse_bundle(
                     print(f"  - {warning}")
             return validated
 
-    _phase_log("→ Requesting model file bundle")
-    request_started = time.monotonic()
-    try:
-        out = chat(messages, model=model, provider=provider)
-    except Exception as exc:
-        _phase_timing("→ Model file bundle request failed", request_started)
-        _raise_provider_request_phase_error(
-            exc,
-            phase="bundle generation",
-            provider=provider,
-            model=model,
-        )
-    _phase_timing("→ Model file bundle response received", request_started)
+    out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
-    _phase_log("→ Parsing and validating file bundle")
-    parse_started = time.monotonic()
     try:
-        parsed = _parse_validate_or_salvage(out)
-        _phase_timing(f"→ Parsed and validated file bundle ({len(parsed)} files)", parse_started)
-        return parsed
+        return _parse_validate_or_salvage(out)
     except Exception as e:
-        _phase_timing("→ Initial file bundle parse/validation failed", parse_started)
         forbidden_hint = ""
         if forbidden_paths:
             forbidden_hint = (
@@ -2745,28 +2705,11 @@ def request_and_parse_bundle(
             "END_FILE_BUNDLE\n\n"
             f"Parser/policy error: {e}"
         )
-        _phase_log("→ Retrying model file bundle with stricter reminder")
-        retry_started = time.monotonic()
-        try:
-            out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
-        except Exception as exc:
-            _phase_timing("→ Retry model file bundle request failed", retry_started)
-            _raise_provider_request_phase_error(
-                exc,
-                phase="bundle retry generation",
-                provider=provider,
-                model=model,
-            )
-        _phase_timing("→ Retry model file bundle response received", retry_started)
+        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
-        _phase_log("→ Parsing and validating retried file bundle")
-        retry_parse_started = time.monotonic()
         try:
-            parsed_retry = _parse_validate_or_salvage(out2)
-            _phase_timing(f"→ Parsed and validated retried file bundle ({len(parsed_retry)} files)", retry_parse_started)
-            return parsed_retry
+            return _parse_validate_or_salvage(out2)
         except Exception as e2:
-            _phase_timing("→ Retried file bundle parse/validation failed", retry_parse_started)
             raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
 
 
@@ -3288,20 +3231,12 @@ def main() -> int:
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=required,
                 )
-        except ProviderRequestPhaseError as e:
-            _report_failure("provider_timeout", str(e))
-            print("Provider request failed before bundle generation completed.")
-            print("Try a different model/provider, reduce task size, or adjust provider timeout settings.")
-            print(f"Model output saved to: {last_output_path}")
-            print(f"Parsed file bundle saved to: {last_bundle_path}")
-            return 1
         except FileBundleError as e:
             _report_failure("bundle_transport", str(e))
             print(f"Model output saved to: {last_output_path}")
             print(f"Parsed file bundle saved to: {last_bundle_path}")
             return 1
 
-        _phase_log(f"→ Candidate bundle assembled ({len(files)} files)")
         pretty: List[str] = [FILE_BUNDLE_BEGIN]
         for p, c in files.items():
             pretty.append(f"FILE: {p}")
@@ -3310,7 +3245,6 @@ def main() -> int:
         pretty.append(FILE_BUNDLE_END)
         last_bundle_path.write_text("\n".join(pretty) + "\n", encoding="utf-8", newline="\n")
 
-        _phase_log("→ Validating Python syntax for candidate bundle")
         ok_syntax, syntax_msg = validate_python_syntax(files)
         if not ok_syntax:
             _report_failure("python_syntax", syntax_msg)
@@ -3377,12 +3311,10 @@ def main() -> int:
             prev_files = files
             continue
 
-        _phase_log(f"→ Writing {len(files)} files into the worktree")
         pre_write_snapshot = snapshot_file_contents(list(files.keys()))
         write_files(files)
         violation_counts.clear()
 
-        _phase_log("→ Running repository checks")
         ok, details = run_checks()
         if ok:
             print("✅ Green.")
@@ -3399,7 +3331,6 @@ def main() -> int:
                 print("Create a PR on GitHub for this branch (repo rules require PR).")
             return 0
 
-        _phase_log("→ Restoring worktree snapshot after failed checks")
         restore_file_snapshot(pre_write_snapshot)
 
         print("❌ Checks failed after applying changes:")
