@@ -2433,7 +2433,10 @@ def build_messages(
 
 
 
-def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], List[str]]:
+def _parse_file_bundle_transport_resilient(
+    text: str,
+    expected_paths: List[str] | None = None,
+) -> Tuple[Dict[str, str], List[str]]:
     """
     Best-effort recovery for malformed outer file-bundle transport.
 
@@ -2443,28 +2446,42 @@ def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], L
     normalized = normalize_newlines(text)
     lines = normalized.split("\n")
 
+    warnings: List[str] = []
+    expected = {
+        p.strip().replace("\\", "/")
+        for p in (expected_paths or [])
+        if isinstance(p, str) and p.strip()
+    }
+
     begin_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_BEGIN]
     end_idxs = [i for i, line in enumerate(lines) if line.strip() == FILE_BUNDLE_END]
 
-    if len(begin_idxs) == 1 and len(end_idxs) == 1:
+    markerless = False
+    if begin_idxs and end_idxs:
         b = begin_idxs[0]
-        e = end_idxs[0]
+        e = end_idxs[-1]
         if e < b:
             raise FileBundleError("END_FILE_BUNDLE appears before BEGIN_FILE_BUNDLE.")
         inner = lines[b + 1 : e]
-        markerless = False
-    elif len(begin_idxs) == 0 and len(end_idxs) == 0:
+        if b > 0 and any(line.strip() for line in lines[:b]):
+            warnings.append("ignored leading non-bundle text before BEGIN_FILE_BUNDLE")
+        if e + 1 < len(lines) and any(line.strip() for line in lines[e + 1 :]):
+            warnings.append("ignored trailing non-bundle text after END_FILE_BUNDLE")
+    elif not begin_idxs and not end_idxs:
         inner = lines
         markerless = True
+        warnings.append("recovered markerless file bundle transport (missing outer BEGIN_FILE_BUNDLE/END_FILE_BUNDLE)")
     else:
         raise FileBundleError("Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.")
 
     files: Dict[str, str] = {}
-    warnings: List[str] = []
     cur_path: str | None = None
     cur_lines: List[str] = []
-    started = False
+    saw_file = False
     trailing_text_ignored = False
+
+    def _normalize_path(raw_path: str) -> str:
+        return raw_path.strip().replace("\\", "/")
 
     def close_current(reason: str) -> None:
         nonlocal cur_path, cur_lines
@@ -2475,45 +2492,96 @@ def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], L
         cur_path = None
         cur_lines = []
 
+    def _next_meaningful(index: int) -> tuple[str | None, str | None]:
+        j = index + 1
+        while j < len(inner):
+            candidate = inner[j]
+            stripped = candidate.strip()
+            if not stripped:
+                j += 1
+                continue
+            if markerless and stripped in {"```", "~~~"}:
+                j += 1
+                continue
+            return stripped, candidate
+        return None, None
+
+    def _should_treat_header_as_new_file(path: str) -> bool:
+        return not expected or path in expected
+
+    def _should_close_on_end_file(index: int) -> bool:
+        next_stripped, next_raw = _next_meaningful(index)
+        if next_stripped is None:
+            return True
+        if markerless:
+            return True
+        if next_raw is not None:
+            header = BUNDLE_FILE_HEADER_RE.match(next_raw)
+            if header:
+                next_path = _normalize_path(header.group(1))
+                return _should_treat_header_as_new_file(next_path)
+        return False
+
     i = 0
     while i < len(inner):
         line = inner[i]
+        stripped = line.strip()
 
         if cur_path is None:
-            stripped = line.strip()
-            if not stripped or stripped in {"```", "~~~"}:
+            if not stripped:
+                i += 1
+                continue
+            if markerless and stripped in {"```", "~~~"}:
+                i += 1
+                continue
+            if stripped in {FILE_BUNDLE_BEGIN, FILE_BUNDLE_END}:
+                warnings.append(f"ignored stray bundle marker outside FILE block: {stripped}")
                 i += 1
                 continue
 
             m = BUNDLE_FILE_HEADER_RE.match(line)
             if not m:
-                if markerless and not started:
+                if markerless:
+                    if saw_file:
+                        trailing_text_ignored = True
                     i += 1
                     continue
-                if markerless and started:
-                    trailing_text_ignored = True
-                    break
-                raise FileBundleError(f"Expected FILE header, got: {line!r}")
+                warnings.append(f"ignored non-bundle text outside FILE block: {stripped[:80]}")
+                i += 1
+                continue
 
-            path = m.group(1).strip().replace("\\", "/")
+            path = _normalize_path(m.group(1))
             if not path:
                 raise FileBundleError("Empty FILE path.")
+            if expected and path not in expected:
+                warnings.append(f"ignored unexpected FILE header outside FILE block: {path}")
+                i += 1
+                continue
             if path in files:
                 raise FileBundleError(f"Duplicate FILE path in bundle: {path}")
             cur_path = path
             cur_lines = []
-            started = True
+            saw_file = True
             i += 1
             continue
 
-        if line == FILE_END:
-            close_current("closed explicit END_FILE")
+        if stripped == FILE_END:
+            if _should_close_on_end_file(i):
+                close_current("closed explicit END_FILE")
+                i += 1
+                continue
+            cur_lines.append(line)
             i += 1
             continue
 
         m = BUNDLE_FILE_HEADER_RE.match(line)
         if m:
-            close_current("auto-closed missing END_FILE before next FILE")
+            next_path = _normalize_path(m.group(1))
+            if _should_treat_header_as_new_file(next_path):
+                close_current("auto-closed missing END_FILE before next FILE")
+                continue
+            cur_lines.append(line)
+            i += 1
             continue
 
         cur_lines.append(line)
@@ -2522,18 +2590,13 @@ def _parse_file_bundle_transport_resilient(text: str) -> Tuple[Dict[str, str], L
     if cur_path is not None:
         close_current("auto-closed missing trailing END_FILE at bundle end")
 
-    if markerless and not files:
-        raise FileBundleError("Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.")
     if not files:
         raise FileBundleError("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
 
-    if markerless:
-        warnings.insert(0, "recovered markerless file bundle transport (missing outer BEGIN_FILE_BUNDLE/END_FILE_BUNDLE)")
     if trailing_text_ignored:
         warnings.append("ignored trailing non-bundle text after final FILE block")
 
     return files, warnings
-
 
 def request_and_parse_bundle(
     messages: List[dict],
@@ -2541,6 +2604,7 @@ def request_and_parse_bundle(
     provider: str,
     last_output_path: Path,
     forbidden_paths: List[str] | None = None,
+    expected_paths: List[str] | None = None,
 ) -> Dict[str, str]:
     def _validate_transport(parsed: Dict[str, str]) -> Dict[str, str]:
         overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
@@ -2552,7 +2616,7 @@ def request_and_parse_bundle(
         try:
             return _validate_transport(parse_file_bundle(raw))
         except Exception:
-            salvaged, warnings = _parse_file_bundle_transport_resilient(raw)
+            salvaged, warnings = _parse_file_bundle_transport_resilient(raw, expected_paths=expected_paths)
             validated = _validate_transport(salvaged)
             if warnings:
                 print("⚠️ Recovered malformed file bundle transport:")
@@ -3100,6 +3164,7 @@ def main() -> int:
                     args.provider,
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
+                    expected_paths=bundle_required,
                 )
                 files.update(generated)
             elif not files:
@@ -3117,6 +3182,7 @@ def main() -> int:
                     args.provider,
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
+                    expected_paths=required,
                 )
         except FileBundleError as e:
             _report_failure("bundle_transport", str(e))
