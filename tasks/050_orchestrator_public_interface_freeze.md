@@ -32,7 +32,7 @@ Document and freeze the intended public/stable surface for:
 - project adapter translation interface
 - validator plugin interface
 - task spec machine-readable contract directives
-- shell public entrypoints / compatibility wrappers
+- shell compatibility export surface used by the current post-049 shell baseline
 
 ## Critical compatibility requirement
 
@@ -40,9 +40,9 @@ This is an interface freeze task, not a redesign task.
 
 Prefer additive documentation, typed surfaces, compatibility wrappers, and deterministic tests over broad engine behavior changes.
 
-Do not change command-line behavior, repo wiring, routing flow, or import/bootstrap order merely to make the docs cleaner.
+Do not change command-line behavior, repo wiring, routing flow, import/bootstrap order, or shell entrypoint structure merely to make the docs cleaner.
 
-The frozen public surface must remain compatible with the post-049 shell baseline **and** the existing bootstrap adapter/config test suite already present in this repository.
+The frozen public surface must remain compatible with the post-049 shell baseline and the existing bootstrap/config/validator tests already present in this repository.
 
 ## Required implementation emphasis
 
@@ -50,21 +50,23 @@ The frozen public surface must remain compatible with the post-049 shell baselin
 - distinguish public/stable interfaces from internal implementation details
 - favor narrow typed helpers, dataclasses, Protocol-style contracts, or well-documented adapters over hidden convention
 - keep the frozen surface compatible with later extraction work
-- freeze the currently exposed bootstrap compatibility wrappers already relied on by the shell baseline
-- preserve existing public symbol locations; do not move frozen wrappers between modules in this task
+- preserve existing public symbol locations and legacy compatibility behavior
+- do not move frozen wrappers between modules in this task
 
 ## Specific shell freeze requirement
 
 Do **not** rewrite or miniaturize `agents/run_task.py` in this task.
 
-The shell compatibility wrappers already relied on by the post-049 shell baseline are the public names that this task is freezing:
+For this repository's current post-049 shell baseline, the frozen shell compatibility surface is the mapping exposed through `agents.run_task._bootstrap_exports()`.
+
+The dedicated public-surface test should validate that this export mapping still contains and resolves the bootstrap compatibility names already relied on by the shell baseline, rather than requiring newly invented top-level attributes on `agents.run_task`.
+
+In particular, the test should validate the current shell-compatible export mapping for:
 
 - `bootstrap_project_adapter_scaffold`
 - `bootstrap_project_config_scaffold`
 
-This task should freeze those names via docs and dedicated tests against the existing shell baseline, not by replacing the shell entry module.
-
-If supporting tests need to reference the shell wrapper surface, they must validate the current exported behavior without broad shell refactors.
+Do not require `agents.run_task` to grow new top-level wrapper names in this task.
 
 ## Exact bootstrap symbol-to-module ownership requirement
 
@@ -86,6 +88,38 @@ This module remains the public owner of:
 
 Do not move these adapter-side symbols into `project_config.py` or any other module.
 
+## Exact config/default compatibility requirement
+
+Preserve the current generic project-config compatibility contract exactly.
+
+The public/default behavior must continue to satisfy the existing repository tests for:
+
+- `state_path is None`
+- `audit_path is None`
+- `task_file_pattern == "*.task.md"`
+
+Do not change these defaults in this task.
+
+## Exact bootstrap scaffold compatibility requirement
+
+Preserve the existing bootstrap scaffold contract exactly.
+
+The bootstrap scaffolding behavior must remain compatible with the existing repository tests, including:
+
+- deterministic file locations and filenames
+- existing scaffold return keys, including `docs`, `task_template`, and `task_example`
+- expected scaffold text/content shape used by the current bootstrap tests
+
+Do not rename those keys or shift the returned artifact contract in this task.
+
+## Exact validator compatibility requirement
+
+Preserve the current legacy validator compatibility behavior.
+
+The public validator surface must remain green with the repository's existing validator tests, including compatibility around `run_checks()` and the default non-plugin path behavior.
+
+This task may document and freeze that surface, but it must not break the current compatibility path.
+
 ## Specific test requirement
 
 The dedicated public-surface test must be safe under normal pytest collection in this repository.
@@ -100,9 +134,16 @@ Prefer one of these patterns:
 
 ## Existing test-suite compatibility requirement
 
-This task must remain green with the repository's existing bootstrap-related tests.
+This task must remain green with the repository's existing compatibility tests.
 
-In particular, do not break or relocate the symbols expected by the existing bootstrap adapter/config tests. The dedicated public-surface test added by this task is additive; it does not replace the existing compatibility tests.
+In particular, do not break the expectations currently encoded in the repository tests around:
+
+- bootstrap adapter exports and scaffold helpers
+- bootstrap config compatibility wrappers
+- generic project config defaults
+- validator compatibility behavior
+
+The dedicated public-surface test added by this task is additive; it does not replace the existing repository tests.
 
 ## Acceptance criteria
 
@@ -110,7 +151,11 @@ In particular, do not break or relocate the symbols expected by the existing boo
 - `pytest -q` is fully green
 - a dedicated public-surface test verifies the frozen public interface
 - docs explicitly distinguish public/stable interfaces from internal implementation details
-- the frozen public surface includes the post-049 shell compatibility wrappers already used by the shell baseline
+- `agents/run_task.py` remains unchanged by this task
+- the dedicated public-surface test validates the current shell-compatible bootstrap mapping through `_bootstrap_exports()` rather than requiring new top-level shell names
 - `bootstrap_project_config_scaffold` remains publicly owned by `src/builder/orchestrator/project_config.py`
 - `bootstrap_project_adapter_scaffold`, `build_bootstrap_starter_docs_text`, and `build_bootstrap_task_template_text` remain publicly owned by `src/builder/orchestrator/project_adapter.py`
+- generic project config defaults remain exact: `state_path is None`, `audit_path is None`, and `task_file_pattern == "*.task.md"`
+- bootstrap scaffold compatibility remains exact, including `docs`, `task_template`, and `task_example`
+- validator compatibility remains green, including legacy `run_checks()` behavior
 - the frozen public surface is sequence-aware and compatible with later extraction work
