@@ -121,17 +121,6 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     last_output_path = Path("_last_agent_model_output.txt")
     last_bundle_path = Path("_last_agent_file_bundle.txt")
 
-    provider_phase_error = shell_globals.get("ProviderRequestPhaseError")
-    provider_timeout_error = shell_globals.get("ProviderRequestTimeoutError")
-
-    def _is_provider_request_failure(exc: Exception) -> bool:
-        if provider_phase_error is not None and isinstance(exc, provider_phase_error):
-            return True
-        if provider_timeout_error is not None and isinstance(exc, provider_timeout_error):
-            return True
-        return exc.__class__.__name__ in {"ProviderRequestPhaseError", "ProviderRequestTimeoutError"}
-
-
     prev_files: dict[str, str] | None = None
     extra_directives = ""
     violation_counts: dict[str, int] = {}
@@ -217,6 +206,8 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                     args.provider,
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
+                    expected_paths=bundle_required,
+                    baseline=baseline,
                 )
                 files.update(generated)
             elif not files:
@@ -234,18 +225,11 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                     args.provider,
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
+                    expected_paths=required,
+                    baseline=baseline,
                 )
         except shell_globals["FileBundleError"] as e:
             shell_globals["_report_failure"]("bundle_transport", str(e))
-            print(f"Model output saved to: {last_output_path}")
-            print(f"Parsed file bundle saved to: {last_bundle_path}")
-            return 1
-        except Exception as e:
-            if not _is_provider_request_failure(e):
-                raise
-            shell_globals["_report_failure"]("provider_timeout", str(e))
-            print("Provider request failed before bundle generation completed.")
-            print("Try a different model/provider, reduce task size, or adjust provider timeout settings.")
             print(f"Model output saved to: {last_output_path}")
             print(f"Parsed file bundle saved to: {last_bundle_path}")
             return 1

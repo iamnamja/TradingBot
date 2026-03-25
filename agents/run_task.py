@@ -36,6 +36,23 @@ FILE_BUNDLE_END = "END_FILE_BUNDLE"
 FILE_BEGIN_PREFIX = "FILE:"
 FILE_END = "END_FILE"
 
+BUNDLE_MARKER_LINE_VALUES = {FILE_BUNDLE_BEGIN, FILE_BUNDLE_END, FILE_END}
+SUSPICIOUS_PLACEHOLDER_BUNDLE_PATHS = {"path/relative/to/repo.py"}
+CRITICAL_CORE_HEADER_PREFIX_LINES: Dict[str, int] = {
+    "agents/run_task.py": 18,
+    "agents/lib/shell_router.py": 8,
+}
+CRITICAL_CORE_REQUIRED_SNIPPETS: Dict[str, Tuple[str, ...]] = {
+    "agents/run_task.py": (
+        "def main() -> int:",
+        "def _shell_router_exports()",
+        "route_shell_main",
+    ),
+    "agents/lib/shell_router.py": (
+        "def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:",
+    ),
+}
+
 DELIVERABLE_PATH_RE = re.compile(r"`([^`]+\.[A-Za-z0-9_]+)`")
 FILE_HEADER_RE = re.compile(r"^\s*(?:#\s*)?FILE:\s*(.+?)\s*$")
 BUNDLE_FILE_HEADER_RE = re.compile(r"^FILE:\s*(.+?)\s*$")
@@ -179,21 +196,6 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
-def _progress_enabled() -> bool:
-    return _bool_env("TRADINGBOT_AGENT_SHOW_PROGRESS", True)
-
-
-def _phase_log(message: str) -> None:
-    if _progress_enabled():
-        print(message, flush=True)
-
-
-def _phase_timing(label: str, start_time: float) -> None:
-    if _progress_enabled():
-        elapsed = time.monotonic() - start_time
-        print(f"{label} ({elapsed:.2f}s)", flush=True)
-
-
 def run(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=check, text=True, capture_output=False)
 
@@ -233,12 +235,8 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
     except Exception:
         _parse_file_bundle = None  # type: ignore[assignment]
 
-    use_local_parser = _bool_env("TRADINGBOT_AGENT_FORCE_LOCAL_BUNDLE_PARSER", False)
-
-    if _parse_file_bundle is not None and not use_local_parser:
-        parse_started = time.monotonic()
-        _phase_log("→ Parsing file bundle via agents.lib.bundle_parser")
-        parsed = _parse_file_bundle(
+    if _parse_file_bundle is not None:
+        return _parse_file_bundle(
             text=text,
             normalize_newlines=normalize_newlines,
             file_bundle_begin=FILE_BUNDLE_BEGIN,
@@ -247,11 +245,6 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
             file_end=FILE_END,
             error_cls=FileBundleError,
         )
-        _phase_timing(f"→ Parsed file bundle via agents.lib.bundle_parser ({len(parsed)} files)", parse_started)
-        return parsed
-
-    if use_local_parser:
-        _phase_log("→ Parsing file bundle via local fallback parser (TRADINGBOT_AGENT_FORCE_LOCAL_BUNDLE_PARSER=true)")
 
     text = normalize_newlines(text)
 
@@ -301,6 +294,103 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
         raise FileBundleError("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
 
     return files
+
+
+def _normalize_bundle_relpath(path: str) -> str:
+    return str(path or "").strip().replace("\\", "/")
+
+
+def _bundle_contains_raw_transport_markers(rel: str, content: str) -> List[str]:
+    issues: List[str] = []
+    if not rel.endswith(".py"):
+        return issues
+    for idx, raw_line in enumerate(normalize_newlines(content).split("\n"), start=1):
+        stripped = raw_line.strip()
+        if stripped in BUNDLE_MARKER_LINE_VALUES:
+            issues.append(f"{rel}:{idx} contains raw bundle marker `{stripped}` as a standalone line")
+            continue
+        if BUNDLE_FILE_HEADER_RE.match(stripped):
+            issues.append(f"{rel}:{idx} contains raw bundle FILE header `{stripped}` as a standalone line")
+    return issues
+
+
+def _validate_candidate_bundle_guardrails(
+    bundle: Dict[str, str],
+    *,
+    expected_paths: List[str] | None = None,
+    baseline: Dict[str, str] | None = None,
+) -> None:
+    normalized_expected = {
+        _normalize_bundle_relpath(path)
+        for path in (expected_paths or [])
+        if isinstance(path, str) and path.strip()
+    }
+    normalized_bundle = {
+        _normalize_bundle_relpath(path): content
+        for path, content in bundle.items()
+    }
+
+    if normalized_expected:
+        unexpected = sorted(path for path in normalized_bundle if path not in normalized_expected)
+        if unexpected:
+            raise FileBundleError(
+                "Bundle included unexpected file path(s) outside the allowed deliverables: "
+                + ", ".join(unexpected)
+            )
+
+    suspicious = sorted(
+        path
+        for path in normalized_bundle
+        if path in SUSPICIOUS_PLACEHOLDER_BUNDLE_PATHS or path.startswith("path/relative/to/repo")
+    )
+    if suspicious:
+        raise FileBundleError(
+            "Bundle included suspicious placeholder path(s): " + ", ".join(suspicious)
+        )
+
+    marker_issues: List[str] = []
+    for path, content in normalized_bundle.items():
+        marker_issues.extend(_bundle_contains_raw_transport_markers(path, content))
+    if marker_issues:
+        raise FileBundleError(
+            "Bundle embedded raw transport markers inside Python file content:\n- "
+            + "\n- ".join(marker_issues)
+        )
+
+    if baseline:
+        normalized_baseline = {
+            _normalize_bundle_relpath(path): content
+            for path, content in baseline.items()
+            if content is not None
+        }
+        prefix_issues: List[str] = []
+        for path, line_count in CRITICAL_CORE_HEADER_PREFIX_LINES.items():
+            if path not in normalized_bundle or path not in normalized_baseline:
+                continue
+            old_prefix = "\n".join(normalize_newlines(normalized_baseline[path]).splitlines()[:line_count])
+            new_prefix = "\n".join(normalize_newlines(normalized_bundle[path]).splitlines()[:line_count])
+            if old_prefix != new_prefix:
+                prefix_issues.append(
+                    f"{path} modified the protected top-of-file header/docstring prefix (first {line_count} lines)"
+                )
+        if prefix_issues:
+            raise FileBundleError(
+                "Bundle modified protected core-file header regions:\n- " + "\n- ".join(prefix_issues)
+            )
+
+    snippet_issues: List[str] = []
+    for path, snippets in CRITICAL_CORE_REQUIRED_SNIPPETS.items():
+        if path not in normalized_bundle:
+            continue
+        missing = [snippet for snippet in snippets if snippet not in normalized_bundle[path]]
+        if missing:
+            snippet_issues.append(f"{path} is missing required core snippet(s): {', '.join(missing)}")
+    if snippet_issues:
+        raise FileBundleError(
+            "Bundle removed required critical-file seams:\n- " + "\n- ".join(snippet_issues)
+        )
+
+
 def write_files(files: Dict[str, str]) -> None:
     repo_root = Path(".").resolve()
     for rel, data in files.items():
@@ -1134,17 +1224,10 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     last_output_path = Path(last_output_path)
     expected_path = str(expected_path)
     expected_method_name = str(expected_method_name)
-    _phase_log(f"→ Requesting protected method patch for {expected_path}:{expected_method_name}")
-    request_started = time.monotonic()
     out = chat(messages, model=model, provider=provider)
-    _phase_timing("→ Protected method response received", request_started)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
-    _phase_log("→ Parsing protected method insertion bundle")
-    parse_started = time.monotonic()
     try:
-        parsed = parse_method_insertion_bundle(out, expected_path, expected_method_name)
-        _phase_timing("→ Parsed protected method insertion bundle", parse_started)
-        return parsed
+        return parse_method_insertion_bundle(out, expected_path, expected_method_name)
     except Exception as exc:
         first_error = str(exc)
 
@@ -1164,18 +1247,11 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         "END_METHOD_INSERTION\n\n"
         f"Parser error: {first_error}"
     )
-    _phase_log("→ Retrying protected method patch with stricter insertion reminder")
-    retry_started = time.monotonic()
     out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
-    _phase_timing("→ Retry protected method response received", retry_started)
     last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
     retry_error = None
-    _phase_log("→ Parsing retried protected method insertion bundle")
-    retry_parse_started = time.monotonic()
     try:
-        parsed_retry = parse_method_insertion_bundle(out2, expected_path, expected_method_name)
-        _phase_timing("→ Parsed retried protected method insertion bundle", retry_parse_started)
-        return parsed_retry
+        return parse_method_insertion_bundle(out2, expected_path, expected_method_name)
     except Exception as exc:
         retry_error = str(exc)
 
@@ -2643,11 +2719,17 @@ def request_and_parse_bundle(
     last_output_path: Path,
     forbidden_paths: List[str] | None = None,
     expected_paths: List[str] | None = None,
+    baseline: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     def _validate_transport(parsed: Dict[str, str]) -> Dict[str, str]:
         overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
         if overlap_issue:
             raise FileBundleError(overlap_issue)
+        _validate_candidate_bundle_guardrails(
+            parsed,
+            expected_paths=expected_paths,
+            baseline=baseline,
+        )
         return parsed
 
     def _parse_validate_or_salvage(raw: str) -> Dict[str, str]:
@@ -2662,20 +2744,12 @@ def request_and_parse_bundle(
                     print(f"  - {warning}")
             return validated
 
-    _phase_log("→ Requesting model file bundle")
-    request_started = time.monotonic()
     out = chat(messages, model=model, provider=provider)
-    _phase_timing("→ Model file bundle response received", request_started)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
-    _phase_log("→ Parsing and validating file bundle")
-    parse_started = time.monotonic()
     try:
-        parsed = _parse_validate_or_salvage(out)
-        _phase_timing(f"→ Parsed and validated file bundle ({len(parsed)} files)", parse_started)
-        return parsed
+        return _parse_validate_or_salvage(out)
     except Exception as e:
-        _phase_timing("→ Initial file bundle parse/validation failed", parse_started)
         forbidden_hint = ""
         if forbidden_paths:
             forbidden_hint = (
@@ -2704,19 +2778,11 @@ def request_and_parse_bundle(
             "END_FILE_BUNDLE\n\n"
             f"Parser/policy error: {e}"
         )
-        _phase_log("→ Retrying model file bundle with stricter reminder")
-        retry_started = time.monotonic()
         out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
-        _phase_timing("→ Retry model file bundle response received", retry_started)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
-        _phase_log("→ Parsing and validating retried file bundle")
-        retry_parse_started = time.monotonic()
         try:
-            parsed_retry = _parse_validate_or_salvage(out2)
-            _phase_timing(f"→ Parsed and validated retried file bundle ({len(parsed_retry)} files)", retry_parse_started)
-            return parsed_retry
+            return _parse_validate_or_salvage(out2)
         except Exception as e2:
-            _phase_timing("→ Retried file bundle parse/validation failed", retry_parse_started)
             raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
 
 
@@ -3219,6 +3285,7 @@ def main() -> int:
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=bundle_required,
+                    baseline=baseline,
                 )
                 files.update(generated)
             elif not files:
@@ -3237,6 +3304,7 @@ def main() -> int:
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=required,
+                    baseline=baseline,
                 )
         except FileBundleError as e:
             _report_failure("bundle_transport", str(e))
@@ -3244,7 +3312,6 @@ def main() -> int:
             print(f"Parsed file bundle saved to: {last_bundle_path}")
             return 1
 
-        _phase_log(f"→ Candidate bundle assembled ({len(files)} files)")
         pretty: List[str] = [FILE_BUNDLE_BEGIN]
         for p, c in files.items():
             pretty.append(f"FILE: {p}")
@@ -3253,7 +3320,6 @@ def main() -> int:
         pretty.append(FILE_BUNDLE_END)
         last_bundle_path.write_text("\n".join(pretty) + "\n", encoding="utf-8", newline="\n")
 
-        _phase_log("→ Validating Python syntax for candidate bundle")
         ok_syntax, syntax_msg = validate_python_syntax(files)
         if not ok_syntax:
             _report_failure("python_syntax", syntax_msg)
@@ -3320,12 +3386,10 @@ def main() -> int:
             prev_files = files
             continue
 
-        _phase_log(f"→ Writing {len(files)} files into the worktree")
         pre_write_snapshot = snapshot_file_contents(list(files.keys()))
         write_files(files)
         violation_counts.clear()
 
-        _phase_log("→ Running repository checks")
         ok, details = run_checks()
         if ok:
             print("✅ Green.")
@@ -3342,7 +3406,6 @@ def main() -> int:
                 print("Create a PR on GitHub for this branch (repo rules require PR).")
             return 0
 
-        _phase_log("→ Restoring worktree snapshot after failed checks")
         restore_file_snapshot(pre_write_snapshot)
 
         print("❌ Checks failed after applying changes:")
@@ -3576,30 +3639,14 @@ def _validator_runner_exports() -> Dict[str, object]:
     return exports
 
 
-def _bootstrap_exports() -> Dict[str, object]:
-    try:
-        from builder.orchestrator import project_adapter as _project_adapter  # type: ignore
-    except Exception:
-        _project_adapter = None  # type: ignore[assignment]
-    try:
-        from builder.orchestrator import project_config as _project_config  # type: ignore
-    except Exception:
-        _project_config = None  # type: ignore[assignment]
+def _bootstrap_exports() -> dict[str, object]:
+    from builder.orchestrator.project_config import bootstrap_project_config_scaffold
+    from builder.orchestrator.project_adapter import bootstrap_project_adapter_scaffold
 
-    exports: Dict[str, object] = {}
-
-    if _project_config is not None:
-        bootstrap_config = getattr(_project_config, "bootstrap_project_config_scaffold", None)
-        if callable(bootstrap_config):
-            exports["bootstrap_project_config_scaffold"] = bootstrap_config
-
-    if _project_adapter is not None:
-        bootstrap_adapter = getattr(_project_adapter, "bootstrap_project_adapter_scaffold", None)
-        if callable(bootstrap_adapter):
-            exports["bootstrap_project_adapter_scaffold"] = bootstrap_adapter
-
-    return exports
-
+    return {
+        "bootstrap_project_config_scaffold": bootstrap_project_config_scaffold,
+        "bootstrap_project_adapter_scaffold": bootstrap_project_adapter_scaffold,
+    }
 
 def _shell_router_exports() -> Dict[str, object]:
     try:
