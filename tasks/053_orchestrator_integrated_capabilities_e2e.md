@@ -58,6 +58,24 @@ At least one scenario should exercise **three or more** of the 043–048 capabil
 
 Do not modify non-listed code files in this task.
 
+## Nested-check guardrail
+
+Integrated tests in this task must **not** trigger real nested repo-wide validator subprocesses from inside pytest.
+
+In particular:
+
+- do not call `validator_runner.run_checks(...)` in a way that shells out to real `ruff check .` or real `pytest -q` during the test run
+- if validator behavior is part of the scenario, monkeypatch or fake the validator execution path so the test stays deterministic and in-process
+- do not create tests that recursively invoke repo-wide `pytest -q` from inside pytest
+- keep integrated scenarios fast, deterministic, and bounded
+
+It is acceptable to monkeypatch:
+- `agents.lib.validator_runner._run_plugin_validators`
+- `agents.lib.check_runner.run_checks`
+- `subprocess.run`
+
+so long as the scenario still proves the intended orchestration wiring and compatibility behavior.
+
 ## Docs-path constraint
 
 Use `docs/` as the canonical location for orchestrator narrative docs.
@@ -70,5 +88,6 @@ Do not create or modify a root-level `ORCHESTRATOR_PRODUCT_SPEC.md` in this task
 - `pytest -q` is fully green
 - at least one new integrated scenario uses 3 or more of the 043–048 capabilities together
 - integrated tests do not weaken the existing focused unit tests
+- no integrated test recursively invokes real repo-wide `pytest -q` or `ruff check .`
 - the product spec notes the existence and purpose of the integrated scenario coverage
 - the product-spec update for this task lands in `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
