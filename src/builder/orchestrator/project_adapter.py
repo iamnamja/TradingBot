@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .project_config import GenericProjectConfig, ProjectConfig
+from .project_config import GenericProjectConfig, ProjectConfig, load_project_config
 
 
 class ProjectAdapter:
@@ -63,16 +63,20 @@ class ProjectAdapter:
             state_path=None,
             task_file_pattern="*.task.md",
             audit_path=None,
-            validators=None,
+            validators=[
+                {"name": "flake8", "command": "flake8 .", "enabled": True, "required": True},
+                {"name": "pytest", "command": "pytest tests/test_generic.py", "enabled": True, "required": True},
+            ],
             parallel_execution_enabled=False,
         )
 
 
 def build_bootstrap_starter_docs_text() -> str:
     return (
-        "# Orchestrator Starter Docs\n\n"
-        "This scaffold is generic and reusable.\n\n"
-        "Start with tasks/001_example_task.md and use task_template.md as the starting template for new tasks.\n"
+        "# Project Orchestrator Bootstrap\n\n"
+        "This repository is configured for orchestrator-driven task execution as a generic and reusable setup.\n"
+        "Create tasks in `tasks/` such as `tasks/001_example_task.md`, copy from `tasks/task_template.md`, "
+        "and tune behavior in `orchestrator_project_config.json`.\n"
     )
 
 
@@ -80,7 +84,7 @@ def build_bootstrap_task_template_text() -> str:
     return (
         "# Task Template\n\n"
         "## Goal\n"
-        "Describe the exact change and success criteria.\n\n"
+        "Describe the desired outcome.\n\n"
         "## Deliverables\n"
         "- Updated source files\n"
         "- Tests and/or docs as needed\n\n"
@@ -90,39 +94,34 @@ def build_bootstrap_task_template_text() -> str:
     )
 
 
-def bootstrap_project_adapter_scaffold(target_dir: str | Path) -> dict[str, Path]:
-    root = Path(target_dir)
+def bootstrap_project_adapter_scaffold(repo_root: str | Path) -> dict[str, Path]:
+    root = Path(repo_root)
     docs_dir = root / "docs"
     tasks_dir = root / "tasks"
-    factory_dir = root / "src" / "builder" / "orchestrator"
+    src_dir = root / "src" / "builder" / "orchestrator"
 
     docs_dir.mkdir(parents=True, exist_ok=True)
     tasks_dir.mkdir(parents=True, exist_ok=True)
-    factory_dir.mkdir(parents=True, exist_ok=True)
+    src_dir.mkdir(parents=True, exist_ok=True)
 
     docs_path = docs_dir / "orchestrator_starter.md"
     task_template_path = tasks_dir / "task_template.md"
     task_example_path = tasks_dir / "001_example_task.md"
-    adapter_factory_path = factory_dir / "project_adapter_factory.py"
+    adapter_factory_path = src_dir / "project_adapter_factory.py"
     validator_config_path = root / ".orchestrator_validator.json"
 
-    docs_path.write_text(build_bootstrap_starter_docs_text(), encoding="utf-8", newline="\n")
-    task_template_path.write_text(build_bootstrap_task_template_text(), encoding="utf-8", newline="\n")
-    task_example_path.write_text(
-        "# Example Task\n\n## Goal\nCreate a small generic and reusable change.\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    docs_path.write_text(build_bootstrap_starter_docs_text(), encoding="utf-8")
+    task_template_path.write_text(build_bootstrap_task_template_text(), encoding="utf-8")
+    if not task_example_path.exists():
+        task_example_path.write_text(
+            "# Task 001 — Example task\n\n## Goal\n\nProvide a concrete starting point.\n",
+            encoding="utf-8",
+        )
     adapter_factory_path.write_text(
-        "from builder.orchestrator.project_adapter import ProjectAdapter\n",
+        "from builder.orchestrator.project_adapter import load_project_adapter\n",
         encoding="utf-8",
-        newline="\n",
     )
-    validator_config_path.write_text(
-        json.dumps({"validators": []}, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    validator_config_path.write_text(json.dumps({"validators": []}, indent=2) + "\n", encoding="utf-8")
 
     return {
         "docs": docs_path,
@@ -131,3 +130,9 @@ def bootstrap_project_adapter_scaffold(target_dir: str | Path) -> dict[str, Path
         "adapter_factory": adapter_factory_path,
         "validator_config": validator_config_path,
     }
+
+
+def load_project_adapter(path_or_root: str | Path) -> ProjectAdapter:
+    path = Path(path_or_root)
+    config_path = path / "project_config.json" if path.is_dir() else path
+    return ProjectAdapter(load_project_config(config_path))
