@@ -4,17 +4,9 @@
 Reads a task markdown file, asks an LLM to output a deterministic file bundle,
 writes files, runs ruff+pytest, and optionally commits/pushes to an agent branch.
 
-File bundle format (MUST be exact):
-
-BEGIN_FILE_BUNDLE
-FILE: path/relative/to/repo.py
-<file contents>
-END_FILE
-END_FILE_BUNDLE
-
-Empty bundle is allowed:
-BEGIN_FILE_BUNDLE
-END_FILE_BUNDLE
+File bundle format uses explicit bundle begin/end sentinels plus per-file headers and end markers.
+The concrete raw marker lines are intentionally omitted from this docstring so they do not get copied
+verbatim into generated Python or test file contents by mistake.
 """
 
 from __future__ import annotations
@@ -227,6 +219,159 @@ def normalize_newlines(s: str) -> str:
     return re.sub(r"^\ufeff", "", s)
 
 
+
+
+CRITICAL_BUNDLE_HEADER_LINES: Dict[str, int] = {
+    "agents/run_task.py": 20,
+    "agents/lib/shell_router.py": 5,
+}
+
+CRITICAL_FILE_REQUIRED_SNIPPETS: Dict[str, Tuple[str, ...]] = {
+    "agents/run_task.py": (
+        "def main()",
+        "def request_and_parse_bundle(",
+        "def _bootstrap_exports()",
+    ),
+    "agents/lib/shell_router.py": (
+        "def route_shell_main(",
+    ),
+}
+
+
+def _sanitize_prompt_context_text(text: str) -> str:
+    normalized = normalize_newlines(text)
+    sanitized: List[str] = []
+    for line in normalized.split("\n"):
+        stripped = line.strip()
+        if stripped == FILE_BUNDLE_BEGIN:
+            sanitized.append("<BEGIN_FILE_BUNDLE marker elided>")
+            continue
+        if stripped == FILE_BUNDLE_END:
+            sanitized.append("<END_FILE_BUNDLE marker elided>")
+            continue
+        if stripped == FILE_END:
+            sanitized.append("<END_FILE marker elided>")
+            continue
+        header_match = BUNDLE_FILE_HEADER_RE.match(line)
+        if header_match:
+            sanitized.append(f"<FILE header elided: {header_match.group(1).strip()}>")
+            continue
+        sanitized.append(line)
+    return "\n".join(sanitized)
+
+
+def _validate_candidate_bundle_guardrails(
+    bundle: Dict[str, str],
+    *,
+    expected_paths: List[str] | None = None,
+    baseline: Dict[str, str] | None = None,
+) -> None:
+    expected = {
+        _normalize_bundle_relpath(path)
+        for path in (expected_paths or [])
+        if isinstance(path, str) and path.strip()
+    }
+    baseline = dict(baseline or {})
+    issues: List[str] = []
+
+    unexpected = []
+    for rel in bundle:
+        normalized_rel = _normalize_bundle_relpath(rel)
+        if normalized_rel == "path/relative/to/repo.py" or normalized_rel.startswith("path/relative/to/repo."):
+            issues.append(f"bundle included placeholder path `{normalized_rel}`")
+        if expected and normalized_rel not in expected:
+            unexpected.append(normalized_rel)
+
+    if unexpected:
+        issues.append("bundle included unexpected path(s): " + ", ".join(sorted(unexpected)))
+
+    for rel, content in bundle.items():
+        normalized_rel = _normalize_bundle_relpath(rel)
+        normalized_content = normalize_newlines(content)
+        if normalized_rel.endswith(".py"):
+            for lineno, line in enumerate(normalized_content.split("\n"), start=1):
+                stripped = line.strip()
+                if stripped in {FILE_BUNDLE_BEGIN, FILE_BUNDLE_END, FILE_END}:
+                    issues.append(
+                        f"{normalized_rel}:{lineno} contains raw bundle marker `{stripped}` as a standalone line"
+                    )
+                elif BUNDLE_FILE_HEADER_RE.match(line):
+                    issues.append(
+                        f"{normalized_rel}:{lineno} contains raw bundle FILE header `{stripped}` as a standalone line"
+                    )
+
+        header_lines = CRITICAL_BUNDLE_HEADER_LINES.get(normalized_rel)
+        if header_lines and normalized_rel in baseline:
+            original_header = "\n".join(normalize_newlines(baseline[normalized_rel]).split("\n")[:header_lines])
+            proposed_header = "\n".join(normalized_content.split("\n")[:header_lines])
+            if original_header != proposed_header:
+                issues.append(
+                    f"{normalized_rel} modified its protected header/docstring region (first {header_lines} lines)"
+                )
+            original_line_count = len(normalize_newlines(baseline[normalized_rel]).split("\n"))
+            proposed_line_count = len(normalized_content.split("\n"))
+            minimum_allowed = max(20, int(original_line_count * 0.6))
+            if proposed_line_count < minimum_allowed:
+                issues.append(
+                    f"{normalized_rel} appears to be destructively shrunk ({proposed_line_count} < {minimum_allowed} lines)"
+                )
+
+        for snippet in CRITICAL_FILE_REQUIRED_SNIPPETS.get(normalized_rel, ()):
+            if snippet not in normalized_content:
+                issues.append(f"{normalized_rel} is missing required critical snippet `{snippet}`")
+
+    if issues:
+        raise FileBundleError(
+            "Bundle embedded raw transport markers or violated critical-file guardrails:\n"
+            + "\n".join(f"- {issue}" for issue in issues)
+        )
+
+
+def _build_transport_repair_prompt(
+    *,
+    parse_error: Exception,
+    expected_paths: List[str] | None = None,
+    forbidden_paths: List[str] | None = None,
+) -> str:
+    lines: List[str] = [
+        "Your previous response was rejected by bundle transport and content guardrails.",
+        "Return ONLY a corrected file bundle.",
+        "Do not add prose, markdown fences, or explanation.",
+        "Do not emit raw bundle marker lines inside Python file contents.",
+        "If source or tests must mention bundle markers, split the strings such as 'FI' + 'LE:' or 'END_' + 'FILE'.",
+        "Do not introduce placeholder paths such as `path/relative/to/repo.py`.",
+        "Do not rewrite protected header/docstring regions in critical core files.",
+    ]
+    normalized_expected = [
+        _normalize_bundle_relpath(path)
+        for path in (expected_paths or [])
+        if isinstance(path, str) and path.strip()
+    ]
+    if normalized_expected:
+        lines.append("Only these FILE paths may appear in the bundle:")
+        lines.extend(f"- {path}" for path in normalized_expected)
+    normalized_forbidden = [
+        _normalize_bundle_relpath(path)
+        for path in (forbidden_paths or [])
+        if isinstance(path, str) and path.strip()
+    ]
+    if normalized_forbidden:
+        lines.append("These protected paths must NOT appear in the normal bundle:")
+        lines.extend(f"- {path}" for path in normalized_forbidden)
+    lines.extend(
+        [
+            "",
+            "Valid outer structure reminder:",
+            "<bundle begin sentinel>",
+            "FILE: path/to/file.ext",
+            "<full file contents>",
+            "END_FILE",
+            "<bundle end sentinel>",
+            "",
+            f"Previous parser/guardrail error: {parse_error}",
+        ]
+    )
+    return "\n".join(lines)
 def parse_file_bundle(text: str) -> Dict[str, str]:
     try:
         from agents.lib.bundle_parser import parse_file_bundle as _parse_file_bundle  # type: ignore
@@ -1119,7 +1264,7 @@ def build_method_insertion_messages(task_text: str, target_path: str, method_nam
         "",
         "## Current baseline file content",
         f"FILE: {target_path}",
-        baseline_content.rstrip("\n"),
+        _sanitize_prompt_context_text(baseline_content).rstrip("\n"),
         "END_FILE",
     ]
     if extra_directives.strip():
@@ -1874,6 +2019,7 @@ def relevant_context(required: List[str]) -> str:
         except Exception:
             continue
         snippet = "\n".join(content.splitlines()[:60])
+        snippet = _sanitize_prompt_context_text(snippet)
         lines.append(f"### {rel}\n{snippet}\n")
     return "\n".join(lines).strip()
 
@@ -2416,6 +2562,7 @@ def build_messages(
         extra.append("Do not omit test files named in the task.")
         extra.append("Do not substitute similar or nested alternative paths.")
         extra.append("Do not create runtime artifact files such as last_output.txt, _last_agent_model_output.txt, or _last_agent_file_bundle.txt in the bundle.")
+        extra.append("Do not place raw bundle marker lines such as BEGIN_FILE_BUNDLE, FILE:, END_FILE, or END_FILE_BUNDLE inside Python file contents. If tests must mention them, split the strings.")
         if forbidden_normal_bundle_paths:
             extra.append(
                 "Protected files handled separately MUST NOT appear in this normal file bundle: "
@@ -2442,7 +2589,7 @@ def build_messages(
         )
         for rel, content in virtual_context.items():
             extra.append(f"FILE: {rel}")
-            extra.append(content.rstrip("\n"))
+            extra.append(_sanitize_prompt_context_text(content).rstrip("\n"))
             extra.append("END_FILE")
 
     if forbidden_normal_bundle_paths:
@@ -2665,6 +2812,11 @@ def request_and_parse_bundle(
         overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
         if overlap_issue:
             raise FileBundleError(overlap_issue)
+        _validate_candidate_bundle_guardrails(
+            parsed,
+            expected_paths=expected_paths,
+            baseline=baseline,
+        )
         return parsed
 
     def _parse_validate_or_salvage(raw: str) -> Dict[str, str]:
@@ -2734,7 +2886,27 @@ def request_and_parse_bundle(
             return parsed_retry
         except Exception as e2:
             _phase_timing("→ Retried file bundle parse/validation failed", retry_parse_started)
-            raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
+            repair_prompt = _build_transport_repair_prompt(
+                parse_error=e2,
+                expected_paths=expected_paths,
+                forbidden_paths=forbidden_paths,
+            )
+            _phase_log("→ Retrying model file bundle with targeted transport repair prompt")
+            repair_started = time.monotonic()
+            out3 = chat(messages + [{"role": "user", "content": repair_prompt}], model=model, provider=provider)
+            _phase_timing("→ Repair model file bundle response received", repair_started)
+            last_output_path.write_text(out3 + "\n", encoding="utf-8", newline="\n")
+            _phase_log("→ Parsing and validating repaired file bundle")
+            repair_parse_started = time.monotonic()
+            try:
+                parsed_repair = _parse_validate_or_salvage(out3)
+                _phase_timing(f"→ Parsed and validated repaired file bundle ({len(parsed_repair)} files)", repair_parse_started)
+                return parsed_repair
+            except Exception as e3:
+                _phase_timing("→ Repaired file bundle parse/validation failed", repair_parse_started)
+                raise FileBundleError(
+                    f"Model returned malformed or policy-violating file bundle after retry: {e3}"
+                ) from e3
 
 
 def _local_branch_exists(branch: str) -> bool:
