@@ -34,14 +34,12 @@ def _capture_result_overridden() -> bool:
     return capture_result is not _DEFAULT_CAPTURE_RESULT
 
 
-
 def _coerce_completed_output(result: object) -> str:
     stdout = getattr(result, "stdout", "") or ""
     stderr = getattr(result, "stderr", "") or ""
     if stderr and stderr not in stdout:
         return f"{stdout}{stderr}".strip()
     return str(stdout).strip()
-
 
 
 def _run_command_with_heartbeat(
@@ -51,10 +49,6 @@ def _run_command_with_heartbeat(
     timeout_seconds: int,
     heartbeat_seconds: int,
 ) -> Tuple[bool, str, bool]:
-    """Run a subprocess with periodic heartbeat messages and a hard timeout.
-
-    Returns: (ok, output_text, timed_out)
-    """
     print(f"▶ Running {label}", flush=True)
     start = time.monotonic()
     proc = subprocess.Popen(
@@ -70,19 +64,14 @@ def _run_command_with_heartbeat(
         if remaining <= 0:
             proc.kill()
             stdout, _ = proc.communicate()
-            timeout_msg = (
-                f"\n\n[timeout] {label} exceeded {timeout_seconds}s and was terminated."
-            )
+            timeout_msg = f"\n\n[timeout] {label} exceeded {timeout_seconds}s and was terminated."
             return False, (stdout or "").strip() + timeout_msg, True
 
         try:
             stdout, _ = proc.communicate(timeout=min(float(heartbeat_seconds), remaining))
             break
         except subprocess.TimeoutExpired:
-            print(
-                f"⏳ Still running {label}... {int(time.monotonic() - start)}s elapsed",
-                flush=True,
-            )
+            print(f"⏳ Still running {label}... {int(time.monotonic() - start)}s elapsed", flush=True)
 
     output = (stdout or "").strip()
     ok = proc.returncode == 0
@@ -91,6 +80,22 @@ def _run_command_with_heartbeat(
     print(f"✔ Finished {label} ({status}, {duration}s)", flush=True)
     return ok, output, False
 
+
+def _nested_pytest_guard(exec_cmd: List[str], label: str) -> Tuple[bool, str, bool] | None:
+    if os.getenv("TRADINGBOT_ALLOW_NESTED_PYTEST", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return None
+    in_pytest = bool(os.getenv("PYTEST_CURRENT_TEST", "").strip())
+    if not in_pytest:
+        return None
+    normalized = [part.strip().lower() for part in exec_cmd]
+    if normalized[-2:] != ["pytest", "-q"] and normalized != ["pytest", "-q"]:
+        return None
+    message = (
+        f"Nested repo-wide {label} invocation was blocked while already running under pytest. "
+        "Monkeypatch the validator/check execution path or set TRADINGBOT_ALLOW_NESTED_PYTEST=1 if this is intentional."
+    )
+    print(f"✔ Skipped {label} (nested-pytest-guard, 0s)", flush=True)
+    return False, message, False
 
 
 def _run_check_command(
@@ -101,12 +106,6 @@ def _run_check_command(
     timeout_seconds: int,
     heartbeat_seconds: int,
 ) -> Tuple[bool, str, bool]:
-    """Preserve the historical capture_result seam for tests/compatibility.
-
-    When capture_result is monkeypatched, use it with the legacy command surface.
-    Otherwise, use the heartbeat + timeout execution path with a venv-reliable
-    executable command.
-    """
     if _capture_result_overridden():
         print(f"▶ Running {label}", flush=True)
         result = capture_result(display_cmd)
@@ -116,13 +115,16 @@ def _run_check_command(
         print(f"✔ Finished {label} ({status}, 0s)", flush=True)
         return ok, output, False
 
+    nested_guard = _nested_pytest_guard(exec_cmd, label)
+    if nested_guard is not None:
+        return nested_guard
+
     return _run_command_with_heartbeat(
         exec_cmd,
         label=label,
         timeout_seconds=timeout_seconds,
         heartbeat_seconds=heartbeat_seconds,
     )
-
 
 
 def run_checks() -> Dict[str, Any] | Tuple[bool, str]:
@@ -152,8 +154,7 @@ def run_checks() -> Dict[str, Any] | Tuple[bool, str]:
             chunks.append(lint_output)
         if lint_timed_out:
             chunks.append(
-                f"ruff timed out after {ruff_timeout_seconds}s. "
-                "Increase TRADINGBOT_RUFF_TIMEOUT_SECONDS if this is expected."
+                f"ruff timed out after {ruff_timeout_seconds}s. Increase TRADINGBOT_RUFF_TIMEOUT_SECONDS if this is expected."
             )
     if not test_ok:
         chunks.append("=== pytest -q ===")
@@ -161,8 +162,7 @@ def run_checks() -> Dict[str, Any] | Tuple[bool, str]:
             chunks.append(test_output)
         if test_timed_out:
             chunks.append(
-                f"pytest timed out after {pytest_timeout_seconds}s. "
-                "Increase TRADINGBOT_PYTEST_TIMEOUT_SECONDS if this is expected."
+                f"pytest timed out after {pytest_timeout_seconds}s. Increase TRADINGBOT_PYTEST_TIMEOUT_SECONDS if this is expected."
             )
 
     output_text = "\n\n".join(chunk for chunk in chunks if chunk).strip()
