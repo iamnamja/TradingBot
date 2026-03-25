@@ -1,0 +1,36 @@
+{
+  "tasks_directory": "tasks/",
+  "lint_command": "python -m py_compile src/sample_app/main.py",
+  "test_command": "pytest -q tests",
+  "branch_naming_pattern": "work/*",
+  "protected_file_patterns": [
+    "secrets/*.key",
+    "deploy/prod.env"
+  ],
+  "artifact_path_patterns": [
+    "build/*",
+    "reports/*"
+  ],
+  "approval_required_file_patterns": [
+    "deploy/*"
+  ],
+  "task_runner_command": null,
+  "state_path": "tasks/state.json",
+  "task_file_pattern": "*.md",
+  "audit_path": "reports/audit.jsonl",
+  "validators": [
+    {
+      "name": "compile",
+      "command": "python -m py_compile src/sample_app/main.py",
+      "enabled": true,
+      "required": true
+    },
+    {
+      "name": "sample-tests",
+      "command": "pytest -q tests",
+      "enabled": true,
+      "required": false
+    }
+  ],
+  "parallel_execution_enabled": true
+}
