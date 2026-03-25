@@ -48,6 +48,17 @@ In particular, the following existing helpers and import locations must remain i
 - `builder.orchestrator.project_adapter.build_bootstrap_starter_docs_text`
 - `builder.orchestrator.project_adapter.build_bootstrap_task_template_text`
 
+## Existing-seam guardrail
+
+The integrated tests added in this task must align with the **current live repository seams and behavior**. They must not invent new required APIs or strengthen optional surfaces into mandatory ones.
+
+In particular:
+
+- use the current failure-journal live seam name exposed by the repo; do **not** rename it or expect a new alias
+- preserve the current spec-mode frozen-task behavior exactly, including canonical task-text normalization currently used by the repo
+- if safe-parallelism planning is optional or absent in the current build, tests must skip or soften accordingly instead of forcing a new required method
+- do not create tests that require non-listed production files to change
+
 ## Test-shape guidance
 
 Prefer composing the existing focused helpers/fixtures rather than re-implementing large bespoke setups.
@@ -89,5 +100,6 @@ Do not create or modify a root-level `ORCHESTRATOR_PRODUCT_SPEC.md` in this task
 - at least one new integrated scenario uses 3 or more of the 043–048 capabilities together
 - integrated tests do not weaken the existing focused unit tests
 - no integrated test recursively invokes real repo-wide `pytest -q` or `ruff check .`
+- the integrated tests align with current live seam names and current optional-vs-required behavior
 - the product spec notes the existence and purpose of the integrated scenario coverage
 - the product-spec update for this task lands in `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
