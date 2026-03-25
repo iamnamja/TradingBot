@@ -1,48 +1,41 @@
-# Orchestrator Roadmap (Tasks 049–054)
+# Orchestrator Roadmap 049–054 (Current Stabilization Tranche)
 
-## Context
+## Tranche objective
 
-Tasks 042–048 completed the main productization capability tranche.
+Consolidate and stabilize the orchestrator after the completed 042–048 hardening baseline, preparing for eventual repository/package extraction without claiming extraction is already complete.
 
-The next phase is about making the orchestrator **stable enough to reuse across projects without depending on TradingBot-specific history or shell quirks**.
+## Status
 
-## Tranche goals
+- **Current active roadmap tranche**: 049–054
+- 042–048 is complete and treated as baseline.
 
-- converge `agents/run_task.py` into a truly thin shell
-- freeze the public orchestrator surface
-- normalize stale status/docs surfaces
-- prove portability with a second project fixture
-- add integrated end-to-end scenarios across 043–048
-- prepare eventual extraction into its own package/repository
+## Ordered roadmap
 
-## Task summary
+1. **049** — run-task shell convergence umbrella  
+   - converge shell paths and reduce duplication in execution routing.
+2. **049a** — run-task export/wrapper dedupe  
+   - remove redundant wrapper/export patterns while preserving behavior.
+3. **049b** — final shell routing extraction  
+   - complete routing extraction and stabilization.
+4. **050** — public interface freeze  
+   - lock and defend stable orchestrator public surface.
+5. **051** — docs/status normalization  
+   - synchronize canonical docs and tranche status.
+6. **052** — second-project portability proof  
+   - demonstrate reliable reuse beyond primary project context.
+7. **053** — integrated capabilities E2E  
+   - validate capabilities together under production-like constraints.
+8. **054** — package extraction prep  
+   - complete preconditions for later extraction.
 
-| Task | Name | Goal |
-|------|------|------|
-| 049 | Run Task Shell Convergence | remove duplicate shell/export definitions and finish thin-shell routing |
-| 050 | Public Interface Freeze | freeze config / adapter / validator / task-spec public surfaces |
-| 051 | Docs / Status Normalization | update docs to match the real post-048 baseline |
-| 052 | Second Project Portability Proof | prove the orchestrator against a non-TradingBot fixture project |
-| 053 | Integrated Capability Scenarios | test 043–048 together in realistic orchestrator flows |
-| 054 | Package Extraction Prep | prepare the orchestrator for clean later extraction |
+## Exit criteria for tranche completion
 
-## Recommended order
+- Shell convergence complete with no behavior regressions.
+- Public interfaces explicitly stable and tested.
+- Portability proven in a second project.
+- Integrated E2E validation complete.
+- Packaging/extraction prerequisites documented and satisfied.
 
-1. 049a — export/wrapper dedupe
-2. 049b — final shell routing extraction
-3. 050 — public interface freeze
-4. 051 — docs normalization
-5. 052 — second-project proof
-6. 053 — integrated scenarios
-7. 054 — package extraction prep
+## Repo strategy note
 
-## Exit criteria for the tranche
-
-The orchestrator is ready for packaging / repo extraction when:
-
-- `agents/run_task.py` is thin and stable
-- there is one stable definition per public shell wrapper/export seam
-- public config / adapter / validator / task-spec surfaces are documented and frozen
-- a second project fixture passes through bootstrap + validation paths
-- integrated scenarios cover runtime artifacts, spec mode, failure journaling, validators, and safe parallelism together
-- docs accurately reflect the implementation baseline
+Separation into a standalone orchestrator repository/package is recommended **after** this tranche completes, not during current stabilization.
