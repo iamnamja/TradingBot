@@ -55,10 +55,10 @@ The integrated tests added in this task must align with the **current live repos
 
 In particular:
 
-- use the current failure-journal export shape exposed by `run_task._failure_journal_exports()`; do **not** require a new `"module"` key or any new alias if the live seam does not expose one
+- use the current failure-journal export shape exposed by `run_task._failure_journal_exports()`; do **not** require a new `"module"` key, a new `"report_failure"` export, or any new alias if the live seam does not expose one
 - preserve the current spec-mode frozen-task behavior exactly, including the current canonical task-text normalization used by the repo (`rstrip("\n")` behavior is acceptable if that is the live contract)
 - if safe-parallelism planning is optional or absent in the current build, tests must skip or soften accordingly instead of forcing a new required method
-- protected-file review tests must align with the current live `run_review()` behavior; they may assert blocking **or** the presence of explanatory reasons/warnings, but must not force a stricter mergeability contract than the repo currently exposes
+- protected-file review tests must align with the current live `run_review()` behavior; they may assert presence of `mergeable`, `reasons`, and `warnings` keys and may inspect populated values when present, but they must **not** require non-empty `reasons` or `warnings` when `mergeable` is false unless the live repo currently guarantees that
 - do not create tests that require non-listed production files to change
 
 ## Bootstrap/adapter guardrail
@@ -74,15 +74,21 @@ then it must call `bootstrap_project_adapter_scaffold(project_root)` explicitly 
 
 Do not create tests that assume `load_project_adapter()` itself creates scaffold files.
 
-## Failure journal + quarantine guardrail
+## Failure journal + integrated failure-path guardrail
 
-Integrated scenarios must only assert cleanup/quarantine and failure-journal behavior that is currently wired in the live repo.
+Integrated scenarios must only assert failure-journal behavior that is currently wired in the live repo.
 
 In particular:
 
 - if `run_task._failure_journal_exports()` returns callables rather than a raw module object, tests must use that live seam instead of monkeypatching a fabricated module key
+- the integrated max-iteration failure flow must **not** require that monkeypatching `run_task.main.__globals__["report_failure"]` is sufficient to observe failure reporting if the live routed shell path does not call that exact global directly
+- for that integrated flow, it is acceptable to assert:
+  - return code `1`
+  - failure output contains the current live max-iteration failure message
+  - canonical task text was resolved from the frozen artifact
+  - and, if a report-failure seam is directly patched through the live routed path, that it was called
 - if runtime artifact quarantine is not invoked on a particular failure path in the current build, tests must not require it on that path
-- `tests/test_runtime_artifact_quarantine.py` must align with the current live git-command behavior for unknown paths instead of assuming a stricter exact `git reset HEAD -- <path>` sequence if the helper currently uses a different command shape
+- `tests/test_runtime_artifact_quarantine.py` must align with the current live git-command behavior for unknown paths instead of assuming a stricter exact command sequence
 
 ## Nested-check guardrail
 
@@ -92,7 +98,7 @@ In particular:
 
 - do not call `validator_runner.run_checks(...)` in a way that shells out to real `ruff check .` or real `pytest -q` during the test run
 - if validator behavior is part of the scenario, monkeypatch or fake the validator execution path so the test stays deterministic and in-process
-- do not create tests that recursively invoke repo-wide `pytest -q` from inside pytest
+- do not create tests that recursively invoke real repo-wide `pytest -q` from inside pytest
 - keep integrated scenarios fast, deterministic, and bounded
 
 It is acceptable to monkeypatch:
