@@ -1,4 +1,4 @@
-# Task 055 — Orchestrator Stable Seam Registry
+# Task 053 — Orchestrator Stable Seam Registry
 
 ## Goal
 
