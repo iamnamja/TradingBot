@@ -55,8 +55,15 @@ def test_validator_default_path_is_legacy_non_plugin(monkeypatch) -> None:
         called["plugin"] = True
         raise AssertionError("plugin path must not run for config=None")
 
-    monkeypatch.setattr(validator_runner, "run_validators", _boom)
+    monkeypatch.setattr(validator_runner, "run_validator", _boom)
+    monkeypatch.setattr(
+        validator_runner.check_runner,
+        "run_checks",
+        lambda: {"lint_ok": True, "test_ok": False, "output_text": "pytest failed"},
+    )
+
     ok, output = validator_runner.run_checks(config=None)
-    assert isinstance(ok, bool)
-    assert isinstance(output, str)
+
+    assert ok is False
+    assert output == "pytest failed"
     assert called["plugin"] is False

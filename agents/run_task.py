@@ -3600,6 +3600,7 @@ def _bootstrap_exports() -> Dict[str, object]:
 
     return exports
 
+
 def _shell_router_exports() -> Dict[str, object]:
     try:
         from agents.lib import shell_router as _shell_router  # type: ignore
