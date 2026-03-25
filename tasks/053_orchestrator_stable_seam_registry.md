@@ -38,6 +38,22 @@ The registry should cover current live seam families such as:
 
 The implementation does not need to expose raw internal modules if that is not the current live pattern; it only needs to expose stable test seams.
 
+## Critical file-shape guardrails
+
+This task must **not** corrupt the file-bundle transport by embedding raw bundle markers inside file contents.
+
+In particular:
+
+- do **not** place literal standalone lines such as:
+  - `BEGIN_FILE_BUNDLE`
+  - `FILE: ...`
+  - `END_FILE`
+  - `END_FILE_BUNDLE`
+  inside Python docstrings, markdown examples, or any generated file contents
+- if `agents/run_task.py` is updated, preserve the existing top-of-file module docstring structure and avoid rewriting the file-bundle example block unless absolutely necessary
+- do not introduce a placeholder path such as `path/relative/to/repo.py` as a real repo file in the bundle
+- do not emit malformed or truncated triple-quoted strings
+
 ## Compatibility constraints
 
 - preserve the public CLI shell and `route_shell_main(...)` behavior
@@ -51,3 +67,4 @@ The implementation does not need to expose raw internal modules if that is not t
 - `pytest -q` is fully green
 - orchestrator integration tests can rely on stable seam names instead of guessing private globals
 - docs describe the stable seam registry and what is supported for monkeypatching
+- generated file contents do not contain malformed bundle-marker examples that break Python syntax
