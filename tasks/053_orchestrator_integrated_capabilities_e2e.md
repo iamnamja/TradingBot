@@ -1,38 +1,35 @@
-# Task 053 — Orchestrator Integrated Capability Scenarios
+# Task 053 — Orchestrator Integrated Capability Scenario
 
 ## Goal
 
-Add integrated end-to-end scenarios that exercise the capabilities added in tasks 043–048 together instead of only in isolation.
+Add a single realistic integrated end-to-end scenario that exercises multiple orchestrator capabilities added in tasks 043–048 together, without redesigning or tightening optional live seams that the current repo does not guarantee.
 
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
 
 - `tests/test_orchestrator_integrated_capabilities.py`
-- `tests/test_safe_parallelism.py`
-- `tests/test_failure_journal.py`
 - `tests/test_execution_mode_frozen_task.py`
-- `tests/test_runtime_artifact_quarantine.py`
+- `tests/test_failure_journal.py`
 - `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
 
 ## Harness policy
 
 - FILE: tests/test_orchestrator_integrated_capabilities.py MODE=TESTS_ONLY
-- FILE: tests/test_safe_parallelism.py MODE=TESTS_ONLY
-- FILE: tests/test_failure_journal.py MODE=TESTS_ONLY
 - FILE: tests/test_execution_mode_frozen_task.py MODE=TESTS_ONLY
-- FILE: tests/test_runtime_artifact_quarantine.py MODE=TESTS_ONLY
+- FILE: tests/test_failure_journal.py MODE=TESTS_ONLY
 - FILE: docs/ORCHESTRATOR_PRODUCT_SPEC.md MODE=DOCS_ONLY
 
 ## Required behavior
 
-Add realistic integrated scenarios covering combinations such as:
+Add one integrated scenario that combines **at least three** of the following currently live capabilities in one realistic flow:
 
-- runtime artifact quarantine + failure journal
-- spec mode + frozen execution + validator selection
-- safe parallelism gating + protected-file restrictions
+- frozen execution / spec-mode artifact resolution
+- validator execution failure handling
+- failure journal / failure reporting seam usage
+- post-failure artifact bookkeeping that is already live in the repo
 
-At least one integrated scenario should combine **three or more** of the 043–048 capabilities in one realistic flow.
+This task should **not** attempt to expand, redesign, or make stricter the current safe-parallelism review or runtime-quarantine behavior.
 
 ## Critical compatibility constraint
 
@@ -55,40 +52,31 @@ The integrated tests added in this task must align with the **current live repos
 
 In particular:
 
-- use the current failure-journal export shape exposed by `run_task._failure_journal_exports()`; do **not** require a new `"module"` key, a new `"report_failure"` export, or any new alias if the live seam does not expose one
+- use the current failure-journal export shape exposed by `run_task._failure_journal_exports()`
+- do **not** require a new `"module"` key, a new `"report_failure"` export, or any new alias if the live seam does not expose one
 - preserve the current spec-mode frozen-task behavior exactly, including the current canonical task-text normalization used by the repo (`rstrip("\n")` behavior is acceptable if that is the live contract)
-- if safe-parallelism planning is optional or absent in the current build, tests must skip or soften accordingly instead of forcing a new required method
-- protected-file review tests must align with the current live `run_review()` behavior; they may assert presence of `mergeable`, `reasons`, and `warnings` keys and may inspect populated values when present, but they must **not** require non-empty `reasons` or `warnings` when `mergeable` is false unless the live repo currently guarantees that
-- do not create tests that require non-listed production files to change
-
-## Bootstrap/adapter guardrail
-
-Do not treat `load_project_adapter(project_root)` as an implicit bootstrap side effect.
-
-If an integrated scenario needs scaffolded files such as:
-
-- `docs/orchestrator_starter.md`
-- `tasks/task_template.md`
-
-then it must call `bootstrap_project_adapter_scaffold(project_root)` explicitly before asserting those files exist.
-
-Do not create tests that assume `load_project_adapter()` itself creates scaffold files.
-
-## Failure journal + integrated failure-path guardrail
-
-Integrated scenarios must only assert failure-journal behavior that is currently wired in the live repo.
-
-In particular:
-
-- if `run_task._failure_journal_exports()` returns callables rather than a raw module object, tests must use that live seam instead of monkeypatching a fabricated module key
 - the integrated max-iteration failure flow must **not** require that monkeypatching `run_task.main.__globals__["report_failure"]` is sufficient to observe failure reporting if the live routed shell path does not call that exact global directly
-- for that integrated flow, it is acceptable to assert:
+- for the integrated flow, it is acceptable to assert:
   - return code `1`
   - failure output contains the current live max-iteration failure message
   - canonical task text was resolved from the frozen artifact
-  - and, if a report-failure seam is directly patched through the live routed path, that it was called
-- if runtime artifact quarantine is not invoked on a particular failure path in the current build, tests must not require it on that path
-- `tests/test_runtime_artifact_quarantine.py` must align with the current live git-command behavior for unknown paths instead of assuming a stricter exact command sequence
+  - validator failure was observed through the in-process seam under test
+  - and, if a directly patched live failure-report seam is actually invoked, that it was called
+
+## Scope reduction guardrail
+
+Do **not** modify or add these files in this task:
+
+- `tests/test_safe_parallelism.py`
+- `tests/test_runtime_artifact_quarantine.py`
+
+Do not introduce new integrated assertions about:
+- `run_review()` mergeability semantics
+- non-empty `reasons` / `warnings` lists
+- exact quarantine git-command sequences
+- optional planner/review behavior
+
+Those seams remain covered by their existing focused tests and should not be redefined here.
 
 ## Nested-check guardrail
 
@@ -118,9 +106,10 @@ Do not create or modify a root-level `ORCHESTRATOR_PRODUCT_SPEC.md` in this task
 
 - `ruff check .` passes
 - `pytest -q` is fully green
-- at least one new integrated scenario uses 3 or more of the 043–048 capabilities together
+- the new integrated scenario uses at least three currently live capabilities together
 - integrated tests do not weaken the existing focused unit tests
 - no integrated test recursively invokes real repo-wide `pytest -q` or `ruff check .`
-- the integrated tests align with current live seam names, current canonical task-text normalization, and current optional-vs-required behavior
+- the integrated tests align with current live seam names and current canonical task-text normalization
+- this task does not modify `tests/test_safe_parallelism.py` or `tests/test_runtime_artifact_quarantine.py`
 - the product spec notes the existence and purpose of the integrated scenario coverage
 - the product-spec update for this task lands in `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
