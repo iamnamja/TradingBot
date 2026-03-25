@@ -1,60 +1,33 @@
-# Orchestrator Roadmap (Tasks 032–048)
+# Orchestrator Roadmap 032–048 (Completed)
 
-## Context
+## Scope
 
-Tasks 032–048 are now complete in substance on `main`.
+This roadmap section captures the orchestrator maturation sequence from execution-result normalization through safe parallelism hardening.
 
-This tranche took the orchestrator from a strong internal harness to a materially more reusable delivery product.
+## Status
 
-## Completed roadmap summary
+**All tasks 032–048 are complete.**
 
-| Task | Name | Status |
-|------|------|--------|
-| 032 | Execution Result Normalization | ✅ |
-| 033 | Real Review and Compliance Gate | ✅ |
-| 034 | Branch and Worktree Guardrails | ✅ |
-| 035 | PR Creation Workflow | ✅ |
-| 036 | Resume After Approval | ✅ |
-| 037 | Persistent Backlog State | ✅ |
-| 038 | Run Loop / CLI / Decision Logging | ✅ |
-| 039 | Harness Hardening Tranche | ✅ |
-| 040 | End-to-End Integration Harness | ✅ |
-| 041 | Multi-Project Hardening | ✅ |
-| 042a–042d | Harness Modularization | ✅ |
-| 043 | Runtime Artifact Quarantine | ✅ |
-| 044a–044b | Spec / Execution Two-Phase Workflow | ✅ |
-| 045 | Structured Failure Journal | ✅ |
-| 046 | Project Bootstrap Adapter | ✅ |
-| 047 | Verification Plugins / Validators | ✅ |
-| 048 | Safe Parallelism | ✅ |
+## Sequence
 
-## What 042–048 accomplished
+- **032** — execution result normalization
+- **033** — real review/compliance gate
+- **034** — branch/worktree guardrails
+- **035** — PR creation workflow
+- **036** — resume after approval
+- **037** — persistent backlog state
+- **038 / 038a / 038b / 038c / 038d / 038d0** — run loop CLI/engine/logging and protected method insertion/import preflight support
+- **039 / 039a / 039b / 039c** — harness hardening umbrella, protected method edit engine, semantic preflight, task contracts
+- **040** — end-to-end integration harness
+- **041 / 041a / 041b** — multi-project hardening and project config schema/adapters
+- **042 / 042a / 042b / 042c / 042d** — harness modularization umbrella and extraction set
+- **043** — runtime artifact quarantine
+- **044 / 044a / 044b** — spec execution two-phase umbrella and frozen-task mode
+- **045** — failure journal and raw retry context
+- **046** — project bootstrap adapter
+- **047** — verification plugins
+- **048** — safe parallelism
 
-- moved substantial shell logic out of `agents/run_task.py` into `agents/lib/*`
-- added runtime artifact quarantine
-- separated spec capture from execution
-- added structured failure journaling
-- added project bootstrap support
-- added config/adapter-driven validator plugins
-- added engine-side safe parallelism controls
+## Outcome
 
-## Lessons from the tranche
-
-- shell-sensitive work sometimes required curated direct patches instead of repeated blind reruns
-- preserving compatibility seams in `agents/run_task.py` is as important as moving logic out of it
-- validator plugins must preserve legacy built-in `ruff` / `pytest` behavior where tests depend on it
-- safe parallelism must be layered onto the real runner surface rather than replace it
-- docs/status surfaces quickly become stale when the implementation moves faster than the markdown
-
-## Remaining structural gap after 048
-
-The main remaining gap is **shell convergence**:
-
-- `agents/run_task.py` is still too large
-- duplicate wrapper/export definitions still exist
-- the public shell surface is not frozen yet
-- portability has not yet been proven with a second client project
-
-## Transition
-
-The next roadmap is now **Tasks 049–054**, focused on stabilization, portability proof, and package extraction prep.
+This tranche established a hardened baseline that supports the next stabilization tranche (049–054), focused on shell convergence, interface freeze reinforcement, portability proof, integrated E2E confidence, and extraction preparation.
