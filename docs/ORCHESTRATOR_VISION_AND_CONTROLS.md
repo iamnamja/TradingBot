@@ -12,8 +12,9 @@ Create a reusable orchestration product that executes engineering tasks with pol
 
 ## Maturity checkpoint
 
-- 042–048 hardening tranche: **complete**.
-- 049–054 stabilization tranche: **active next sequence**.
+- 042–048 hardening tranche: **complete**
+- 049–052 stabilization tranche: **complete**
+- 053–061 hardening / integration continuation: **active**
 
 ## Control principles
 
@@ -23,16 +24,17 @@ Create a reusable orchestration product that executes engineering tasks with pol
 4. **Recoverable workflows with persistent state**
 5. **Auditability and reviewability at each decision point**
 6. **Portable architecture via adapters and constrained interfaces**
+7. **Stable seam families before broad integration claims**
 
-## Near-term strategy (049–054)
+## Near-term strategy (053–061)
 
-- converge run-task shell behavior
-- freeze and defend public interfaces
-- normalize docs/status narratives
-- prove portability in a second project
-- validate integrated capability stack E2E
-- prepare extraction prerequisites
+- establish a stable seam registry for orchestrator integration tests
+- add seam-aware preflight checks
+- validate one integrated capability flow without over-tightening optional seams
+- stabilize the failure-journal, review, and quarantine seam families independently
+- complete extraction prep
+- codify canonical docs placement and task-splitting guidance
 
 ## Separation recommendation
 
-Perform repository/package separation later, after the stabilization tranche demonstrates stable interfaces, portability, and integrated reliability.
+Perform repository/package separation later, after the continuation demonstrates stable seams, preflight coverage, portability, and integrated reliability.
