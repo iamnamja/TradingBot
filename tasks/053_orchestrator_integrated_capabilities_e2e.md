@@ -30,8 +30,9 @@ Add realistic integrated scenarios covering combinations such as:
 
 - runtime artifact quarantine + failure journal
 - spec mode + frozen execution + validator selection
-- bootstrap/project adapter + validator plugins
 - safe parallelism gating + protected-file restrictions
+
+At least one integrated scenario should combine **three or more** of the 043–048 capabilities in one realistic flow.
 
 ## Critical compatibility constraint
 
@@ -54,20 +55,34 @@ The integrated tests added in this task must align with the **current live repos
 
 In particular:
 
-- use the current failure-journal live seam name exposed by the repo; do **not** rename it or expect a new alias
-- preserve the current spec-mode frozen-task behavior exactly, including canonical task-text normalization currently used by the repo
+- use the current failure-journal export shape exposed by `run_task._failure_journal_exports()`; do **not** require a new `"module"` key or any new alias if the live seam does not expose one
+- preserve the current spec-mode frozen-task behavior exactly, including the current canonical task-text normalization used by the repo (`rstrip("\n")` behavior is acceptable if that is the live contract)
 - if safe-parallelism planning is optional or absent in the current build, tests must skip or soften accordingly instead of forcing a new required method
+- protected-file review tests must align with the current live `run_review()` behavior; they may assert blocking **or** the presence of explanatory reasons/warnings, but must not force a stricter mergeability contract than the repo currently exposes
 - do not create tests that require non-listed production files to change
 
-## Test-shape guidance
+## Bootstrap/adapter guardrail
 
-Prefer composing the existing focused helpers/fixtures rather than re-implementing large bespoke setups.
+Do not treat `load_project_adapter(project_root)` as an implicit bootstrap side effect.
 
-These integrated tests should **layer on top of** the existing focused unit tests, not replace or weaken them.
+If an integrated scenario needs scaffolded files such as:
 
-At least one scenario should exercise **three or more** of the 043–048 capabilities in one realistic flow.
+- `docs/orchestrator_starter.md`
+- `tasks/task_template.md`
 
-Do not modify non-listed code files in this task.
+then it must call `bootstrap_project_adapter_scaffold(project_root)` explicitly before asserting those files exist.
+
+Do not create tests that assume `load_project_adapter()` itself creates scaffold files.
+
+## Failure journal + quarantine guardrail
+
+Integrated scenarios must only assert cleanup/quarantine and failure-journal behavior that is currently wired in the live repo.
+
+In particular:
+
+- if `run_task._failure_journal_exports()` returns callables rather than a raw module object, tests must use that live seam instead of monkeypatching a fabricated module key
+- if runtime artifact quarantine is not invoked on a particular failure path in the current build, tests must not require it on that path
+- `tests/test_runtime_artifact_quarantine.py` must align with the current live git-command behavior for unknown paths instead of assuming a stricter exact `git reset HEAD -- <path>` sequence if the helper currently uses a different command shape
 
 ## Nested-check guardrail
 
@@ -100,6 +115,6 @@ Do not create or modify a root-level `ORCHESTRATOR_PRODUCT_SPEC.md` in this task
 - at least one new integrated scenario uses 3 or more of the 043–048 capabilities together
 - integrated tests do not weaken the existing focused unit tests
 - no integrated test recursively invokes real repo-wide `pytest -q` or `ruff check .`
-- the integrated tests align with current live seam names and current optional-vs-required behavior
+- the integrated tests align with current live seam names, current canonical task-text normalization, and current optional-vs-required behavior
 - the product spec notes the existence and purpose of the integrated scenario coverage
 - the product-spec update for this task lands in `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
