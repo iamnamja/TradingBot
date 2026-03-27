@@ -2,26 +2,26 @@
 
 ## Goal
 
-Add a lightweight, seam-aware preflight that catches common task-generation mistakes **before** a full iteration consumes a candidate bundle, with emphasis on live seam-name validation, recursive-validator protection, canonical docs-path discipline, task-scope drift, and obviously unsafe candidate rewrites.
+Add a lightweight, seam-aware preflight that catches common task-generation mistakes **before** a full iteration consumes a candidate bundle, with emphasis on live seam-name validation, recursive-validator protection, task-scope drift, obviously unsafe candidate rewrites, and a stricter lane split for meta harness files.
 
-This task is intended to make the harness **more resilient to bad generated bundles** without turning it into a full static analyzer or redesigning the current shell/runtime architecture.
+This task should make the harness **more resilient to bad generated bundles** without turning it into a full static analyzer or redesigning the current shell/runtime architecture.
 
 ## Deliverables
 
-Create or update these exact files. Every listed file must appear in the bundle:
+Create or update these exact files. Every listed file must appear in the task result:
 
 - `agents/run_task.py`
 - `tests/test_run_task_runtime_foundations.py`
 - `tests/test_orchestrator_public_surface.py`
-- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
 
 Do **not** modify any other files in this task.
 
 ## Harness policy
 
-- FILE: tests/test_run_task_runtime_foundations.py MODE=TESTS_ONLY
-- FILE: tests/test_orchestrator_public_surface.py MODE=TESTS_ONLY
-- FILE: docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md MODE=DOCS_ONLY
+- FILE: `agents/run_task.py` MODE=EXACT_COPY_PLUS_APPEND_METHOD ALLOW_NEW_METHOD=`enforce_meta_file_task_gate` ANCHOR_BEFORE=`def _local_branch_exists(` MAX_CHANGED_LINES=220
+- FILE: `agents/run_task.py` MODE=EXACT_COPY_PLUS_REPLACE_METHOD TARGET_METHOD=`request_and_parse_bundle` MAX_CHANGED_LINES=500
+- FILE: `tests/test_run_task_runtime_foundations.py` MODE=TESTS_ONLY
+- FILE: `tests/test_orchestrator_public_surface.py` MODE=TESTS_ONLY
 
 ## Required behavior
 
@@ -44,22 +44,22 @@ The preflight must catch, block, or explicitly report at least these mistake cla
    - detect integrated tests that appear to invoke real repo-wide `pytest -q` or `ruff check .`
    - this protection is specifically for accidental nested validation recursion, not for normal in-process unit tests
 
-3. **Canonical docs path drift**
-   - `README.md` is canonical at the repository root
-   - orchestrator / tradingbot narrative docs are canonical under `docs/`
-   - obvious moved/renamed canonical-doc drift should be reported before execution
-
-4. **Task/deliverable scope drift**
+3. **Task/deliverable scope drift**
    - generated files outside the task's listed deliverables should be flagged
    - the check should be deterministic and based on the task's explicit deliverables rather than broad heuristics
 
-5. **Suspicious miniature rewrite / stub collapse for existing harness files**
+4. **Suspicious miniature rewrite / stub collapse for existing harness files**
    - add at least one conservative guard against replacing an existing nontrivial harness file with an obviously simplified stub or toy implementation
    - this guard should be narrow and low-noise; it is acceptable to apply it only to the files touched by this task family, especially `agents/run_task.py`
 
-6. **Obvious Python text corruption indicators**
+5. **Obvious Python text corruption indicators**
    - catch clearly suspicious Python-source text issues before full execution when practical
    - examples include typographic quote characters accidentally emitted into code-like contexts, or similarly obvious bundle-generation artifacts that are very likely to produce syntax failures
+
+6. **Meta harness lane misuse**
+   - block normal file-bundle editing for core meta harness files such as `agents/run_task.py`
+   - these files must use protected method mode or an explicit exact-copy/manual-patch workflow rather than a normal full-file generation lane
+   - the rejection should be deterministic and actionable
 
 ## Localized-repair behavior
 
@@ -115,11 +115,11 @@ In particular:
 Do **not** use this task to:
 
 - rewrite `agents/run_task.py` wholesale
-- move docs between root and `docs/` beyond the documented canonical-path checks
+- move docs between root and `docs/`
 - redesign safe-parallelism, runtime-quarantine, bootstrap, spec-mode, or failure-journal behavior
 - add new integrated end-to-end scenarios unrelated to preflight
 
-Keep the changes surgical and centered on **preflight detection/reporting plus localized repair behavior**.
+Keep the changes surgical and centered on **preflight detection/reporting, meta-file lane protection, and localized repair behavior**.
 
 ## Reporting behavior
 
@@ -138,5 +138,5 @@ Issue messages should be:
 - `pytest -q` is fully green
 - the harness can catch at least the listed mistake classes before consuming a full iteration
 - the runner preserves the current live seam/export contract while adding the new preflight behavior
+- meta harness files are rejected from the normal full-file bundle lane unless they are handled through protected method mode or a compatible exact-copy/manual-patch path
 - localized retry/repair is used when only a subset of generated files is invalid or obviously corrupted
-- controls/policies docs explain what the preflight checks, what is blocking vs advisory, and how localized repair is reported
