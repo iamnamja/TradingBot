@@ -4,9 +4,14 @@
 Reads a task markdown file, asks an LLM to output a deterministic file bundle,
 writes files, runs ruff+pytest, and optionally commits/pushes to an agent branch.
 
-File bundle format uses explicit bundle begin/end sentinels plus per-file headers and end markers.
-The concrete raw marker lines are intentionally omitted from this docstring so they do not get copied
-verbatim into generated Python or test file contents by mistake.
+The file-bundle transport uses literal marker lines for:
+- bundle begin/end
+- file headers
+- file terminators
+
+To avoid contaminating later model prompts, this module deliberately does not
+include a copy-pasteable raw bundle example with standalone transport-marker
+lines in the docstring.
 """
 
 from __future__ import annotations
@@ -55,6 +60,40 @@ RUNTIME_ARTIFACT_NAMES = (
     "_last_agent_model_output.txt",
     "_last_agent_file_bundle.txt",
 )
+
+BUNDLE_MARKER_LINE_VALUES = {
+    FILE_BUNDLE_BEGIN,
+    FILE_BUNDLE_END,
+    FILE_END,
+}
+
+SUSPICIOUS_PLACEHOLDER_BUNDLE_PATHS = {
+    "path/relative/to/repo.py",
+    "path/to/file.py",
+    "relative/path/to/file.py",
+}
+
+CRITICAL_CORE_HEADER_PREFIX_LINES: Dict[str, int] = {
+    "agents/run_task.py": 5,
+    "agents/lib/shell_router.py": 5,
+}
+
+CRITICAL_CORE_MIN_LINE_RATIO: Dict[str, float] = {
+    "agents/run_task.py": 0.6,
+    "agents/lib/shell_router.py": 0.6,
+}
+
+CRITICAL_CORE_REQUIRED_SNIPPETS: Dict[str, tuple[str, ...]] = {
+    "agents/run_task.py": (
+        "def request_and_parse_bundle(",
+        "def _shell_router_exports(",
+        "def main(",
+    ),
+    "agents/lib/shell_router.py": (
+        "def route_shell_main(",
+    ),
+}
+
 
 
 class FileBundleError(ValueError):
