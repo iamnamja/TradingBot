@@ -156,8 +156,8 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     require_material_update = shell_globals["task_requires_material_update"](task_text)
     allow_unchanged_cli = shell_globals["task_allows_unchanged_cli"](task_text)
     harness_policies = shell_globals["parse_harness_file_policies"](task_text)
-    baseline_paths = sorted(set(required) | set(harness_policies.keys()))
     protected_targets = shell_globals["_extract_protected_method_targets"](task_text)
+    baseline_paths = shell_globals["_task_baseline_paths"](required, harness_policies, protected_targets)
     protected_method_paths = {str(t["path"]) for t in protected_targets}
 
     branch = shell_globals["_choose_agent_branch"](task_path.stem, args.push)
@@ -196,9 +196,15 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                 method_name = str(target["method_name"])
                 original_baseline_content = baseline.get(target_path)
                 if original_baseline_content is None:
-                    raise shell_globals["FileBundleError"](
-                        f"Protected method target `{target_path}` has no baseline content."
-                    )
+                    disk_target = (Path(".").resolve() / target_path).resolve()
+                    repo_root = Path(".").resolve()
+                    if str(disk_target).startswith(str(repo_root)) and disk_target.exists() and disk_target.is_file():
+                        original_baseline_content = disk_target.read_text(encoding="utf-8", errors="replace")
+                        baseline[target_path] = original_baseline_content
+                    else:
+                        raise shell_globals["FileBundleError"](
+                            f"Protected method target `{target_path}` has no baseline content."
+                        )
                 working_content = files.get(target_path, original_baseline_content)
                 anchor = str(target.get("anchor", "")) if mode == "append" else ""
                 insertion_messages = shell_globals["build_method_insertion_messages"](
