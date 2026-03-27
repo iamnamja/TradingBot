@@ -33,6 +33,12 @@ def test_shell_router_module_exposes_route_entrypoint() -> None:
     assert names.count("route_shell_main") == 1
 
 
+def test_shell_registry_helpers_are_present_and_stable() -> None:
+    names = [fn.name for fn in _function_defs("agents/lib/shell_router.py")]
+    assert names.count("build_shell_seam_registry") == 1
+    assert names.count("shell_seam_exports") == 1
+
+
 def test_main_routes_to_shell_router_after_parse() -> None:
     tree = ast.parse(Path("agents/run_task.py").read_text(encoding="utf-8"))
     main_node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")

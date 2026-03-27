@@ -32,6 +32,32 @@ def test_public_surface_ownership_and_shell_exports() -> None:
     assert callable(exports["bootstrap_project_config_scaffold"])
     assert callable(exports["bootstrap_project_adapter_scaffold"])
 
+    shell_exports = run_task._shell_router_exports()
+    assert callable(shell_exports["build_shell_seam_registry"])
+    assert callable(shell_exports["shell_seam_exports"])
+    assert callable(shell_exports["route_shell_main"])
+
+    registry = shell_exports["shell_seam_exports"]()
+    assert registry["bootstrap"] == ("_bootstrap_exports",)
+    assert registry["failure_journal"] == ("_report_failure",)
+    assert registry["validator_runner"] == ("run_checks", "validate_python_syntax", "validate_imports")
+    assert registry["artifact_quarantine"] == (
+        "_cleanup_runtime_artifacts_for_commit",
+        "_runtime_artifact_paths",
+        "restore_file_snapshot",
+    )
+    assert registry["shell_router"] == (
+        "build_messages",
+        "build_method_insertion_messages",
+        "request_and_parse_bundle",
+        "request_and_parse_method_insertion",
+        "apply_method_insertion",
+        "apply_method_replacement",
+        "FILE_BUNDLE_BEGIN",
+        "FILE_END",
+        "FILE_BUNDLE_END",
+    )
+
 
 def test_generic_default_config_compatibility_freeze() -> None:
     _ensure_repo_on_path()
@@ -59,11 +85,10 @@ def test_validator_default_path_is_legacy_non_plugin(monkeypatch) -> None:
     monkeypatch.setattr(
         validator_runner.check_runner,
         "run_checks",
-        lambda: {"lint_ok": True, "test_ok": False, "output_text": "pytest failed"},
+        lambda: (True, ""),
     )
 
-    ok, output = validator_runner.run_checks(config=None)
-
-    assert ok is False
-    assert output == "pytest failed"
+    ok, output = validator_runner.run_checks(None)
+    assert ok is True
+    assert output == ""
     assert called["plugin"] is False

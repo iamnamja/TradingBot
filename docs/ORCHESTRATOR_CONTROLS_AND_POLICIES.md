@@ -1,78 +1,73 @@
 # Orchestrator Controls and Policies
 
-## Purpose
+This document describes the stable seams intended for orchestrator integration
+tests and monkeypatch-based verification.
 
-This document defines the practical controls and policy posture for the orchestrator as of the post-052 baseline, with the 053–061 continuation next.
+## Stable seam registry
 
-## Status baseline
+The orchestrator shell exposes a registry of supported seam families through:
 
-- Tranche **042–048 is complete**
-- Tasks **049–052 are complete**
-- Tasks **053–061 are the current hardening / integration continuation**
-- The orchestrator is reusable and increasingly productized, but remains in-repo for now
+- `agents.run_task._shell_router_exports()`
+- `agents.lib.shell_router.build_shell_seam_registry()`
+- `agents.lib.shell_router.shell_seam_exports()`
 
-## Core control layers
+The registry is intentionally small and stable. It is meant to replace ad hoc
+lookups of private globals such as `run_task.some_internal_name`.
 
-1. **Task-contract discipline**
-   - Structured task specs and machine-parseable directives
-   - Explicit deliverables and guardrails
-2. **Protected-file policy enforcement**
-   - Append-before / exact-copy / forbid semantics
-   - Controlled method insertion and semantic preflight pathways
-3. **Execution safety**
-   - Dry-run and simulation support
-   - Runtime artifact quarantine and failure journaling
-4. **Review and approval gates**
-   - Compliance checks, review result handling, and explicit approval checkpoints
-5. **Repository integrity**
-   - Branch/worktree guardrails, merge workflow controls, and audit traces
-6. **Recovery and resumability**
-   - Persistent state, restart/resume paths, and retry-aware behavior
-7. **Parallelism controls**
-   - Safe parallel execution constraints
-8. **Stable seam governance**
-   - Explicit test seams, seam-aware preflight, and controlled integrated coverage expansion
+## Supported seam families
 
-## Policy posture by sequence
+The current canonical family names are:
 
-### Completed baseline: 042–048
+- `bootstrap`
+- `spec_mode`
+- `failure_journal`
+- `validator_runner`
+- `artifact_quarantine`
+- `runtime_foundations`
+- `parser_policy`
+- `semantic_preflight`
+- `shell_router`
 
-- Harness modularization and extraction boundaries stabilized
-- Runtime foundations/parsers/semantic preflight extraction complete
-- Thin run-task shell parity achieved
-- Artifact quarantine, spec two-phase execution, frozen-task handling, failure journal, bootstrap adapter, validator plugins, and safe parallelism completed
+Each family maps to the stable helper names that tests may patch or inspect.
 
-### Completed stabilization: 049–052
+### Family intent
 
-- run-task shell convergence and routing dedupe
-- public interface freeze reinforcement
-- docs/status normalization
-- second-project portability proof
+- `bootstrap`: project scaffold bootstrap helpers
+- `spec_mode`: frozen spec artifact and execution-resolution helpers
+- `failure_journal`: failure classification, fingerprinting, and journal helpers
+- `validator_runner`: validator execution and validator selection helpers
+- `artifact_quarantine`: runtime artifact cleanup and classification helpers
+- `runtime_foundations`: shell-provider, git, and worktree foundation helpers
+- `parser_policy`: file-bundle parsing and protected-file policy helpers
+- `semantic_preflight`: semantic inspection and protected API validation helpers
+- `shell_router`: outer CLI routing and file-bundle / method-bundle transport helpers
 
-### Active continuation: 053–061
+## Intended use in tests
 
-Focus:
+Tests should patch these seams when they need deterministic behavior:
 
-- stable seam registry for integration tests
-- task / seam preflight linting
-- one seam-aligned integrated capability flow
-- focused seam-family hardening (failure journal, review, quarantine)
-- package extraction preparation
-- canonical docs path policy
-- task scope / split heuristics
+- model / bundle request invocation
+- validator invocation
+- failure-journal access
+- review / quarantine access
+- shell routing and bootstrap dispatch
 
-## Repository separation policy
+Prefer patching the stable helper returned by the registry rather than reaching
+into unrelated internal modules or guessing private names.
 
-- **Current policy**: keep orchestrator in this repository while the 053–061 continuation is completed
-- **Recommended next policy**: separate into its own repo/package **after** 053–061 readiness criteria are met
+## Practical guidance
 
-## Non-goals (current phase)
+- Use the registry from `agents.run_task._shell_router_exports()` when a test
+  needs the shell-router entrypoint.
+- Use `agents.lib.shell_router.shell_seam_exports()` when a test wants the
+  canonical seam mapping for all supported families.
+- Patch only the helper names listed in the registry for the specific family.
+- Avoid monkeypatching unrelated private globals that are not part of the stable
+  seam surface.
 
-- No claim that orchestrator has already been extracted
-- No replacement of safety-first controls with permissive defaults
-- No collapse of approval/review/audit checkpoints
-- No broad integrated tests that redefine optional seams without prior seam stabilization
+## Policy notes
 
-## Relationship to TradingBot
-
-The orchestrator advances engineering reliability and portability; TradingBot remains focused on manual paper-trading readiness. Orchestrator productization progress does not imply TradingBot production autonomy.
+- Protected-file method editing remains a separate transport mode.
+- Normal file-bundle responses must not include protected method-edit files.
+- Tests that mention bundle markers should avoid raw standalone marker lines in
+  prose examples; render them inline or split the token if needed.

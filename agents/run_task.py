@@ -3536,15 +3536,21 @@ def _shell_router_exports() -> Dict[str, object]:
 
     exports: Dict[str, object] = {
         "shell_router": _shell_router,
+        "build_shell_seam_registry": None,
+        "shell_seam_exports": None,
         "route_shell_main": None,
     }
 
     if _shell_router is not None:
+        build_shell_seam_registry = getattr(_shell_router, "build_shell_seam_registry", None)
+        shell_seam_exports = getattr(_shell_router, "shell_seam_exports", None)
         route_shell_main = getattr(_shell_router, "route_shell_main", None)
+
+        if callable(build_shell_seam_registry):
+            exports["build_shell_seam_registry"] = build_shell_seam_registry
+        if callable(shell_seam_exports):
+            exports["shell_seam_exports"] = shell_seam_exports
         if callable(route_shell_main):
             exports["route_shell_main"] = route_shell_main
 
     return exports
-
-if __name__ == "__main__":
-    raise SystemExit(main())

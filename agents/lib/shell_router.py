@@ -4,6 +4,57 @@ from pathlib import Path
 from typing import Any
 
 
+def build_shell_seam_registry() -> dict[str, tuple[str, ...]]:
+    return {
+        "bootstrap": ("_bootstrap_exports",),
+        "spec_mode": (
+            "_spec_mode_exports",
+            "build_frozen_spec_artifact",
+            "task_is_underspecified",
+            "write_frozen_spec_artifact",
+            "resolve_execution_task_text",
+            "read_frozen_spec_artifact",
+        ),
+        "failure_journal": ("_report_failure",),
+        "validator_runner": ("run_checks", "validate_python_syntax", "validate_imports"),
+        "artifact_quarantine": (
+            "_cleanup_runtime_artifacts_for_commit",
+            "_runtime_artifact_paths",
+            "restore_file_snapshot",
+        ),
+        "runtime_foundations": (
+            "ensure_clean_worktree",
+            "ensure_branch",
+            "existing_file_contents",
+            "snapshot_file_contents",
+            "write_files",
+        ),
+        "parser_policy": (
+            "parse_required_files",
+            "task_requires_material_update",
+            "task_allows_unchanged_cli",
+            "parse_harness_file_policies",
+            "enforce_required_files",
+            "enforce_harness_file_policies",
+            "validate_static_bundle_contracts",
+        ),
+        "semantic_preflight": ("parse_semantic_failures", "bundle_similarity"),
+        "shell_router": (
+            "build_messages",
+            "build_method_insertion_messages",
+            "request_and_parse_bundle",
+            "request_and_parse_method_insertion",
+            "apply_method_insertion",
+            "apply_method_replacement",
+            "FILE_BUNDLE_BEGIN",
+            "FILE_END",
+            "FILE_BUNDLE_END",
+        ),
+    }
+
+def shell_seam_exports() -> dict[str, tuple[str, ...]]:
+    return build_shell_seam_registry()
+
 def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     if str(getattr(args, "bootstrap_project", "") or "").strip():
         target_dir = Path(str(args.bootstrap_project).strip())
