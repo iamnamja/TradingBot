@@ -376,10 +376,14 @@ def _normalize_method_token(token: str) -> str:
     return token.strip()
 
 
-def _normalize_policy_path(token: str) -> str:
-    token = token.strip().strip("`").strip('"').strip("'")
-    return token.replace("\\", "/").strip()
 
+def _normalize_policy_path(path: str) -> str:
+    value = (path or "").strip()
+    if not value:
+        return ""
+    while len(value) >= 2 and value[0] == value[-1] and value[0] in {"`", '"', "'"}:
+        value = value[1:-1].strip()
+    return value.replace("\\", "/")
 
 def _parse_task_file_attrs(rest: str) -> Dict[str, str]:
     attrs: Dict[str, str] = {}
@@ -466,7 +470,7 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
         _parse_harness_file_policies = None  # type: ignore[assignment]
 
     if _parse_harness_file_policies is not None:
-        return _parse_harness_file_policies(
+        delegated = _parse_harness_file_policies(
             task_text=task_text,
             iter_markdown_sections=_iter_markdown_sections,
             task_file_policy_re=TASK_FILE_POLICY_RE,
@@ -474,6 +478,21 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
             normalize_anchor_token=_normalize_anchor_token,
             normalize_method_token=_normalize_method_token,
         )
+        normalized: Dict[str, Dict[str, object]] = {}
+        for raw_path, config in dict(delegated or {}).items():
+            path = _normalize_policy_path(str(raw_path))
+            if not path:
+                continue
+            if path in normalized:
+                existing_rules = normalized[path].setdefault("rules", [])
+                new_rules = config.get("rules", []) if isinstance(config, dict) else []
+                if isinstance(existing_rules, list) and isinstance(new_rules, list):
+                    existing_rules.extend(new_rules)
+            elif isinstance(config, dict):
+                normalized[path] = dict(config)
+            else:
+                normalized[path] = {"rules": []}
+        return normalized
 
     policies: Dict[str, Dict[str, object]] = {}
     allowed_section_names = {
@@ -586,7 +605,7 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
         _extract_targets = None  # type: ignore[assignment]
 
     if _extract_targets is not None:
-        return _extract_targets(
+        delegated = _extract_targets(
             task_text=task_text,
             iter_markdown_sections=_iter_markdown_sections,
             task_file_policy_re=TASK_FILE_POLICY_RE,
@@ -594,6 +613,16 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
             normalize_anchor_token=_normalize_anchor_token,
             normalize_method_token=_normalize_method_token,
         )
+        normalized_targets: List[Dict[str, object]] = []
+        for target in list(delegated or []):
+            if not isinstance(target, dict):
+                continue
+            fixed = dict(target)
+            fixed["path"] = _normalize_policy_path(str(fixed.get("path", "")))
+            if not fixed["path"]:
+                continue
+            normalized_targets.append(fixed)
+        return normalized_targets
 
     targets: List[Dict[str, object]] = []
     allowed_section_names = {
@@ -1467,14 +1496,19 @@ def _task_baseline_paths(
     policy_paths = {
         _normalize_policy_path(str(path))
         for path in harness_policies.keys()
-        if str(path).strip()
+        if _normalize_policy_path(str(path))
     }
     protected_paths = {
         _normalize_policy_path(str(target.get("path", "")))
         for target in protected_targets
-        if str(target.get("path", "")).strip()
+        if _normalize_policy_path(str(target.get("path", "")))
     }
-    return sorted(set(required) | policy_paths | protected_paths)
+    required_paths = {
+        _normalize_policy_path(str(path))
+        for path in required
+        if _normalize_policy_path(str(path))
+    }
+    return sorted(required_paths | policy_paths | protected_paths)
 
 
 def parse_required_runner_methods(task_text: str) -> List[str]:
