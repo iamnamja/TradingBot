@@ -3674,3 +3674,6 @@ def _shell_router_exports() -> Dict[str, object]:
             exports["route_shell_main"] = route_shell_main
 
     return exports
+
+if __name__ == "__main__":
+    raise SystemExit(main())
