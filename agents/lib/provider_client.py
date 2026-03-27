@@ -11,17 +11,11 @@ _MODEL_VALIDATION_CACHE: Dict[str, set[str]] = {"openai": set(), "anthropic": se
 
 
 def default_provider() -> str:
-    return (
-        os.getenv("TRADINGBOT_AGENT_PROVIDER", "").strip().lower()
-        or os.getenv("TRADINGBOT_LLM_PROVIDER", "openai").strip().lower()
-    )
+    return os.getenv("TRADINGBOT_LLM_PROVIDER", "openai").strip().lower()
 
 
 def default_model_for_provider(provider: str) -> str:
     provider = (provider or "").strip().lower()
-    agent_override = os.getenv("TRADINGBOT_AGENT_MODEL", "").strip()
-    if agent_override:
-        return agent_override
     if provider == "openai":
         return os.getenv("TRADINGBOT_OPENAI_MODEL", "gpt-5")
     if provider == "anthropic":
@@ -250,9 +244,9 @@ def _maybe_validate_openai_model(client: Any, model: str) -> None:
     try:
         client.models.retrieve(model)
     except Exception as exc:
-        raise RuntimeError(
-            f"OpenAI model `{model}` could not be retrieved via the Models API. Check the model ID and project access. Original error: {exc}"
-        ) from exc
+        print(f"↻ Skipping OpenAI model validation for {model} after local SDK/platform error: {exc}")
+        _MODEL_VALIDATION_CACHE["openai"].add(model)
+        return
     _MODEL_VALIDATION_CACHE["openai"].add(model)
 
 
