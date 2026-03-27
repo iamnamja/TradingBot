@@ -376,6 +376,11 @@ def _normalize_method_token(token: str) -> str:
     return token.strip()
 
 
+def _normalize_policy_path(token: str) -> str:
+    token = token.strip().strip("`").strip('"').strip("'")
+    return token.replace("\\", "/").strip()
+
+
 def _parse_task_file_attrs(rest: str) -> Dict[str, str]:
     attrs: Dict[str, str] = {}
     text = (rest or "").strip()
@@ -491,7 +496,7 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
                     path, rule = path_and_rule.split(None, 1)
                 except ValueError:
                     continue
-                normalized_path = path.strip().replace("\\", "/")
+                normalized_path = _normalize_policy_path(path)
                 normalized_rule = rule.strip()
                 if normalized_path and normalized_rule:
                     entry = policies.setdefault(normalized_path, {"rules": []})
@@ -508,7 +513,7 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
                 continue
             if "MODE=" not in line:
                 continue
-            path = m.group("path").strip().replace("\\", "/")
+            path = _normalize_policy_path(m.group("path"))
             attrs = _parse_task_file_attrs((m.group("rest") or "").strip())
             mode = attrs.get("MODE", "").strip().upper()
             if not path or not mode:
@@ -610,7 +615,7 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
             if not m or "MODE=" not in line:
                 continue
 
-            path = m.group("path").strip().replace("\\", "/")
+            path = _normalize_policy_path(m.group("path"))
             attrs = _parse_task_file_attrs((m.group("rest") or "").strip())
             mode = attrs.get("MODE", "").strip().upper()
             if not path or not mode:
@@ -1460,12 +1465,12 @@ def _task_baseline_paths(
     protected_targets: List[Dict[str, object]],
 ) -> List[str]:
     policy_paths = {
-        str(path).strip().replace("\\", "/")
+        _normalize_policy_path(str(path))
         for path in harness_policies.keys()
         if str(path).strip()
     }
     protected_paths = {
-        str(target.get("path", "")).strip().replace("\\", "/")
+        _normalize_policy_path(str(target.get("path", "")))
         for target in protected_targets
         if str(target.get("path", "")).strip()
     }
