@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a single realistic integrated end-to-end scenario that exercises multiple orchestrator capabilities added in tasks 043–048 together, without redesigning or tightening optional live seams that the current repo does not guarantee.
+Add a single realistic integrated end-to-end scenario that exercises multiple orchestrator capabilities added in tasks 043–054 together, while staying aligned to the **current live seams** and leaving dedicated failure-journal seam stabilization to Task 056.
 
 ## Deliverables
 
@@ -10,14 +10,12 @@ Create or update these exact files. Every listed file must appear in the bundle:
 
 - `tests/test_orchestrator_integrated_capabilities.py`
 - `tests/test_execution_mode_frozen_task.py`
-- `tests/test_failure_journal.py`
 - `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
 
 ## Harness policy
 
 - FILE: tests/test_orchestrator_integrated_capabilities.py MODE=TESTS_ONLY
 - FILE: tests/test_execution_mode_frozen_task.py MODE=TESTS_ONLY
-- FILE: tests/test_failure_journal.py MODE=TESTS_ONLY
 - FILE: docs/ORCHESTRATOR_PRODUCT_SPEC.md MODE=DOCS_ONLY
 
 ## Required behavior
@@ -26,10 +24,11 @@ Add one integrated scenario that combines **at least three** of the following cu
 
 - frozen execution / spec-mode artifact resolution
 - validator execution failure handling
-- failure journal / failure reporting seam usage
+- failure journal / failure reporting seam usage via the current live seam exports
 - post-failure artifact bookkeeping that is already live in the repo
+- task / seam preflight or localized bundle repair behavior that is already live in the repo
 
-This task should **not** attempt to expand, redesign, or make stricter the current safe-parallelism review or runtime-quarantine behavior.
+This task should **not** attempt to expand, redesign, or make stricter the current safe-parallelism review, runtime-quarantine behavior, or failure-journal seam family.
 
 ## Critical compatibility constraint
 
@@ -67,16 +66,20 @@ In particular:
 
 Do **not** modify or add these files in this task:
 
+- `agents/run_task.py`
+- `tests/test_failure_journal.py`
 - `tests/test_safe_parallelism.py`
 - `tests/test_runtime_artifact_quarantine.py`
 
 Do not introduce new integrated assertions about:
+
 - `run_review()` mergeability semantics
 - non-empty `reasons` / `warnings` lists
 - exact quarantine git-command sequences
 - optional planner/review behavior
+- failure-journal alias expansion or seam-family redesign
 
-Those seams remain covered by their existing focused tests and should not be redefined here.
+Those seams remain covered by their existing focused tests and should not be redefined here. In particular, dedicated failure-journal seam stabilization belongs to **Task 056**.
 
 ## Nested-check guardrail
 
@@ -90,6 +93,7 @@ In particular:
 - keep integrated scenarios fast, deterministic, and bounded
 
 It is acceptable to monkeypatch:
+
 - `agents.lib.validator_runner._run_plugin_validators`
 - `agents.lib.check_runner.run_checks`
 - `subprocess.run`
@@ -110,6 +114,6 @@ Do not create or modify a root-level `ORCHESTRATOR_PRODUCT_SPEC.md` in this task
 - integrated tests do not weaken the existing focused unit tests
 - no integrated test recursively invokes real repo-wide `pytest -q` or `ruff check .`
 - the integrated tests align with current live seam names and current canonical task-text normalization
-- this task does not modify `tests/test_safe_parallelism.py` or `tests/test_runtime_artifact_quarantine.py`
+- this task does not modify `agents/run_task.py`, `tests/test_failure_journal.py`, `tests/test_safe_parallelism.py`, or `tests/test_runtime_artifact_quarantine.py`
 - the product spec notes the existence and purpose of the integrated scenario coverage
 - the product-spec update for this task lands in `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
