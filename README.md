@@ -13,20 +13,40 @@ TradingBot is at **manual paper-trading readiness**.
 
 ### Orchestrator
 
-The orchestrator hardening baseline through **Task 048** is complete on `main` in substance, and the early stabilization tasks **049–052** are also complete on `main`.
+The orchestrator hardening/productization work through **052** is complete on `main`, and the current continuation is **053–061**:
+
+- 031 — real task execution bridge ✅
+- 032 — execution result normalization ✅
+- 033 — real review and compliance gate ✅
+- 034 — branch and worktree guardrails ✅
+- 035 — PR creation workflow ✅
+- 036 — resume after approval ✅
+- 037 — persistent backlog state ✅
+- 038a–038c — run loop / CLI / decision logging ✅
+- 038d — repo-local import symbol validation ✅
+- 039a–039c — harness hardening tranche ✅
+- 040 — end-to-end integration harness ✅
+- 041a–041b — multi-project hardening ✅
+- 042a–042d — harness modularization tranche ✅
+- 043 — runtime artifact quarantine ✅
+- 044a–044b — spec / execution two-phase workflow ✅
+- 045 — structured failure journal ✅
+- 046 — project bootstrap adapter ✅
+- 047 — verification plugins / validators ✅
+- 048 — safe parallelism ✅
 
 ## What comes next
 
-The next orchestrator sequence is a **hardening-first continuation tranche**, not a new product-capability tranche.
+The next orchestrator tranche is a **stabilization and portability tranche**, not a new capability tranche.
 
 The main goals are:
 
-- make orchestrator testing seams explicit and stable
-- add task/seam preflight checks so bad bundles fail earlier
-- validate one integrated capability flow without tightening optional seams
-- stabilize failure-journal, safe-parallelism/review, and runtime-quarantine seam families independently
-- finish package extraction prep
-- codify canonical docs placement and future task-splitting heuristics
+- finish shrinking `agents/run_task.py` into a truly thin shell
+- freeze the public orchestrator surface
+- normalize stale docs/status tables after 042–048
+- prove portability with a second non-TradingBot project fixture
+- add integrated end-to-end scenarios across the new 043–048 capabilities
+- prepare the orchestrator for eventual package/repo extraction
 
 ## Repo conventions
 
@@ -41,7 +61,7 @@ The main goals are:
 
 ## Important runner conventions
 
-The orchestrator is now strong enough that task quality and seam clarity matter as much as model quality.
+The orchestrator is now strong enough that task quality matters as much as model quality.
 
 Every orchestrator task should continue to include:
 
@@ -50,24 +70,12 @@ Every orchestrator task should continue to include:
 - protected-file modes for engine/meta files
 - machine-readable contract directives when useful
 - acceptance criteria tied to the current real baseline
-- narrow scope, ideally one seam family per task
-- clear distinction between:
-  - task-shape issues
-  - shell/runner issues
-  - true product/code issues
+- narrow scope, ideally one risky production area per task
+- clear distinction between task-shape issues, shell issues, and true product/code issues
 
 ## Next task order
 
-### Completed on main
-
-- `049_orchestrator_run_task_shell_convergence_umbrella` (umbrella, not run directly)
-- `049a_orchestrator_run_task_export_and_wrapper_dedupe`
-- `049b_orchestrator_run_task_final_shell_routing_extraction`
-- `050_orchestrator_public_interface_freeze`
-- `051_orchestrator_docs_status_normalization`
-- `052_orchestrator_second_project_portability_proof`
-
-### Current hardening / integration continuation
+### Orchestrator continuation tranche
 
 - `053_orchestrator_stable_seam_registry`
 - `054_orchestrator_task_seam_preflight_linter`
@@ -77,15 +85,16 @@ Every orchestrator task should continue to include:
 - `058_orchestrator_runtime_artifact_quarantine_integration`
 - `059_orchestrator_package_extraction_prep`
 - `060_orchestrator_canonical_docs_path_policy`
-- `061_orchestrator_task_scope_and_split_heuristics`
+- `061_orchestrator_task_scope_split_heuristics`
+
 
 ## Current recommendation
 
 Do **not** switch back to major TradingBot feature expansion yet.
 
-The best next move is to finish the orchestrator hardening / integration continuation, then either:
+The best next move is to finish the orchestrator stabilization tranche, then either:
 
 1. split/package the orchestrator as its own product, or
-2. keep it in-repo but with a stable seam registry, preflight checks, and an explicitly frozen public surface
+2. keep it in-repo but with a frozen public surface
 
 After that, resume TradingBot functional milestones such as recurring execution, reconciliation, reporting, backtesting, and stronger live-mode safety gates.
