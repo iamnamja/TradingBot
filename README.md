@@ -13,7 +13,7 @@ TradingBot is at **manual paper-trading readiness**.
 
 ### Orchestrator
 
-The orchestrator productization tranche through **Task 048** is now complete on `main` in substance:
+The orchestrator productization tranche through **Task 052** is complete on `main`, and the early continuation hardening steps through **Task 054** are now also complete in substance:
 
 - 031 — real task execution bridge ✅
 - 032 — execution result normalization ✅
@@ -22,7 +22,7 @@ The orchestrator productization tranche through **Task 048** is now complete on 
 - 035 — PR creation workflow ✅
 - 036 — resume after approval ✅
 - 037 — persistent backlog state ✅
-- 038a–038d — run loop / CLI / import validation hardening ✅
+- 038a–038d — run loop / CLI / decision logging / import validation ✅
 - 039a–039c — harness hardening tranche ✅
 - 040 — end-to-end integration harness ✅
 - 041a–041b — multi-project hardening ✅
@@ -33,17 +33,37 @@ The orchestrator productization tranche through **Task 048** is now complete on 
 - 046 — project bootstrap adapter ✅
 - 047 — verification plugins / validators ✅
 - 048 — safe parallelism ✅
+- 049 — run-task shell convergence umbrella ✅
+- 049a — run-task export / wrapper dedupe ✅
+- 049b — final shell routing extraction ✅
+- 050 — public interface freeze ✅
+- 051 — docs/status normalization ✅
+- 052 — second-project portability proof ✅
+- 053 — stable seam registry ✅
+- 054a — meta harness lane gate ✅
+- 054b — bundle preflight / localized repair ✅
 
 ## What comes next
 
-The current orchestrator continuation remains **053–061**.
+The current continuation is now focused on **integration stabilization and extraction readiness**, not new feature expansion.
 
-The immediate focus is still the pre-extraction stabilization path:
+The main goals are:
 
-- stabilize the seam registry and task-shape enforcement
-- finish shrinking `agents/run_task.py` into a thin shell with protected-method discipline
-- validate integrated capability flow against current live seams
-- finish extraction-prep prerequisites without claiming extraction is already complete
+- validate a seam-aligned integrated end-to-end scenario across the 043–054 capabilities
+- stabilize the remaining focused seam families individually
+- document extraction prerequisites and canonical docs placement
+- teach the orchestrator when a task should be split across seam families
+
+## Repo conventions
+
+- Source layout:
+  - `src/tradingbot/...` — trading application
+  - `src/builder/orchestrator/...` — reusable orchestrator engine
+  - `agents/...` — task-running harness and agent glue code
+- Tests: `tests/...`
+- CI target remains:
+  - `ruff check .`
+  - `pytest -q`
 
 ## Important runner conventions
 
@@ -58,40 +78,27 @@ Every orchestrator task should continue to include:
 - acceptance criteria tied to the current real baseline
 - narrow scope, ideally one risky production area per task
 - clear distinction between task-shape issues, shell issues, and true product/code issues
-
-For **meta harness files** such as `agents/run_task.py`, prefer **one protected method operation per task**. Do not combine a low-cap append operation and a larger replace operation on the same file in one runnable task unless the policies are intentionally compatible.
+- split subtasks when a single task would combine multiple seam families or conflicting protected-file policies
 
 ## Next task order
 
-### Current continuation
+### Orchestrator continuation / extraction-readiness tranche
 
-- `053_orchestrator_stable_seam_registry`
-- `054_orchestrator_task_seam_preflight_linter` **(umbrella only; do not run directly)**
-- `054a_orchestrator_meta_harness_lane_gate`
-- `054b_orchestrator_bundle_preflight_localized_repair`
 - `055_orchestrator_integrated_capabilities_e2e`
 - `056_orchestrator_failure_journal_live_seam`
 - `057_orchestrator_safe_parallelism_review_integration`
 - `058_orchestrator_runtime_artifact_quarantine_integration`
 - `059_orchestrator_package_extraction_prep`
 - `060_orchestrator_canonical_docs_path_policy`
-- `061_orchestrator_task_scope_split_heuristics`
+- `061_orchestrator_task_scope_and_split_heuristics`
 
 ## Current recommendation
 
 Do **not** switch back to major TradingBot feature expansion yet.
 
-The best next move is:
-
-1. merge this task/doc split patch
-2. run `054a_orchestrator_meta_harness_lane_gate`
-3. merge that result to `main`
-4. run `054b_orchestrator_bundle_preflight_localized_repair`
-5. then continue to `055`
-
-After the continuation completes, either:
+The best next move is to finish the current orchestrator continuation and then either:
 
 1. split/package the orchestrator as its own product, or
-2. keep it in-repo but with a frozen public surface
+2. keep it in-repo with a frozen public surface and explicit extraction-readiness docs
 
 After that, resume TradingBot functional milestones such as recurring execution, reconciliation, reporting, backtesting, and stronger live-mode safety gates.
