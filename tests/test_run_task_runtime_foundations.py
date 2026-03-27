@@ -101,3 +101,21 @@ def test_task_baseline_paths_include_protected_targets() -> None:
     )
     assert "agents/run_task.py" in paths
     assert "tests/test_run_task_runtime_foundations.py" in paths
+
+
+def test_meta_file_gate_blocks_core_meta_paths_even_without_forbidden_list() -> None:
+    run_task, _, _, _ = _load_runtime_modules()
+    ok, msg = run_task.enforce_meta_file_task_gate(["agents/run_task.py"], forbidden_paths=None)
+    assert ok is False
+    assert "Protected meta file(s) in normal bundle lane" in msg
+    assert "Use protected method mode." in msg
+
+
+def test_meta_file_gate_blocks_suspicious_multi_meta_targets() -> None:
+    run_task, _, _, _ = _load_runtime_modules()
+    ok, msg = run_task.enforce_meta_file_task_gate(
+        ["agents/run_task.py", "agents/lib/shell_router.py"],
+        forbidden_paths=["agents/run_task.py", "agents/lib/shell_router.py"],
+    )
+    assert ok is False
+    assert "Suspicious multi-meta normal-bundle target set" in msg

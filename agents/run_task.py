@@ -3028,25 +3028,20 @@ def enforce_meta_file_task_gate(expected_paths: List[str] | None = None, forbidd
         if isinstance(p, str) and p.strip()
     }
 
-    illegal_full_bundle = [path for path in expected if path in meta_harness_paths and path not in forbidden]
-    if illegal_full_bundle:
-        listed = ", ".join(illegal_full_bundle)
-        return False, (
-            "Meta harness files must not be requested through the normal file-bundle lane: "
-            f"{listed}. Use protected method mode or an exact-copy/manual-patch workflow for these files."
-        )
+    meta_targets = sorted(path for path in expected if path in meta_harness_paths)
+    if not meta_targets:
+        return True, ""
 
-    bundled_meta = [path for path in expected if path in meta_harness_paths]
-    if len(bundled_meta) > 1:
-        listed = ", ".join(bundled_meta)
-        return False, (
-            "Task touches multiple meta harness files in one normal bundle request: "
-            f"{listed}. Split the task or use a manual patch/review-first lane."
-        )
+    unguarded_meta = [path for path in meta_targets if path not in forbidden]
+    if unguarded_meta:
+        listed = ", ".join(unguarded_meta)
+        return False, f"Protected meta file(s) in normal bundle lane: {listed}. Use protected method mode."
+
+    if len(meta_targets) > 1:
+        listed = ", ".join(meta_targets)
+        return False, f"Suspicious multi-meta normal-bundle target set: {listed}. Split the task."
 
     return True, ""
-
-
 def _local_branch_exists(branch: str) -> bool:
     try:
         out = capture(["git", "branch", "--list", branch]).strip()
