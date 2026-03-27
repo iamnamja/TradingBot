@@ -2605,7 +2605,9 @@ def request_and_parse_bundle(
     last_output_path: Path,
     forbidden_paths: List[str] | None = None,
     expected_paths: List[str] | None = None,
+    baseline: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
+    _ = baseline
     def _validate_transport(parsed: Dict[str, str]) -> Dict[str, str]:
         overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
         if overlap_issue:
