@@ -69,20 +69,10 @@ into unrelated internal modules or guessing private names.
 
 - Protected-file method editing remains a separate transport mode.
 - Normal file-bundle responses must not include protected method-edit files.
+- Core meta harness files such as `agents/run_task.py` should normally use
+  **one protected method operation per runnable task**.
+- Do not combine a low-cap append/replace policy and a larger unrelated
+  protected-file edit on the same file in one task unless the policy caps are
+  intentionally designed to coexist.
 - Tests that mention bundle markers should avoid raw standalone marker lines in
   prose examples; render them inline or split the token if needed.
-
-## Meta harness lane policy
-
-Core harness files such as `agents/run_task.py`, `agents/lib/shell_router.py`,
-`agents/lib/bundle_parser.py`, and `agents/lib/protected_file_policy.py`
-should not be treated like ordinary full-file generation targets.
-
-Use one of these lanes instead:
-
-- protected method mode for surgical changes to an existing meta file
-- exact-copy policy when the task is verifying compatibility without changing the file
-- manual patch / review-first workflow when multiple meta harness files need to move together
-
-The goal is to keep the orchestrator from repeatedly attempting miniature
-replacements of the harness that powers the rest of the task loop.

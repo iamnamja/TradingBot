@@ -55,7 +55,9 @@ Build a reusable orchestration engine that can execute constrained implementatio
 ### Active continuation (053–061)
 
 5. Stable seam registry
-6. Task / seam preflight linter
+6. Task / seam preflight linter umbrella
+6a. Meta harness lane gate
+6b. Bundle preflight and localized repair
 7. One seam-aligned integrated capability E2E flow
 8. Failure-journal live seam stabilization
 9. Safe-parallelism / review integration stabilization
@@ -73,6 +75,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 
 - Stable public interfaces with tested compatibility
 - Stable seam registry for orchestrator integration tests
+- Meta harness lane discipline and protected-method policy are reliable
 - Preflight can catch common seam/task-shape mistakes early
 - Demonstrated portability beyond the primary project
 - One integrated E2E flow validated under current live contracts
