@@ -157,7 +157,11 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     allow_unchanged_cli = shell_globals["task_allows_unchanged_cli"](task_text)
     harness_policies = shell_globals["parse_harness_file_policies"](task_text)
     protected_targets = shell_globals["_extract_protected_method_targets"](task_text)
-    baseline_paths = shell_globals["_task_baseline_paths"](required, harness_policies, protected_targets)
+    baseline_helper = shell_globals.get("_task_baseline_paths")
+    if callable(baseline_helper):
+        baseline_paths = baseline_helper(required, harness_policies, protected_targets)
+    else:
+        baseline_paths = sorted(set(required) | set(harness_policies.keys()) | {str(t["path"]) for t in protected_targets})
     protected_method_paths = {str(t["path"]) for t in protected_targets}
 
     branch = shell_globals["_choose_agent_branch"](task_path.stem, args.push)
@@ -196,15 +200,9 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                 method_name = str(target["method_name"])
                 original_baseline_content = baseline.get(target_path)
                 if original_baseline_content is None:
-                    disk_target = (Path(".").resolve() / target_path).resolve()
-                    repo_root = Path(".").resolve()
-                    if str(disk_target).startswith(str(repo_root)) and disk_target.exists() and disk_target.is_file():
-                        original_baseline_content = disk_target.read_text(encoding="utf-8", errors="replace")
-                        baseline[target_path] = original_baseline_content
-                    else:
-                        raise shell_globals["FileBundleError"](
-                            f"Protected method target `{target_path}` has no baseline content."
-                        )
+                    raise shell_globals["FileBundleError"](
+                        f"Protected method target `{target_path}` has no baseline content."
+                    )
                 working_content = files.get(target_path, original_baseline_content)
                 anchor = str(target.get("anchor", "")) if mode == "append" else ""
                 insertion_messages = shell_globals["build_method_insertion_messages"](
@@ -265,6 +263,8 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=bundle_required,
                     baseline=baseline,
+                    task_text=task_text,
+                    bundle_failure_path=last_bundle_path,
                 )
                 files.update(generated)
             elif not files:
@@ -284,6 +284,8 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=required,
                     baseline=baseline,
+                    task_text=task_text,
+                    bundle_failure_path=last_bundle_path,
                 )
         except shell_globals["FileBundleError"] as e:
             shell_globals["_report_failure"]("bundle_transport", str(e))
