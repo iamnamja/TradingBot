@@ -77,6 +77,22 @@ def test_check_runner_summary(monkeypatch) -> None:
     assert "test out" in text
 
 
+
+def test_meta_file_task_gate_blocks_normal_bundle_edit() -> None:
+    run_task, _, _, _ = _load_runtime_modules()
+    ok, message = run_task.enforce_meta_file_task_gate(["agents/run_task.py"], [])
+    assert ok is False
+    assert "Meta harness files" in message
+    assert "agents/run_task.py" in message
+
+
+def test_meta_file_task_gate_allows_non_meta_paths() -> None:
+    run_task, _, _, _ = _load_runtime_modules()
+    ok, message = run_task.enforce_meta_file_task_gate(["tests/test_orchestrator_public_surface.py"], [])
+    assert ok is True
+    assert message == ""
+
+
 def test_public_surface_still_available() -> None:
     run_task, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)

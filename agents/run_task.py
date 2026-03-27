@@ -2820,12 +2820,24 @@ def request_and_parse_bundle(
     expected_paths: List[str] | None = None,
     baseline: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
+    last_output_path = Path(last_output_path)
+    allowed_paths = [
+        p.strip().replace("\\", "/")
+        for p in (expected_paths or [])
+        if isinstance(p, str) and p.strip()
+    ]
+    baseline = dict(baseline or {})
+
+    gate_ok, gate_message = enforce_meta_file_task_gate(allowed_paths, forbidden_paths)
+    if not gate_ok:
+        raise FileBundleError(gate_message)
+
     def _allowed_paths(paths: List[str] | None) -> set[str]:
         return {p.strip().replace("\\", "/") for p in (paths or []) if isinstance(p, str) and p.strip()}
 
     def _validate_transport(
         parsed: Dict[str, str],
-        allowed_paths: List[str] | None = None,
+        allowed_paths_subset: List[str] | None = None,
         *,
         require_all: bool = False,
     ) -> Dict[str, str]:
@@ -2833,7 +2845,7 @@ def request_and_parse_bundle(
         if overlap_issue:
             raise FileBundleError(overlap_issue)
 
-        allowed = _allowed_paths(allowed_paths)
+        allowed = _allowed_paths(allowed_paths_subset)
         if allowed:
             unexpected = sorted(set(parsed) - allowed)
             if unexpected:
@@ -2849,21 +2861,24 @@ def request_and_parse_bundle(
 
         baseline_issues = _baseline_guard_issues(parsed, baseline)
         if baseline_issues:
-            raise FileBundleError(_format_path_issue_block("Blocking bundle preflight issues detected:", baseline_issues))
+            raise FileBundleError(
+                _format_path_issue_block("Blocking bundle preflight issues detected:", baseline_issues)
+            )
 
         return parsed
 
     def _parse_validate_or_salvage(
         raw: str,
-        allowed_paths: List[str] | None = None,
+        allowed_paths_subset: List[str] | None = None,
         *,
         require_all: bool = False,
     ) -> Dict[str, str]:
         try:
-            return _validate_transport(parse_file_bundle(raw), allowed_paths, require_all=require_all)
+            return _validate_transport(parse_file_bundle(raw), allowed_paths_subset, require_all=require_all)
         except Exception:
-            salvaged, warnings = _parse_file_bundle_transport_resilient(raw, expected_paths=allowed_paths or expected_paths)
-            validated = _validate_transport(salvaged, allowed_paths, require_all=require_all)
+            salvage_scope = allowed_paths_subset or allowed_paths
+            salvaged, warnings = _parse_file_bundle_transport_resilient(raw, expected_paths=salvage_scope)
+            validated = _validate_transport(salvaged, allowed_paths_subset, require_all=require_all)
             if warnings:
                 print("⚠️ Recovered malformed file bundle transport:")
                 for warning in warnings:
@@ -2873,19 +2888,20 @@ def request_and_parse_bundle(
     def _parse_subset(raw: str, subset_paths: List[str]) -> Dict[str, str]:
         return _parse_validate_or_salvage(raw, subset_paths, require_all=True)
 
+    forbidden_hint = ""
+    if forbidden_paths:
+        forbidden_hint = (
+            "\nProtected paths handled separately and forbidden in this normal file bundle: "
+            + ", ".join(forbidden_paths)
+            + ". Do NOT emit FILE blocks for those paths here.\n"
+        )
+
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
     try:
-        parsed = _parse_validate_or_salvage(out, expected_paths, require_all=bool(expected_paths))
+        parsed = _parse_validate_or_salvage(out, allowed_paths, require_all=bool(allowed_paths))
     except Exception as e:
-        forbidden_hint = ""
-        if forbidden_paths:
-            forbidden_hint = (
-                "\nProtected paths handled separately and forbidden in this normal file bundle: "
-                + ", ".join(forbidden_paths)
-                + ". Do NOT emit FILE blocks for those paths here.\n"
-            )
         reminder = (
             "Your previous response was INVALID.\n"
             "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
@@ -2895,6 +2911,7 @@ def request_and_parse_bundle(
             "Do not open a new FILE block until the previous FILE block is closed.\n"
             "If generated source or tests need literal bundle markers, do not place raw BEGIN_FILE_BUNDLE, FILE:, END_FILE, or END_FILE_BUNDLE at the start of a source line.\n"
             "Instead use split string tokens such as 'FI' + 'LE:' and 'END_' + 'FILE'.\n"
+            "Do not rewrite protected meta harness files such as agents/run_task.py as miniature replacements.\n"
             + forbidden_hint
             + "\nRequired structure:\n"
             "BEGIN_FILE_BUNDLE\n"
@@ -2910,7 +2927,7 @@ def request_and_parse_bundle(
         out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
         last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
         try:
-            parsed = _parse_validate_or_salvage(out2, expected_paths, require_all=bool(expected_paths))
+            parsed = _parse_validate_or_salvage(out2, allowed_paths, require_all=bool(allowed_paths))
         except Exception as e2:
             raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
 
@@ -2931,6 +2948,46 @@ def request_and_parse_bundle(
             parsed = repaired
 
     return parsed
+
+
+def enforce_meta_file_task_gate(expected_paths: List[str] | None = None, forbidden_paths: List[str] | None = None) -> Tuple[bool, str]:
+    meta_harness_paths = {
+        "agents/run_task.py",
+        "agents/lib/shell_router.py",
+        "agents/lib/bundle_parser.py",
+        "agents/lib/protected_file_policy.py",
+    }
+
+    expected = sorted(
+        {
+            p.strip().replace("\\", "/")
+            for p in (expected_paths or [])
+            if isinstance(p, str) and p.strip()
+        }
+    )
+    forbidden = {
+        p.strip().replace("\\", "/")
+        for p in (forbidden_paths or [])
+        if isinstance(p, str) and p.strip()
+    }
+
+    illegal_full_bundle = [path for path in expected if path in meta_harness_paths and path not in forbidden]
+    if illegal_full_bundle:
+        listed = ", ".join(illegal_full_bundle)
+        return False, (
+            "Meta harness files must not be requested through the normal file-bundle lane: "
+            f"{listed}. Use protected method mode or an exact-copy/manual-patch workflow for these files."
+        )
+
+    bundled_meta = [path for path in expected if path in meta_harness_paths]
+    if len(bundled_meta) > 1:
+        listed = ", ".join(bundled_meta)
+        return False, (
+            "Task touches multiple meta harness files in one normal bundle request: "
+            f"{listed}. Split the task or use a manual patch/review-first lane."
+        )
+
+    return True, ""
 
 
 def _local_branch_exists(branch: str) -> bool:
