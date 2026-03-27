@@ -1454,6 +1454,24 @@ def restore_file_snapshot(snapshot: Dict[str, str | None]) -> None:
         path.write_text(previous, encoding="utf-8", newline="\n")
 
 
+def _task_baseline_paths(
+    required: List[str],
+    harness_policies: Dict[str, Dict[str, object]],
+    protected_targets: List[Dict[str, object]],
+) -> List[str]:
+    policy_paths = {
+        str(path).strip().replace("\\", "/")
+        for path in harness_policies.keys()
+        if str(path).strip()
+    }
+    protected_paths = {
+        str(target.get("path", "")).strip().replace("\\", "/")
+        for target in protected_targets
+        if str(target.get("path", "")).strip()
+    }
+    return sorted(set(required) | policy_paths | protected_paths)
+
+
 def parse_required_runner_methods(task_text: str) -> List[str]:
     lower = normalize_newlines(task_text).lower()
     methods: List[str] = []
@@ -3387,8 +3405,8 @@ def main() -> int:
     require_material_update = task_requires_material_update(task_text)
     allow_unchanged_cli = task_allows_unchanged_cli(task_text)
     harness_policies = parse_harness_file_policies(task_text)
-    baseline_paths = sorted(set(required) | set(harness_policies.keys()))
     protected_targets = _extract_protected_method_targets(task_text)
+    baseline_paths = _task_baseline_paths(required, harness_policies, protected_targets)
     protected_method_paths = {str(t["path"]) for t in protected_targets}
 
     branch = _choose_agent_branch(task_path.stem, args.push)
@@ -3427,9 +3445,15 @@ def main() -> int:
                 method_name = str(target["method_name"])
                 original_baseline_content = baseline.get(target_path)
                 if original_baseline_content is None:
-                    raise FileBundleError(
-                        f"Protected method target `{target_path}` has no baseline content."
-                    )
+                    disk_target = (Path(".").resolve() / target_path).resolve()
+                    repo_root = Path(".").resolve()
+                    if str(disk_target).startswith(str(repo_root)) and disk_target.exists() and disk_target.is_file():
+                        original_baseline_content = disk_target.read_text(encoding="utf-8", errors="replace")
+                        baseline[target_path] = original_baseline_content
+                    else:
+                        raise FileBundleError(
+                            f"Protected method target `{target_path}` has no baseline content."
+                        )
                 working_content = files.get(target_path, original_baseline_content)
                 anchor = str(target.get("anchor", "")) if mode == "append" else ""
                 insertion_messages = build_method_insertion_messages(
