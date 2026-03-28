@@ -33,6 +33,9 @@ def test_public_surface_ownership_and_shell_exports() -> None:
     assert callable(exports["bootstrap_project_adapter_scaffold"])
 
     assert callable(run_task.enforce_meta_file_task_gate)
+    assert callable(run_task._normalize_policy_path)
+    assert callable(run_task._task_baseline_paths)
+    assert callable(run_task.request_and_parse_bundle)
 
     shell_exports = run_task._shell_router_exports()
     assert callable(shell_exports["build_shell_seam_registry"])

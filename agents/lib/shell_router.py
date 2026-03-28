@@ -200,9 +200,13 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     require_material_update = shell_globals["task_requires_material_update"](task_text)
     allow_unchanged_cli = shell_globals["task_allows_unchanged_cli"](task_text)
     harness_policies = shell_globals["parse_harness_file_policies"](task_text)
-    baseline_paths = sorted(set(required) | set(harness_policies.keys()))
     protected_targets = shell_globals["_extract_protected_method_targets"](task_text)
     protected_method_paths = {str(t["path"]) for t in protected_targets}
+    baseline_paths_fn = shell_globals.get("_task_baseline_paths")
+    if callable(baseline_paths_fn):
+        baseline_paths = baseline_paths_fn(required, harness_policies, protected_targets)
+    else:
+        baseline_paths = sorted(set(required) | set(harness_policies.keys()) | set(protected_method_paths))
 
     branch = shell_globals["_choose_agent_branch"](task_path.stem, args.push)
     print(f"Current branch: {shell_globals['capture'](['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
@@ -295,14 +299,16 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                     virtual_context=virtual_context,
                     forbidden_normal_bundle_paths=sorted(protected_method_paths),
                 )
-                generated = shell_globals["request_and_parse_bundle"](
+                generated = _call_request_and_parse_bundle_compat(
+                    shell_globals,
                     messages,
-                    args.model,
-                    args.provider,
+                    args,
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=bundle_required,
                     baseline=baseline,
+                    task_text=task_text,
+                    bundle_failure_path=last_bundle_path,
                 )
                 files.update(generated)
             elif not files:
@@ -314,14 +320,16 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                     virtual_context=virtual_context,
                     forbidden_normal_bundle_paths=sorted(protected_method_paths),
                 )
-                files = shell_globals["request_and_parse_bundle"](
+                files = _call_request_and_parse_bundle_compat(
+                    shell_globals,
                     messages,
-                    args.model,
-                    args.provider,
+                    args,
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=required,
                     baseline=baseline,
+                    task_text=task_text,
+                    bundle_failure_path=last_bundle_path,
                 )
         except shell_globals["FileBundleError"] as e:
             shell_globals["_report_failure"]("bundle_transport", str(e))

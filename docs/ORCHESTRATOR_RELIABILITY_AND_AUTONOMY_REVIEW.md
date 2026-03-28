@@ -76,3 +76,10 @@ The orchestrator should behave like this:
 6. backlog readiness + state engine
 7. PR/CI/merge controller
 8. end-to-end autonomy loop integration
+
+
+## Manual-lane bootstrap
+
+The first task in the new tranche (`055a`) and the seam-manifest validator task (`055c`) should be treated as **manual-patch-first bootstrap tasks**.
+
+They modify or freeze the contract of the engine itself. Running them through the ordinary autonomous lane before that contract is stabilized creates the exact feedback loop we are trying to eliminate.
