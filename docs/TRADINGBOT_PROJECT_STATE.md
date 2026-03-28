@@ -1,24 +1,33 @@
-# TradingBot Project State
+# TradingBot / Orchestrator Project State
 
-## Current phase
+## TradingBot
 
-TradingBot is in a **manual paper-trading readiness** phase.
+- still at manual paper-trading readiness
+- app-level backlog is intentionally paused behind orchestrator reliability work
 
-## What this means
+## Orchestrator
 
-- Focus is on controlled, supervised paper execution workflows
-- Risk/execution/strategy plumbing is exercised in paper mode
-- This is not a claim of autonomous production live-trading readiness
+### Completed on `main`
 
-## Relationship to orchestrator progress
+- 042–048 hardening tranche
+- 049–052 shell/public-interface/docs/portability tranche
+- 053 stable seam registry
+- 054a–054b meta harness lane gate + bundle preflight/localized repair
 
-- Orchestrator hardening through 042–048 is complete
-- 049–052 stabilization is complete
-- Current orchestrator continuation is 053–061
-- These orchestrator advances improve engineering reliability and velocity, but do not change TradingBot’s declared operational phase
+### Active next tranche
 
-## Repo and docs posture
+The orchestrator is now on a **Reliability / Recovery / Autonomy** trajectory.
 
-- TradingBot and orchestrator remain co-located during continuation work
-- Recommended separation (orchestrator extraction) is deferred until after 053–061 completion
-- Canonical narrative status docs are maintained under `docs/`, with root `README.md` as entry point
+The controller must become good at:
+
+- choosing the right lane for a task family
+- compiling a better request for that lane
+- validating seam contracts semantically
+- classifying failures into repair, retry, split, defer, or escalation
+- preserving good outputs and repairing only the bad subset
+- deciding what task is ready next
+- controlling PR/CI/merge as part of the same loop
+
+### Deferred continuation
+
+The earlier integration/seam-family continuation remains deferred until the reliability tranche lands.
