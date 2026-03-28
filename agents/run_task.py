@@ -2427,84 +2427,188 @@ def chat(messages: List[dict], model: str, provider: str | None = None) -> str:
 
 
 def build_messages(
-    task_text: str,
-    required: List[str],
-    extra_directives: str = "",
-    virtual_context: Dict[str, str] | None = None,
-    forbidden_normal_bundle_paths: List[str] | None = None,
-) -> List[dict]:
-    extra: List[str] = []
+        task_text: str,
+        required: List[str],
+        extra_directives: str = "",
+        virtual_context: Dict[str, str] | None = None,
+        forbidden_normal_bundle_paths: List[str] | None = None,
+    ) -> List[dict]:
+        family = {
+            "docs_only": False,
+            "narrow_tests_only": False,
+            "integration_test": False,
+            "protected_meta_harness": False,
+            "split_recommended": False,
+            "split_reason": "",
+            "lane": "default",
+        }
+        classify_fn = None
+        compile_fn = None
+        try:
+            from agents.lib import task_contracts as _task_contracts  # type: ignore
+            classify_fn = getattr(_task_contracts, "classify_task_family", None)
+            compile_fn = getattr(_task_contracts, "compile_lane_prompt_shape", None)
+        except Exception:
+            classify_fn = None
+            compile_fn = None
 
-    if required:
-        extra.append("## Required deliverables (must be satisfied)")
-        extra.extend(f"- {p}" for p in required)
+        if callable(classify_fn):
+            try:
+                raw = classify_fn(task_text=task_text, required_paths=required)
+            except TypeError:
+                raw = classify_fn(task_text, required)
+            if isinstance(raw, dict):
+                for key in family:
+                    if key in raw:
+                        family[key] = raw[key]
+
+        if family.get("docs_only"):
+            lane = "docs-only"
+        elif family.get("protected_meta_harness"):
+            lane = "protected-meta-harness"
+        elif family.get("integration_test"):
+            lane = "integration-test"
+        elif family.get("narrow_tests_only"):
+            lane = "narrow-tests-only"
+        else:
+            lane = "default"
+        family["lane"] = lane
+
+        extra: List[str] = []
+        extra.append("## Task family classification")
+        extra.append(f"- lane: {lane}")
+        extra.append(f"- docs_only: {bool(family.get('docs_only'))}")
+        extra.append(f"- narrow_tests_only: {bool(family.get('narrow_tests_only'))}")
+        extra.append(f"- integration_test: {bool(family.get('integration_test'))}")
+        extra.append(f"- protected_meta_harness: {bool(family.get('protected_meta_harness'))}")
+        if bool(family.get("split_recommended")):
+            split_reason = str(family.get("split_reason") or "task mixes risky seams")
+            extra.append("- split_recommended: true")
+            extra.append(f"- split_reason: {split_reason}")
+            extra.append("IMPORTANT: This task should be split into multiple focused tasks before broad edits.")
+        else:
+            extra.append("- split_recommended: false")
         extra.append("")
-        extra.append("## Exact FILE headers that MUST appear")
-        for p in required:
-            extra.append(f"FILE: {p}")
+
+        lane_shape: str = ""
+        if callable(compile_fn):
+            try:
+                compiled = compile_fn(
+                    lane=lane,
+                    task_text=task_text,
+                    required_paths=required,
+                    family=family,
+                )
+            except TypeError:
+                try:
+                    compiled = compile_fn(lane, task_text, required, family)
+                except TypeError:
+                    compiled = compile_fn(lane, task_text, required)
+            if isinstance(compiled, str):
+                lane_shape = compiled.strip()
+
+        if not lane_shape:
+            if lane == "docs-only":
+                lane_shape = (
+                    "Lane request shape: docs-only.\n"
+                    "- Edit only markdown/docs deliverables.\n"
+                    "- Do not modify Python runtime logic unless explicitly required."
+                )
+            elif lane == "narrow-tests-only":
+                lane_shape = (
+                    "Lane request shape: narrow tests-only.\n"
+                    "- Restrict edits to targeted tests and minimal implementation support.\n"
+                    "- Avoid broad refactors."
+                )
+            elif lane == "integration-test":
+                lane_shape = (
+                    "Lane request shape: integration-test.\n"
+                    "- Prefer end-to-end behavior wiring and realistic boundaries.\n"
+                    "- Keep deterministic test setup and assertions."
+                )
+            elif lane == "protected-meta-harness":
+                lane_shape = (
+                    "Lane request shape: protected meta-harness.\n"
+                    "- Respect harness-protected files and method-mode constraints exactly.\n"
+                    "- Avoid unsafe broad rewrites."
+                )
+            else:
+                lane_shape = (
+                    "Lane request shape: default.\n"
+                    "- Apply minimal changes that satisfy task contracts and tests."
+                )
+
+        extra.append("## Lane-specific request shape")
+        extra.append(lane_shape)
         extra.append("")
-        extra.append("## Output requirements")
-        extra.append("You MUST emit FILE blocks for every required deliverable path listed above.")
-        extra.append("Every FILE block must be closed by END_FILE before the next FILE header.")
-        extra.append("If a deliverable is an existing file, materially update it in the bundle.")
-        extra.append("Do not omit test files named in the task.")
-        extra.append("Do not substitute similar or nested alternative paths.")
-        extra.append("Do not create runtime artifact files such as last_output.txt, _last_agent_model_output.txt, or _last_agent_file_bundle.txt in the bundle.")
+
+        if required:
+            extra.append("## Required deliverables (must be satisfied)")
+            extra.extend(f"- {p}" for p in required)
+            extra.append("")
+            extra.append("## Exact FILE headers that MUST appear")
+            for p in required:
+                extra.append(f"FILE: {p}")
+            extra.append("")
+            extra.append("## Output requirements")
+            extra.append("You MUST emit FILE blocks for every required deliverable path listed above.")
+            extra.append("Every FILE block must be closed by END_FILE before the next FILE header.")
+            extra.append("If a deliverable is an existing file, materially update it in the bundle.")
+            extra.append("Do not omit test files named in the task.")
+            extra.append("Do not substitute similar or nested alternative paths.")
+            extra.append("Do not create runtime artifact files such as last_output.txt, _last_agent_model_output.txt, or _last_agent_file_bundle.txt in the bundle.")
+            if forbidden_normal_bundle_paths:
+                extra.append(
+                    "Protected files handled separately MUST NOT appear in this normal file bundle: "
+                    + ", ".join(forbidden_normal_bundle_paths)
+                )
+                extra.append(
+                    "If you emit any of those protected paths here, the response will be rejected even if the rest of the bundle is valid."
+                )
+            extra.append("")
+
+        extra.append("## Update discipline")
+        extra.append("When updating an existing file, preserve the current architecture and surrounding code unless the task explicitly requires a rewrite.")
+        extra.append("Do not replace large existing files with miniature standalone versions or toy implementations.")
+        extra.append("")
+        extra.append("## Relevant file context")
+        extra.append(relevant_context(required) or "(none)")
+
+        if virtual_context:
+            extra.append("")
+            extra.append("## Effective protected-file context (authoritative for this iteration)")
+            extra.append(
+                "These files are handled by the harness outside the normal bundle. "
+                "Use their exact content below when generating dependent files like tests."
+            )
+            for rel, content in virtual_context.items():
+                extra.append(f"FILE: {rel}")
+                extra.append(content.rstrip("\n"))
+                extra.append("END_FILE")
+
         if forbidden_normal_bundle_paths:
+            extra.append("")
+            extra.append("## Protected paths excluded from the normal file bundle")
             extra.append(
-                "Protected files handled separately MUST NOT appear in this normal file bundle: "
-                + ", ".join(forbidden_normal_bundle_paths)
+                "Do not emit FILE blocks for any of these paths in the normal bundle response. "
+                "They are edited separately by protected method mode."
             )
-            extra.append(
-                "If you emit any of those protected paths here, the response will be rejected even if the rest of the bundle is valid."
-            )
+            extra.extend(f"- {p}" for p in forbidden_normal_bundle_paths)
+
         extra.append("")
+        extra.append("## Repository map")
+        extra.append(repo_map())
 
-    extra.append("## Update discipline")
-    extra.append("When updating an existing file, preserve the current architecture and surrounding code unless the task explicitly requires a rewrite.")
-    extra.append("Do not replace large existing files with miniature standalone versions or toy implementations.")
-    extra.append("")
-    extra.append("## Relevant file context")
-    extra.append(relevant_context(required) or "(none)")
+        if extra_directives.strip():
+            extra.append("")
+            extra.append("## Iteration-specific directives")
+            extra.append(extra_directives.strip())
 
-    if virtual_context:
-        extra.append("")
-        extra.append("## Effective protected-file context (authoritative for this iteration)")
-        extra.append(
-            "These files are handled by the harness outside the normal bundle. "
-            "Use their exact content below when generating dependent files like tests."
-        )
-        for rel, content in virtual_context.items():
-            extra.append(f"FILE: {rel}")
-            extra.append(content.rstrip("\n"))
-            extra.append("END_FILE")
-
-    if forbidden_normal_bundle_paths:
-        extra.append("")
-        extra.append("## Protected paths excluded from the normal file bundle")
-        extra.append(
-            "Do not emit FILE blocks for any of these paths in the normal bundle response. "
-            "They are edited separately by protected method mode."
-        )
-        extra.extend(f"- {p}" for p in forbidden_normal_bundle_paths)
-
-    extra.append("")
-    extra.append("## Repository map")
-    extra.append(repo_map())
-
-    if extra_directives.strip():
-        extra.append("")
-        extra.append("## Iteration-specific directives")
-        extra.append(extra_directives.strip())
-
-    user_task = task_text.rstrip() + "\n\n" + "\n".join(extra).rstrip() + "\n"
-    return [
-        {"role": "system", "content": load_system_prompt().strip()},
-        {"role": "user", "content": user_task},
-    ]
-
-
-
+        user_task = task_text.rstrip() + "\n\n" + "\n".join(extra).rstrip() + "\n"
+        return [
+            {"role": "system", "content": load_system_prompt().strip()},
+            {"role": "user", "content": user_task},
+        ]
 def _parse_file_bundle_transport_resilient(
     text: str,
     expected_paths: List[str] | None = None,

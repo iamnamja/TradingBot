@@ -1,47 +1,39 @@
 # Orchestrator Vision and Controls
 
-## Vision
+## Task-family aware prompting
 
-Create a reusable orchestration product that operates as a **central command system** for software delivery: it should understand backlog state, choose the next ready task, execute the right workflow for that task family, validate outputs, repair what is salvageable, escalate when needed, and advance the backlog with strong auditability.
+The orchestrator now classifies tasks into lightweight families before compiling the LLM request:
 
-## Productization stance (current)
+- **docs-only**: all required paths are documentation artifacts.
+- **narrow tests-only**: only `tests/` paths are required.
+- **integration-test**: task text or required paths indicate integration/e2e coverage.
+- **protected meta-harness**: task touches protected harness/meta seams (for example `agents/run_task.py`, `agents/lib/shell_router.py`, `agents/lib/bundle_parser.py`, `agents/lib/protected_file_policy.py`).
 
-- reusable and increasingly productized
-- still co-located in this repository
-- not yet extracted into a standalone repository/package
+This classification is intentionally heuristic and deterministic. It is used to pick a lane and shape the request, not to hard-block execution.
 
-## Maturity checkpoint
+## Lane-specific prompt compilation
 
-- 042–048 hardening tranche: **complete**
-- 049–054 continuation hardening tranche: **complete**
-- 055–061 reliability / recovery / autonomy tranche: **active next priority**
-- 062–068 deferred continuation: **paused until reliability tranche lands**
+Instead of one generic request shape, the orchestrator compiles a lane-specific request section:
 
-## Control principles
+- **docs-only lane**: constrains edits to docs and discourages runtime churn.
+- **narrow tests-only lane**: emphasizes targeted test fixes and minimal implementation support.
+- **integration-test lane**: emphasizes end-to-end wiring, deterministic fixtures, and realistic boundaries.
+- **protected meta-harness lane**: emphasizes strict policy compliance and minimal safe patches.
 
-1. **Explicit contracts over implicit behavior**
-2. **Safety-by-default over convenience-by-default**
-3. **Deterministic execution summaries and failure artifacts**
-4. **Recoverable workflows with persistent state**
-5. **Auditability and reviewability at each decision point**
-6. **Portable architecture via adapters and constrained interfaces**
-7. **Task-family awareness before code generation**
-8. **Localized repair before whole-task restart**
-9. **Semantic seam validation before permissive retries**
-10. **Autonomous control-plane behavior before broad integration claims**
-11. **Embedded controller intelligence, not an uncontrolled AI layer on top**
+Lane-aware prompt compilation improves reliability by reducing ambiguous guidance and matching instructions to seam risk.
 
-## Near-term strategy (055–061)
+## Split strategy for multi-seam risk
 
-- freeze the stable harness contract
-- classify task families and compile lane-specific requests deliberately
-- maintain a seam manifest and semantic contract validator
-- classify failure modes and map them to remediation plans
-- guarantee localized repair and durable failure artifacts
-- maintain backlog readiness state and next-task selection
-- integrate PR/CI/merge into the orchestrator’s control loop
-- realign numbering/docs so the deferred continuation can resume cleanly afterward
+The classifier can emit a split recommendation when a task mixes risky seam families.  
+A key example is a task that combines **integration-test** + **protected meta-harness** concerns; this is flagged as split-recommended because it tends to produce broad, fragile edits.
 
-## Separation recommendation
+When split is recommended, the orchestrator includes an explicit warning in the compiled request so work can be broken into smaller, safer tasks.
 
-Perform repository/package separation later, after the reliability/autonomy tranche and the deferred continuation demonstrate stable autonomous behavior rather than only stable shell/test seams.
+## Why this matters
+
+Task-family classification + lane-specific request shaping + split recommendations provide:
+
+- better scope control,
+- fewer broad rewrites,
+- better protected-file policy adherence,
+- and more deterministic convergence on `ruff` + `pytest`.
