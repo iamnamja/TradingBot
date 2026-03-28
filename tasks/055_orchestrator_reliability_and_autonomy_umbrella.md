@@ -12,9 +12,9 @@ It exists to define the ordered subtask sequence, scope boundaries, and acceptan
 
 ## Ordered subtasks
 
-1. `055a_orchestrator_harness_contract_freeze`
-2. `055b_orchestrator_task_family_classifier_prompt_compiler_and_split_strategy`
-3. `055c_orchestrator_seam_manifest_and_semantic_contract_validator`
+1. `055a_orchestrator_harness_contract_freeze` *(manual patch lane first)*
+2. `055b_orchestrator_task_family_classifier_prompt_compiler_and_split_strategy` *(autonomous lane after 055a lands)*
+3. `055c_orchestrator_seam_manifest_and_semantic_contract_validator` *(manual patch lane first)*
 4. `056_orchestrator_failure_classifier_and_remediation_planner`
 5. `057_orchestrator_localized_repair_and_failure_artifacts`
 6. `058_orchestrator_backlog_readiness_and_state_engine`
@@ -38,3 +38,12 @@ By the end of this tranche, the orchestrator should be materially closer to a sy
 ## Deferred continuation after this umbrella
 
 The previously planned continuation has been renumbered to 062–068 and should resume only after the reliability/autonomy tranche lands.
+
+
+## Lane note
+
+To bootstrap the tranche safely:
+
+- `055a` should be landed via a **manual patch lane**
+- `055c` should be landed via a **manual patch lane**
+- `055b` is the first task in this tranche that should go back through the normal autonomous lane after `055a` merges

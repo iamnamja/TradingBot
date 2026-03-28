@@ -103,6 +103,72 @@ def test_task_baseline_paths_include_protected_targets() -> None:
     assert "tests/test_run_task_runtime_foundations.py" in paths
 
 
+def test_shell_router_request_bundle_compat_passes_new_kwargs(tmp_path) -> None:
+    _load_runtime_modules()
+    shell_router = importlib.import_module("agents.lib.shell_router")
+    seen: dict[str, object] = {}
+
+    def fake_request_bundle(messages, model, provider, last_output_path, **kwargs):
+        seen["messages"] = messages
+        seen["model"] = model
+        seen["provider"] = provider
+        seen["last_output_path"] = last_output_path
+        seen["kwargs"] = kwargs
+        return {"x.py": "print('ok')\n"}
+
+    args = SimpleNamespace(model="gpt-5.3-codex", provider="openai")
+    result = shell_router._call_request_and_parse_bundle_compat(
+        {"request_and_parse_bundle": fake_request_bundle},
+        [{"role": "user", "content": "hello"}],
+        args,
+        tmp_path / "_last_agent_model_output.txt",
+        forbidden_paths=["agents/run_task.py"],
+        expected_paths=["tests/test_orchestrator_public_surface.py"],
+        baseline={"tests/test_orchestrator_public_surface.py": "old"},
+        task_text="task body",
+        bundle_failure_path=tmp_path / "_last_agent_file_bundle.txt",
+    )
+
+    assert result == {"x.py": "print('ok')\n"}
+    assert seen["model"] == "gpt-5.3-codex"
+    assert seen["provider"] == "openai"
+    kwargs = seen["kwargs"]
+    assert kwargs["task_text"] == "task body"
+    assert kwargs["bundle_failure_path"] == tmp_path / "_last_agent_file_bundle.txt"
+
+
+def test_shell_router_request_bundle_compat_falls_back_when_runner_is_older(tmp_path) -> None:
+    _load_runtime_modules()
+    shell_router = importlib.import_module("agents.lib.shell_router")
+    calls: list[dict[str, object]] = []
+
+    def fake_request_bundle(messages, model, provider, last_output_path, **kwargs):
+        calls.append(kwargs)
+        if "task_text" in kwargs or "bundle_failure_path" in kwargs:
+            raise TypeError("request_and_parse_bundle() got an unexpected keyword argument 'task_text'")
+        return {"x.py": "print('ok')\n"}
+
+    args = SimpleNamespace(model="gpt-5.3-codex", provider="openai")
+    result = shell_router._call_request_and_parse_bundle_compat(
+        {"request_and_parse_bundle": fake_request_bundle},
+        [{"role": "user", "content": "hello"}],
+        args,
+        tmp_path / "_last_agent_model_output.txt",
+        forbidden_paths=["agents/run_task.py"],
+        expected_paths=["tests/test_orchestrator_public_surface.py"],
+        baseline={"tests/test_orchestrator_public_surface.py": "old"},
+        task_text="task body",
+        bundle_failure_path=tmp_path / "_last_agent_file_bundle.txt",
+    )
+
+    assert result == {"x.py": "print('ok')\n"}
+    assert len(calls) == 2
+    assert "task_text" in calls[0]
+    assert "bundle_failure_path" in calls[0]
+    assert "task_text" not in calls[1]
+    assert "bundle_failure_path" not in calls[1]
+
+
 def test_meta_file_gate_blocks_core_meta_paths_even_without_forbidden_list() -> None:
     run_task, _, _, _ = _load_runtime_modules()
     ok, msg = run_task.enforce_meta_file_task_gate(["agents/run_task.py"], forbidden_paths=None)

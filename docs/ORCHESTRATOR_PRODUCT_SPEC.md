@@ -88,3 +88,13 @@ Realign docs, backlog numbering, and continuation language so the deferred tranc
 - 066 package extraction prep
 - 067 canonical docs path policy
 - 068 task scope / split heuristics follow-on
+
+
+## Bootstrap execution rule
+
+The first contract-freeze / contract-validator tasks in the new tranche should start in a **manual-patch-first lane**:
+
+- `055a_orchestrator_harness_contract_freeze`
+- `055c_orchestrator_seam_manifest_and_semantic_contract_validator`
+
+After those land, the autonomous lane should resume with `055b` and later tasks on top of the stabilized contract layer.

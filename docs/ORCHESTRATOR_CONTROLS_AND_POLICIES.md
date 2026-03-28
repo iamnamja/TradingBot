@@ -96,3 +96,13 @@ When the trajectory changes materially:
 - roadmap order must be updated first
 - task filenames/headings must reflect the new sequence
 - README/task-backlog docs must match the active continuation
+
+
+## Manual-lane bootstrap rule
+
+For the first reliability / recovery / autonomy tranche, these tasks should **not** go through the normal autonomous generation lane:
+
+- `055a_orchestrator_harness_contract_freeze`
+- `055c_orchestrator_seam_manifest_and_semantic_contract_validator`
+
+These are engine self-modification / contract-freeze tasks. They should be landed through a direct manual patch lane first, then the autonomous lane resumes with `055b` and later tasks on top of the frozen contract.
