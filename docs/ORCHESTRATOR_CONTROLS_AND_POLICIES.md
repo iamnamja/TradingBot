@@ -1,108 +1,73 @@
 # Orchestrator Controls and Policies
 
-## Operating lanes
+This document describes the stable seams intended for orchestrator integration
+tests and monkeypatch-based verification.
 
-The orchestrator should explicitly recognize at least four lanes:
+## Stable seam registry
 
-1. **docs-only lane**
-   - narrative/documentation updates only
-   - no engine/meta file edits
-2. **narrow tests-only lane**
-   - focused unit or compatibility tests
-   - deterministic, in-process, no repo-wide recursion
-3. **integration-test lane**
-   - one integrated scenario across current live seams
-   - stricter prompting and semantic validation
-4. **protected meta-harness lane**
-   - `agents/run_task.py`, `agents/lib/shell_router.py`, protected-file policy, parser/preflight internals
-   - protected-method or manual-patch-first workflows only
+The orchestrator shell exposes a registry of supported seam families through:
 
-## Stable harness contract
+- `agents.run_task._shell_router_exports()`
+- `agents.lib.shell_router.build_shell_seam_registry()`
+- `agents.lib.shell_router.shell_seam_exports()`
 
-The following runner-facing surfaces are treated as a stable contract that should not be casually rewritten task-by-task:
+The registry is intentionally small and stable. It is meant to replace ad hoc
+lookups of private globals such as `run_task.some_internal_name`.
 
-- `request_and_parse_bundle(...)`
-- `_normalize_policy_path(...)`
-- `_task_baseline_paths(...)`
-- `enforce_meta_file_task_gate(...)`
-- shell-router compatibility with the runner entrypoints and bundle request surface
+## Supported seam families
 
-## Controller intelligence policy
+The current canonical family names are:
 
-The orchestrator may use model-assisted reasoning internally, but that reasoning must be governed by explicit policies.
+- `bootstrap`
+- `spec_mode`
+- `failure_journal`
+- `validator_runner`
+- `artifact_quarantine`
+- `runtime_foundations`
+- `parser_policy`
+- `semantic_preflight`
+- `shell_router`
 
-The controller-intelligence layer should be responsible for:
+Each family maps to the stable helper names that tests may patch or inspect.
 
-- task-family classification
-- lane-specific prompt/request compilation
-- seam-manifest / semantic contract validation
-- failure classification and remediation planning
-- autonomy confidence decisions (continue, repair, split, defer, escalate)
+### Family intent
 
-The controller-intelligence layer should **not** act as an unconstrained AI supervisor above the orchestrator. It is part of the orchestrator.
+- `bootstrap`: project scaffold bootstrap helpers
+- `spec_mode`: frozen spec artifact and execution-resolution helpers
+- `failure_journal`: failure classification, fingerprinting, and journal helpers
+- `validator_runner`: validator execution and validator selection helpers
+- `artifact_quarantine`: runtime artifact cleanup and classification helpers
+- `runtime_foundations`: shell-provider, git, and worktree foundation helpers
+- `parser_policy`: file-bundle parsing and protected-file policy helpers
+- `semantic_preflight`: semantic inspection and protected API validation helpers
+- `shell_router`: outer CLI routing and file-bundle / method-bundle transport helpers
 
-## Failure classification policy
+## Intended use in tests
 
-When a run fails, the controller should distinguish between at least these classes:
+Tests should patch these seams when they need deterministic behavior:
 
-- syntax-only failure
-- narrow file-local semantic failure
-- task-shape / task-family mismatch
-- harness/meta regression
-- CI-only failure after generation
-- blocked/manual-lane escalation
+- model / bundle request invocation
+- validator invocation
+- failure-journal access
+- review / quarantine access
+- shell routing and bootstrap dispatch
 
-Each class should map to a different remediation plan rather than forcing the same retry loop every time.
+Prefer patching the stable helper returned by the registry rather than reaching
+into unrelated internal modules or guessing private names.
 
-## Localized repair policy
+## Practical guidance
 
-For small task bundles, accepted files should be preserved and only the bad subset should be repaired.
+- Use the registry from `agents.run_task._shell_router_exports()` when a test
+  needs the shell-router entrypoint.
+- Use `agents.lib.shell_router.shell_seam_exports()` when a test wants the
+  canonical seam mapping for all supported families.
+- Patch only the helper names listed in the registry for the specific family.
+- Avoid monkeypatching unrelated private globals that are not part of the stable
+  seam surface.
 
-The controller should avoid whole-task restarts when:
+## Policy notes
 
-- only one file is syntactically invalid
-- only one file violates a narrow semantic/preflight rule
-- the remaining files are acceptable and deterministic
-
-## Seam-manifest policy
-
-For seam-heavy tasks, the orchestrator should prefer semantic contract validation over brittle substring checks.
-
-Examples:
-
-- validate allowed export keys against a manifest
-- allow live helpers like `_failure_journal_exports()`
-- block invented alias names like `failure_journal_export`
-- distinguish real recursive runner execution from allowed in-process validation seams
-
-## Meta-harness policy
-
-Tasks touching core harness/meta files should not automatically share the same lane as ordinary docs/test tasks.
-
-When a task touches:
-
-- `agents/run_task.py`
-- `agents/lib/shell_router.py`
-- bundle/preflight/protected-policy internals
-
-it should prefer protected-method mode or a manual patch lane.
-
-## Docs / numbering policy
-
-Task numbering and docs status tables must stay aligned.
-
-When the trajectory changes materially:
-
-- roadmap order must be updated first
-- task filenames/headings must reflect the new sequence
-- README/task-backlog docs must match the active continuation
-
-
-## Manual-lane bootstrap rule
-
-For the first reliability / recovery / autonomy tranche, these tasks should **not** go through the normal autonomous generation lane:
-
-- `055a_orchestrator_harness_contract_freeze`
-- `055c_orchestrator_seam_manifest_and_semantic_contract_validator`
-
-These are engine self-modification / contract-freeze tasks. They should be landed through a direct manual patch lane first, then the autonomous lane resumes with `055b` and later tasks on top of the frozen contract.
+- Protected-file method editing remains a separate transport mode.
+- Normal file-bundle responses must not include protected method-edit files.
+- Tests that mention bundle markers should avoid raw standalone marker lines in
+  prose examples; render them inline or split the token if needed.

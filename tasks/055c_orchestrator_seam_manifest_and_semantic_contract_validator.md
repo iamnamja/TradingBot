@@ -2,13 +2,10 @@
 
 ## Goal
 
+This task is a **manual patch lane bootstrap task**. Do not run it through the normal autonomous generation lane.
+
+
 Replace brittle seam heuristics with explicit manifests and semantic validation for seam-heavy tasks.
-
-## Execution lane
-
-This task is a **manual patch lane bootstrap task**.
-
-Do **not** run it through the normal autonomous generation lane until `055a` and `055b` have landed. It hardens the seam/contract layer that later autonomous recovery depends on.
 
 ## Deliverables
 
