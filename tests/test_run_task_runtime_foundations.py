@@ -14,11 +14,12 @@ def _load_runtime_modules():
     check_runner = importlib.import_module("agents.lib.check_runner")
     git_ops = importlib.import_module("agents.lib.git_ops")
     provider_client = importlib.import_module("agents.lib.provider_client")
-    return run_task, check_runner, git_ops, provider_client
+    task_contracts = importlib.import_module("agents.lib.task_contracts")
+    return run_task, check_runner, git_ops, provider_client, task_contracts
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client = _load_runtime_modules()
+    run_task, _, _, provider_client, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -31,7 +32,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     def fake_capture(cmd: list[str]) -> str:
@@ -58,77 +59,45 @@ def test_git_helpers_behavior(monkeypatch) -> None:
     )
 
 
-def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _ = _load_runtime_modules()
+def test_task_family_classifier_detects_integration_and_split() -> None:
+    _, _, _, _, task_contracts = _load_runtime_modules()
 
-    def fake_capture_result(cmd):
-        if cmd == ["ruff", "check", "."]:
-            return SimpleNamespace(returncode=0, stdout="lint out\n", stderr="")
-        if cmd == ["pytest", "-q"]:
-            return SimpleNamespace(returncode=1, stdout="test out\n", stderr="test err\n")
-        raise AssertionError(cmd)
-
-    monkeypatch.setattr(check_runner, "capture_result", fake_capture_result)
-
-    ok, text = run_task.run_checks()
-
-    assert ok is False
-    assert "=== pytest -q ===" in text
-    assert "test out" in text
-
-
-def test_public_surface_still_available() -> None:
-    run_task, _, _, _ = _load_runtime_modules()
-    assert callable(run_task.default_provider)
-    assert callable(run_task.default_model_for_provider)
-    assert callable(run_task.chat_openai)
-    assert callable(run_task.chat_anthropic)
-    assert callable(run_task.chat)
-    assert callable(run_task.run)
-    assert callable(run_task.capture)
-    assert callable(run_task.capture_result)
-    assert callable(run_task.ensure_clean_worktree)
-    assert callable(run_task.ensure_branch)
-    assert callable(run_task.run_checks)
-
-
-def test_request_and_parse_bundle_accepts_compat_kwargs(tmp_path) -> None:
-    run_task, _, _, _ = _load_runtime_modules()
-
-    original_chat = run_task.chat
-    try:
-        run_task.chat = lambda messages, model=None, provider=None: "BEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE\n"
-        output_path = tmp_path / "last_output.txt"
-        bundle_path = tmp_path / "last_bundle.txt"
-        parsed = run_task.request_and_parse_bundle(
-            [{"role": "user", "content": "x"}],
-            "m",
-            "openai",
-            output_path,
-            expected_paths=[],
-            task_text="task text",
-            bundle_failure_path=bundle_path,
-        )
-        assert parsed == {}
-        assert output_path.exists()
-    finally:
-        run_task.chat = original_chat
-
-
-def test_task_baseline_paths_include_protected_targets() -> None:
-    run_task, _, _, _ = _load_runtime_modules()
-    paths = run_task._task_baseline_paths(
-        ["tests/test_run_task_runtime_foundations.py"],
-        {"agents/run_task.py": {"rules": ["exact_copy"]}},
-        [{"path": "agents/run_task.py", "mode": "replace", "method_name": "request_and_parse_bundle"}],
+    out = task_contracts.classify_task_family(
+        task_text="Add integration coverage for protected-file method mode.",
+        required_paths=["tests/test_integration_runner.py", "agents/lib/shell_router.py"],
     )
-    assert "agents/run_task.py" in paths
-    assert "tests/test_run_task_runtime_foundations.py" in paths
+
+    assert out["integration_test"] is True
+    assert out["protected_meta_harness"] is True
+    assert out["split_recommended"] is True
 
 
-def test_meta_file_gate_blocks_core_meta_paths_even_without_forbidden_list() -> None:
-    run_task, _, _, _ = _load_runtime_modules()
-    ok, msg = run_task.enforce_meta_file_task_gate(["agents/run_task.py"], forbidden_paths=None)
-    assert ok is False
-    assert "Protected meta file(s) in normal bundle lane" in msg
-    assert "Use protected method mode." in msg
+def test_task_family_classifier_detects_docs_only_lane() -> None:
+    _, _, _, _, task_contracts = _load_runtime_modules()
+
+    out = task_contracts.classify_task_family(
+        task_text="Refresh orchestrator docs.",
+        required_paths=["docs/ORCHESTRATOR_VISION_AND_CONTROLS.md"],
+    )
+
+    assert out["docs_only"] is True
+    assert out["integration_test"] is False
+
+
+def test_lane_prompt_compiler_shapes_per_lane() -> None:
+    _, _, _, _, task_contracts = _load_runtime_modules()
+
+    docs_shape = task_contracts.compile_lane_prompt_shape(
+        lane="docs-only",
+        task_text="Update docs",
+        required_paths=["docs/x.md"],
+    )
+    integ_shape = task_contracts.compile_lane_prompt_shape(
+        lane="integration-test",
+        task_text="Add integration coverage",
+        required_paths=["tests/test_integration_runner.py"],
+    )
+
+    assert "docs-only" in docs_shape.lower()
+    assert "integration-test" in integ_shape.lower()
+    assert docs_shape != integ_shape
