@@ -9,96 +9,79 @@ This repository contains two related products in one codebase:
 
 ### TradingBot
 
-TradingBot is at **manual paper-trading readiness**.
+TradingBot remains at **manual paper-trading readiness**.
 
 ### Orchestrator
 
-The orchestrator productization tranche through **Task 052** is complete on `main`, and the early continuation hardening steps through **Task 054** are now also complete in substance:
+The orchestrator baseline through **Task 054b** is complete on `main`:
 
-- 031 — real task execution bridge ✅
-- 032 — execution result normalization ✅
-- 033 — real review and compliance gate ✅
-- 034 — branch and worktree guardrails ✅
-- 035 — PR creation workflow ✅
-- 036 — resume after approval ✅
-- 037 — persistent backlog state ✅
-- 038a–038d — run loop / CLI / decision logging / import validation ✅
-- 039a–039c — harness hardening tranche ✅
-- 040 — end-to-end integration harness ✅
-- 041a–041b — multi-project hardening ✅
-- 042a–042d — harness modularization tranche ✅
-- 043 — runtime artifact quarantine ✅
-- 044a–044b — spec / execution two-phase workflow ✅
-- 045 — structured failure journal ✅
-- 046 — project bootstrap adapter ✅
-- 047 — verification plugins / validators ✅
-- 048 — safe parallelism ✅
-- 049 — run-task shell convergence umbrella ✅
-- 049a — run-task export / wrapper dedupe ✅
-- 049b — final shell routing extraction ✅
-- 050 — public interface freeze ✅
-- 051 — docs/status normalization ✅
-- 052 — second-project portability proof ✅
+- 031–048 — execution, guardrails, resumability, failure journal, spec mode, bootstrap, plugins, safe parallelism ✅
+- 049–052 — shell convergence, public interface freeze, docs normalization, portability proof ✅
 - 053 — stable seam registry ✅
-- 054a — meta harness lane gate ✅
-- 054b — bundle preflight / localized repair ✅
+- 054a–054b — meta harness lane gate + bundle preflight/localized repair ✅
 
-## What comes next
+## Why the trajectory is changing
 
-The current continuation is now focused on **integration stabilization and extraction readiness**, not new feature expansion.
+The continuation originally planned for 055–061 assumed the orchestrator was already reliable enough to execute narrow integration tasks with little supervision.
 
-The main goals are:
+Recent runs showed a different reality:
 
-- validate a seam-aligned integrated end-to-end scenario across the 043–054 capabilities
-- stabilize the remaining focused seam families individually
-- document extraction prerequisites and canonical docs placement
-- teach the orchestrator when a task should be split across seam families
+- task specs can still drift into the wrong task family
+- integration-test generation is still too freeform
+- failure handling is better at **blocking** bad output than **recovering** locally
+- the orchestrator still lacks a true control plane that can decide readiness, next-task selection, remediation, and when to stay autonomous versus when to escalate
 
-## Repo conventions
+So the next tranche is a **Reliability, Recovery, and Autonomy tranche** before resuming the postponed continuation items.
 
-- Source layout:
-  - `src/tradingbot/...` — trading application
-  - `src/builder/orchestrator/...` — reusable orchestrator engine
-  - `agents/...` — task-running harness and agent glue code
-- Tests: `tests/...`
-- CI target remains:
-  - `ruff check .`
-  - `pytest -q`
+## Do we need AI on top of the orchestrator?
 
-## Important runner conventions
+Not as a separate supervisory product.
 
-The orchestrator is now strong enough that task quality matters as much as model quality.
+What we need is an **embedded controller-intelligence layer inside the orchestrator** that can:
 
-Every orchestrator task should continue to include:
+- classify task families
+- compile the right prompt/strategy for the lane
+- validate seam contracts semantically, not only with string checks
+- classify failures into repairable vs escalation-worthy
+- preserve good outputs and repair only bad subsets
+- decide whether to retry, split, defer, patch the task, patch the harness, or open a manual lane
 
-- exact method signatures where the API is fragile
-- explicit forbidden patterns
-- protected-file modes for engine/meta files
-- machine-readable contract directives when useful
-- acceptance criteria tied to the current real baseline
-- narrow scope, ideally one risky production area per task
-- clear distinction between task-shape issues, shell issues, and true product/code issues
-- split subtasks when a single task would combine multiple seam families or conflicting protected-file policies
+The orchestrator should remain the control plane. Model-backed reasoning should be a constrained internal capability, not an uncontrolled AI sitting above it.
 
-## Next task order
+## New near-term plan
 
-### Orchestrator continuation / extraction-readiness tranche
+### Reliability / Recovery / Autonomy tranche (active)
 
-- `055_orchestrator_integrated_capabilities_e2e`
-- `056_orchestrator_failure_journal_live_seam`
-- `057_orchestrator_safe_parallelism_review_integration`
-- `058_orchestrator_runtime_artifact_quarantine_integration`
-- `059_orchestrator_package_extraction_prep`
-- `060_orchestrator_canonical_docs_path_policy`
-- `061_orchestrator_task_scope_and_split_heuristics`
+- `055_orchestrator_reliability_and_autonomy_umbrella` (do not run directly)
+- `055a_orchestrator_harness_contract_freeze`
+- `055b_orchestrator_task_family_classifier_prompt_compiler_and_split_strategy`
+- `055c_orchestrator_seam_manifest_and_semantic_contract_validator`
+- `056_orchestrator_failure_classifier_and_remediation_planner`
+- `057_orchestrator_localized_repair_and_failure_artifacts`
+- `058_orchestrator_backlog_readiness_and_state_engine`
+- `059_orchestrator_ci_pr_merge_controller`
+- `060_orchestrator_autonomy_loop_integration`
+- `061_orchestrator_continuation_reset_and_numbering_sync`
+
+### Deferred continuation after reliability tranche
+
+- `062_orchestrator_integrated_capabilities_e2e`
+- `063_orchestrator_failure_journal_live_seam`
+- `064_orchestrator_safe_parallelism_review_integration`
+- `065_orchestrator_runtime_artifact_quarantine_integration`
+- `066_orchestrator_package_extraction_prep`
+- `067_orchestrator_canonical_docs_path_policy`
+- `068_orchestrator_task_scope_and_split_heuristics`
 
 ## Current recommendation
 
-Do **not** switch back to major TradingBot feature expansion yet.
+Do **not** push more continuation tasks through the existing automation loop until the reliability/recovery/autonomy tranche lands.
 
-The best next move is to finish the current orchestrator continuation and then either:
+The best next move is:
 
-1. split/package the orchestrator as its own product, or
-2. keep it in-repo with a frozen public surface and explicit extraction-readiness docs
-
-After that, resume TradingBot functional milestones such as recurring execution, reconciliation, reporting, backtesting, and stronger live-mode safety gates.
+1. freeze the stable harness contract,
+2. teach the orchestrator to classify task families and compile the right lane-specific prompt,
+3. add a seam manifest + semantic contract validator,
+4. add a real failure classifier + localized repair loop,
+5. add backlog readiness + PR/CI/merge control, and then
+6. resume the deferred continuation items on top of a more reliable controller.

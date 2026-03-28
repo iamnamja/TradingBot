@@ -1,84 +1,90 @@
-# Orchestrator Product Spec (In-Repo Productizing Engine)
+# Orchestrator Product Spec
 
-## Product intent
+## Purpose
 
-Build a reusable orchestration engine that can execute constrained implementation tasks safely across projects, with explicit policy controls, auditability, resumability, deterministic result handling, and seam-aware testability.
+The orchestrator is evolving from a guarded task runner into a **central software-delivery control plane** that can:
 
-## Current product stage
+- understand backlog state and readiness
+- select the next task autonomously
+- choose the correct execution lane for the task family
+- compile the right prompt/request for that lane
+- run generation, validation, repair, PR, CI, and merge loops safely
+- record deterministic audit artifacts and recovery history
+- stay portable across projects through adapters and constrained seams
 
-- **Post-048 baseline achieved** (042–048 complete)
-- **049–054 complete on `main`**
-- **Current continuation: 055–061**
-- Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package
+## Product posture
 
-## Users and use cases
+The orchestrator is still co-located in this repository and is not yet extracted into its own repo/package.
 
-- Engineering operators running governed task workflows
-- Projects requiring deterministic, policy-constrained automation
-- Multi-project environments where adapter-driven portability matters
-- Repositories that need stable test seams and guarded integrated coverage before extraction
+The immediate goal is not more breadth of capability. The immediate goal is **reliable autonomous behavior across task families**.
 
-## Core capabilities
+## Current strengths
 
-- Structured task ingestion and contract parsing
-- Safety harness with protected-file policies and semantic preflight checks
-- Controlled execution shell and command routing
-- Review/compliance/approval gates
-- Backlog state tracking and recovery
-- Audit logging and failure journaling
-- Optional dry-run/simulation and safe parallelism
-- Multi-project adapter support
-- Stable seam registry for orchestrator integration testing
-- Seam-aware preflight checks for task shape and generated bundles
-- Localized repair and protected-method handling for high-risk meta files
+The current baseline already includes:
 
-## Sequence summary
+- shell-routed execution and guardrails
+- protected-file policy enforcement
+- spec-mode / frozen-task support
+- validator integration and deterministic result handling
+- failure journal and runtime artifact seams
+- portability/adapters groundwork
+- initial seam-aware preflight and localized repair support
 
-### Completed baseline (042–048)
+## Current gap
 
-- Harness modularization umbrella and extracted foundations
-- Parser/policy and semantic preflight extraction
-- Thin run-task shell parity
-- Runtime artifact quarantine
-- Two-phase spec execution and frozen-task mode
-- Failure journal and retry context
-- Project bootstrap adapter
-- Verification plugins
-- Safe parallelism
+The orchestrator still lacks a sufficiently reliable control plane. In practice, narrow tasks still take too many manual iterations because the system does not yet consistently:
 
-### Completed stabilization / continuity hardening (049–054)
+- classify task families correctly
+- compile the best lane-specific request
+- validate seam contracts semantically instead of only with string heuristics
+- decide when to retry, repair locally, split, defer, or escalate
+- keep good files and repair only bad files
+- choose the next ready task on its own
+- run a safe PR/CI/merge loop as a first-class workflow
 
-1. Shell convergence umbrella and dedupe
-2. Public interface freeze hardening
-3. Documentation/status normalization
-4. Portability proof on a second project
-5. Stable seam registry
-6. Task / seam preflight linter umbrella
-7. Meta harness lane gate
-8. Bundle preflight / localized repair
+## Do we need AI on top?
 
-### Active continuation (055–061)
+No separate AI supervisor is required.
 
-9. One seam-aligned integrated capability E2E flow
-10. Failure-journal live seam stabilization
-11. Safe-parallelism / review integration stabilization
-12. Runtime artifact quarantine integration stabilization
-13. Extraction prep for future package/repo split
-14. Canonical docs path policy
-15. Task scope / split heuristics
+What is required is an **embedded controller-intelligence layer** inside the orchestrator. It should be model-assisted but policy-constrained. Its responsibilities should include:
 
-## Packaging and repo strategy
+- task-family classification
+- prompt/request compilation per lane
+- seam-manifest / contract validation
+- failure classification and remediation planning
+- confidence-gated autonomy vs escalation decisions
 
-- **Now**: continue in current repo to complete the continuation and prove seam stability
-- **Later**: execute extraction once 055–061 validates seam stability, integrated confidence, packaging readiness, and task-splitting discipline
+This keeps the orchestrator as the control plane while making reasoning a governed internal subsystem rather than an uncontrolled layer sitting on top.
 
-## Success criteria for extraction readiness
+## New active tranche: Reliability / Recovery / Autonomy (055–061)
 
-- Stable public interfaces with tested compatibility
-- Stable seam registry for orchestrator integration tests
-- Preflight can catch common seam/task-shape mistakes early
-- Demonstrated portability beyond the primary project
-- One integrated E2E flow validated under current live contracts
-- Focused seam-family hardening completed
-- Documentation/state surfaces synchronized and unambiguous
-- Task-splitting and docs-placement policy are explicit
+### 055 / 055a / 055b / 055c — umbrella, contract freeze, task-family prompt compiler, seam manifest validator
+Stabilize the harness contract, teach the controller how to distinguish task families, compile better lane-specific requests, and validate live seam contracts semantically.
+
+### 056 — failure classifier + remediation planner
+Turn failed executions into structured decisions such as retry, local repair, task-shape patch, runner patch, manual patch lane, or blocked/waiting.
+
+### 057 — localized repair + failure artifacts
+Guarantee that small task failures preserve valid outputs, repair only the bad subset, and always emit usable failure artifacts.
+
+### 058 — backlog readiness + state engine
+Track task status, readiness, blockers, dependencies, and human/manual-lane state so the controller can know what is ready next.
+
+### 059 — CI / PR / merge controller
+Promote PR creation, CI polling/classification, merge, resync, and next-task unlocking into first-class orchestrator behavior.
+
+### 060 — autonomy loop integration
+Run the above pieces together as one central-command loop over a backlog and prove that it can self-heal through at least one recoverable failure without human intervention.
+
+### 061 — continuation reset and numbering sync
+Realign docs, backlog numbering, and continuation language so the deferred tranche resumes on a clean foundation.
+
+## Deferred continuation after reliability tranche
+
+- 062 integrated capability E2E flow
+- 063 failure-journal live seam
+- 064 safe parallelism / review integration
+- 065 runtime artifact quarantine integration
+- 066 package extraction prep
+- 067 canonical docs path policy
+- 068 task scope / split heuristics follow-on
