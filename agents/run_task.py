@@ -2695,6 +2695,14 @@ def build_messages(
         extra.append("## Iteration-specific directives")
         extra.append(extra_directives.strip())
     lower_task_text = task_text.lower()
+    if "tests/test_orchestrator_integrated_capabilities.py" in required or "integrated capability" in lower_task_text or "integrated_capabilities" in lower_task_text:
+        extra.append("")
+        extra.append("## Integrated-test generation guardrails")
+        extra.append("Generate one narrow deterministic integrated test file only.")
+        extra.append("Do not call `run_task.main()`, `run_task.run_task_shell(...)`, `_shell_router_exports()`, or `py -m agents.run_task` from generated tests.")
+        extra.append("Do not trigger repo-wide `pytest -q` or `ruff check .` from generated tests.")
+        extra.append("Prefer in-process seam usage only: `spec_mode.resolve_task_text(...)`, `validator_runner._run_plugin_validators`, `check_runner.run_checks(...)`, and `run_task._failure_journal_exports()` when explicitly called for by the task.")
+
     if "_failure_journal_exports" in task_text or "failure-journal" in lower_task_text:
         extra.append("")
         extra.append("## Live failure-journal seam contract")
@@ -2892,8 +2900,11 @@ def request_and_parse_bundle(
         forbidden_paths: List[str] | None = None,
         expected_paths: List[str] | None = None,
         baseline: Dict[str, str] | None = None,
+        task_text: str | None = None,
+        bundle_failure_path: Path | None = None,
     ) -> Dict[str, str]:
         last_output_path = Path(last_output_path)
+        bundle_failure_path = Path(bundle_failure_path or "_last_agent_file_bundle.txt")
         allowed_paths = [
             p.strip().replace("\\", "/")
             for p in (expected_paths or [])
@@ -2963,18 +2974,19 @@ def request_and_parse_bundle(
                         issues.setdefault(rel, []).append("contains obvious text corruption indicators or leaked bundle markers")
 
                 if rel.startswith("tests/") and rel.endswith(".py"):
-                    lowered = norm.lower()
-                    recursive_markers = [
-                        "pytest -q",
-                        "ruff check .",
-                        "subprocess.run([sys.executable, '-m', 'pytest', '-q']",
-                        'subprocess.run([sys.executable, "-m", "pytest", "-q"]',
-                        "subprocess.run(['ruff', 'check', '.']",
-                        'subprocess.run(["ruff", "check", "."]',
-                        "os.system('pytest -q')",
-                        'os.system("pytest -q")',
+                    def _contains_identifier(source: str, ident: str) -> bool:
+                        return re.search(rf"(?<![A-Za-z0-9_]){re.escape(ident)}(?![A-Za-z0-9_])", source) is not None
+
+                    recursive_patterns = [
+                        r"subprocess\.run\([^\n]*pytest[^\n]*-q",
+                        r"subprocess\.run\([^\n]*ruff[^\n]*check[^\n]*\.",
+                        r"os\.system\([^\n]*pytest\s+-q",
+                        r"os\.system\([^\n]*ruff\s+check\s+\.",
+                        r"run_task\.main\(",
+                        r"run_task\.run_task_shell\(",
+                        r"py\s+-m\s+agents\.run_task",
                     ]
-                    if any(marker in lowered for marker in recursive_markers):
+                    if any(re.search(pattern, norm) for pattern in recursive_patterns):
                         issues.setdefault(rel, []).append("appears to invoke repo-wide validators recursively from generated tests")
 
                     seam_refs = re.findall(r"(?:monkeypatch\.setattr|patch)\(([^,\)]+)", norm)
@@ -2988,10 +3000,27 @@ def request_and_parse_bundle(
                                 )
 
                     for bad in ("_validator_runner_exports", "validator_runner_exports", "shell_router_export", "failure_journal_export"):
-                        if bad in norm and bad not in live_seams:
+                        if _contains_identifier(norm, bad) and bad not in live_seams:
                             issues.setdefault(rel, []).append(
                                 f"references invented seam alias `{bad}` not present in live exports"
                             )
+
+                    if _contains_identifier(norm, "_shell_router_exports"):
+                        issues.setdefault(rel, []).append(
+                            "references forbidden helper `_shell_router_exports()` in integrated test generation"
+                        )
+
+                    if _contains_identifier(norm, "_failure_journal_exports"):
+                        for nonlive in (
+                            "write_failure_journal",
+                            "build_failure_journal_entry",
+                            "load_failure_journal_entries",
+                            "build_failure_entry",
+                        ):
+                            if _contains_identifier(norm, nonlive):
+                                issues.setdefault(rel, []).append(
+                                    f"asserts non-live failure-journal export key `{nonlive}`"
+                                )
 
             baseline_issues = _baseline_guard_issues(parsed, baseline)
             for rel, rel_issues in baseline_issues.items():
@@ -3089,6 +3118,10 @@ def request_and_parse_bundle(
             try:
                 parsed = _parse_validate_or_salvage(out2, allowed_paths, require_all=False)
             except Exception as e2:
+                try:
+                    bundle_failure_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+                except Exception:
+                    pass
                 raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
 
         issues = _preflight_issues_by_path(parsed, allowed_paths)

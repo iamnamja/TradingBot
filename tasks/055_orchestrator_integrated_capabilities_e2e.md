@@ -53,8 +53,7 @@ In particular:
 - it is valid to reference the helper name `_failure_journal_exports`; do **not** invent alias names such as `failure_journal_export`
 - do **not** require a new `"module"` key, a new `"report_failure"` export, or any new alias if the live seam does not expose one
 - do **not** reference `_validator_runner_exports`, `validator_runner_exports`, `_shell_router_exports()`, `shell_router_export`, or any shell-router export helper from the generated test in this task
-- preserve the current spec-mode frozen-task behavior exactly, including the current canonical task-text normalization used by the repo (`rstrip("
-")` behavior is acceptable if that is the live contract)
+- preserve the current spec-mode frozen-task behavior exactly, including the current canonical task-text normalization used by the repo (`rstrip("\n")` behavior is acceptable if that is the live contract)
 - the integrated test may assert only the currently live failure-journal export keys below and must not assert any additional keys:
   - `failure_journal`
   - `classify_failure`
@@ -97,6 +96,7 @@ Do **not** use any of these in the generated test:
 - `run_task.run_task_shell(...)`
 - `_shell_router_exports()`
 - `shell_router_export`
+- `run_task._failure_journal_exports()` is allowed and should not be treated as an invented alias
 - `py -m agents.run_task`
 - direct subprocess recursion into repo-wide `pytest -q` or `ruff check .`
 
