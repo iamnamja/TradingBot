@@ -92,51 +92,43 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.run_checks)
 
 
+def test_request_and_parse_bundle_accepts_compat_kwargs(tmp_path) -> None:
+    run_task, _, _, _ = _load_runtime_modules()
+
+    original_chat = run_task.chat
+    try:
+        run_task.chat = lambda messages, model=None, provider=None: "BEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE\n"
+        output_path = tmp_path / "last_output.txt"
+        bundle_path = tmp_path / "last_bundle.txt"
+        parsed = run_task.request_and_parse_bundle(
+            [{"role": "user", "content": "x"}],
+            "m",
+            "openai",
+            output_path,
+            expected_paths=[],
+            task_text="task text",
+            bundle_failure_path=bundle_path,
+        )
+        assert parsed == {}
+        assert output_path.exists()
+    finally:
+        run_task.chat = original_chat
+
 
 def test_task_baseline_paths_include_protected_targets() -> None:
     run_task, _, _, _ = _load_runtime_modules()
     paths = run_task._task_baseline_paths(
         ["tests/test_run_task_runtime_foundations.py"],
-        {"agents/run_task.py": {"allow_full_file": False}},
+        {"agents/run_task.py": {"rules": ["exact_copy"]}},
         [{"path": "agents/run_task.py", "mode": "replace", "method_name": "request_and_parse_bundle"}],
     )
     assert "agents/run_task.py" in paths
     assert "tests/test_run_task_runtime_foundations.py" in paths
 
 
-def test_shell_router_bundle_compat_falls_back_without_new_kwargs(monkeypatch, tmp_path) -> None:
+def test_meta_file_gate_blocks_core_meta_paths_even_without_forbidden_list() -> None:
     run_task, _, _, _ = _load_runtime_modules()
-    shell_router = importlib.import_module("agents.lib.shell_router")
-
-    calls: list[dict[str, object]] = []
-
-    def old_request_bundle(messages, model, provider, last_output_path, forbidden_paths=None, expected_paths=None, baseline=None):
-        calls.append(
-            {
-                "messages": messages,
-                "model": model,
-                "provider": provider,
-                "last_output_path": last_output_path,
-                "forbidden_paths": forbidden_paths,
-                "expected_paths": expected_paths,
-                "baseline": baseline,
-            }
-        )
-        return {}
-
-    args = SimpleNamespace(model="m", provider="openai")
-    result = shell_router._call_request_and_parse_bundle_compat(
-        {"request_and_parse_bundle": old_request_bundle},
-        [{"role": "user", "content": "x"}],
-        args,
-        tmp_path / "out.txt",
-        forbidden_paths=["agents/run_task.py"],
-        expected_paths=["docs/x.md"],
-        baseline={"docs/x.md": "old"},
-        task_text="task text",
-        bundle_failure_path=tmp_path / "bundle.txt",
-    )
-
-    assert result == {}
-    assert len(calls) == 1
-    assert calls[0]["expected_paths"] == ["docs/x.md"]
+    ok, msg = run_task.enforce_meta_file_task_gate(["agents/run_task.py"], forbidden_paths=None)
+    assert ok is False
+    assert "Protected meta file(s) in normal bundle lane" in msg
+    assert "Use protected method mode." in msg

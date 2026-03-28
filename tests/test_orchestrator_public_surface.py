@@ -94,11 +94,24 @@ def test_validator_default_path_is_legacy_non_plugin(monkeypatch) -> None:
     assert called["plugin"] is False
 
 
-
-def test_run_task_stable_harness_helpers_exposed() -> None:
+def test_meta_file_lane_gate_live_core_set_remains_blocked() -> None:
     _ensure_repo_on_path()
     run_task = importlib.import_module("agents.run_task")
 
+    for path in (
+        "agents/run_task.py",
+        "agents/lib/shell_router.py",
+        "agents/lib/bundle_parser.py",
+        "agents/lib/protected_file_policy.py",
+    ):
+        ok, msg = run_task.enforce_meta_file_task_gate([path], forbidden_paths=None)
+        assert ok is False
+        assert "Protected meta file(s) in normal bundle lane" in msg
+
+
+def test_harness_contract_helpers_are_exposed() -> None:
+    _ensure_repo_on_path()
+    run_task = importlib.import_module("agents.run_task")
     assert callable(run_task._normalize_policy_path)
     assert callable(run_task._task_baseline_paths)
     assert callable(run_task.enforce_meta_file_task_gate)

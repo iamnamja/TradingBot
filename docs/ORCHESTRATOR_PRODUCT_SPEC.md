@@ -8,7 +8,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 
 - **Post-048 baseline achieved** (042–048 complete)
 - **049–052 complete on `main`**
-- **Current continuation: 053–061**
+- **Current continuation: 055–061 reliability / recovery / autonomy tranche followed by 062–068 deferred continuation**
 - Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package
 
 ## Users and use cases
@@ -78,3 +78,8 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - One integrated E2E flow validated under current live contracts
 - Focused seam-family hardening completed
 - Documentation/state surfaces synchronized and unambiguous
+
+
+## Bootstrap lane rule
+
+The orchestrator should support both an autonomous task lane and a manual patch lane. The first harness-bootstrap tasks in the reliability/recovery/autonomy tranche use the manual patch lane to avoid self-modification regressions while the stable contract is being frozen.

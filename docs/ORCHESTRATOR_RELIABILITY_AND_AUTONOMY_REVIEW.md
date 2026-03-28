@@ -76,3 +76,8 @@ The orchestrator should behave like this:
 6. backlog readiness + state engine
 7. PR/CI/merge controller
 8. end-to-end autonomy loop integration
+
+
+## Bootstrap lane rule
+
+Until the harness contract is frozen and regression-tested, bootstrap harness tasks should use the manual patch lane rather than the normal autonomous lane.
