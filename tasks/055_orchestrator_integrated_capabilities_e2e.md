@@ -52,10 +52,9 @@ In particular:
 - use the current failure-journal export shape exposed by `run_task._failure_journal_exports()`
 - it is valid to reference the helper name `_failure_journal_exports`; do **not** invent alias names such as `failure_journal_export`
 - do **not** require a new `"module"` key, a new `"report_failure"` export, or any new alias if the live seam does not expose one
-- do **not** reference `_validator_runner_exports` or `validator_runner_exports` from the generated test in this task
+- do **not** reference `_validator_runner_exports`, `validator_runner_exports`, `_shell_router_exports()`, `shell_router_export`, or any shell-router export helper from the generated test in this task
 - preserve the current spec-mode frozen-task behavior exactly, including the current canonical task-text normalization used by the repo (`rstrip("
 ")` behavior is acceptable if that is the live contract)
-- the integrated max-iteration failure flow must **not** require that monkeypatching `run_task.main.__globals__["report_failure"]` is sufficient to observe failure reporting if the live routed shell path does not call that exact global directly
 - the integrated test may assert only the currently live failure-journal export keys below and must not assert any additional keys:
   - `failure_journal`
   - `classify_failure`
@@ -66,45 +65,80 @@ In particular:
   - `append_failure_journal_entry`
   - `retry_count_for_fingerprint`
 
-For the integrated flow, it is acceptable to assert:
-- return code `1`
-- failure output contains the current live max-iteration failure message
-- canonical task text was resolved from the frozen artifact
-- validator failure was observed through the in-process seam under test
-- and, if a directly patched live failure-report seam is actually invoked, that it was called
+## Required implementation shape
+
+The generated test should be narrow and deterministic.
+
+Preferred structure:
+
+1. Import only the live helpers needed for the scenario:
+   - `from agents import run_task`
+   - `from agents.lib import check_runner, spec_mode, validator_runner`
+2. Create a small temp task file and a temp frozen task file.
+3. Resolve frozen/spec text through `spec_mode.resolve_task_text(...)`.
+4. Monkeypatch `validator_runner._run_plugin_validators` to return a deterministic in-process validator failure.
+5. Call `check_runner.run_checks(...)` directly to observe validator failure behavior.
+6. Inspect `run_task._failure_journal_exports()` directly and assert exactly the live keyset listed above.
+7. Optionally use exported helpers such as `bounded_failure_snippet`, `failure_fingerprint`, `classify_failure`, `append_failure_journal_entry`, and `retry_count_for_fingerprint` in-process, without invoking the full runner.
+
+The integrated test should look conceptually like this flow:
+
+- resolve frozen text
+- run a monkeypatched validator failure through `check_runner.run_checks(...)`
+- assert failure result is observed
+- assert `_failure_journal_exports()` keyset is exactly the live keyset
+- append one failure-journal entry via the live export helper and assert retry-count/fingerprint behavior stays compatible
+
+## Explicit prohibitions
+
+Do **not** use any of these in the generated test:
+
+- `run_task.main()`
+- `run_task.run_task_shell(...)`
+- `_shell_router_exports()`
+- `shell_router_export`
+- `py -m agents.run_task`
+- direct subprocess recursion into repo-wide `pytest -q` or `ruff check .`
+
+Do **not** assert or reference any non-live failure-journal export keys, including:
+
+- `write_failure_journal`
+- `build_failure_journal_entry`
+- `load_failure_journal_entries`
+- `build_failure_entry`
 
 ## Scope reduction guardrail
 
 Do **not** modify or add these files in this task:
 
+- `agents/run_task.py`
 - `tests/test_execution_mode_frozen_task.py`
 - `tests/test_failure_journal.py`
 - `tests/test_safe_parallelism.py`
 - `tests/test_runtime_artifact_quarantine.py`
-- `agents/run_task.py`
 
 Do not introduce new integrated assertions about:
+
 - `run_review()` mergeability semantics
 - non-empty `reasons` / `warnings` lists
 - exact quarantine git-command sequences
 - optional planner/review behavior
-
-Those seams remain covered by their existing focused tests and should not be redefined here.
+- failure-journal alias expansion or seam-family redesign
+- direct validator export dictionaries or new validator export aliases
+- shell-router helper/export aliases
 
 ## Nested-check guardrail
 
-Integrated tests in this task must **not** trigger real nested repo-wide validator subprocesses or full runner execution from inside pytest.
+Integrated tests in this task must **not** trigger real nested repo-wide validator subprocesses from inside pytest.
 
 In particular:
 
-- do not call `validator_runner.run_checks(...)` in a way that shells out to real `ruff check .` or real `pytest -q` during the test run
-- do not call `run_task.main()` or `py -m agents.run_task` from inside the generated integrated test
+- do not call validator code in a way that shells out to real `ruff check .` or real `pytest -q` during the test run
 - if validator behavior is part of the scenario, monkeypatch or fake the validator execution path so the test stays deterministic and in-process
 - do not create tests that recursively invoke real repo-wide `pytest -q` from inside pytest
 - keep integrated scenarios fast, deterministic, and bounded
 
 It is acceptable to monkeypatch:
-
 - `agents.lib.validator_runner._run_plugin_validators`
 - `agents.lib.check_runner.run_checks`
 - `subprocess.run`
@@ -123,8 +157,8 @@ Do not create or modify a root-level `ORCHESTRATOR_PRODUCT_SPEC.md` in this task
 - `pytest -q` is fully green
 - the new integrated scenario uses at least three currently live capabilities together
 - integrated tests do not weaken the existing focused unit tests
-- no integrated test recursively invokes real repo-wide `pytest -q`, real `ruff check .`, or full `run_task.main()` execution
-- the integrated test aligns with the current live failure-journal export keys listed above
+- no integrated test recursively invokes real repo-wide `pytest -q` or `ruff check .`
+- the integrated tests align with current live seam names and current canonical task-text normalization
 - this task does not modify `tests/test_execution_mode_frozen_task.py`, `tests/test_failure_journal.py`, `tests/test_safe_parallelism.py`, or `tests/test_runtime_artifact_quarantine.py`
 - the product spec notes the existence and purpose of the integrated scenario coverage
 - the product-spec update for this task lands in `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
