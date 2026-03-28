@@ -78,7 +78,7 @@ Preferred structure:
 4. Monkeypatch `validator_runner._run_plugin_validators` to return a deterministic in-process validator failure.
 5. Call `check_runner.run_checks(...)` directly to observe validator failure behavior.
 6. Inspect `run_task._failure_journal_exports()` directly and assert exactly the live keyset listed above.
-7. Optionally use exported helpers such as `bounded_failure_snippet`, `failure_fingerprint`, `classify_failure`, `append_failure_journal_entry`, and `retry_count_for_fingerprint` in-process, without invoking the full runner.
+7. Stop after asserting the exact live `_failure_journal_exports()` keyset. Do not call exported failure-journal helper functions in this task.
 
 The integrated test should look conceptually like this flow:
 
@@ -86,7 +86,7 @@ The integrated test should look conceptually like this flow:
 - run a monkeypatched validator failure through `check_runner.run_checks(...)`
 - assert failure result is observed
 - assert `_failure_journal_exports()` keyset is exactly the live keyset
-- append one failure-journal entry via the live export helper and assert retry-count/fingerprint behavior stays compatible
+- assert `_failure_journal_exports()` keyset is exactly the live keyset and stop there
 
 ## Explicit prohibitions
 
@@ -98,6 +98,7 @@ Do **not** use any of these in the generated test:
 - `shell_router_export`
 - `run_task._failure_journal_exports()` is allowed and should not be treated as an invented alias
 - `py -m agents.run_task`
+- calling failure-journal export helpers such as `append_failure_journal_entry(...)` or `retry_count_for_fingerprint(...)` in this task
 - direct subprocess recursion into repo-wide `pytest -q` or `ruff check .`
 
 Do **not** assert or reference any non-live failure-journal export keys, including:
