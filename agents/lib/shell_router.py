@@ -57,6 +57,7 @@ def shell_seam_exports() -> dict[str, tuple[str, ...]]:
 
 
 
+
 def _call_request_and_parse_bundle_compat(
     shell_globals: dict[str, Any],
     messages: list[dict[str, Any]],
@@ -83,10 +84,8 @@ def _call_request_and_parse_bundle_compat(
             bundle_failure_path=bundle_failure_path,
         )
     except TypeError as exc:
-        text = str(exc)
-        unsupported_task_text = "unexpected keyword argument 'task_text'" in text
-        unsupported_bundle_failure = "unexpected keyword argument 'bundle_failure_path'" in text
-        if not (unsupported_task_text or unsupported_bundle_failure):
+        msg = str(exc)
+        if "unexpected keyword argument" not in msg:
             raise
         return request_bundle(
             messages,
@@ -97,7 +96,6 @@ def _call_request_and_parse_bundle_compat(
             expected_paths=expected_paths,
             baseline=baseline,
         )
-
 
 def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     if str(getattr(args, "bootstrap_project", "") or "").strip():
@@ -202,11 +200,11 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     harness_policies = shell_globals["parse_harness_file_policies"](task_text)
     protected_targets = shell_globals["_extract_protected_method_targets"](task_text)
     protected_method_paths = {str(t["path"]) for t in protected_targets}
-    baseline_paths_fn = shell_globals.get("_task_baseline_paths")
-    if callable(baseline_paths_fn):
-        baseline_paths = baseline_paths_fn(required, harness_policies, protected_targets)
+    baseline_builder = shell_globals.get("_task_baseline_paths")
+    if callable(baseline_builder):
+        baseline_paths = baseline_builder(required, harness_policies, protected_targets)
     else:
-        baseline_paths = sorted(set(required) | set(harness_policies.keys()) | set(protected_method_paths))
+        baseline_paths = sorted(set(required) | set(harness_policies.keys()) | protected_method_paths)
 
     branch = shell_globals["_choose_agent_branch"](task_path.stem, args.push)
     print(f"Current branch: {shell_globals['capture'](['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
