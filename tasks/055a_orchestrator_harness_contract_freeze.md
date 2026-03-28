@@ -4,6 +4,10 @@
 
 Freeze the stable runner/shell contract so future reliability work stops accidentally regressing core surfaces while trying to add resilience.
 
+## Execution lane
+
+This task is **manual patch lane only**. Do not run it through the normal autonomous bundle lane.
+
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:

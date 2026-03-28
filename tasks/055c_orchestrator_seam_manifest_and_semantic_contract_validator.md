@@ -2,10 +2,11 @@
 
 ## Goal
 
-This task is a **manual patch lane bootstrap task**. Do not run it through the normal autonomous generation lane.
-
-
 Replace brittle seam heuristics with explicit manifests and semantic validation for seam-heavy tasks.
+
+## Execution lane
+
+This task is **manual patch lane only**. Do not run it through the normal autonomous bundle lane.
 
 ## Deliverables
 

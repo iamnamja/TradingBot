@@ -71,3 +71,15 @@ into unrelated internal modules or guessing private names.
 - Normal file-bundle responses must not include protected method-edit files.
 - Tests that mention bundle markers should avoid raw standalone marker lines in
   prose examples; render them inline or split the token if needed.
+
+
+## Manual patch lane bootstrap tasks
+
+The first harness bootstrap tasks in the reliability / recovery / autonomy tranche should not be run through the normal autonomous bundle lane.
+
+Use the manual patch lane for:
+
+- `055a_orchestrator_harness_contract_freeze`
+- `055c_orchestrator_seam_manifest_and_semantic_contract_validator`
+
+Resume the autonomous lane with `055b_orchestrator_task_family_classifier_prompt_compiler_and_split_strategy` after 055a is merged.

@@ -38,3 +38,8 @@ By the end of this tranche, the orchestrator should be materially closer to a sy
 ## Deferred continuation after this umbrella
 
 The previously planned continuation has been renumbered to 062–068 and should resume only after the reliability/autonomy tranche lands.
+
+
+## Manual patch lane bootstrap rule
+
+Treat `055a` and `055c` as manual patch lane tasks. Resume the autonomous lane at `055b`.
