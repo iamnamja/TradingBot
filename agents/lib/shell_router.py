@@ -55,6 +55,50 @@ def build_shell_seam_registry() -> dict[str, tuple[str, ...]]:
 def shell_seam_exports() -> dict[str, tuple[str, ...]]:
     return build_shell_seam_registry()
 
+
+
+def _call_request_and_parse_bundle_compat(
+    shell_globals: dict[str, Any],
+    messages: list[dict[str, Any]],
+    args: Any,
+    last_output_path: Path,
+    *,
+    forbidden_paths: list[str] | None = None,
+    expected_paths: list[str] | None = None,
+    baseline: dict[str, str] | None = None,
+    task_text: str = "",
+    bundle_failure_path: Path | None = None,
+) -> dict[str, str]:
+    request_bundle = shell_globals["request_and_parse_bundle"]
+    try:
+        return request_bundle(
+            messages,
+            args.model,
+            args.provider,
+            last_output_path,
+            forbidden_paths=forbidden_paths,
+            expected_paths=expected_paths,
+            baseline=baseline,
+            task_text=task_text,
+            bundle_failure_path=bundle_failure_path,
+        )
+    except TypeError as exc:
+        text = str(exc)
+        unsupported_task_text = "unexpected keyword argument 'task_text'" in text
+        unsupported_bundle_failure = "unexpected keyword argument 'bundle_failure_path'" in text
+        if not (unsupported_task_text or unsupported_bundle_failure):
+            raise
+        return request_bundle(
+            messages,
+            args.model,
+            args.provider,
+            last_output_path,
+            forbidden_paths=forbidden_paths,
+            expected_paths=expected_paths,
+            baseline=baseline,
+        )
+
+
 def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     if str(getattr(args, "bootstrap_project", "") or "").strip():
         target_dir = Path(str(args.bootstrap_project).strip())
@@ -156,12 +200,8 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     require_material_update = shell_globals["task_requires_material_update"](task_text)
     allow_unchanged_cli = shell_globals["task_allows_unchanged_cli"](task_text)
     harness_policies = shell_globals["parse_harness_file_policies"](task_text)
+    baseline_paths = sorted(set(required) | set(harness_policies.keys()))
     protected_targets = shell_globals["_extract_protected_method_targets"](task_text)
-    baseline_helper = shell_globals.get("_task_baseline_paths")
-    if callable(baseline_helper):
-        baseline_paths = baseline_helper(required, harness_policies, protected_targets)
-    else:
-        baseline_paths = sorted(set(required) | set(harness_policies.keys()) | {str(t["path"]) for t in protected_targets})
     protected_method_paths = {str(t["path"]) for t in protected_targets}
 
     branch = shell_globals["_choose_agent_branch"](task_path.stem, args.push)
@@ -263,8 +303,6 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=bundle_required,
                     baseline=baseline,
-                    task_text=task_text,
-                    bundle_failure_path=last_bundle_path,
                 )
                 files.update(generated)
             elif not files:
@@ -284,8 +322,6 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=required,
                     baseline=baseline,
-                    task_text=task_text,
-                    bundle_failure_path=last_bundle_path,
                 )
         except shell_globals["FileBundleError"] as e:
             shell_globals["_report_failure"]("bundle_transport", str(e))
