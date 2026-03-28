@@ -376,6 +376,15 @@ def _normalize_method_token(token: str) -> str:
     return token.strip()
 
 
+
+def _normalize_policy_path(path: str) -> str:
+    value = (path or "").strip()
+    if not value:
+        return ""
+    while len(value) >= 2 and value[0] == value[-1] and value[0] in {"`", '"', "'"}:
+        value = value[1:-1].strip()
+    return value.replace("\\", "/")
+
 def _parse_task_file_attrs(rest: str) -> Dict[str, str]:
     attrs: Dict[str, str] = {}
     text = (rest or "").strip()
@@ -453,58 +462,6 @@ def _iter_markdown_sections(task_text: str) -> List[Tuple[str, List[str]]]:
     return sections
 
 
-
-def _normalize_policy_path(path: str) -> str:
-    value = str(path or '').strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'`', '"', "'"}:
-        value = value[1:-1].strip()
-    while len(value) >= 2 and ((value.startswith('`') and value.endswith('`')) or (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'"))):
-        value = value[1:-1].strip()
-    return value.replace('\\', '/').strip()
-
-
-def _task_baseline_paths(
-    required: List[str],
-    harness_policies: Dict[str, Dict[str, object]],
-    protected_targets: List[Dict[str, object]],
-) -> List[str]:
-    paths: set[str] = set()
-    for path in required:
-        normalized = _normalize_policy_path(path)
-        if normalized:
-            paths.add(normalized)
-    for path in harness_policies.keys():
-        normalized = _normalize_policy_path(path)
-        if normalized:
-            paths.add(normalized)
-    for target in protected_targets:
-        normalized = _normalize_policy_path(str(target.get('path', '')))
-        if normalized:
-            paths.add(normalized)
-    return sorted(paths)
-
-
-def enforce_meta_file_task_gate(
-    requested_paths: List[str],
-    forbidden_paths: List[str] | None = None,
-) -> Tuple[bool, str]:
-    core_meta_paths = {
-        'agents/run_task.py',
-        'agents/lib/shell_router.py',
-        'agents/lib/bundle_parser.py',
-        'agents/lib/protected_file_policy.py',
-    }
-    normalized_requested = [_normalize_policy_path(p) for p in requested_paths if _normalize_policy_path(p)]
-    blocked = set(core_meta_paths)
-    if forbidden_paths:
-        blocked.update(_normalize_policy_path(p) for p in forbidden_paths if _normalize_policy_path(p))
-    hits = [p for p in normalized_requested if p in blocked]
-    if len(set(hits)) > 1:
-        return False, 'Suspicious multi-meta normal-bundle target set; split into narrower protected-method tasks.'
-    if hits:
-        return False, f'Protected meta file(s) in normal bundle lane: {hits[0]}. Use protected method mode.'
-    return True, ''
-
 def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
     """Parse machine-readable harness policies from task text."""
     try:
@@ -526,7 +483,15 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
             path = _normalize_policy_path(str(raw_path))
             if not path:
                 continue
-            normalized[path] = dict(config or {})
+            if path in normalized:
+                existing_rules = normalized[path].setdefault("rules", [])
+                new_rules = config.get("rules", []) if isinstance(config, dict) else []
+                if isinstance(existing_rules, list) and isinstance(new_rules, list):
+                    existing_rules.extend(new_rules)
+            elif isinstance(config, dict):
+                normalized[path] = dict(config)
+            else:
+                normalized[path] = {"rules": []}
         return normalized
 
     policies: Dict[str, Dict[str, object]] = {}
@@ -550,7 +515,7 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
                     path, rule = path_and_rule.split(None, 1)
                 except ValueError:
                     continue
-                normalized_path = path.strip().replace("\\", "/")
+                normalized_path = _normalize_policy_path(path)
                 normalized_rule = rule.strip()
                 if normalized_path and normalized_rule:
                     entry = policies.setdefault(normalized_path, {"rules": []})
@@ -567,7 +532,7 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
                 continue
             if "MODE=" not in line:
                 continue
-            path = m.group("path").strip().replace("\\", "/")
+            path = _normalize_policy_path(m.group("path"))
             attrs = _parse_task_file_attrs((m.group("rest") or "").strip())
             mode = attrs.get("MODE", "").strip().upper()
             if not path or not mode:
@@ -653,8 +618,8 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
             if not isinstance(target, dict):
                 continue
             fixed = dict(target)
-            fixed['path'] = _normalize_policy_path(str(fixed.get('path', '')))
-            if not fixed['path']:
+            fixed["path"] = _normalize_policy_path(str(fixed.get("path", "")))
+            if not fixed["path"]:
                 continue
             normalized_targets.append(fixed)
         return normalized_targets
@@ -679,7 +644,7 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
             if not m or "MODE=" not in line:
                 continue
 
-            path = m.group("path").strip().replace("\\", "/")
+            path = _normalize_policy_path(m.group("path"))
             attrs = _parse_task_file_attrs((m.group("rest") or "").strip())
             mode = attrs.get("MODE", "").strip().upper()
             if not path or not mode:
@@ -1261,6 +1226,222 @@ def validate_python_syntax(bundle: Dict[str, str]) -> Tuple[bool, str]:
     if issues:
         return False, "Python syntax validation failed:\n" + "\n".join(f"- {x}" for x in issues)
     return True, ""
+def _bundle_subset_to_text(bundle: Dict[str, str]) -> str:
+    lines: List[str] = [FILE_BUNDLE_BEGIN]
+    for rel, content in bundle.items():
+        lines.append(f"FILE: {rel}")
+        lines.append(content.rstrip("\n"))
+        lines.append(FILE_END)
+    lines.append(FILE_BUNDLE_END)
+    return "\n".join(lines) + "\n"
+
+
+def _contains_suspicious_python_typography(text: str) -> bool:
+    return any(ch in text for ch in ("“", "”", "‘", "’", "—", "…"))
+
+
+def _critical_public_names_for_path(rel: str) -> set[str]:
+    if rel == "agents/run_task.py":
+        return {
+            "main",
+            "build_messages",
+            "request_and_parse_bundle",
+            "run_checks",
+            "validate_python_syntax",
+            "_shell_router_exports",
+            "_failure_journal_exports",
+        }
+    return set()
+
+
+def _format_path_issue_block(title: str, issues_by_path: Dict[str, List[str]]) -> str:
+    lines: List[str] = [title]
+    for rel in sorted(issues_by_path):
+        for issue in issues_by_path[rel]:
+            lines.append(f"- `{rel}`: {issue}")
+    return "\n".join(lines)
+
+
+def _baseline_guard_issues(bundle: Dict[str, str], baseline: Dict[str, str] | None = None) -> Dict[str, List[str]]:
+    baseline = baseline or {}
+    issues: Dict[str, List[str]] = {}
+    for rel, proposed in bundle.items():
+        current = baseline.get(rel)
+        if current is None:
+            continue
+
+        critical_names = _critical_public_names_for_path(rel)
+        if critical_names:
+            current_lines = len(normalize_newlines(current).splitlines())
+            proposed_lines = len(normalize_newlines(proposed).splitlines())
+            minimum_lines = max(200, int(current_lines * 0.70)) if current_lines >= 400 else 0
+            if minimum_lines and proposed_lines < minimum_lines:
+                issues.setdefault(rel, []).append(
+                    f"suspicious miniature rewrite detected ({proposed_lines} lines vs live {current_lines}); preserve the live runner architecture"
+                )
+
+            missing = sorted(critical_names - _top_level_function_names(proposed))
+            if missing:
+                issues.setdefault(rel, []).append(
+                    "missing required live compatibility helpers: " + ", ".join(missing)
+                )
+    return issues
+
+
+def _syntax_issues_by_path(bundle: Dict[str, str]) -> Dict[str, List[str]]:
+    issues: Dict[str, List[str]] = {}
+    for rel, content in bundle.items():
+        if not rel.endswith('.py'):
+            continue
+        try:
+            ast.parse(normalize_newlines(content), filename=rel)
+        except SyntaxError as exc:
+            lineno = exc.lineno or 0
+            msg = exc.msg or 'invalid syntax'
+            issues.setdefault(rel, []).append(f"Python syntax error at line {lineno}: {msg}")
+    return issues
+
+
+def _localized_bundle_issues(bundle: Dict[str, str], baseline: Dict[str, str] | None = None) -> Dict[str, List[str]]:
+    issues = _syntax_issues_by_path(bundle)
+    for rel, content in bundle.items():
+        if rel.endswith('.py') and _contains_suspicious_python_typography(content):
+            issues.setdefault(rel, []).append('contains suspicious typographic quote/dash characters in Python source')
+    baseline_issues = _baseline_guard_issues(bundle, baseline)
+    for rel, rel_issues in baseline_issues.items():
+        issues.setdefault(rel, []).extend(rel_issues)
+    return issues
+
+
+def _top_level_block_for_context(content: str, name: str) -> str:
+    lines = normalize_newlines(content).splitlines()
+    start = None
+    pattern = re.compile(rf"^def\s+{re.escape(name)}\s*\(")
+    for idx, line in enumerate(lines):
+        if pattern.match(line):
+            start = idx
+            break
+    if start is None:
+        return ""
+    end = len(lines)
+    for idx in range(start + 1, len(lines)):
+        if re.match(r"^(def|class)\s+[A-Za-z_][A-Za-z0-9_]*", lines[idx]):
+            end = idx
+            break
+    return "\n".join(lines[start:end]).rstrip()
+
+
+def _context_snippet_for_path(rel: str, content: str, required_set: set[str]) -> str:
+    normalized = normalize_newlines(content)
+    lines = normalized.splitlines()
+
+    if rel == 'agents/run_task.py':
+        parts: List[str] = []
+        head = "\n".join(lines[:80]).rstrip()
+        if head:
+            parts.append('# header\n' + head)
+        for name in (
+            'build_messages',
+            'relevant_context',
+            'request_and_parse_bundle',
+            'validate_python_syntax',
+            '_validator_runner_exports',
+            '_shell_router_exports',
+            'main',
+        ):
+            block = _top_level_block_for_context(normalized, name)
+            if block:
+                parts.append(f'# excerpt: {name}\n' + block)
+        return "\n\n".join(parts).strip()
+
+    if rel in required_set:
+        if len(lines) <= 260:
+            return normalized.rstrip()
+        return "\n".join(lines[:140]).rstrip()
+
+    if rel.startswith('agents/'):
+        return "\n".join(lines[:90]).rstrip()
+
+    return "\n".join(lines[:60]).rstrip()
+
+
+def _attempt_localized_bundle_repair(
+    messages: List[dict],
+    bundle: Dict[str, str],
+    issues_by_path: Dict[str, List[str]],
+    model: str,
+    provider: str,
+    last_output_path: Path,
+    forbidden_paths: List[str] | None,
+    baseline: Dict[str, str] | None,
+    parse_and_validate_subset,
+) -> Dict[str, str] | None:
+    if not issues_by_path:
+        return None
+
+    repair_paths = sorted(issues_by_path)
+    repair_bundle = {rel: bundle[rel] for rel in repair_paths if rel in bundle}
+    if not repair_bundle:
+        return None
+
+    repair_lines = [
+        'Your previous response had localized blocking issues in only a subset of files.',
+        'Return ONLY a valid file bundle containing corrected FILE blocks for EXACTLY these paths and no others:',
+    ]
+    repair_lines.extend(f'- {rel}' for rel in repair_paths)
+    repair_lines.extend(
+        [
+            '',
+            'Preserve all other previously accepted files implicitly unchanged.',
+            'Do not simplify or rewrite large existing harness files into stubs.',
+            'Every FILE block must be closed by a literal END_FILE line.',
+            '',
+            'Localized issues to fix:',
+        ]
+    )
+    for rel in repair_paths:
+        for issue in issues_by_path.get(rel, []):
+            repair_lines.append(f'- {rel}: {issue}')
+    if forbidden_paths:
+        repair_lines.extend(
+            [
+                '',
+                'Protected paths still forbidden in this normal bundle response:',
+                ', '.join(forbidden_paths),
+            ]
+        )
+    repair_lines.extend(
+        [
+            '',
+            'Current candidate file subset to repair:',
+            _bundle_subset_to_text(repair_bundle).rstrip(),
+        ]
+    )
+
+    out = chat(messages + [{'role': 'user', 'content': "\n".join(repair_lines) + "\n"}], model=model, provider=provider)
+    last_output_path.write_text(out + '\n', encoding='utf-8', newline='\n')
+
+    try:
+        repaired_subset = parse_and_validate_subset(out, repair_paths)
+    except Exception as exc:
+        print(f"⚠️ Localized repair attempt failed; falling back to original bundle: {exc}")
+        return None
+
+    merged = dict(bundle)
+    merged.update(repaired_subset)
+    remaining_issues = _localized_bundle_issues(merged, baseline)
+    unresolved = {rel: remaining_issues[rel] for rel in repair_paths if rel in remaining_issues}
+    if unresolved:
+        print('⚠️ Localized repair returned unresolved issues:')
+        for rel in sorted(unresolved):
+            for issue in unresolved[rel]:
+                print(f'  - {rel}: {issue}')
+        return None
+
+    print('⚠️ Localized repair succeeded for: ' + ', '.join(repair_paths))
+    return merged
+
+
 def _append_task_feedback(task_text: str, message: str) -> str:
     return task_text.rstrip() + "\n\nIMPORTANT: " + message + "\n"
 
@@ -1305,6 +1486,29 @@ def restore_file_snapshot(snapshot: Dict[str, str | None]) -> None:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(previous, encoding="utf-8", newline="\n")
+
+
+def _task_baseline_paths(
+    required: List[str],
+    harness_policies: Dict[str, Dict[str, object]],
+    protected_targets: List[Dict[str, object]],
+) -> List[str]:
+    policy_paths = {
+        _normalize_policy_path(str(path))
+        for path in harness_policies.keys()
+        if _normalize_policy_path(str(path))
+    }
+    protected_paths = {
+        _normalize_policy_path(str(target.get("path", "")))
+        for target in protected_targets
+        if _normalize_policy_path(str(target.get("path", "")))
+    }
+    required_paths = {
+        _normalize_policy_path(str(path))
+        for path in required
+        if _normalize_policy_path(str(path))
+    }
+    return sorted(required_paths | policy_paths | protected_paths)
 
 
 def parse_required_runner_methods(task_text: str) -> List[str]:
@@ -1878,12 +2082,9 @@ def repo_map() -> str:
 def relevant_context(required: List[str]) -> str:
     seen: set[str] = set()
     lines: List[str] = []
+    required_set = set(required)
 
-    # Only include agents dir and specific required files — skip bulk src/tests injection
-    # to keep prompt size manageable as codebase grows
-    candidates = [
-        Path("agents"),
-    ]
+    candidates = [Path("agents")]
 
     for rf in required:
         p = Path(rf)
@@ -1904,7 +2105,7 @@ def relevant_context(required: List[str]) -> str:
             content = p.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        snippet = "\n".join(content.splitlines()[:60])
+        snippet = _context_snippet_for_path(rel, content, required_set)
         lines.append(f"### {rel}\n{snippet}\n")
     return "\n".join(lines).strip()
 
@@ -2493,6 +2694,22 @@ def build_messages(
         extra.append("")
         extra.append("## Iteration-specific directives")
         extra.append(extra_directives.strip())
+    lower_task_text = task_text.lower()
+    if "_failure_journal_exports" in task_text or "failure-journal" in lower_task_text:
+        extra.append("")
+        extra.append("## Live failure-journal seam contract")
+        extra.append("Use the current helper name `_failure_journal_exports` exactly when needed.")
+        extra.append("Do not invent alias names such as `failure_journal_export`.")
+        extra.append("Do not assert or require non-live failure-journal export keys.")
+        extra.append("The currently live failure-journal export keys are:")
+        extra.append("- failure_journal")
+        extra.append("- classify_failure")
+        extra.append("- failure_fingerprint")
+        extra.append("- bounded_failure_snippet")
+        extra.append("- recommended_next_action")
+        extra.append("- chosen_remediation_path")
+        extra.append("- append_failure_journal_entry")
+        extra.append("- retry_count_for_fingerprint")
 
     user_task = task_text.rstrip() + "\n\n" + "\n".join(extra).rstrip() + "\n"
     return [
@@ -2667,83 +2884,165 @@ def _parse_file_bundle_transport_resilient(
 
     return files, warnings
 
-
-
-def _write_bundle_failure_artifact(artifact_path: Path, raw_text: str, error_text: str) -> None:
-    payload = [
-        'BEGIN_BUNDLE_FAILURE_ARTIFACT',
-        f'ERROR: {error_text}',
-        'RAW_MODEL_OUTPUT_BEGIN',
-        raw_text.rstrip('\n'),
-        'RAW_MODEL_OUTPUT_END',
-        'END_BUNDLE_FAILURE_ARTIFACT',
-        '',
-    ]
-    artifact_path.write_text('\n'.join(payload), encoding='utf-8', newline='\n')
-
-
-def _validate_generated_test_bundle(task_text: str, expected_paths: List[str] | None, parsed: Dict[str, str]) -> None:
-    if not expected_paths:
-        return
-    expected_set = {p for p in expected_paths if p}
-    test_targets = [p for p in expected_set if p.startswith('tests/')]
-    if not test_targets:
-        return
-    task_lower = str(task_text or '').lower()
-    integration_context = 'integrated' in task_lower or 'integration' in task_lower or 'frozen' in task_lower
-    for path, content in parsed.items():
-        if path not in expected_set or not path.startswith('tests/'):
-            continue
-        if integration_context:
-            banned_patterns = [
-                ('run_task.main(', 'appears to invoke the runner entrypoint directly from generated tests'),
-                ('py -m agents.run_task', 'appears to invoke the runner module recursively from generated tests'),
-                ('pytest -q', 'appears to invoke repo-wide validators recursively from generated tests'),
-                ('ruff check .', 'appears to invoke repo-wide validators recursively from generated tests'),
-                ('failure_journal_export', 'references invented seam alias `failure_journal_export` not present in live exports'),
-                ('validator_runner_exports', 'references invented seam alias `validator_runner_exports` not present in live exports'),
-                ('_validator_runner_exports', 'references invented seam alias `_validator_runner_exports` not present in live exports'),
-            ]
-            for pattern, message in banned_patterns:
-                if pattern in content:
-                    raise FileBundleError(f'Blocking bundle preflight issues detected:\n- `{path}`: {message}')
-
 def request_and_parse_bundle(
-    messages: List[dict],
-    model: str,
-    provider: str,
-    last_output_path: Path,
-    forbidden_paths: List[str] | None = None,
-    expected_paths: List[str] | None = None,
-    baseline: Dict[str, str] | None = None,
-    task_text: str = "",
-    bundle_failure_path: Path | None = None,
-) -> Dict[str, str]:
-    def _validate_transport(parsed: Dict[str, str]) -> Dict[str, str]:
-        overlap_issue = _protected_overlap_issue(forbidden_paths or [], parsed)
-        if overlap_issue:
-            raise FileBundleError(overlap_issue)
-        _validate_generated_test_bundle(task_text, expected_paths, parsed)
-        return parsed
+        messages: List[dict],
+        model: str,
+        provider: str,
+        last_output_path: Path,
+        forbidden_paths: List[str] | None = None,
+        expected_paths: List[str] | None = None,
+        baseline: Dict[str, str] | None = None,
+    ) -> Dict[str, str]:
+        last_output_path = Path(last_output_path)
+        allowed_paths = [
+            p.strip().replace("\\", "/")
+            for p in (expected_paths or [])
+            if isinstance(p, str) and p.strip()
+        ]
+        baseline = dict(baseline or {})
 
-    def _parse_validate_or_salvage(raw: str) -> Dict[str, str]:
-        try:
-            return _validate_transport(parse_file_bundle(raw))
-        except Exception:
-            salvaged, warnings = _parse_file_bundle_transport_resilient(raw, expected_paths=expected_paths)
-            validated = _validate_transport(salvaged)
-            if warnings:
-                print("⚠️ Recovered malformed file bundle transport:")
-                for warning in warnings:
-                    print(f"  - {warning}")
-            return validated
+        gate_ok, gate_message = enforce_meta_file_task_gate(allowed_paths, forbidden_paths)
+        if not gate_ok:
+            raise FileBundleError(gate_message)
 
-    out = chat(messages, model=model, provider=provider)
-    last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
+        live_seams: set[str] = {"chat", "run_checks", "validate_python_syntax", "request_and_parse_bundle"}
+        shell_exports = _shell_router_exports()
+        failure_exports = _failure_journal_exports()
+        for key in shell_exports:
+            live_seams.add(str(key))
+        for key in failure_exports:
+            live_seams.add(str(key))
+        live_seams.update(
+            {
+                "_shell_router_exports",
+                "_failure_journal_exports",
+                "_report_failure",
+                "route_shell_main",
+                "shell_seam_exports",
+                "build_shell_seam_registry",
+                "classify_failure",
+                "failure_fingerprint",
+                "bounded_failure_snippet",
+                "recommended_next_action",
+                "chosen_remediation_path",
+                "append_failure_journal_entry",
+                "retry_count_for_fingerprint",
+            }
+        )
 
-    try:
-        return _parse_validate_or_salvage(out)
-    except Exception as e:
+        def _allowed_paths(paths: List[str] | None) -> set[str]:
+            return {p.strip().replace("\\", "/") for p in (paths or []) if isinstance(p, str) and p.strip()}
+
+        def _preflight_issues_by_path(parsed: Dict[str, str], allowed_paths_subset: List[str] | None = None) -> Dict[str, List[str]]:
+            issues: Dict[str, List[str]] = {}
+
+            allowed = _allowed_paths(allowed_paths_subset)
+            if allowed:
+                unexpected = sorted(set(parsed) - allowed)
+                for rel in unexpected:
+                    issues.setdefault(rel, []).append("outside task deliverable scope (unexpected FILE block)")
+
+            overlap = sorted(set(parsed) & set(forbidden_paths or []))
+            for rel in overlap:
+                issues.setdefault(rel, []).append("protected path illegally included in normal bundle")
+
+            for rel, content in parsed.items():
+                norm = normalize_newlines(content)
+                if rel.endswith(".py"):
+                    if _contains_suspicious_python_typography(norm):
+                        issues.setdefault(rel, []).append("contains suspicious typographic quote/dash characters")
+                    corruption_tokens = [
+                        "\x00",
+                        "<<<<<<<",
+                        "=======",
+                        ">>>>>>>",
+                        "BEGIN_FILE_BUNDLE",
+                        "END_FILE_BUNDLE",
+                    ]
+                    if any(tok in norm for tok in corruption_tokens):
+                        issues.setdefault(rel, []).append("contains obvious text corruption indicators or leaked bundle markers")
+
+                if rel.startswith("tests/") and rel.endswith(".py"):
+                    lowered = norm.lower()
+                    recursive_markers = [
+                        "pytest -q",
+                        "ruff check .",
+                        "subprocess.run([sys.executable, '-m', 'pytest', '-q']",
+                        'subprocess.run([sys.executable, "-m", "pytest", "-q"]',
+                        "subprocess.run(['ruff', 'check', '.']",
+                        'subprocess.run(["ruff", "check", "."]',
+                        "os.system('pytest -q')",
+                        'os.system("pytest -q")',
+                    ]
+                    if any(marker in lowered for marker in recursive_markers):
+                        issues.setdefault(rel, []).append("appears to invoke repo-wide validators recursively from generated tests")
+
+                    seam_refs = re.findall(r"(?:monkeypatch\.setattr|patch)\(([^,\)]+)", norm)
+                    for raw in seam_refs:
+                        token = raw.strip().strip("'").strip('"')
+                        if "agents.run_task." in token:
+                            seam_name = token.split("agents.run_task.", 1)[1].split(".", 1)[0]
+                            if seam_name and seam_name not in live_seams:
+                                issues.setdefault(rel, []).append(
+                                    f"references nonexistent seam/monkeypatch target `{seam_name}` (live contract mismatch)"
+                                )
+
+                    for bad in ("_validator_runner_exports", "validator_runner_exports", "shell_router_export", "failure_journal_export"):
+                        if bad in norm and bad not in live_seams:
+                            issues.setdefault(rel, []).append(
+                                f"references invented seam alias `{bad}` not present in live exports"
+                            )
+
+            baseline_issues = _baseline_guard_issues(parsed, baseline)
+            for rel, rel_issues in baseline_issues.items():
+                issues.setdefault(rel, []).extend(rel_issues)
+
+            syntax_issues = _syntax_issues_by_path(parsed)
+            for rel, rel_issues in syntax_issues.items():
+                issues.setdefault(rel, []).extend(rel_issues)
+
+            return issues
+
+        def _validate_transport(
+            parsed: Dict[str, str],
+            allowed_paths_subset: List[str] | None = None,
+            *,
+            require_all: bool = False,
+        ) -> Dict[str, str]:
+            issues = _preflight_issues_by_path(parsed, allowed_paths_subset)
+
+            if require_all:
+                allowed = _allowed_paths(allowed_paths_subset)
+                if allowed:
+                    missing = sorted(allowed - set(parsed))
+                    if missing:
+                        issues.setdefault("__bundle__", []).append(
+                            "missing FILE blocks from requested scope: " + ", ".join(missing)
+                        )
+
+            if issues:
+                raise FileBundleError(_format_path_issue_block("Blocking bundle preflight issues detected:", issues))
+
+            return parsed
+
+        def _parse_validate_or_salvage(
+            raw: str,
+            allowed_paths_subset: List[str] | None = None,
+            *,
+            require_all: bool = False,
+        ) -> Dict[str, str]:
+            try:
+                return _validate_transport(parse_file_bundle(raw), allowed_paths_subset, require_all=require_all)
+            except Exception:
+                salvage_scope = allowed_paths_subset or allowed_paths
+                salvaged, warnings = _parse_file_bundle_transport_resilient(raw, expected_paths=salvage_scope)
+                validated = _validate_transport(salvaged, allowed_paths_subset, require_all=require_all)
+                if warnings:
+                    print("⚠️ Recovered malformed file bundle transport:")
+                    for warning in warnings:
+                        print(f"  - {warning}")
+                return validated
+
         forbidden_hint = ""
         if forbidden_paths:
             forbidden_hint = (
@@ -2751,37 +3050,134 @@ def request_and_parse_bundle(
                 + ", ".join(forbidden_paths)
                 + ". Do NOT emit FILE blocks for those paths here.\n"
             )
-        reminder = (
-            "Your previous response was INVALID.\n"
-            "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
-            "Do NOT use commented headers like '# FILE:'.\n"
-            "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n"
-            "There must be an END_FILE before any later FILE header.\n"
-            "Do not open a new FILE block until the previous FILE block is closed.\n"
-            "If generated source or tests need literal bundle markers, do not place raw BEGIN_FILE_BUNDLE, FILE:, END_FILE, or END_FILE_BUNDLE at the start of a source line.\n"
-            "Instead use split string tokens such as 'FI' + 'LE:' and 'END_' + 'FILE'.\n"
-            + forbidden_hint
-            + "\nRequired structure:\n"
-            "BEGIN_FILE_BUNDLE\n"
-            "FILE: path/to/file.ext\n"
-            "<full file contents>\n"
-            "END_FILE\n"
-            "FILE: another/path.py\n"
-            "<full file contents>\n"
-            "END_FILE\n"
-            "END_FILE_BUNDLE\n\n"
-            f"Parser/policy error: {e}"
-        )
-        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
-        last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+
+        out = chat(messages, model=model, provider=provider)
+        last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
+
+        initial_error = ""
+        parsed: Dict[str, str]
         try:
-            return _parse_validate_or_salvage(out2)
-        except Exception as e2:
-            if bundle_failure_path is not None:
-                _write_bundle_failure_artifact(bundle_failure_path, out2, str(e2))
-            raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
+            parsed = _parse_validate_or_salvage(out, allowed_paths, require_all=False)
+        except Exception as e:
+            initial_error = str(e)
+            reminder = (
+                "Your previous response was INVALID.\n"
+                "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
+                "Do NOT use commented headers like '# FILE:'.\n"
+                "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n"
+                "There must be an END_FILE before any later FILE header.\n"
+                "Do not open a new FILE block until the previous FILE block is closed.\n"
+                "If generated source or tests need literal bundle markers, do not place raw BEGIN_FILE_BUNDLE, FILE:, END_FILE, or END_FILE_BUNDLE at the start of a source line.\n"
+                "Instead use split string tokens such as 'FI' + 'LE:' and 'END_' + 'FILE'.\n"
+                "Do not rewrite protected meta harness files such as agents/run_task.py as miniature replacements.\n"
+                "Do not reference nonexistent seam aliases; use live seams exported by _shell_router_exports() and _failure_journal_exports().\n"
+                "Do not add generated tests that invoke repo-wide `pytest -q` or `ruff check .` recursively.\n"
+                + forbidden_hint
+                + "\nRequired structure:\n"
+                "BEGIN_FILE_BUNDLE\n"
+                "FILE: path/to/file.ext\n"
+                "<full file contents>\n"
+                "END_FILE\n"
+                "FILE: another/path.py\n"
+                "<full file contents>\n"
+                "END_FILE\n"
+                "END_FILE_BUNDLE\n\n"
+                f"Parser/policy error: {e}"
+            )
+            out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+            last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+            try:
+                parsed = _parse_validate_or_salvage(out2, allowed_paths, require_all=False)
+            except Exception as e2:
+                raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
 
+        issues = _preflight_issues_by_path(parsed, allowed_paths)
+        if issues:
+            bundle_only = [x for x in issues.get("__bundle__", []) if x]
+            path_keys = [p for p in sorted(issues.keys()) if p != "__bundle__"]
 
+            if bundle_only and not path_keys:
+                raise FileBundleError(_format_path_issue_block("Blocking bundle preflight issues detected:", issues))
+
+            if path_keys:
+                accepted_paths = [p for p in allowed_paths if p in parsed and p not in path_keys]
+                accepted: Dict[str, str] = {p: parsed[p] for p in accepted_paths}
+                repair_paths = [p for p in allowed_paths if p in path_keys]
+
+                if not repair_paths:
+                    raise FileBundleError(_format_path_issue_block("Blocking bundle preflight issues detected:", issues))
+
+                repair_lines = [
+                    "Your previous response had localized blocking issues in a subset of files.",
+                    "Return ONLY a valid file bundle containing corrected FILE blocks for EXACTLY these paths and no others:",
+                ]
+                repair_lines.extend(f"- {rel}" for rel in repair_paths)
+                repair_lines.extend(["", "Localized issues to fix:"])
+                for rel in repair_paths:
+                    for issue in issues.get(rel, []):
+                        repair_lines.append(f"- {rel}: {issue}")
+                if bundle_only:
+                    repair_lines.extend(["", "Bundle-level requirements still apply:"])
+                    for msg in bundle_only:
+                        repair_lines.append(f"- {msg}")
+
+                out_fix = chat(messages + [{"role": "user", "content": "\n".join(repair_lines) + "\n"}], model=model, provider=provider)
+                last_output_path.write_text(out_fix + "\n", encoding="utf-8", newline="\n")
+                try:
+                    fixed_subset = _parse_validate_or_salvage(out_fix, repair_paths, require_all=False)
+                except Exception as exc:
+                    if initial_error:
+                        raise FileBundleError(
+                            f"Model returned malformed or policy-violating file bundle after retry: {exc}; initial error: {initial_error}"
+                        ) from exc
+                    raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {exc}") from exc
+
+                merged = dict(accepted)
+                merged.update(fixed_subset)
+                final_issues = _preflight_issues_by_path(merged, allowed_paths)
+                if final_issues:
+                    raise FileBundleError(_format_path_issue_block("Blocking bundle preflight issues detected:", final_issues))
+                parsed = merged
+
+        final_issues = _preflight_issues_by_path(parsed, allowed_paths)
+        if final_issues:
+            raise FileBundleError(_format_path_issue_block("Blocking bundle preflight issues detected:", final_issues))
+        return parsed
+def enforce_meta_file_task_gate(expected_paths: List[str] | None = None, forbidden_paths: List[str] | None = None) -> Tuple[bool, str]:
+    meta_harness_paths = {
+        "agents/run_task.py",
+        "agents/lib/shell_router.py",
+        "agents/lib/bundle_parser.py",
+        "agents/lib/protected_file_policy.py",
+    }
+
+    expected = sorted(
+        {
+            p.strip().replace("\\", "/")
+            for p in (expected_paths or [])
+            if isinstance(p, str) and p.strip()
+        }
+    )
+    forbidden = {
+        p.strip().replace("\\", "/")
+        for p in (forbidden_paths or [])
+        if isinstance(p, str) and p.strip()
+    }
+
+    meta_targets = sorted(path for path in expected if path in meta_harness_paths)
+    if not meta_targets:
+        return True, ""
+
+    unguarded_meta = [path for path in meta_targets if path not in forbidden]
+    if unguarded_meta:
+        listed = ", ".join(unguarded_meta)
+        return False, f"Protected meta file(s) in normal bundle lane: {listed}. Use protected method mode."
+
+    if len(meta_targets) > 1:
+        listed = ", ".join(meta_targets)
+        return False, f"Suspicious multi-meta normal-bundle target set: {listed}. Split the task."
+
+    return True, ""
 def _local_branch_exists(branch: str) -> bool:
     try:
         out = capture(["git", "branch", "--list", branch]).strip()
@@ -3219,9 +3615,15 @@ def main() -> int:
                 method_name = str(target["method_name"])
                 original_baseline_content = baseline.get(target_path)
                 if original_baseline_content is None:
-                    raise FileBundleError(
-                        f"Protected method target `{target_path}` has no baseline content."
-                    )
+                    disk_target = (Path(".").resolve() / target_path).resolve()
+                    repo_root = Path(".").resolve()
+                    if str(disk_target).startswith(str(repo_root)) and disk_target.exists() and disk_target.is_file():
+                        original_baseline_content = disk_target.read_text(encoding="utf-8", errors="replace")
+                        baseline[target_path] = original_baseline_content
+                    else:
+                        raise FileBundleError(
+                            f"Protected method target `{target_path}` has no baseline content."
+                        )
                 working_content = files.get(target_path, original_baseline_content)
                 anchor = str(target.get("anchor", "")) if mode == "append" else ""
                 insertion_messages = build_method_insertion_messages(
@@ -3281,9 +3683,6 @@ def main() -> int:
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=bundle_required,
-                    baseline=baseline,
-                    task_text=task_text,
-                    bundle_failure_path=last_bundle_path,
                 )
                 files.update(generated)
             elif not files:
@@ -3302,9 +3701,6 @@ def main() -> int:
                     last_output_path,
                     forbidden_paths=sorted(protected_method_paths),
                     expected_paths=required,
-                    baseline=baseline,
-                    task_text=task_text,
-                    bundle_failure_path=last_bundle_path,
                 )
         except FileBundleError as e:
             _report_failure("bundle_transport", str(e))
@@ -3674,6 +4070,7 @@ def _shell_router_exports() -> Dict[str, object]:
             exports["route_shell_main"] = route_shell_main
 
     return exports
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
