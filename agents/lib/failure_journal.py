@@ -16,8 +16,18 @@ def classify_failure(kind: str, message: str) -> str:
     text = f"{kind}\n{message}".lower()
     if "modulenotfounderror" in text or "imports" in text:
         return "imports"
-    if "syntaxerror" in text or "python syntax" in text:
+    if "syntaxerror" in text or "python syntax" in text or "invalid syntax" in text or "unterminated string literal" in text:
         return "python_syntax"
+    if any(token in text for token in ("failure_journal_export", "shell_router_export", "validator_runner_exports", "_validator_runner_exports", "seam manifest", "semantic contract")):
+        return "seam_contract_mismatch"
+    if any(token in text for token in ("protected meta", "normal bundle lane", "protected-file method mode", "meta harness")):
+        return "harness_meta_regression"
+    if any(token in text for token in ("required file", "unexpected file", "deliverable", "task shape", "material update", "split recommendation")):
+        return "task_shape_mismatch"
+    if "github actions" in text or "required status check" in text or "workflow" in text or re.search(r"\bci\b", text):
+        return "ci_only_failure"
+    if any(token in text for token in ("semantic", "unknown export key", "non-live failure-journal", "file-local semantic")):
+        return "file_local_semantic_failure"
     if "ruff" in text or "lint" in text:
         return "lint"
     if "bundle" in text or "end_file" in text or "begin_file_bundle" in text:
@@ -32,7 +42,7 @@ def classify_failure(kind: str, message: str) -> str:
 def _normalize_failure_message(message: str) -> str:
     value = str(message or "")
     value = re.sub(r"'[^']*'", "'<value>'", value)
-    value = re.sub(r'"[^"]*"', '"<value>"', value)
+    value = re.sub(r'"[^"]*"', "\"<value>\"", value)
     value = re.sub(r"\b\d+\b", "<num>", value)
     value = re.sub(r"\s+", " ", value).strip().lower()
     return value
@@ -54,35 +64,36 @@ def bounded_failure_snippet(message: str, max_chars: int = DEFAULT_RAW_SNIPPET_L
     return f"{head}{suffix}"
 
 
-def recommended_next_action(
-    *,
-    kind: str,
-    message: str,
-    category: str,
-    retry_count: int,
-    fingerprint: str,
-    raw_failure_snippet: str,
-) -> str:
+def build_failure_remediation_plan(*, kind: str, message: str, category: str, retry_count: int, fingerprint: str, raw_failure_snippet: str) -> Dict[str, Any]:
+    plans: Dict[str, Dict[str, Any]] = {
+        "python_syntax": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="targeted_syntax_repair", autonomy_confidence=0.95, continue_autonomously=True, manual_lane_recommended=False),
+        "file_local_semantic_failure": dict(recommended_next_action="localized_repair", chosen_remediation_path="file_local_semantic_repair", autonomy_confidence=0.82, continue_autonomously=True, manual_lane_recommended=False),
+        "task_shape_mismatch": dict(recommended_next_action="patch_task_contract", chosen_remediation_path="task_shape_patch", autonomy_confidence=0.38, continue_autonomously=False, manual_lane_recommended=False),
+        "seam_contract_mismatch": dict(recommended_next_action="patch_runner_or_task_contract", chosen_remediation_path="semantic_contract_repair", autonomy_confidence=0.30, continue_autonomously=False, manual_lane_recommended=False),
+        "harness_meta_regression": dict(recommended_next_action="manual_patch", chosen_remediation_path="manual_patch_lane", autonomy_confidence=0.10, continue_autonomously=False, manual_lane_recommended=True),
+        "ci_only_failure": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="ci_only_repair", autonomy_confidence=0.55, continue_autonomously=False, manual_lane_recommended=False),
+    }
+    plan = dict(plans.get(category, dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="targeted_retry", autonomy_confidence=0.50, continue_autonomously=False, manual_lane_recommended=False)))
     if retry_count >= 3:
-        return "manual_patch"
-    if category in {"bundle_transport", "policy_violation", "imports", "tests", "lint", "python_syntax"}:
-        return "retry_with_targeted_fix"
-    return "retry_with_targeted_fix"
+        plan.update(dict(recommended_next_action="manual_patch", chosen_remediation_path="manual_patch_lane", autonomy_confidence=0.0, continue_autonomously=False, manual_lane_recommended=True))
+    plan.update(dict(failure_category=category, retry_count=retry_count, failure_fingerprint=fingerprint, raw_failure_snippet=raw_failure_snippet))
+    return plan
 
 
-def chosen_remediation_path(
-    *,
-    kind: str,
-    message: str,
-    category: str,
-    retry_count: int,
-    fingerprint: str,
-    raw_failure_snippet: str,
-    recommended_next_action: str,
-) -> str:
-    if retry_count >= 3:
-        return "manual_patch"
-    return recommended_next_action or "retry_with_targeted_fix"
+def recommended_next_action(*, kind: str, message: str, category: str, retry_count: int, fingerprint: str, raw_failure_snippet: str) -> str:
+    return str(build_failure_remediation_plan(kind=kind, message=message, category=category, retry_count=retry_count, fingerprint=fingerprint, raw_failure_snippet=raw_failure_snippet)["recommended_next_action"])
+
+
+def chosen_remediation_path(*, kind: str, message: str, category: str, retry_count: int, fingerprint: str, raw_failure_snippet: str, recommended_next_action: str) -> str:
+    return str(build_failure_remediation_plan(kind=kind, message=message, category=category, retry_count=retry_count, fingerprint=fingerprint, raw_failure_snippet=raw_failure_snippet)["chosen_remediation_path"])
+
+
+def autonomy_confidence(*, kind: str, message: str, category: str, retry_count: int, fingerprint: str, raw_failure_snippet: str) -> float:
+    return float(build_failure_remediation_plan(kind=kind, message=message, category=category, retry_count=retry_count, fingerprint=fingerprint, raw_failure_snippet=raw_failure_snippet)["autonomy_confidence"])
+
+
+def continue_autonomously(*, kind: str, message: str, category: str, retry_count: int, fingerprint: str, raw_failure_snippet: str) -> bool:
+    return bool(build_failure_remediation_plan(kind=kind, message=message, category=category, retry_count=retry_count, fingerprint=fingerprint, raw_failure_snippet=raw_failure_snippet)["continue_autonomously"])
 
 
 def retry_count_for_fingerprint(fingerprint: str) -> int:

@@ -73,6 +73,6 @@ into unrelated internal modules or guessing private names.
   prose examples; render them inline or split the token if needed.
 
 
-## Seam manifest semantic validation
+## Failure classification and remediation planning
 
-Seam-heavy task bundles should be validated with identifier-aware seam manifests rather than brittle substring-only checks. `_failure_journal_exports()` is a live helper and must not be treated as equivalent to invented aliases such as `failure_journal_export`.
+The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
