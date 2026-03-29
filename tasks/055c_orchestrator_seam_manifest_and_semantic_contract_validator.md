@@ -4,10 +4,6 @@
 
 Replace brittle seam heuristics with explicit manifests and semantic validation for seam-heavy tasks.
 
-## Execution lane
-
-This task is **manual patch lane only**. Do not run it through the normal autonomous bundle lane.
-
 ## Deliverables
 
 Create or update these exact files. Every listed file must appear in the bundle:
@@ -37,3 +33,7 @@ Introduce a seam-manifest / semantic-validation layer that can, at minimum:
 - `ruff check .` passes
 - `pytest -q tests/test_run_task_runtime_foundations.py` passes
 - at least one seam-heavy test scenario is validated semantically rather than with only naive substring checks
+
+## Implementation note
+
+Keep this task additive. Use identifier-aware seam checks and preserve the current public/helper surface of `agents/run_task.py`.

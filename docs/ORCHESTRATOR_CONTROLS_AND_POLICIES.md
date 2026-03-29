@@ -73,13 +73,6 @@ into unrelated internal modules or guessing private names.
   prose examples; render them inline or split the token if needed.
 
 
-## Manual patch lane bootstrap tasks
+## Seam manifest semantic validation
 
-The first harness bootstrap tasks in the reliability / recovery / autonomy tranche should not be run through the normal autonomous bundle lane.
-
-Use the manual patch lane for:
-
-- `055a_orchestrator_harness_contract_freeze`
-- `055c_orchestrator_seam_manifest_and_semantic_contract_validator`
-
-Resume the autonomous lane with `055b_orchestrator_task_family_classifier_prompt_compiler_and_split_strategy` after 055a is merged.
+Seam-heavy task bundles should be validated with identifier-aware seam manifests rather than brittle substring-only checks. `_failure_journal_exports()` is a live helper and must not be treated as equivalent to invented aliases such as `failure_journal_export`.

@@ -59,45 +59,80 @@ def test_git_helpers_behavior(monkeypatch) -> None:
     )
 
 
-def test_task_family_classifier_detects_integration_and_split() -> None:
+def test_check_runner_summary(monkeypatch) -> None:
+    run_task, check_runner, _, _, _ = _load_runtime_modules()
+
+    def fake_capture_result(cmd):
+        if cmd == ["ruff", "check", "."]:
+            return SimpleNamespace(returncode=0, stdout="lint out\n", stderr="")
+        if cmd == ["pytest", "-q"]:
+            return SimpleNamespace(returncode=1, stdout="test out\n", stderr="test err\n")
+        raise AssertionError(cmd)
+
+    monkeypatch.setattr(check_runner, "capture_result", fake_capture_result)
+
+    ok, text = run_task.run_checks()
+
+    assert ok is False
+    assert "=== pytest -q ===" in text
+    assert "test out" in text
+
+
+def test_public_surface_still_available() -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    assert callable(run_task.default_provider)
+    assert callable(run_task.default_model_for_provider)
+    assert callable(run_task.chat_openai)
+    assert callable(run_task.chat_anthropic)
+    assert callable(run_task.chat)
+    assert callable(run_task.run)
+    assert callable(run_task.capture)
+    assert callable(run_task.capture_result)
+    assert callable(run_task.ensure_clean_worktree)
+    assert callable(run_task.ensure_branch)
+    assert callable(run_task.run_checks)
+
+
+def test_seam_manifest_identifier_aware_alias_checks() -> None:
     _, _, _, _, task_contracts = _load_runtime_modules()
+    ok_bundle = {
+        "tests/test_example.py": "exports = run_task._failure_journal_exports()\nassert \"failure_journal\" in exports\n"
+    }
+    bad_bundle = {
+        "tests/test_example.py": "exports = failure_journal_export()\nassert \"failure_journal\" in exports\n"
+    }
 
-    out = task_contracts.classify_task_family(
-        task_text="Add integration coverage for protected-file method mode.",
-        required_paths=["tests/test_integration_runner.py", "agents/lib/shell_router.py"],
-    )
-
-    assert out["integration_test"] is True
-    assert out["protected_meta_harness"] is True
-    assert out["split_recommended"] is True
-
-
-def test_task_family_classifier_detects_docs_only_lane() -> None:
-    _, _, _, _, task_contracts = _load_runtime_modules()
-
-    out = task_contracts.classify_task_family(
-        task_text="Refresh orchestrator docs.",
-        required_paths=["docs/ORCHESTRATOR_VISION_AND_CONTROLS.md"],
-    )
-
-    assert out["docs_only"] is True
-    assert out["integration_test"] is False
+    assert task_contracts.validate_seam_manifest_for_bundle(bundle=ok_bundle, task_text="Validate seam-heavy task semantically") == {}
+    issues = task_contracts.validate_seam_manifest_for_bundle(bundle=bad_bundle, task_text="Validate seam-heavy task semantically")
+    assert "tests/test_example.py" in issues
+    assert any("invented seam alias `failure_journal_export`" in msg for msg in issues["tests/test_example.py"])
 
 
-def test_lane_prompt_compiler_shapes_per_lane() -> None:
-    _, _, _, _, task_contracts = _load_runtime_modules()
+def test_request_and_parse_bundle_rejects_non_live_failure_journal_keys(tmp_path, monkeypatch) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    bundle_text = """BEGIN_FILE_BUNDLE
+FILE: tests/test_example.py
+exports = run_task._failure_journal_exports()
+assert "write_failure_journal" in exports
+END_FILE
+END_FILE_BUNDLE
+"""
 
-    docs_shape = task_contracts.compile_lane_prompt_shape(
-        lane="docs-only",
-        task_text="Update docs",
-        required_paths=["docs/x.md"],
-    )
-    integ_shape = task_contracts.compile_lane_prompt_shape(
-        lane="integration-test",
-        task_text="Add integration coverage",
-        required_paths=["tests/test_integration_runner.py"],
-    )
+    monkeypatch.setattr(run_task, "chat", lambda messages, model, provider=None: bundle_text)
 
-    assert "docs-only" in docs_shape.lower()
-    assert "integration-test" in integ_shape.lower()
-    assert docs_shape != integ_shape
+    try:
+        run_task.request_and_parse_bundle(
+            [],
+            model="m",
+            provider="openai",
+            last_output_path=tmp_path / "out.txt",
+            expected_paths=["tests/test_example.py"],
+            task_text="Validate seam-heavy task semantically",
+            bundle_failure_path=tmp_path / "bundle.txt",
+        )
+    except Exception as exc:
+        msg = str(exc)
+    else:
+        raise AssertionError("expected request_and_parse_bundle to reject non-live failure journal keys")
+
+    assert "write_failure_journal" in msg

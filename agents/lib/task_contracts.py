@@ -1,6 +1,8 @@
+
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Pattern, Tuple
+import re
+from typing import Callable, Dict, List, Pattern, Tuple
 
 
 def parse_task_contract_directives(
@@ -24,110 +26,80 @@ def parse_task_contract_directives(
     return directives
 
 
-def _norm_path(path: str) -> str:
-    return str(path or "").strip().replace("\\", "/").lower()
-
-
-def classify_task_family(*, task_text: str, required_paths: List[str]) -> Dict[str, Any]:
-    text = str(task_text or "")
-    lower_text = text.lower()
-    norm_paths = [_norm_path(p) for p in required_paths or []]
-
-    docs_only = bool(norm_paths) and all(
-        p.startswith("docs/") or p.endswith(".md") or p.endswith(".rst") or p.endswith(".txt")
-        for p in norm_paths
-    )
-
-    tests_paths = [p for p in norm_paths if p.startswith("tests/")]
-    non_test_paths = [p for p in norm_paths if not p.startswith("tests/")]
-    narrow_tests_only = bool(tests_paths) and not non_test_paths
-
-    integration_hint_in_text = ("integration" in lower_text) and (
-        "test" in lower_text or "coverage" in lower_text or "e2e" in lower_text
-    )
-    integration_hint_in_paths = any(
-        "integration" in p or "e2e" in p or p.endswith("_integration.py") or p.endswith("integration.py")
-        for p in norm_paths
-    ) or any("integration" in p or "e2e" in p for p in tests_paths)
-    integration_test = bool(integration_hint_in_text or integration_hint_in_paths)
-
-    protected_meta_set = {
-        "agents/run_task.py",
-        "agents/lib/shell_router.py",
-        "agents/lib/bundle_parser.py",
-        "agents/lib/protected_file_policy.py",
-    }
-    protected_meta_harness = any(p in protected_meta_set for p in norm_paths) or "harness policy" in lower_text
-
-    risky_seams = set()
-    if docs_only:
-        risky_seams.add("docs")
-    if narrow_tests_only:
-        risky_seams.add("tests")
-    if integration_test:
-        risky_seams.add("integration")
-    if protected_meta_harness:
-        risky_seams.add("meta_harness")
-    if non_test_paths and tests_paths:
-        risky_seams.add("mixed_impl_and_tests")
-
-    split_recommended = ("meta_harness" in risky_seams and "integration" in risky_seams) or len(risky_seams) >= 3
-    split_reason = ""
-    if split_recommended:
-        split_reason = "task mixes multiple risky seam families"
-
+def build_seam_manifest() -> Dict[str, object]:
     return {
-        "docs_only": docs_only,
-        "narrow_tests_only": narrow_tests_only,
-        "integration_test": integration_test,
-        "protected_meta_harness": protected_meta_harness,
-        "split_recommended": split_recommended,
-        "split_reason": split_reason,
-        "risky_seams": sorted(risky_seams),
+        "invented_aliases": {
+            "failure_journal_export": "_failure_journal_exports",
+            "shell_router_export": "_shell_router_exports",
+            "validator_runner_exports": "_validator_runner_exports",
+            "_validator_runner_exports": None,
+        },
+        "allowed_failure_journal_keys": {
+            "failure_journal",
+            "classify_failure",
+            "failure_fingerprint",
+            "bounded_failure_snippet",
+            "recommended_next_action",
+            "chosen_remediation_path",
+            "append_failure_journal_entry",
+            "retry_count_for_fingerprint",
+        },
+        "forbidden_failure_journal_keys": {
+            "write_failure_journal",
+            "build_failure_journal_entry",
+            "load_failure_journal_entries",
+            "build_failure_entry",
+        },
+        "recursive_runner_patterns": (
+            re.compile(r"\brun_task\.main\s*\("),
+            re.compile(r"\brun_task\.run_task_shell\s*\("),
+            re.compile(r"py\s+-m\s+agents\.run_task"),
+            re.compile(r"pytest\s+-q"),
+            re.compile(r"ruff\s+check\s+\."),
+        ),
+        "allowed_in_process_patterns": (
+            re.compile(r"\bcheck_runner\.run_checks\s*\("),
+            re.compile(r"\bvalidator_runner\._run_plugin_validators\s*\("),
+        ),
     }
 
 
-def compile_lane_prompt_shape(
-    *,
-    lane: str,
-    task_text: str,
-    required_paths: List[str],
-    family: Dict[str, Any] | None = None,
-) -> str:
-    _ = task_text
-    _ = required_paths
-    _ = family
+def _contains_identifier_token(text: str, token: str) -> bool:
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(token)}(?![A-Za-z0-9_])", text) is not None
 
-    normalized = str(lane or "").strip().lower()
-    if normalized == "docs-only":
-        return (
-            "Lane request shape: docs-only.\n"
-            "- Keep edits constrained to docs artifacts.\n"
-            "- Preserve runtime behavior; avoid python code churn unless explicitly required.\n"
-            "- Prefer concise, structured sections and deterministic wording."
-        )
-    if normalized == "narrow-tests-only":
-        return (
-            "Lane request shape: narrow tests-only.\n"
-            "- Focus on targeted failing tests and minimal supporting implementation.\n"
-            "- Avoid cross-module refactors.\n"
-            "- Keep assertions deterministic and directly tied to acceptance criteria."
-        )
-    if normalized == "integration-test":
-        return (
-            "Lane request shape: integration-test.\n"
-            "- Validate end-to-end behavior across seams.\n"
-            "- Prefer realistic wiring and stable fixtures over mocks where feasible.\n"
-            "- Keep setup deterministic and avoid flaky timing."
-        )
-    if normalized == "protected-meta-harness":
-        return (
-            "Lane request shape: protected meta-harness.\n"
-            "- Respect harness and protected-file policy constraints exactly.\n"
-            "- Minimize surface area and avoid broad rewrites.\n"
-            "- Favor smallest safe patch that satisfies required behavior."
-        )
-    return (
-        "Lane request shape: default.\n"
-        "- Make minimal, deterministic updates aligned with required deliverables and tests."
-    )
+
+def _contains_call_like(text: str, name: str) -> bool:
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}\s*\(", text) is not None
+
+
+def validate_seam_manifest_for_bundle(*, bundle: Dict[str, str], task_text: str) -> Dict[str, List[str]]:
+    manifest = build_seam_manifest()
+    issues: Dict[str, List[str]] = {}
+    invented_aliases = manifest["invented_aliases"]
+    allowed_failure_journal_keys = manifest["allowed_failure_journal_keys"]
+    forbidden_failure_journal_keys = manifest["forbidden_failure_journal_keys"]
+    recursive_runner_patterns = manifest["recursive_runner_patterns"]
+    allowed_in_process_patterns = manifest["allowed_in_process_patterns"]
+
+    for rel, content in bundle.items():
+        if not rel.endswith('.py'):
+            continue
+        if not rel.startswith('tests/') and 'failure_journal' not in content and 'shell_router' not in content and 'validator_runner' not in content:
+            continue
+        rel_issues: List[str] = []
+        for alias in invented_aliases:
+            if _contains_identifier_token(content, alias):
+                rel_issues.append(f"references invented seam alias `{alias}` not present in live exports")
+        if any(p.search(content) for p in recursive_runner_patterns) and not any(p.search(content) for p in allowed_in_process_patterns):
+            rel_issues.append("appears to invoke repo-wide validators recursively from generated tests")
+        if _contains_call_like(content, '_failure_journal_exports'):
+            for bad in sorted(forbidden_failure_journal_keys):
+                if _contains_identifier_token(content, bad):
+                    rel_issues.append(f"references non-live failure-journal export key `{bad}`")
+            # if explicit string assertions against exports exist, enforce allowed key set
+            for key in re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"\s+in\s+exports', content):
+                if key not in allowed_failure_journal_keys:
+                    rel_issues.append(f"references non-live failure-journal export key `{key}`")
+        if rel_issues:
+            issues.setdefault(rel, []).extend(rel_issues)
+    return issues
