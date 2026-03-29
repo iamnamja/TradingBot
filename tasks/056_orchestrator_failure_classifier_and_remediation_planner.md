@@ -40,3 +40,8 @@ Include confidence-gated autonomy decisions so the orchestrator knows when to co
 - `ruff check .` passes
 - `pytest -q tests/test_run_task_runtime_foundations.py` passes
 - the orchestrator can distinguish at least three failure classes and choose different remediation plans
+
+
+## Implementation notes
+
+Keep this task additive. Extend the existing failure-journal seam and reporting path rather than replacing broad sections of `agents/run_task.py`. The runtime foundations tests should prove that at least three distinct failure classes map to different remediation paths and autonomy decisions.

@@ -376,14 +376,10 @@ def _normalize_method_token(token: str) -> str:
     return token.strip()
 
 
+def _normalize_policy_path(token: str) -> str:
+    token = token.strip().strip("`").strip('"').strip("'")
+    return token.replace("\\", "/").strip()
 
-def _normalize_policy_path(path: str) -> str:
-    value = (path or "").strip()
-    if not value:
-        return ""
-    while len(value) >= 2 and value[0] == value[-1] and value[0] in {"`", '"', "'"}:
-        value = value[1:-1].strip()
-    return value.replace("\\", "/")
 
 def _parse_task_file_attrs(rest: str) -> Dict[str, str]:
     attrs: Dict[str, str] = {}
@@ -470,7 +466,7 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
         _parse_harness_file_policies = None  # type: ignore[assignment]
 
     if _parse_harness_file_policies is not None:
-        delegated = _parse_harness_file_policies(
+        return _parse_harness_file_policies(
             task_text=task_text,
             iter_markdown_sections=_iter_markdown_sections,
             task_file_policy_re=TASK_FILE_POLICY_RE,
@@ -478,21 +474,6 @@ def parse_harness_file_policies(task_text: str) -> Dict[str, Dict[str, object]]:
             normalize_anchor_token=_normalize_anchor_token,
             normalize_method_token=_normalize_method_token,
         )
-        normalized: Dict[str, Dict[str, object]] = {}
-        for raw_path, config in dict(delegated or {}).items():
-            path = _normalize_policy_path(str(raw_path))
-            if not path:
-                continue
-            if path in normalized:
-                existing_rules = normalized[path].setdefault("rules", [])
-                new_rules = config.get("rules", []) if isinstance(config, dict) else []
-                if isinstance(existing_rules, list) and isinstance(new_rules, list):
-                    existing_rules.extend(new_rules)
-            elif isinstance(config, dict):
-                normalized[path] = dict(config)
-            else:
-                normalized[path] = {"rules": []}
-        return normalized
 
     policies: Dict[str, Dict[str, object]] = {}
     allowed_section_names = {
@@ -605,7 +586,7 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
         _extract_targets = None  # type: ignore[assignment]
 
     if _extract_targets is not None:
-        delegated = _extract_targets(
+        return _extract_targets(
             task_text=task_text,
             iter_markdown_sections=_iter_markdown_sections,
             task_file_policy_re=TASK_FILE_POLICY_RE,
@@ -613,16 +594,6 @@ def _extract_protected_method_targets(task_text: str) -> List[Dict[str, object]]
             normalize_anchor_token=_normalize_anchor_token,
             normalize_method_token=_normalize_method_token,
         )
-        normalized_targets: List[Dict[str, object]] = []
-        for target in list(delegated or []):
-            if not isinstance(target, dict):
-                continue
-            fixed = dict(target)
-            fixed["path"] = _normalize_policy_path(str(fixed.get("path", "")))
-            if not fixed["path"]:
-                continue
-            normalized_targets.append(fixed)
-        return normalized_targets
 
     targets: List[Dict[str, object]] = []
     allowed_section_names = {
@@ -1496,19 +1467,14 @@ def _task_baseline_paths(
     policy_paths = {
         _normalize_policy_path(str(path))
         for path in harness_policies.keys()
-        if _normalize_policy_path(str(path))
+        if str(path).strip()
     }
     protected_paths = {
         _normalize_policy_path(str(target.get("path", "")))
         for target in protected_targets
-        if _normalize_policy_path(str(target.get("path", "")))
+        if str(target.get("path", "")).strip()
     }
-    required_paths = {
-        _normalize_policy_path(str(path))
-        for path in required
-        if _normalize_policy_path(str(path))
-    }
-    return sorted(required_paths | policy_paths | protected_paths)
+    return sorted(set(required) | policy_paths | protected_paths)
 
 
 def parse_required_runner_methods(task_text: str) -> List[str]:
@@ -1992,23 +1958,6 @@ def enforce_required_files(
 
 
 
-
-def _task_contract_semantic_issues(bundle: Dict[str, str], task_text: str) -> List[str]:
-    exports = _parser_policy_exports()
-    validator = exports.get("validate_seam_manifest_for_bundle")
-    if not callable(validator):
-        return []
-    try:
-        issues_by_path = validator(bundle=bundle, task_text=task_text)  # type: ignore[misc]
-    except TypeError:
-        issues_by_path = validator(bundle, task_text)  # type: ignore[misc]
-    issues: List[str] = []
-    if isinstance(issues_by_path, dict):
-        for rel, rel_issues in issues_by_path.items():
-            for issue in rel_issues or []:
-                issues.append(f"`{rel}`: {issue}")
-    return issues
-
 def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> Tuple[bool, str]:
     exports = _semantic_preflight_exports()
     delegated = exports.get("validate_static_bundle_contracts")
@@ -2047,7 +1996,6 @@ def validate_static_bundle_contracts(bundle: Dict[str, str], task_text: str) -> 
 
     issues.extend(_directive_contract_issues(bundle, task_text))
     issues.extend(_protected_python_semantic_issues(bundle, task_text))
-    issues.extend(_task_contract_semantic_issues(bundle, task_text))
 
     if issues:
         deduped: List[str] = []
@@ -2894,9 +2842,6 @@ def request_and_parse_bundle(
     forbidden_paths: List[str] | None = None,
     expected_paths: List[str] | None = None,
     baseline: Dict[str, str] | None = None,
-    *,
-    task_text: str = "",
-    bundle_failure_path: Path | None = None,
 ) -> Dict[str, str]:
     last_output_path = Path(last_output_path)
     allowed_paths = [
@@ -2936,19 +2881,6 @@ def request_and_parse_bundle(
                     raise FileBundleError(
                         "Missing FILE blocks from the requested scope: " + ", ".join(missing)
                     )
-
-        semantic_issues = _task_contract_semantic_issues(parsed, task_text or "")
-        if semantic_issues:
-            issues_by_path: Dict[str, List[str]] = {}
-            for issue in semantic_issues:
-                if issue.startswith("`") and "`: " in issue:
-                    rel, msg = issue[1:].split("`: ", 1)
-                    issues_by_path.setdefault(rel, []).append(msg)
-                else:
-                    issues_by_path.setdefault("__bundle__", []).append(issue)
-            raise FileBundleError(
-                _format_path_issue_block("Blocking bundle preflight issues detected:", issues_by_path)
-            )
 
         baseline_issues = _baseline_guard_issues(parsed, baseline)
         if baseline_issues:
@@ -3156,6 +3088,9 @@ def _report_failure(kind: str, message: str) -> None:
     recommend = exports.get("recommended_next_action")
     choose = exports.get("chosen_remediation_path")
     append_entry = exports.get("append_failure_journal_entry")
+    build_plan = exports.get("build_failure_remediation_plan")
+    confidence_fn = exports.get("autonomy_confidence")
+    continue_fn = exports.get("continue_autonomously")
 
     category = str(classify(kind, message)) if callable(classify) else str(kind or "unknown")
     raw_snippet = (
@@ -3178,9 +3113,9 @@ def _report_failure(kind: str, message: str) -> None:
         retry_count = int(counts.get(fingerprint, 0)) + 1
         counts[fingerprint] = retry_count
 
-    recommended_action = (
-        str(
-            recommend(
+    plan = (
+        dict(
+            build_plan(
                 kind=kind,
                 message=message,
                 category=category,
@@ -3189,24 +3124,83 @@ def _report_failure(kind: str, message: str) -> None:
                 raw_failure_snippet=raw_snippet,
             )
         )
-        if callable(recommend)
-        else "retry_with_targeted_fix"
+        if callable(build_plan)
+        else {}
+    )
+    recommended_action = (
+        str(plan.get("recommended_next_action"))
+        if plan.get("recommended_next_action")
+        else (
+            str(
+                recommend(
+                    kind=kind,
+                    message=message,
+                    category=category,
+                    retry_count=retry_count,
+                    fingerprint=fingerprint,
+                    raw_failure_snippet=raw_snippet,
+                )
+            )
+            if callable(recommend)
+            else "retry_with_targeted_fix"
+        )
     )
     remediation_path = (
-        str(
-            choose(
-                kind=kind,
-                message=message,
-                category=category,
-                retry_count=retry_count,
-                fingerprint=fingerprint,
-                raw_failure_snippet=raw_snippet,
-                recommended_next_action=recommended_action,
+        str(plan.get("chosen_remediation_path"))
+        if plan.get("chosen_remediation_path")
+        else (
+            str(
+                choose(
+                    kind=kind,
+                    message=message,
+                    category=category,
+                    retry_count=retry_count,
+                    fingerprint=fingerprint,
+                    raw_failure_snippet=raw_snippet,
+                    recommended_next_action=recommended_action,
+                )
             )
+            if callable(choose)
+            else recommended_action
         )
-        if callable(choose)
-        else recommended_action
     )
+    autonomy_conf = (
+        float(plan.get("autonomy_confidence"))
+        if "autonomy_confidence" in plan
+        else (
+            float(
+                confidence_fn(
+                    kind=kind,
+                    message=message,
+                    category=category,
+                    retry_count=retry_count,
+                    fingerprint=fingerprint,
+                    raw_failure_snippet=raw_snippet,
+                )
+            )
+            if callable(confidence_fn)
+            else 0.0
+        )
+    )
+    continue_auto = (
+        bool(plan.get("continue_autonomously"))
+        if "continue_autonomously" in plan
+        else (
+            bool(
+                continue_fn(
+                    kind=kind,
+                    message=message,
+                    category=category,
+                    retry_count=retry_count,
+                    fingerprint=fingerprint,
+                    raw_failure_snippet=raw_snippet,
+                )
+            )
+            if callable(continue_fn)
+            else False
+        )
+    )
+    manual_lane_recommended = bool(plan.get("manual_lane_recommended", remediation_path == "manual_patch_lane"))
 
     task_identifier = (
         os.getenv("TRADINGBOT_TASK_ID", "").strip()
@@ -3222,6 +3216,9 @@ def _report_failure(kind: str, message: str) -> None:
         "raw_failure_snippet": raw_snippet,
         "recommended_next_action": recommended_action,
         "chosen_remediation_path": remediation_path,
+        "autonomy_confidence": autonomy_conf,
+        "continue_autonomously": continue_auto,
+        "manual_lane_recommended": manual_lane_recommended,
     }
 
     if callable(append_entry):
@@ -3772,12 +3769,8 @@ def _parser_policy_exports() -> Dict[str, object]:
 
     if _task_contracts is not None:
         exports["parse_task_contract_directives"] = getattr(_task_contracts, "parse_task_contract_directives", None)
-        exports["build_seam_manifest"] = getattr(_task_contracts, "build_seam_manifest", None)
-        exports["validate_seam_manifest_for_bundle"] = getattr(_task_contracts, "validate_seam_manifest_for_bundle", None)
     else:
         exports["parse_task_contract_directives"] = None
-        exports["build_seam_manifest"] = None
-        exports["validate_seam_manifest_for_bundle"] = None
 
     if _protected_file_policy is not None:
         exports["parse_harness_file_policies"] = getattr(_protected_file_policy, "parse_harness_file_policies", None)
@@ -3898,6 +3891,9 @@ def _failure_journal_exports() -> Dict[str, object]:
         "chosen_remediation_path": None,
         "append_failure_journal_entry": None,
         "retry_count_for_fingerprint": None,
+        "build_failure_remediation_plan": None,
+        "autonomy_confidence": None,
+        "continue_autonomously": None,
     }
 
     if _failure_journal is not None:
@@ -3909,6 +3905,9 @@ def _failure_journal_exports() -> Dict[str, object]:
             "chosen_remediation_path",
             "append_failure_journal_entry",
             "retry_count_for_fingerprint",
+            "build_failure_remediation_plan",
+            "autonomy_confidence",
+            "continue_autonomously",
         ):
             obj = getattr(_failure_journal, name, None)
             if callable(obj):
