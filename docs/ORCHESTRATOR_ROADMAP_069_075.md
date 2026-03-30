@@ -1,31 +1,30 @@
-# Orchestrator Roadmap — Backlog Execution and Controller Decomposition Continuation (069–075)
+# Orchestrator Roadmap — Backlog Execution and Controller Decomposition Continuation (069–075 + 070a/070b)
 
 ## Where this continuation starts
 
-The 055–068 continuation and stabilization extension drove the orchestrator to a better place, but they also made the next gap obvious:
+The 055–070 continuation moved the orchestrator into real backlog-execution groundwork, but it also exposed two immediate trust/visibility gaps:
 
-- ordinary tasks are more reliable
-- explicit deliverable completeness is enforced
-- protected/controller failures are now surfaced more truthfully
-- duplicate-bundle recovery and the first controller extraction are underway
+- exact markdown deliverables can still be omitted from otherwise green runs unless operators verify the branch diff manually
+- runtime scratch artifacts such as `_last_agent_model_output.txt` and `_last_agent_file_bundle.txt` are intentionally quarantined on successful push paths, but the operator experience remains confusing and offers no explicit retention control
 
-However, the orchestrator is **not yet at the point where it can confidently take a list of tasks and work through them end to end**.
-
-This roadmap continues from that reality rather than pretending the backlog runner already exists.
+That means the next continuation step is not to rush into state persistence. The controller first needs a tighter exact-deliverable gate and clearer runtime-artifact lifecycle controls.
 
 ## Current prerequisite state
 
-Before starting this roadmap, the expected immediate sequence is:
+Before resuming the broader backlog-execution tranche, the expected sequence is now:
 
-- original **068** should be retried after the 068a–068c stabilization work
-- then the continuation below begins at **069**
+- **068** confirmed after the 068a–068c stabilization work
+- **069** landed to continue controller decomposition
+- **070** landed task-list manifest and deterministic queue groundwork
+- **070a** and **070b** now harden the controller contract and artifact lifecycle before **071**
 
 ## Continuation goals
 
-This tranche has two linked goals:
+This tranche now has three linked goals:
 
-1. keep making `agents/run_task.py` less monolithic
-2. add the minimum viable backlog/list-execution model needed for the orchestrator to progress through multiple tasks automatically
+1. keep making `agents/run_task.py` less monolithic and more trustworthy
+2. make exact deliverable completion align with the current task-contract style
+3. continue adding the minimum viable backlog/list-execution model needed for the orchestrator to progress through multiple tasks automatically
 
 ## Planned order
 
@@ -34,6 +33,12 @@ Extract protected-lane coordination and bundle-repair helpers out of the control
 
 ### 070 — Task-list manifest and queue model
 Add a deterministic manifest format and queue representation for a list of tasks.
+
+### 070a — Exact deliverable parser and completion gate hardening
+Broaden exact-file parsing so canonical `docs/`, `tasks/`, and explicit top-level files can be enforced by the controller instead of only by operator diff review.
+
+### 070b — Runtime artifact retention and visibility controls
+Keep runtime-artifact quarantine by default, but add explicit controls and clearer lifecycle messaging for retaining known-safe scratch artifacts during debugging.
 
 ### 071 — Batch state persistence and resume
 Persist queue progress so a backlog run can resume rather than starting over.
@@ -54,10 +59,17 @@ Add a narrow but honest E2E proof that the orchestrator can move through a short
 
 The backlog runner should not arrive first. If it arrives before the controller is further decomposed and before inter-task policy/state exist, it will simply make existing controller fragility more expensive.
 
+That logic now has an extra prerequisite layer:
+
+- exact-file completion must fail closed for canonical markdown deliverables
+- runtime artifact behavior must be easier to reason about during debugging
+- only then should queue persistence and batch execution continue to grow
+
 This order therefore goes:
 
-- controller thinning
-- queue representation
+- controller thinning and queue groundwork
+- exact deliverable gate hardening
+- runtime artifact lifecycle controls
 - persisted batch state
 - task isolation
 - post-task continue gate
@@ -66,10 +78,10 @@ This order therefore goes:
 
 ## Expected lane mix
 
-- **Likely manual-patch / controller-touching tasks**
-  - 069
-- **Expected autonomous lane once 069 lands**
-  - 070
+- **Likely manual-patch / controller-trust tasks**
+  - 070a
+- **Reasonable autonomous candidates once 070a lands**
+  - 070b
   - 071
   - 072
   - 073
@@ -80,7 +92,9 @@ This order therefore goes:
 
 This roadmap is successful when:
 
-- `agents/run_task.py` is materially thinner than it was at the start of 069
+- `agents/run_task.py` is materially thinner and more trustworthy than it was at the start of 069
+- exact-file deliverables fail closed when omitted, including canonical docs/tasks paths
+- operators can intentionally retain known-safe runtime scratch artifacts without those artifacts slipping into commits
 - the orchestrator can parse and persist a task-list manifest
 - the batch runner can progress through a short manifest conservatively
 - state, summaries, and stop/continue decisions are explicit and test-backed

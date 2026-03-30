@@ -38,21 +38,25 @@ The orchestrator can now:
 - construct a deterministic task queue from a manifest-like task list input
 - validate manifest inputs for missing task files and explicit duplicate-path policy handling
 
-However, the project is still **not yet at the point where a backlog/list runner should be considered fully ready**.
+However, two trust/visibility gaps are still blocking confident continuation into backlog state persistence:
 
-The next stage must focus on:
+- exact markdown deliverables under canonical `docs/` / `tasks/` paths can still be omitted unless operators catch the omission in post-run diff review
+- successful push paths intentionally quarantine known-safe runtime scratch artifacts, but operators do not yet have a clear retention/visibility control for those files
 
-- persisting batch state and resume behavior
-- adding safe per-task isolation and explicit post-task continue/stop/manual policy
-- exposing a user-facing batch runner only after queue/state/isolation behavior is proven end to end
+The next stage must therefore focus on:
+
+- hardening exact-deliverable parsing and fail-closed completion behavior
+- clarifying runtime-artifact retention/quarantine controls
+- only then continuing with persisted batch state, per-task isolation, explicit continue/stop/manual policy, and a user-facing batch runner
 
 ## Active continuation order
 
 Immediate near-term order:
 
-- continue the backlog-execution continuation at **071**
+- **070a** exact deliverable parser and completion gate hardening
+- **070b** runtime artifact retention and visibility controls
 
-Planned continuation after 070:
+Planned continuation after 070a/070b:
 
 - **071** batch state persistence and resume
 - **072** per-task checkpoint and branch isolation
