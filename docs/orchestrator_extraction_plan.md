@@ -78,16 +78,18 @@ If any precondition is unmet, extraction is deferred.
 - Monorepo callers migrated or bridged during approved transition.
 - Canonical documentation updated to reflect post-split ownership and usage.
 
-## Post-068c controller extraction status
+## Post-069 controller extraction status
 
-A first controller extraction has now landed.
+A second controller extraction has now landed.
 
-The orchestrator controller still lives in `agents/run_task.py`, but pure helper logic is no longer concentrated only there. The first extracted modules are:
+The orchestrator controller still lives in `agents/run_task.py`, but pure helper logic is no longer concentrated only there. The extracted modules are now:
 
 - `agents/lib/task_contracts.py`
 - `agents/lib/failure_artifacts.py`
+- `agents/lib/protected_lane.py`
+- `agents/lib/bundle_repair.py`
 
-This reduces direct responsibility in `agents/run_task.py` while preserving the current helper/public surface expected by the runtime and tests.
+This further reduces direct responsibility in `agents/run_task.py` while preserving the current helper/public surface expected by the runtime and tests.
 
 ### What is now extracted
 
@@ -95,22 +97,29 @@ This reduces direct responsibility in `agents/run_task.py` while preserving the 
 - canonical docs path policy helpers
 - protected/non-protected required-path partitioning helpers
 - truthful placeholder and durable failure-artifact helpers
+- protected-lane coordination helpers
+- protected target profile and request-argument coordination helpers
+- duplicate/conflicted bundle recovery helpers
+- focused conflicted-file repair preparation helpers
 
 ### What remains to be decomposed
 
 `agents/run_task.py` is still not fully decomposed. Higher-risk orchestration flow remains there, including:
 
-- protected execution lane coordination
-- bundle request / retry / repair control flow
 - top-level shell execution coordination
 - accepted-file reconciliation across multiple lanes
+- controller sequencing across iterative task execution
+- batch-oriented task queue, state, and resume orchestration
+- user-facing policy decisions for continue/stop/manual escalation
 
 ### Next extraction priorities
 
 The next controller-decomposition priorities should be:
 
-1. protected execution lane helpers that are still shared awkwardly between `run_task.py` and `shell_router.py`
-2. bundle-repair and duplicate/conflict recovery control-plane logic
-3. remaining orchestration coordination helpers that do not need to stay inline in `run_task.py`
+1. task-list manifest and queue model
+2. batch state persistence and resume
+3. per-task checkpoint and branch-isolation coordination
+4. explicit continue/stop/manual policy surfaces
+5. user-facing batch runner CLI and summary artifacts
 
-This keeps the decomposition incremental while preserving current runtime behavior.
+This keeps the decomposition incremental while preserving current runtime behavior and aligns the next tranche to 070–075.
