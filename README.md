@@ -41,3 +41,6 @@ Extraction preparation is active, but no repository split has been executed yet.
 
 - Lint: `ruff check .`
 - Tests: `pytest -q`
+## Documentation placement
+
+`README.md` is the canonical root-level entrypoint for the repo. Orchestrator and TradingBot narrative documents, product specs, controls/policies docs, and relationship documents should live under `docs/` rather than being duplicated at repo root.

@@ -17,3 +17,6 @@ This directory holds project-level status and roadmap references for the Trading
 
 After completion of the reliability/autonomy tranche (055–060), continuation is resumed under the existing renumbered sequence beginning at **061**.  
 This docs set is normalized to avoid numbering drift and to keep deferred work references consistent with the actual task files in `tasks/`.
+## Canonical placement
+
+`docs/` is the canonical home for orchestrator/tradingbot narrative documentation. Keep `README.md` at repo root, but place product specs, controls/policies, relationship docs, roadmaps, and similar narrative materials under `docs/`.
