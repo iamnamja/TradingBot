@@ -35,31 +35,6 @@ Each family maps to the stable helper names that tests may patch or inspect.
 - `bootstrap`: project scaffold bootstrap helpers
 - `spec_mode`: frozen spec artifact and execution-resolution helpers
 - `failure_journal`: failure classification, fingerprinting, and journal helpers
-
-### Failure-journal live seam
-
-The supported live seam for failure-journal access is:
-
-- `agents.run_task._report_failure()` for runtime reporting
-- `agents.run_task._failure_journal_exports()` for stable helper access
-
-`_failure_journal_exports()` returns the imported module under the
-`failure_journal` key plus the live helper callables, including:
-
-- `classify_failure`
-- `failure_fingerprint`
-- `bounded_failure_snippet`
-- `recommended_next_action`
-- `chosen_remediation_path`
-- `append_failure_journal_entry`
-- `retry_count_for_fingerprint`
-- `build_failure_remediation_plan`
-- `autonomy_confidence`
-- `continue_autonomously`
-
-Tests should consume this mapping directly. They should not invent an extra
-`module` alias when the live seam does not expose one.
-
 - `validator_runner`: validator execution and validator selection helpers
 - `artifact_quarantine`: runtime artifact cleanup and classification helpers
 - `runtime_foundations`: shell-provider, git, and worktree foundation helpers
@@ -102,16 +77,22 @@ into unrelated internal modules or guessing private names.
 
 The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
 
-## Runtime Artifact Quarantine Contract
+## Deliverable completeness enforcement
 
-The orchestrator supports runtime artifact quarantine for generated or modified artifacts that need cleanup or isolation during live execution flows.
+When a task includes an explicit deliverable file list under a supported heading
+such as `Create or update these exact files`, `Deliverables`, `Files`, or
+`Required files`, the runner treats that list as a conservative completeness
+contract.
 
-Tests and callers should align to the current live helper behavior and may rely on the following high-level guarantees:
-- quarantine bookkeeping occurs when the runtime quarantine path is exercised
-- expected file categories are considered for cleanup/quarantine
-- git cleanup commands are issued in a manner consistent with the current helper behavior
+In that mode:
 
-Tests and callers should not assume:
-- one exact git-command sequence when the live helper permits equivalent command shapes
-- quarantine invocation on failure paths that the current runtime does not actually route through quarantine
-- stricter artifact-category or cleanup semantics than the live helper currently guarantees
+- validator-green is not sufficient on its own
+- every explicitly listed deliverable must be present in the final accepted file set
+- the controller may attempt one focused missing-file repair that asks only for
+  the missing deliverables while preserving already accepted files
+- unresolved missing deliverables produce a durable
+  `last_output_deliverable_completeness_failure.json` artifact in repo root
+
+No deliverable completeness enforcement is applied when the task text is
+ambiguous or does not include one of the supported explicit file-list sections.
+

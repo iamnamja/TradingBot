@@ -222,3 +222,152 @@ END_FILE_BUNDLE""",
     assert payload["rejection_reason"]
     assert ("requested scope" in payload["rejection_reason"] or "No FILE: blocks could be parsed" in payload["rejection_reason"])
     assert "FILE: docs/ORCHESTRATOR_PRODUCT_SPEC.md" in payload["localized_repair_raw_output"]
+
+
+def test_parse_required_files_only_from_supported_explicit_sections() -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    task_text = """
+# Task
+
+Please consider `docs/IGNORED.md` in prose only.
+
+## Create or update these exact files
+
+- `agents/run_task.py`
+- `tests/test_run_task_runtime_foundations.py`
+- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
+
+## Notes
+
+Mentioning `src/not_required.py` here should not count.
+"""
+    assert run_task.parse_required_files(task_text) == [
+        "agents/run_task.py",
+        "tests/test_run_task_runtime_foundations.py",
+        "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
+    ]
+
+
+def test_parse_required_files_ignores_ambiguous_task_text() -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    task_text = """
+# Task
+
+Please improve the runtime. You may need to touch `agents/run_task.py` and
+maybe `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`, but this is not an explicit
+deliverables section.
+"""
+    assert run_task.parse_required_files(task_text) == []
+
+
+def test_attempt_missing_deliverable_repair_requests_only_missing_files_and_preserves_accepted(monkeypatch, tmp_path) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    captured: dict[str, object] = {}
+
+    def fake_build_messages(task_text, required, extra_directives="", virtual_context=None, forbidden_normal_bundle_paths=None):
+        captured["required"] = list(required)
+        captured["virtual_context"] = dict(virtual_context or {})
+        return [{"role": "user", "content": "repair"}]
+
+    def fake_request_and_parse_bundle(messages, model, provider, last_output_path, forbidden_paths=None, expected_paths=None, baseline=None):
+        captured["expected_paths"] = list(expected_paths or [])
+        return {"docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md": "# repaired doc\n"}
+
+    monkeypatch.setattr(run_task, "build_messages", fake_build_messages)
+    monkeypatch.setattr(run_task, "request_and_parse_bundle", fake_request_and_parse_bundle)
+
+    merged = run_task._attempt_missing_deliverable_repair(
+        task_text="""
+## Create or update these exact files
+- `tests/test_run_task_runtime_foundations.py`
+- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
+""",
+        accepted_files={"tests/test_run_task_runtime_foundations.py": "def ok():\n    return 1\n"},
+        missing_paths=["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"],
+        model="m",
+        provider="openai",
+        last_output_path=tmp_path / "last_output.txt",
+        baseline={"docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md": "# baseline\n"},
+    )
+
+    assert captured["required"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
+    assert captured["expected_paths"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
+    assert "tests/test_run_task_runtime_foundations.py" in captured["virtual_context"]
+    assert merged["tests/test_run_task_runtime_foundations.py"].startswith("def ok():")
+    assert merged["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"] == "# repaired doc\n"
+
+
+def test_enforce_deliverable_completeness_triggers_focused_repair_and_returns_complete_bundle(monkeypatch, tmp_path) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    calls: dict[str, object] = {}
+
+    def fake_attempt_missing_deliverable_repair(**kwargs):
+        calls["missing_paths"] = list(kwargs["missing_paths"])
+        calls["accepted_files"] = dict(kwargs["accepted_files"])
+        repaired = dict(kwargs["accepted_files"])
+        repaired["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"] = "# repaired\n"
+        return repaired
+
+    monkeypatch.setattr(run_task, "_attempt_missing_deliverable_repair", fake_attempt_missing_deliverable_repair)
+
+    ok, merged, message = run_task.enforce_deliverable_completeness(
+        task_path=Path("tasks/065a_orchestrator_deliverable_completeness_enforcement.md"),
+        task_text="""
+## Create or update these exact files
+
+- `tests/test_run_task_runtime_foundations.py`
+- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
+""",
+        accepted_files={"tests/test_run_task_runtime_foundations.py": "def ok():\n    return 1\n"},
+        model="m",
+        provider="openai",
+        last_output_path=tmp_path / "last_output.txt",
+        baseline={"docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md": "# baseline\n"},
+    )
+
+    assert ok is True
+    assert message == ""
+    assert calls["missing_paths"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
+    assert "tests/test_run_task_runtime_foundations.py" in calls["accepted_files"]
+    assert merged["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"] == "# repaired\n"
+
+
+def test_enforce_deliverable_completeness_writes_durable_failure_artifact_when_missing_remains(monkeypatch, tmp_path) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+
+    monkeypatch.setattr(
+        run_task,
+        "_attempt_missing_deliverable_repair",
+        lambda **kwargs: dict(kwargs["accepted_files"]),
+    )
+
+    ok, merged, message = run_task.enforce_deliverable_completeness(
+        task_path=Path("tasks/065a_orchestrator_deliverable_completeness_enforcement.md"),
+        task_text="""
+## Create or update these exact files
+
+- `tests/test_run_task_runtime_foundations.py`
+- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
+""",
+        accepted_files={"tests/test_run_task_runtime_foundations.py": "def ok():\n    return 1\n"},
+        model="m",
+        provider="openai",
+        last_output_path=tmp_path / "last_output.txt",
+        baseline={"docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md": "# baseline\n"},
+    )
+
+    assert ok is False
+    assert "Missing required deliverables after focused repair" in message
+    artifact_path = tmp_path / "last_output_deliverable_completeness_failure.json"
+    assert artifact_path.exists()
+    payload = __import__("json").loads(artifact_path.read_text(encoding="utf-8"))
+    assert payload["artifact_type"] == "deliverable_completeness_failure"
+    assert payload["task_file"] == "tasks/065a_orchestrator_deliverable_completeness_enforcement.md"
+    assert payload["required_deliverables"] == [
+        "tests/test_run_task_runtime_foundations.py",
+        "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
+    ]
+    assert payload["accepted_files"] == ["tests/test_run_task_runtime_foundations.py"]
+    assert payload["missing_deliverables"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
+    assert payload["focused_repair_attempted"] is True
+    assert merged["tests/test_run_task_runtime_foundations.py"].startswith("def ok():")
