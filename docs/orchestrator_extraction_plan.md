@@ -77,3 +77,40 @@ If any precondition is unmet, extraction is deferred.
 - Documented public API surface is preserved.
 - Monorepo callers migrated or bridged during approved transition.
 - Canonical documentation updated to reflect post-split ownership and usage.
+
+## Post-068c controller extraction status
+
+A first controller extraction has now landed.
+
+The orchestrator controller still lives in `agents/run_task.py`, but pure helper logic is no longer concentrated only there. The first extracted modules are:
+
+- `agents/lib/task_contracts.py`
+- `agents/lib/failure_artifacts.py`
+
+This reduces direct responsibility in `agents/run_task.py` while preserving the current helper/public surface expected by the runtime and tests.
+
+### What is now extracted
+
+- explicit deliverable and task-contract policy helpers
+- canonical docs path policy helpers
+- protected/non-protected required-path partitioning helpers
+- truthful placeholder and durable failure-artifact helpers
+
+### What remains to be decomposed
+
+`agents/run_task.py` is still not fully decomposed. Higher-risk orchestration flow remains there, including:
+
+- protected execution lane coordination
+- bundle request / retry / repair control flow
+- top-level shell execution coordination
+- accepted-file reconciliation across multiple lanes
+
+### Next extraction priorities
+
+The next controller-decomposition priorities should be:
+
+1. protected execution lane helpers that are still shared awkwardly between `run_task.py` and `shell_router.py`
+2. bundle-repair and duplicate/conflict recovery control-plane logic
+3. remaining orchestration coordination helpers that do not need to stay inline in `run_task.py`
+
+This keeps the decomposition incremental while preserving current runtime behavior.
