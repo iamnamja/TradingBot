@@ -37,3 +37,14 @@ Task-family classification + lane-specific request shaping + split recommendatio
 - fewer broad rewrites,
 - better protected-file policy adherence,
 - and more deterministic convergence on `ruff` + `pytest`.
+
+## Safe Parallelism and Review Contract
+
+The orchestrator supports guarded safe-parallelism planning with review integration, but some planner and review surfaces remain best-effort in the live runtime.
+
+For protected-file review flows, callers should align to the current `run_review()` contract and rely on the presence of:
+- `mergeable`
+- `reasons`
+- `warnings`
+
+Callers and tests should not assume stricter semantics, such as `mergeable == false` or non-empty `reasons` / `warnings`, unless the live implementation explicitly guarantees those outcomes.
