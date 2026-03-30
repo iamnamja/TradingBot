@@ -3401,7 +3401,6 @@ def _infer_protected_method_targets_from_required(task_text: str, protected_requ
 
 
 def _partition_required_paths_for_normal_bundle(required_paths: List[str], protected_targets: List[dict[str, object]] | List[str] | None = None) -> Tuple[List[str], List[str]]:
-    # Prefer extracted helper if available.
     try:
         from agents.lib.protected_lane import (  # type: ignore
             partition_required_paths_for_normal_bundle as _pl_partition,
@@ -3409,7 +3408,6 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
     except Exception:
         _pl_partition = None  # type: ignore[assignment]
 
-    # Canonical meta harness paths that must be handled via protected method mode
     meta_harness_paths = {
         "agents/run_task.py",
         "agents/lib/shell_router.py",
@@ -3417,119 +3415,137 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         "agents/lib/protected_file_policy.py",
     }
 
-    # Gather any explicitly protected targets from policy/contract parsing
     protected_explicit: set[str] = set()
     for target in protected_targets or []:
         if isinstance(target, dict):
-            maybe = target.get("path")
-            if isinstance(maybe, str) and maybe.strip():
-                protected_explicit.add(maybe.strip().replace("\\", "/"))
-        elif isinstance(target, str) and target.strip():
-            protected_explicit.add(target.strip().replace("\\", "/"))
+            maybe_path = target.get("path")
+            if isinstance(maybe_path, str):
+                normalized = maybe_path.strip().replace("\\", "/")
+                if normalized:
+                    protected_explicit.add(normalized)
+        elif isinstance(target, str):
+            normalized = target.strip().replace("\\", "/")
+            if normalized:
+                protected_explicit.add(normalized)
 
-    normal: List[str]
-    protected: List[str]
+    normalized_required: List[str] = []
+    seen_required: set[str] = set()
+    for raw in required_paths or []:
+        if not isinstance(raw, str):
+            continue
+        normalized = raw.strip().replace("\\", "/")
+        if not normalized or normalized in seen_required:
+            continue
+        seen_required.add(normalized)
+        normalized_required.append(normalized)
 
-    # Try extracted helper first to keep controller thin and aligned with shell_router.
+    normal: List[str] = []
+    protected: List[str] = []
+
     if callable(_pl_partition):
+        result = None
         try:
             result = _pl_partition(  # type: ignore[misc]
-                required_paths=required_paths,
+                required_paths=normalized_required,
                 protected_targets=protected_targets,
                 protected_meta_paths=tuple(sorted(meta_harness_paths)),
             )
         except TypeError:
-            # Older signature without protected_meta_paths; pass the two primary args.
-            result = _pl_partition(required_paths, protected_targets)  # type: ignore[misc]
-        try:
-            normal_candidate, protected_candidate = tuple(result)  # type: ignore[misc]
-            normal = [str(p).strip().replace("\\", "/") for p in (normal_candidate or []) if isinstance(p, str) and p.strip()]
-            protected = [str(p).strip().replace("\\", "/") for p in (protected_candidate or []) if isinstance(p, str) and p.strip()]
+            try:
+                result = _pl_partition(normalized_required, protected_targets)  # type: ignore[misc]
+            except Exception:
+                result = None
         except Exception:
-            # Defensive fallback to local behavior if unexpected shape was returned.
-            normal = []
-            protected = []
-    else:
-        # Delegate to external partitioner from task_contracts if available, otherwise local logic.
+            result = None
+
+        if isinstance(result, tuple) and len(result) == 2:
+            left = result[0] if isinstance(result[0], list) else []
+            right = result[1] if isinstance(result[1], list) else []
+            seen_normal: set[str] = set()
+            for item in left:
+                if isinstance(item, str):
+                    p = item.strip().replace("\\", "/")
+                    if p and p not in seen_normal:
+                        normal.append(p)
+                        seen_normal.add(p)
+            seen_protected: set[str] = set()
+            for item in right:
+                if isinstance(item, str):
+                    p = item.strip().replace("\\", "/")
+                    if p and p not in seen_protected:
+                        protected.append(p)
+                        seen_protected.add(p)
+
+    if not normal and not protected:
         try:
             from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as _partition  # type: ignore
         except Exception:
             _partition = None  # type: ignore[assignment]
 
         if callable(_partition):
-            normal, protected = _partition(
-                required_paths=required_paths,
-                protected_targets=protected_targets,
-                protected_meta_paths=tuple(sorted(meta_harness_paths)),
-            )
-            # Normalize just in case external returns tuples/sets.
-            normal = [str(p).strip().replace("\\", "/") for p in (normal or []) if isinstance(p, str) and p.strip()]
-            protected = [str(p).strip().replace("\\", "/") for p in (protected or []) if isinstance(p, str) and p.strip()]
-        else:
-            # Local fallback: deterministic partition preserving order.
-            normal = []
-            protected = []
-            seen_normal: set[str] = set()
-            seen_protected: set[str] = set()
-            for raw in required_paths or []:
-                if not isinstance(raw, str) or not raw.strip():
-                    continue
-                path = raw.strip().replace("\\", "/")
-                is_protected = path in protected_explicit or path in meta_harness_paths
-                if is_protected:
-                    if path not in seen_protected:
-                        protected.append(path)
-                        seen_protected.add(path)
-                else:
-                    if path not in seen_normal:
-                        normal.append(path)
-                        seen_normal.add(path)
+            try:
+                delegated = _partition(
+                    required_paths=normalized_required,
+                    protected_targets=protected_targets,
+                    protected_meta_paths=tuple(sorted(meta_harness_paths)),
+                )
+            except Exception:
+                delegated = ([], [])
+            if isinstance(delegated, tuple) and len(delegated) == 2:
+                seen_normal: set[str] = set()
+                for item in delegated[0] if isinstance(delegated[0], list) else []:
+                    if isinstance(item, str):
+                        p = item.strip().replace("\\", "/")
+                        if p and p not in seen_normal:
+                            normal.append(p)
+                            seen_normal.add(p)
+                seen_protected: set[str] = set()
+                for item in delegated[1] if isinstance(delegated[1], list) else []:
+                    if isinstance(item, str):
+                        p = item.strip().replace("\\", "/")
+                        if p and p not in seen_protected:
+                            protected.append(p)
+                            seen_protected.add(p)
 
-    # Ensure explicit protected/meta harness paths are reflected in the protected list.
-    # Preserve order: move any missing explicit/meta to the end of protected list.
+    if not normal and not protected:
+        seen_normal: set[str] = set()
+        seen_protected: set[str] = set()
+        for path in normalized_required:
+            is_protected = path in protected_explicit or path in meta_harness_paths
+            if is_protected:
+                if path not in seen_protected:
+                    protected.append(path)
+                    seen_protected.add(path)
+            else:
+                if path not in seen_normal:
+                    normal.append(path)
+                    seen_normal.add(path)
+
     protected_set = set(protected)
-    for candidate in required_paths or []:
-        if not isinstance(candidate, str) or not candidate.strip():
-            continue
-        p = candidate.strip().replace("\\", "/")
-        if p in protected_explicit or p in meta_harness_paths:
-            if p not in protected_set:
-                protected.append(p)
-                protected_set.add(p)
-            if p in normal:
-                # Remove from normal if it slipped in via external partitioner.
-                normal = [x for x in normal if x != p]
+    normal = [p for p in normal if p not in meta_harness_paths and p not in protected_explicit]
+    for path in normalized_required:
+        if path in protected_explicit or path in meta_harness_paths:
+            if path not in protected_set:
+                protected.append(path)
+                protected_set.add(path)
 
-    # Lightweight scope heuristics to detect likely over-broad multi-seam tasks.
-    # This does NOT change partitioning; it only annotates environment and prints a one-time hint.
     families: set[str] = set()
-    for raw in required_paths or []:
-        if not isinstance(raw, str) or not raw.strip():
-            continue
-        p = raw.strip().replace("\\", "/")
-
-        # Docs/narrative
+    for p in normalized_required:
         if p.endswith(".md") or p.startswith("docs/") or p == "README.md":
             families.add("docs")
-
-        # Tests
         if p.startswith("tests/"):
             families.add("tests")
-
-        # Meta harness (routing, parser, protected-file policy)
         if p.startswith("agents/"):
-            if p.startswith("agents/lib/shell_router.py"):
+            if p == "agents/lib/shell_router.py":
                 families.add("shell_router")
-            elif p.startswith("agents/lib/failure_journal.py"):
+            elif p == "agents/lib/failure_journal.py":
                 families.add("failure_journal")
-            elif p.startswith("agents/lib/artifact_quarantine.py"):
+            elif p == "agents/lib/artifact_quarantine.py":
                 families.add("artifact_quarantine")
-            elif p.startswith("agents/lib/validator_runner.py") or p.startswith("agents/lib/check_runner.py"):
+            elif p in {"agents/lib/validator_runner.py", "agents/lib/check_runner.py"}:
                 families.add("review_parallel")
-            elif p.startswith("agents/run_task.py") or p.startswith("agents/lib/"):
+            else:
                 families.add("meta")
-
-        # Orchestrator core vs bootstrap/config surfaces
         if p.startswith("src/builder/orchestrator/"):
             name = Path(p).name
             if name in {"project_config.py", "project_adapter.py", "cli.py"}:
@@ -3537,22 +3553,23 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
             else:
                 families.add("orchestrator_core")
 
-    major_families = {f for f in families if f not in {"tests"}}
-    cross_docs_code = "docs" in families and (("orchestrator_core" in families) or ("bootstrap_config" in families))
-    cross_meta_code = ({"meta", "shell_router"} & families) and (("orchestrator_core" in families) or ("bootstrap_config" in families) or ("docs" in families))
-    cross_failure = ({"failure_journal", "artifact_quarantine"} & families) and (("orchestrator_core" in families) or ("bootstrap_config" in families) or ("docs" in families))
-    broadly_mixed = len(major_families) >= 2 or (len(families) >= 3)
-
-    likely_over_broad = bool(cross_docs_code or cross_meta_code or cross_failure or broadly_mixed)
-
-    if likely_over_broad:
+    major_families = {f for f in families if f != "tests"}
+    cross_docs_code = "docs" in families and ("orchestrator_core" in families or "bootstrap_config" in families)
+    cross_meta_code = bool({"meta", "shell_router"} & families) and (
+        "orchestrator_core" in families or "bootstrap_config" in families or "docs" in families
+    )
+    cross_failure = bool({"failure_journal", "artifact_quarantine"} & families) and (
+        "orchestrator_core" in families or "bootstrap_config" in families or "docs" in families
+    )
+    broadly_mixed = len(major_families) >= 2 or len(families) >= 3
+    if cross_docs_code or cross_meta_code or cross_failure or broadly_mixed:
         fam_list = sorted(families)
         suggestions: List[str] = []
         if "docs" in families:
             suggestions.append("docs normalization/narrative update")
         if "orchestrator_core" in families or "bootstrap_config" in families:
             suggestions.append("orchestrator code update (runner/config/cli)")
-        if {"meta", "shell_router"} & families:
+        if "meta" in families or "shell_router" in families:
             suggestions.append("harness routing/review surfaces")
         if "artifact_quarantine" in families:
             suggestions.append("runtime artifact quarantine behavior")
@@ -3560,7 +3577,6 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
             suggestions.append("failure journal/reporting seams")
         if "tests" in families:
             suggestions.append("tests alignment once implementation is shaped")
-
         advice = (
             "Task scope heuristic: required deliverables span multiple seam families: "
             + ", ".join(fam_list)
@@ -3568,16 +3584,13 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
             + "; ".join(suggestions)
             + "."
         )
-
         try:
             os.environ["TRADINGBOT_SEAM_SPLIT_FAMILIES"] = ",".join(fam_list)
             os.environ["TRADINGBOT_SEAM_SPLIT_RECOMMENDATION"] = advice
         except Exception:
             pass
-
         warned_key = "_SEAM_SPLIT_WARNED_ONCE"
-        already_warned = bool(globals().get(warned_key))
-        if not already_warned:
+        if not bool(globals().get(warned_key)):
             try:
                 print("⚠️ " + advice)
             except Exception:
@@ -3649,7 +3662,6 @@ def _emit_failure_artifact_messages(
         except Exception:
             _emit = None  # type: ignore[assignment]
 
-        # Prefer external implementation if available for compatibility with extracted modules.
         if callable(_emit):
             _emit(
                 last_output_path=last_output_path,
@@ -3667,21 +3679,15 @@ def _emit_failure_artifact_messages(
             )
             return
 
-        # Lightweight multi-seam task guidance propagated via environment by upstream heuristics.
         seam_families_env = os.getenv("TRADINGBOT_SEAM_SPLIT_FAMILIES", "").strip()
         seam_families = [x.strip() for x in seam_families_env.split(",") if x.strip()] if seam_families_env else []
         seam_recommendation = os.getenv("TRADINGBOT_SEAM_SPLIT_RECOMMENDATION", "").strip()
 
-        # Show guidance once to the console, even if we do not create placeholders.
         if seam_recommendation:
-            try:
-                print("⚠️ " + seam_recommendation)
-            except Exception:
-                pass
+            print("⚠️ " + seam_recommendation)
 
         should_create_placeholders = bool(create_placeholders or before_model_output)
         if should_create_placeholders:
-            # Placeholder for raw model output artifact
             placeholder_payload = {
                 "placeholder": True,
                 "artifact_kind": "model_output",
@@ -3695,7 +3701,6 @@ def _emit_failure_artifact_messages(
                 "protected_execution_attempted": bool(protected_execution_attempted),
                 "mixed_task": bool(mixed_task),
                 "protected_targets_identified": list(protected_targets_identified or []),
-                # Heuristic advisory fields
                 "seam_split_families": list(seam_families),
                 "seam_split_recommendation": seam_recommendation,
             }
@@ -3706,7 +3711,6 @@ def _emit_failure_artifact_messages(
                     newline="\n",
                 )
 
-            # Placeholder for parsed bundle artifact
             bundle_placeholder_payload = {
                 "placeholder": True,
                 "artifact_kind": "file_bundle",
@@ -3722,7 +3726,6 @@ def _emit_failure_artifact_messages(
                 "mixed_task": bool(mixed_task),
                 "protected_targets_identified": list(protected_targets_identified or []),
                 "files": [],
-                # Heuristic advisory fields (mirror the model_output placeholder)
                 "seam_split_families": list(seam_families),
                 "seam_split_recommendation": seam_recommendation,
             }
@@ -3742,15 +3745,11 @@ def _emit_failure_artifact_messages(
         else:
             print(f"Parsed file bundle was not written: {last_bundle_path}")
 
-        # Provide an explicit summary line if we have seam-split context, to aid tests/logs.
         if seam_families or seam_recommendation:
-            try:
-                families_str = ", ".join(seam_families) if seam_families else "(none)"
-                print(f"Seam-scope analysis: families={families_str}")
-                if seam_recommendation:
-                    print(f"Seam-scope recommendation: {seam_recommendation}")
-            except Exception:
-                pass
+            families_str = ", ".join(seam_families) if seam_families else "(none)"
+            print(f"Seam-scope analysis: families={families_str}")
+            if seam_recommendation:
+                print(f"Seam-scope recommendation: {seam_recommendation}")
 def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
     exports = _artifact_quarantine_exports()
     quarantine = exports.get("quarantine_runtime_artifacts")
