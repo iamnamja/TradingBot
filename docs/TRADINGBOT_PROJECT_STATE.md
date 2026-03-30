@@ -12,7 +12,7 @@ The repository combines:
 
 ## Implemented baseline
 
-The orchestrator buildout has progressed through the reliability/autonomy continuation, protected/controller stabilization, and the first backlog-execution groundwork with the following sequence complete or active:
+The orchestrator buildout has progressed through the reliability/autonomy continuation and its immediate stabilization extension with the following sequence complete or in progress:
 
 - Core orchestrator lifecycle and workflow execution (015–038 family)
 - Harness hardening and modularization (039–043)
@@ -20,44 +20,40 @@ The orchestrator buildout has progressed through the reliability/autonomy contin
 - Shell convergence and interface stabilization (049–050)
 - Docs/status normalization and seam preparation (051–054 + 054a/054b)
 - Reliability/autonomy umbrella and implementations (055–067 + 065a + 067a)
-- Original Task 068 confirmed and landed after the stabilization work
 - Stabilization extension to support protected/controller execution and controller thinning (068a–068c)
-- Controller decomposition second extraction (069)
-- Task-list manifest and queue model groundwork (070)
+- Original Task 068 still remains a meaningful follow-on after the stabilization work proves out in practice
 
 ## Current state
 
 The orchestrator can now:
 
 - complete ordinary non-protected tasks more reliably than earlier in the project
-- enforce explicit deliverable completeness for tasks that name exact required files when operators verify branch diffs against task deliverables
+- enforce explicit deliverable completeness for tasks that name exact required files
 - write more truthful failure artifacts for key controller/protected failure paths
 - route controller/protected work through narrower, better-defined lanes than before
-- continue decomposing `agents/run_task.py` into extracted helper modules
-- classify broad multi-seam tasks and emit advisory split recommendations
-- construct a deterministic task queue from a manifest-like task list input
-- validate manifest inputs for missing task files and explicit duplicate-path policy handling
+- start decomposing `agents/run_task.py` into extracted helper modules
 
-However, two trust/visibility gaps are still blocking confident continuation into backlog state persistence:
+However, the project is still **not yet at the point where a backlog/list runner should be considered fully ready**.
 
-- exact markdown deliverables under canonical `docs/` / `tasks/` paths can still be omitted unless operators catch the omission in post-run diff review
-- successful push paths intentionally quarantine known-safe runtime scratch artifacts, but operators do not yet have a clear retention/visibility control for those files
+The next stage must focus on:
 
-The next stage must therefore focus on:
-
-- hardening exact-deliverable parsing and fail-closed completion behavior
-- clarifying runtime-artifact retention/quarantine controls
-- only then continuing with persisted batch state, per-task isolation, explicit continue/stop/manual policy, and a user-facing batch runner
+- continuing to shrink the controller
+- representing task lists explicitly
+- persisting batch state and resume behavior
+- adding safe per-task isolation and post-task continue/stop policy
+- only then exposing a user-facing batch runner
 
 ## Active continuation order
 
 Immediate near-term order:
 
-- **070a** exact deliverable parser and completion gate hardening
-- **070b** runtime artifact retention and visibility controls
+- confirm original **068** after the stabilization extension
+- then begin the backlog-execution continuation at **069**
 
-Planned continuation after 070a/070b:
+Planned continuation after 068:
 
+- **069** controller decomposition second extraction
+- **070** task-list manifest and queue model
 - **071** batch state persistence and resume
 - **072** per-task checkpoint and branch isolation
 - **073** batch failure policy and continue gate

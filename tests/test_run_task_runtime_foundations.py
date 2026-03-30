@@ -23,13 +23,11 @@ def _load_runtime_modules():
 
 def test_provider_client_delegation(monkeypatch) -> None:
     run_task, _, _, provider_client, _, _, _, _ = _load_runtime_modules()
-
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
         assert model == "m"
         assert provider == "openai"
         return "ok"
-
     monkeypatch.setattr(provider_client, "chat", fake_chat)
     assert run_task.chat([{"role": "user", "content": "x"}], model="m", provider="openai") == "ok"
 
@@ -37,7 +35,6 @@ def test_provider_client_delegation(monkeypatch) -> None:
 def test_git_helpers_behavior(monkeypatch) -> None:
     run_task, _, git_ops, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
-
     def fake_capture(cmd: list[str]) -> str:
         if cmd == ["git", "status", "--porcelain"]:
             return ""
@@ -46,36 +43,26 @@ def test_git_helpers_behavior(monkeypatch) -> None:
         if cmd == ["git", "branch", "--list", "feature-x"]:
             return ""
         raise AssertionError(cmd)
-
     def fake_run(cmd: list[str], check: bool = True):
         calls.append((cmd, check))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
-
     monkeypatch.setattr(git_ops, "capture", fake_capture)
     monkeypatch.setattr(git_ops, "run", fake_run)
-
     run_task.ensure_clean_worktree()
     run_task.ensure_branch("feature-x")
-
-    assert any(cmd == ["git", "checkout", "-b", "feature-x"] for cmd, _ in calls) or any(
-        cmd == ["git", "checkout", "-B", "feature-x"] for cmd, _ in calls
-    )
+    assert any(cmd == ["git", "checkout", "-b", "feature-x"] for cmd, _ in calls) or any(cmd == ["git", "checkout", "-B", "feature-x"] for cmd, _ in calls)
 
 
 def test_check_runner_summary(monkeypatch) -> None:
     run_task, check_runner, _, _, _, _, _, _ = _load_runtime_modules()
-
     def fake_capture_result(cmd):
         if cmd == ["ruff", "check", "."]:
             return SimpleNamespace(returncode=0, stdout="lint out\n", stderr="")
         if cmd == ["pytest", "-q"]:
             return SimpleNamespace(returncode=1, stdout="test out\n", stderr="test err\n")
         raise AssertionError(cmd)
-
     monkeypatch.setattr(check_runner, "capture_result", fake_capture_result)
-
     ok, text = run_task.run_checks()
-
     assert ok is False
     assert "=== pytest -q ===" in text
     assert "test out" in text
@@ -94,6 +81,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.ensure_clean_worktree)
     assert callable(run_task.ensure_branch)
     assert callable(run_task.run_checks)
+    assert callable(run_task.parse_required_files)
+    assert callable(run_task.validate_exact_deliverable_contract)
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
@@ -132,7 +121,26 @@ def test_report_failure_records_confidence_and_plan(tmp_path, monkeypatch) -> No
 
 def test_task_contract_wrapper_delegates_to_extracted_module(monkeypatch) -> None:
     run_task, _, _, _, _, task_contracts, _, _ = _load_runtime_modules()
+    def fake_parse(task_text: str):
+        assert task_text == "## Create or update these exact files\n- `docs/TRADINGBOT_PROJECT_STATE.md`\n"
+        return ["docs/TRADINGBOT_PROJECT_STATE.md"]
+    monkeypatch.setattr(task_contracts, "parse_required_files_from_task_text", fake_parse)
+    assert run_task.parse_required_files("## Create or update these exact files\n- `docs/TRADINGBOT_PROJECT_STATE.md`\n") == ["docs/TRADINGBOT_PROJECT_STATE.md"]
 
-    def fake_parse(**kwargs):
-        assert "task_text" in kwargs
-        return {"ALLOWED_METHODS": ["x.y.z run_next_task"]}
+
+def test_validate_exact_deliverable_contract_delegates_to_extracted_module(monkeypatch) -> None:
+    run_task, _, _, _, _, task_contracts, _, _ = _load_runtime_modules()
+    monkeypatch.setattr(task_contracts, "exact_deliverable_contract_issues", lambda task_text: ["`../outside.md` uses path traversal and is not allowed."])
+    ok, msg = run_task.validate_exact_deliverable_contract("task")
+    assert ok is False
+    assert "Invalid exact deliverable contract entries detected:" in msg
+    assert "path traversal" in msg
+
+
+def test_enforce_required_files_reports_final_acceptance_gap() -> None:
+    run_task, _, _, _, _, _, _, _ = _load_runtime_modules()
+    ok, msg = run_task.enforce_required_files(["agents/run_task.py", "docs/TRADINGBOT_PROJECT_STATE.md"], {"agents/run_task.py": "updated"})
+    assert ok is False
+    assert "parsed from task contract" in msg
+    assert "missing from final accepted result after lane reconciliation" in msg
+    assert "docs/TRADINGBOT_PROJECT_STATE.md" in msg
