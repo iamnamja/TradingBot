@@ -210,3 +210,68 @@ def test_shell_router_partition_recommends_split(capsys) -> None:
     shell_router._partition_required_paths_for_normal_bundle(required, [])
     out = capsys.readouterr().out
     assert "Recommendation: split this task into focused subtasks." in out
+
+
+def test_extracted_protected_lane_partition_is_used_by_both_runtimes(monkeypatch) -> None:
+    run_task, *_ = _load_runtime_modules()
+    shell_router = importlib.import_module("agents.lib.shell_router")
+    protected_lane = importlib.import_module("agents.lib.protected_lane")
+
+    calls: dict[str, int] = {"count": 0}
+
+    def fake_partition(required_paths, protected_targets=None, **kwargs):
+        calls["count"] += 1
+        # Verify that meta harness set is plumbed when provided (optional)
+        _ = kwargs.get("protected_meta_paths") or kwargs.get("protected_meta_harness_paths")
+        required_paths = [p.replace("\\", "/") for p in required_paths]
+        normal = [p for p in required_paths if not p.endswith(".py")]
+        protected = [p for p in required_paths if p.endswith(".py")]
+        return normal, protected
+
+    monkeypatch.setattr(protected_lane, "partition_required_paths_for_normal_bundle", fake_partition)
+
+    req = ["docs/guide.md", "agents/run_task.py", "src/builder/orchestrator/runner.py"]
+    # Both wrappers should delegate to the extracted helper
+    n1, p1 = run_task._partition_required_paths_for_normal_bundle(req, [])
+    n2, p2 = shell_router._partition_required_paths_for_normal_bundle(req, [])
+    assert calls["count"] >= 2
+    assert n1 == ["docs/guide.md"] and all(x.endswith(".py") for x in p1)
+    assert n2 == ["docs/guide.md"] and all(x.endswith(".py") for x in p2)
+
+
+def test_bundle_repair_duplicate_classification_preserves_equivalent_and_conflicts() -> None:
+    bundle_repair = importlib.import_module("agents.lib.bundle_repair")
+
+    entries = [
+        ("a.py", "x = 1\n"),
+        ("a.py", "x = 1\r\n"),  # same after newline normalization
+        ("b.txt", "hello\n"),
+        ("b.txt", "hello world\n"),  # conflict with previous
+        ("c.md", "doc\n"),
+    ]
+
+    def nn(s: str) -> str:
+        return s.replace("\r\n", "\n")
+
+    normalized, conflicts, equivalent = bundle_repair.classify_duplicate_file_entries(entries, normalize_newlines=nn)
+
+    assert normalized["a.py"] == "x = 1\n"
+    assert "b.txt" in conflicts and len(conflicts["b.txt"]) == 2
+    assert "a.py" in equivalent
+    assert "c.md" in normalized and "c.md" not in equivalent and "c.md" not in conflicts
+
+
+def test_controller_and_extracted_partition_results_match_for_simple_inputs() -> None:
+    run_task, *_ = _load_runtime_modules()
+    protected_lane = importlib.import_module("agents.lib.protected_lane")
+
+    required = [
+        "agents/lib/shell_router.py",
+        "src/builder/orchestrator/runner.py",
+        "docs/plan.md",
+    ]
+    # Compare results between controller wrapper and extracted helper for parity
+    n_ctrl, p_ctrl = run_task._partition_required_paths_for_normal_bundle(required, [])
+    n_ext, p_ext = protected_lane.partition_required_paths_for_normal_bundle(required, [])
+    assert set(n_ctrl) == set(n_ext)
+    assert set(p_ctrl) == set(p_ext)

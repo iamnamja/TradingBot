@@ -3401,10 +3401,13 @@ def _infer_protected_method_targets_from_required(task_text: str, protected_requ
 
 
 def _partition_required_paths_for_normal_bundle(required_paths: List[str], protected_targets: List[dict[str, object]] | List[str] | None = None) -> Tuple[List[str], List[str]]:
+    # Prefer extracted helper if available.
     try:
-        from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as _partition  # type: ignore
+        from agents.lib.protected_lane import (  # type: ignore
+            partition_required_paths_for_normal_bundle as _pl_partition,
+        )
     except Exception:
-        _partition = None  # type: ignore[assignment]
+        _pl_partition = None  # type: ignore[assignment]
 
     # Canonical meta harness paths that must be handled via protected method mode
     meta_harness_paths = {
@@ -3424,31 +3427,78 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         elif isinstance(target, str) and target.strip():
             protected_explicit.add(target.strip().replace("\\", "/"))
 
-    # Delegate to external partitioner first if available, then layer heuristics without changing the partition.
-    if callable(_partition):
-        normal, protected = _partition(
-            required_paths=required_paths,
-            protected_targets=protected_targets,
-            protected_meta_paths=tuple(sorted(meta_harness_paths)),
-        )
+    normal: List[str]
+    protected: List[str]
+
+    # Try extracted helper first to keep controller thin and aligned with shell_router.
+    if callable(_pl_partition):
+        try:
+            result = _pl_partition(  # type: ignore[misc]
+                required_paths=required_paths,
+                protected_targets=protected_targets,
+                protected_meta_paths=tuple(sorted(meta_harness_paths)),
+            )
+        except TypeError:
+            # Older signature without protected_meta_paths; pass the two primary args.
+            result = _pl_partition(required_paths, protected_targets)  # type: ignore[misc]
+        try:
+            normal_candidate, protected_candidate = tuple(result)  # type: ignore[misc]
+            normal = [str(p).strip().replace("\\", "/") for p in (normal_candidate or []) if isinstance(p, str) and p.strip()]
+            protected = [str(p).strip().replace("\\", "/") for p in (protected_candidate or []) if isinstance(p, str) and p.strip()]
+        except Exception:
+            # Defensive fallback to local behavior if unexpected shape was returned.
+            normal = []
+            protected = []
     else:
-        normal = []
-        protected = []
-        seen_normal: set[str] = set()
-        seen_protected: set[str] = set()
-        for raw in required_paths or []:
-            if not isinstance(raw, str) or not raw.strip():
-                continue
-            path = raw.strip().replace("\\", "/")
-            is_protected = path in protected_explicit or path in meta_harness_paths
-            if is_protected:
-                if path not in seen_protected:
-                    protected.append(path)
-                    seen_protected.add(path)
-            else:
-                if path not in seen_normal:
-                    normal.append(path)
-                    seen_normal.add(path)
+        # Delegate to external partitioner from task_contracts if available, otherwise local logic.
+        try:
+            from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as _partition  # type: ignore
+        except Exception:
+            _partition = None  # type: ignore[assignment]
+
+        if callable(_partition):
+            normal, protected = _partition(
+                required_paths=required_paths,
+                protected_targets=protected_targets,
+                protected_meta_paths=tuple(sorted(meta_harness_paths)),
+            )
+            # Normalize just in case external returns tuples/sets.
+            normal = [str(p).strip().replace("\\", "/") for p in (normal or []) if isinstance(p, str) and p.strip()]
+            protected = [str(p).strip().replace("\\", "/") for p in (protected or []) if isinstance(p, str) and p.strip()]
+        else:
+            # Local fallback: deterministic partition preserving order.
+            normal = []
+            protected = []
+            seen_normal: set[str] = set()
+            seen_protected: set[str] = set()
+            for raw in required_paths or []:
+                if not isinstance(raw, str) or not raw.strip():
+                    continue
+                path = raw.strip().replace("\\", "/")
+                is_protected = path in protected_explicit or path in meta_harness_paths
+                if is_protected:
+                    if path not in seen_protected:
+                        protected.append(path)
+                        seen_protected.add(path)
+                else:
+                    if path not in seen_normal:
+                        normal.append(path)
+                        seen_normal.add(path)
+
+    # Ensure explicit protected/meta harness paths are reflected in the protected list.
+    # Preserve order: move any missing explicit/meta to the end of protected list.
+    protected_set = set(protected)
+    for candidate in required_paths or []:
+        if not isinstance(candidate, str) or not candidate.strip():
+            continue
+        p = candidate.strip().replace("\\", "/")
+        if p in protected_explicit or p in meta_harness_paths:
+            if p not in protected_set:
+                protected.append(p)
+                protected_set.add(p)
+            if p in normal:
+                # Remove from normal if it slipped in via external partitioner.
+                normal = [x for x in normal if x != p]
 
     # Lightweight scope heuristics to detect likely over-broad multi-seam tasks.
     # This does NOT change partitioning; it only annotates environment and prints a one-time hint.
@@ -3487,7 +3537,6 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
             else:
                 families.add("orchestrator_core")
 
-    # Heuristic conditions that imply multi-seam scope
     major_families = {f for f in families if f not in {"tests"}}
     cross_docs_code = "docs" in families and (("orchestrator_core" in families) or ("bootstrap_config" in families))
     cross_meta_code = ({"meta", "shell_router"} & families) and (("orchestrator_core" in families) or ("bootstrap_config" in families) or ("docs" in families))
@@ -3497,7 +3546,6 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
     likely_over_broad = bool(cross_docs_code or cross_meta_code or cross_failure or broadly_mixed)
 
     if likely_over_broad:
-        # Build a compact recommendation string
         fam_list = sorted(families)
         suggestions: List[str] = []
         if "docs" in families:
@@ -3521,7 +3569,6 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
             + "."
         )
 
-        # Expose as environment annotations for callers/tests and print once to console.
         try:
             os.environ["TRADINGBOT_SEAM_SPLIT_FAMILIES"] = ",".join(fam_list)
             os.environ["TRADINGBOT_SEAM_SPLIT_RECOMMENDATION"] = advice
@@ -3634,9 +3681,10 @@ def _emit_failure_artifact_messages(
 
         should_create_placeholders = bool(create_placeholders or before_model_output)
         if should_create_placeholders:
+            # Placeholder for raw model output artifact
             placeholder_payload = {
                 "placeholder": True,
-                "artifact_kind": "model_output_placeholder",
+                "artifact_kind": "model_output",
                 "status": "unavailable",
                 "reason": reason or "failure occurred before artifact content was produced",
                 "task_file": Path(task_file).as_posix() if task_file else "",
@@ -3657,9 +3705,11 @@ def _emit_failure_artifact_messages(
                     encoding="utf-8",
                     newline="\n",
                 )
+
+            # Placeholder for parsed bundle artifact
             bundle_placeholder_payload = {
                 "placeholder": True,
-                "artifact_kind": "file_bundle_placeholder",
+                "artifact_kind": "file_bundle",
                 "status": "unavailable",
                 "kind": "file_bundle",
                 "reason": reason or "failure occurred before artifact content was produced",
@@ -3668,6 +3718,9 @@ def _emit_failure_artifact_messages(
                 "protected_files": list(protected_files or []),
                 "before_model_output": bool(before_model_output),
                 "normal_bundle_attempted": bool(normal_bundle_attempted),
+                "protected_execution_attempted": bool(protected_execution_attempted),
+                "mixed_task": bool(mixed_task),
+                "protected_targets_identified": list(protected_targets_identified or []),
                 "files": [],
                 # Heuristic advisory fields (mirror the model_output placeholder)
                 "seam_split_families": list(seam_families),

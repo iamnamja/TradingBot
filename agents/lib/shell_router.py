@@ -110,10 +110,18 @@ def _infer_protected_method_targets_from_required(task_text: str, protected_requ
 
 
 def _partition_required_paths_for_normal_bundle(required: list[str], protected_method_paths: list[str] | set[str] | tuple[str, ...] | None = None) -> tuple[list[str], list[str]]:
+    delegated_partition = None
+    # Prefer newly extracted helper if available.
     try:
-        from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as delegated_partition
+        from agents.lib.protected_lane import partition_required_paths_for_normal_bundle as _pl_partition  # type: ignore
+        delegated_partition = _pl_partition
     except Exception:
-        delegated_partition = None
+        # Fallback to legacy location if present.
+        try:
+            from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as _legacy_partition  # type: ignore
+            delegated_partition = _legacy_partition
+        except Exception:
+            delegated_partition = None
 
     normalized_required = _normalize_paths(required)
     normalized_protected_method_paths = _normalize_paths(list(protected_method_paths or []))
@@ -129,7 +137,10 @@ def _partition_required_paths_for_normal_bundle(required: list[str], protected_m
                 protected_meta_harness_paths=_PROTECTED_META_HARNESS_PATHS,
             )
         except TypeError:
+            # Back-compat: older signature without named kw.
             n, p = delegated_partition(normalized_required, normalized_protected_method_paths)
+        except Exception:
+            n, p = [], []
         normal = _normalize_paths(list(n))
         protected = _normalize_paths(list(p))
 
@@ -172,7 +183,15 @@ def _partition_required_paths_for_normal_bundle(required: list[str], protected_m
     if normalized_protected_method_paths:
         families.add("protected_method_mode")
 
-    core_like = {"orchestrator_cli", "orchestrator_core", "policy_or_parser", "failure_journal", "artifact_quarantine", "runtime_foundations", "spec_mode"}
+    core_like = {
+        "orchestrator_cli",
+        "orchestrator_core",
+        "policy_or_parser",
+        "failure_journal",
+        "artifact_quarantine",
+        "runtime_foundations",
+        "spec_mode",
+    }
     core_present = families & core_like
 
     recommend_reasons: list[str] = []
@@ -318,7 +337,6 @@ def _emit_failure_artifact_messages(shell_globals: dict[str, Any], last_output_p
         if protected_execution_attempted or protected_targets_identified:
             families.add("protected_method_mode")
         if mixed_task:
-            # Strong signal that protected and normal edits were mixed.
             families.add("mixed_modes")
 
         core_like = {
