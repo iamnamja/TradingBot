@@ -29,6 +29,31 @@ def _load_run_task_module():
         del sys.modules["agents.run_task"]
     return importlib.import_module("agents.run_task")
 
+def test_failure_journal_live_seam_exports_are_stable_and_do_not_require_module_alias() -> None:
+    run_task = _load_run_task_module()
+    exports = run_task._failure_journal_exports()
+
+    expected_keys = {
+        "failure_journal",
+        "classify_failure",
+        "failure_fingerprint",
+        "bounded_failure_snippet",
+        "recommended_next_action",
+        "chosen_remediation_path",
+        "append_failure_journal_entry",
+        "retry_count_for_fingerprint",
+        "build_failure_remediation_plan",
+        "autonomy_confidence",
+        "continue_autonomously",
+    }
+
+    assert expected_keys.issubset(exports.keys())
+    assert "module" not in exports
+    assert exports["failure_journal"] is not None
+    assert callable(exports["append_failure_journal_entry"])
+    assert callable(exports["build_failure_remediation_plan"])
+
+
 
 def test_repeated_failures_are_fingerprinted_and_counted() -> None:
     fj = _load_failure_journal_module()

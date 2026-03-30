@@ -3931,49 +3931,49 @@ def _spec_mode_exports() -> Dict[str, object]:
     return exports
 
 
+_FAILURE_JOURNAL_EXPORT_NAMES = (
+    "classify_failure",
+    "failure_fingerprint",
+    "bounded_failure_snippet",
+    "recommended_next_action",
+    "chosen_remediation_path",
+    "append_failure_journal_entry",
+    "retry_count_for_fingerprint",
+    "build_failure_remediation_plan",
+    "autonomy_confidence",
+    "continue_autonomously",
+)
+
+
 def _failure_journal_exports() -> Dict[str, object]:
+    """Return the stable live failure-journal seam used by runtime/tests.
+
+    The supported access contract is the mapping returned by this function.
+    It intentionally exposes the imported module under ``failure_journal`` and
+    the callable helper exports under their live helper names. Tests should use
+    this mapping rather than fabricate an alias such as ``module``.
+    """
     cache = getattr(_failure_journal_exports, "_cache", None)
     if isinstance(cache, dict):
-        return cache
+        return dict(cache)
 
     try:
         from agents.lib import failure_journal as _failure_journal  # type: ignore
     except Exception:
         _failure_journal = None  # type: ignore[assignment]
 
-    exports: Dict[str, object] = {
-        "failure_journal": _failure_journal,
-        "classify_failure": None,
-        "failure_fingerprint": None,
-        "bounded_failure_snippet": None,
-        "recommended_next_action": None,
-        "chosen_remediation_path": None,
-        "append_failure_journal_entry": None,
-        "retry_count_for_fingerprint": None,
-        "build_failure_remediation_plan": None,
-        "autonomy_confidence": None,
-        "continue_autonomously": None,
-    }
+    exports: Dict[str, object] = {"failure_journal": _failure_journal}
+    for name in _FAILURE_JOURNAL_EXPORT_NAMES:
+        exports[name] = None
 
     if _failure_journal is not None:
-        for name in (
-            "classify_failure",
-            "failure_fingerprint",
-            "bounded_failure_snippet",
-            "recommended_next_action",
-            "chosen_remediation_path",
-            "append_failure_journal_entry",
-            "retry_count_for_fingerprint",
-            "build_failure_remediation_plan",
-            "autonomy_confidence",
-            "continue_autonomously",
-        ):
+        for name in _FAILURE_JOURNAL_EXPORT_NAMES:
             obj = getattr(_failure_journal, name, None)
             if callable(obj):
                 exports[name] = obj
 
-    setattr(_failure_journal_exports, "_cache", exports)
-    return exports
+    setattr(_failure_journal_exports, "_cache", dict(exports))
+    return dict(exports)
 
 
 

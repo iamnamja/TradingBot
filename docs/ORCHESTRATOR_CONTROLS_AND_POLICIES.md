@@ -35,6 +35,31 @@ Each family maps to the stable helper names that tests may patch or inspect.
 - `bootstrap`: project scaffold bootstrap helpers
 - `spec_mode`: frozen spec artifact and execution-resolution helpers
 - `failure_journal`: failure classification, fingerprinting, and journal helpers
+
+### Failure-journal live seam
+
+The supported live seam for failure-journal access is:
+
+- `agents.run_task._report_failure()` for runtime reporting
+- `agents.run_task._failure_journal_exports()` for stable helper access
+
+`_failure_journal_exports()` returns the imported module under the
+`failure_journal` key plus the live helper callables, including:
+
+- `classify_failure`
+- `failure_fingerprint`
+- `bounded_failure_snippet`
+- `recommended_next_action`
+- `chosen_remediation_path`
+- `append_failure_journal_entry`
+- `retry_count_for_fingerprint`
+- `build_failure_remediation_plan`
+- `autonomy_confidence`
+- `continue_autonomously`
+
+Tests should consume this mapping directly. They should not invent an extra
+`module` alias when the live seam does not expose one.
+
 - `validator_runner`: validator execution and validator selection helpers
 - `artifact_quarantine`: runtime artifact cleanup and classification helpers
 - `runtime_foundations`: shell-provider, git, and worktree foundation helpers
