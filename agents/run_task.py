@@ -295,7 +295,12 @@ def _deliverables_section(task_text: str) -> str:
     start_idx = None
     for i, line in enumerate(lines):
         stripped = line.strip().lower()
-        if stripped in {"## deliverables", "# deliverables"}:
+        if stripped in {
+            "## deliverables",
+            "# deliverables",
+            "## create or update these exact files",
+            "# create or update these exact files",
+        }:
             start_idx = i
             break
 
@@ -304,52 +309,76 @@ def _deliverables_section(task_text: str) -> str:
 
     collected = [lines[start_idx]]
     for line in lines[start_idx + 1:]:
-        if re.match(r"^##\s+", line):
+        if re.match(r"^#{1,6}\s+", line):
             break
         collected.append(line)
 
     return "\n".join(collected)
+
+
 def parse_required_files(task_text: str) -> List[str]:
-    section = _deliverables_section(task_text)
+    try:
+        from agents.lib.task_contracts import parse_required_files_from_task_text  # type: ignore
+        return list(parse_required_files_from_task_text(task_text))
+    except Exception:
+        section = _deliverables_section(task_text)
+        req: List[str] = []
+        for m in DELIVERABLE_PATH_RE.finditer(section):
+            path = m.group(1).strip().replace("\\", "/")
+            if path == "README.md" or ("/" in path and path.startswith(("src/", "tests/", "agents/", "docs/", "tasks/"))):
+                req.append(_canonical_docs_path_for(path))
+        seen = set()
+        out: List[str] = []
+        for p in req:
+            if p not in seen:
+                out.append(p)
+                seen.add(p)
+        return out
 
-    req: List[str] = []
-    for m in DELIVERABLE_PATH_RE.finditer(section):
-        path = m.group(1).strip().replace("\\", "/")
-        if "/" in path and path.startswith(("src/", "tests/", "agents/")):
-            req.append(path)
-
-    seen = set()
-    out: List[str] = []
-    for p in req:
-        if p not in seen:
-            out.append(p)
-            seen.add(p)
-    return out
 
 def task_requires_material_update(task_text: str) -> bool:
-    lower = normalize_newlines(task_text).lower()
-    phrases = [
-        "must create or update",
-        "must be created/updated",
-        "must be updated",
-        "must be materially updated",
-        "materially updated in the same bundle",
-        "required deliverables were included but not materially updated",
-    ]
-    return any(p in lower for p in phrases)
+    try:
+        from agents.lib.task_contracts import task_requires_material_update as _task_requires_material_update  # type: ignore
+        return bool(_task_requires_material_update(task_text, normalize_newlines))
+    except Exception:
+        lower = normalize_newlines(task_text).lower()
+        phrases = [
+            "must create or update",
+            "must be created/updated",
+            "must be updated",
+            "must be materially updated",
+            "materially updated in the same bundle",
+            "required deliverables were included but not materially updated",
+        ]
+        return any(p in lower for p in phrases)
 
 
 def task_allows_unchanged_cli(task_text: str) -> bool:
-    lower = normalize_newlines(task_text).lower()
-    phrases = [
-        "not blocked solely because `cli.py` is unchanged",
-        "not blocked solely because cli.py is unchanged",
-        "including the current compatible `cli.py` in the bundle is acceptable",
-        "including the current compatible cli.py in the bundle is acceptable",
-        "do not force unnecessary churn in `cli.py`",
-        "do not force unnecessary churn in cli.py",
-    ]
-    return any(p in lower for p in phrases)
+    try:
+        from agents.lib.task_contracts import task_allows_unchanged_cli as _task_allows_unchanged_cli  # type: ignore
+        return bool(_task_allows_unchanged_cli(task_text, normalize_newlines))
+    except Exception:
+        lower = normalize_newlines(task_text).lower()
+        phrases = [
+            "not blocked solely because `cli.py` is unchanged",
+            "not blocked solely because cli.py is unchanged",
+            "including the current compatible `cli.py` in the bundle is acceptable",
+            "including the current compatible cli.py in the bundle is acceptable",
+            "do not force unnecessary churn in `cli.py`",
+            "do not force unnecessary churn in cli.py",
+        ]
+        return any(p in lower for p in phrases)
+
+
+def validate_exact_deliverable_contract(task_text: str) -> Tuple[bool, str]:
+    try:
+        from agents.lib.task_contracts import exact_deliverable_contract_issues  # type: ignore
+    except Exception:
+        return True, ""
+    issues = list(exact_deliverable_contract_issues(task_text))
+    if not issues:
+        return True, ""
+    return False, "Invalid exact deliverable contract entries detected:\n" + "\n".join(f"- {issue}" for issue in issues)
 
 
 
@@ -1989,7 +2018,7 @@ def enforce_required_files(
 ) -> Tuple[bool, str]:
     missing = [rf for rf in required if rf not in bundle]
     if missing:
-        return False, "Missing required deliverables (must be created/updated): " + ", ".join(missing)
+        return False, "Missing required deliverables parsed from task contract: " + ", ".join(required) + "; missing from final accepted result after lane reconciliation: " + ", ".join(missing)
 
     if require_material_update and baseline is not None:
         unchanged: List[str] = []
@@ -3402,11 +3431,21 @@ def _infer_protected_method_targets_from_required(task_text: str, protected_requ
 
 def _partition_required_paths_for_normal_bundle(required_paths: List[str], protected_targets: List[dict[str, object]] | List[str] | None = None) -> Tuple[List[str], List[str]]:
     try:
-        from agents.lib.protected_lane import (  # type: ignore
-            partition_required_paths_for_normal_bundle as _pl_partition,
-        )
+        from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as _partition  # type: ignore
     except Exception:
-        _pl_partition = None  # type: ignore[assignment]
+        _partition = None  # type: ignore[assignment]
+
+    if callable(_partition):
+        return _partition(
+            required_paths=required_paths,
+            protected_targets=protected_targets,
+            protected_meta_paths=(
+                "agents/run_task.py",
+                "agents/lib/shell_router.py",
+                "agents/lib/bundle_parser.py",
+                "agents/lib/protected_file_policy.py",
+            ),
+        )
 
     meta_harness_paths = {
         "agents/run_task.py",
@@ -3414,189 +3453,32 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         "agents/lib/bundle_parser.py",
         "agents/lib/protected_file_policy.py",
     }
-
     protected_explicit: set[str] = set()
     for target in protected_targets or []:
         if isinstance(target, dict):
-            maybe_path = target.get("path")
-            if isinstance(maybe_path, str):
-                normalized = maybe_path.strip().replace("\\", "/")
-                if normalized:
-                    protected_explicit.add(normalized)
-        elif isinstance(target, str):
-            normalized = target.strip().replace("\\", "/")
-            if normalized:
-                protected_explicit.add(normalized)
-
-    normalized_required: List[str] = []
-    seen_required: set[str] = set()
-    for raw in required_paths or []:
-        if not isinstance(raw, str):
-            continue
-        normalized = raw.strip().replace("\\", "/")
-        if not normalized or normalized in seen_required:
-            continue
-        seen_required.add(normalized)
-        normalized_required.append(normalized)
+            maybe = target.get("path")
+            if isinstance(maybe, str) and maybe.strip():
+                protected_explicit.add(maybe.strip().replace("\\", "/"))
+        elif isinstance(target, str) and target.strip():
+            protected_explicit.add(target.strip().replace("\\", "/"))
 
     normal: List[str] = []
     protected: List[str] = []
-
-    if callable(_pl_partition):
-        result = None
-        try:
-            result = _pl_partition(  # type: ignore[misc]
-                required_paths=normalized_required,
-                protected_targets=protected_targets,
-                protected_meta_paths=tuple(sorted(meta_harness_paths)),
-            )
-        except TypeError:
-            try:
-                result = _pl_partition(normalized_required, protected_targets)  # type: ignore[misc]
-            except Exception:
-                result = None
-        except Exception:
-            result = None
-
-        if isinstance(result, tuple) and len(result) == 2:
-            left = result[0] if isinstance(result[0], list) else []
-            right = result[1] if isinstance(result[1], list) else []
-            seen_normal: set[str] = set()
-            for item in left:
-                if isinstance(item, str):
-                    p = item.strip().replace("\\", "/")
-                    if p and p not in seen_normal:
-                        normal.append(p)
-                        seen_normal.add(p)
-            seen_protected: set[str] = set()
-            for item in right:
-                if isinstance(item, str):
-                    p = item.strip().replace("\\", "/")
-                    if p and p not in seen_protected:
-                        protected.append(p)
-                        seen_protected.add(p)
-
-    if not normal and not protected:
-        try:
-            from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as _partition  # type: ignore
-        except Exception:
-            _partition = None  # type: ignore[assignment]
-
-        if callable(_partition):
-            try:
-                delegated = _partition(
-                    required_paths=normalized_required,
-                    protected_targets=protected_targets,
-                    protected_meta_paths=tuple(sorted(meta_harness_paths)),
-                )
-            except Exception:
-                delegated = ([], [])
-            if isinstance(delegated, tuple) and len(delegated) == 2:
-                seen_normal: set[str] = set()
-                for item in delegated[0] if isinstance(delegated[0], list) else []:
-                    if isinstance(item, str):
-                        p = item.strip().replace("\\", "/")
-                        if p and p not in seen_normal:
-                            normal.append(p)
-                            seen_normal.add(p)
-                seen_protected: set[str] = set()
-                for item in delegated[1] if isinstance(delegated[1], list) else []:
-                    if isinstance(item, str):
-                        p = item.strip().replace("\\", "/")
-                        if p and p not in seen_protected:
-                            protected.append(p)
-                            seen_protected.add(p)
-
-    if not normal and not protected:
-        seen_normal: set[str] = set()
-        seen_protected: set[str] = set()
-        for path in normalized_required:
-            is_protected = path in protected_explicit or path in meta_harness_paths
-            if is_protected:
-                if path not in seen_protected:
-                    protected.append(path)
-                    seen_protected.add(path)
-            else:
-                if path not in seen_normal:
-                    normal.append(path)
-                    seen_normal.add(path)
-
-    protected_set = set(protected)
-    normal = [p for p in normal if p not in meta_harness_paths and p not in protected_explicit]
-    for path in normalized_required:
-        if path in protected_explicit or path in meta_harness_paths:
-            if path not in protected_set:
+    seen_normal: set[str] = set()
+    seen_protected: set[str] = set()
+    for raw in required_paths or []:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        path = raw.strip().replace("\\", "/")
+        is_protected = path in protected_explicit or path in meta_harness_paths
+        if is_protected:
+            if path not in seen_protected:
                 protected.append(path)
-                protected_set.add(path)
-
-    families: set[str] = set()
-    for p in normalized_required:
-        if p.endswith(".md") or p.startswith("docs/") or p == "README.md":
-            families.add("docs")
-        if p.startswith("tests/"):
-            families.add("tests")
-        if p.startswith("agents/"):
-            if p == "agents/lib/shell_router.py":
-                families.add("shell_router")
-            elif p == "agents/lib/failure_journal.py":
-                families.add("failure_journal")
-            elif p == "agents/lib/artifact_quarantine.py":
-                families.add("artifact_quarantine")
-            elif p in {"agents/lib/validator_runner.py", "agents/lib/check_runner.py"}:
-                families.add("review_parallel")
-            else:
-                families.add("meta")
-        if p.startswith("src/builder/orchestrator/"):
-            name = Path(p).name
-            if name in {"project_config.py", "project_adapter.py", "cli.py"}:
-                families.add("bootstrap_config")
-            else:
-                families.add("orchestrator_core")
-
-    major_families = {f for f in families if f != "tests"}
-    cross_docs_code = "docs" in families and ("orchestrator_core" in families or "bootstrap_config" in families)
-    cross_meta_code = bool({"meta", "shell_router"} & families) and (
-        "orchestrator_core" in families or "bootstrap_config" in families or "docs" in families
-    )
-    cross_failure = bool({"failure_journal", "artifact_quarantine"} & families) and (
-        "orchestrator_core" in families or "bootstrap_config" in families or "docs" in families
-    )
-    broadly_mixed = len(major_families) >= 2 or len(families) >= 3
-    if cross_docs_code or cross_meta_code or cross_failure or broadly_mixed:
-        fam_list = sorted(families)
-        suggestions: List[str] = []
-        if "docs" in families:
-            suggestions.append("docs normalization/narrative update")
-        if "orchestrator_core" in families or "bootstrap_config" in families:
-            suggestions.append("orchestrator code update (runner/config/cli)")
-        if "meta" in families or "shell_router" in families:
-            suggestions.append("harness routing/review surfaces")
-        if "artifact_quarantine" in families:
-            suggestions.append("runtime artifact quarantine behavior")
-        if "failure_journal" in families:
-            suggestions.append("failure journal/reporting seams")
-        if "tests" in families:
-            suggestions.append("tests alignment once implementation is shaped")
-        advice = (
-            "Task scope heuristic: required deliverables span multiple seam families: "
-            + ", ".join(fam_list)
-            + ". Consider splitting into focused follow-ons such as: "
-            + "; ".join(suggestions)
-            + "."
-        )
-        try:
-            os.environ["TRADINGBOT_SEAM_SPLIT_FAMILIES"] = ",".join(fam_list)
-            os.environ["TRADINGBOT_SEAM_SPLIT_RECOMMENDATION"] = advice
-        except Exception:
-            pass
-        warned_key = "_SEAM_SPLIT_WARNED_ONCE"
-        if not bool(globals().get(warned_key)):
-            try:
-                print("⚠️ " + advice)
-            except Exception:
-                pass
-            globals()[warned_key] = True
-
+                seen_protected.add(path)
+        else:
+            if path not in seen_normal:
+                normal.append(path)
+                seen_normal.add(path)
     return normal, protected
 def _local_branch_exists(branch: str) -> bool:
     try:
@@ -3642,78 +3524,55 @@ def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> L
 
 
 
-def _emit_failure_artifact_messages(
-        last_output_path: Path,
-        last_bundle_path: Path,
-        *,
-        create_placeholders: bool = False,
-        task_file: str = "",
-        failure_category: str = "",
-        protected_files: List[str] | None = None,
-        before_model_output: bool = False,
-        normal_bundle_attempted: bool = False,
-        reason: str = "",
-        protected_execution_attempted: bool = False,
-        mixed_task: bool = False,
-        protected_targets_identified: List[str] | None = None,
-    ) -> None:
-        try:
-            from agents.lib.failure_artifacts import emit_failure_artifact_messages as _emit  # type: ignore
-        except Exception:
-            _emit = None  # type: ignore[assignment]
+def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Path, *, create_placeholders: bool = False, task_file: str = "", failure_category: str = "", protected_files: List[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "", protected_execution_attempted: bool = False, mixed_task: bool = False, protected_targets_identified: List[str] | None = None) -> None:
+    try:
+        from agents.lib.failure_artifacts import emit_failure_artifact_messages as _emit  # type: ignore
+    except Exception:
+        _emit = None  # type: ignore[assignment]
 
-        if callable(_emit):
-            _emit(
-                last_output_path=last_output_path,
-                last_bundle_path=last_bundle_path,
-                create_placeholders=create_placeholders,
-                task_file=task_file,
-                failure_category=failure_category,
-                protected_files=protected_files,
-                before_model_output=before_model_output,
-                normal_bundle_attempted=normal_bundle_attempted,
-                reason=reason,
-                protected_execution_attempted=protected_execution_attempted,
-                mixed_task=mixed_task,
-                protected_targets_identified=protected_targets_identified,
+    if callable(_emit):
+        _emit(
+            last_output_path=last_output_path,
+            last_bundle_path=last_bundle_path,
+            create_placeholders=create_placeholders,
+            task_file=task_file,
+            failure_category=failure_category,
+            protected_files=protected_files,
+            before_model_output=before_model_output,
+            normal_bundle_attempted=normal_bundle_attempted,
+            reason=reason,
+            protected_execution_attempted=protected_execution_attempted,
+            mixed_task=mixed_task,
+            protected_targets_identified=protected_targets_identified,
+        )
+        return
+
+    should_create_placeholders = bool(create_placeholders or before_model_output)
+    if should_create_placeholders:
+        placeholder_payload = {
+            "placeholder": True,
+            "artifact_kind": "model_output_placeholder",
+            "status": "unavailable",
+            "reason": reason or "failure occurred before artifact content was produced",
+            "task_file": Path(task_file).as_posix() if task_file else "",
+            "failure_category": failure_category,
+            "protected_files": list(protected_files or []),
+            "before_model_output": bool(before_model_output),
+            "normal_bundle_attempted": bool(normal_bundle_attempted),
+            "protected_execution_attempted": bool(protected_execution_attempted),
+            "mixed_task": bool(mixed_task),
+            "protected_targets_identified": list(protected_targets_identified or []),
+        }
+        if not last_output_path.exists():
+            last_output_path.write_text(
+                json.dumps(placeholder_payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
             )
-            return
-
-        seam_families_env = os.getenv("TRADINGBOT_SEAM_SPLIT_FAMILIES", "").strip()
-        seam_families = [x.strip() for x in seam_families_env.split(",") if x.strip()] if seam_families_env else []
-        seam_recommendation = os.getenv("TRADINGBOT_SEAM_SPLIT_RECOMMENDATION", "").strip()
-
-        if seam_recommendation:
-            print("⚠️ " + seam_recommendation)
-
-        should_create_placeholders = bool(create_placeholders or before_model_output)
-        if should_create_placeholders:
-            placeholder_payload = {
-                "placeholder": True,
-                "artifact_kind": "model_output",
-                "status": "unavailable",
-                "reason": reason or "failure occurred before artifact content was produced",
-                "task_file": Path(task_file).as_posix() if task_file else "",
-                "failure_category": failure_category,
-                "protected_files": list(protected_files or []),
-                "before_model_output": bool(before_model_output),
-                "normal_bundle_attempted": bool(normal_bundle_attempted),
-                "protected_execution_attempted": bool(protected_execution_attempted),
-                "mixed_task": bool(mixed_task),
-                "protected_targets_identified": list(protected_targets_identified or []),
-                "seam_split_families": list(seam_families),
-                "seam_split_recommendation": seam_recommendation,
-            }
-            if not last_output_path.exists():
-                last_output_path.write_text(
-                    json.dumps(placeholder_payload, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8",
-                    newline="\n",
-                )
-
+        if not last_bundle_path.exists():
             bundle_placeholder_payload = {
                 "placeholder": True,
-                "artifact_kind": "file_bundle",
+                "artifact_kind": "file_bundle_placeholder",
                 "status": "unavailable",
                 "kind": "file_bundle",
                 "reason": reason or "failure occurred before artifact content was produced",
@@ -3722,34 +3581,21 @@ def _emit_failure_artifact_messages(
                 "protected_files": list(protected_files or []),
                 "before_model_output": bool(before_model_output),
                 "normal_bundle_attempted": bool(normal_bundle_attempted),
-                "protected_execution_attempted": bool(protected_execution_attempted),
-                "mixed_task": bool(mixed_task),
-                "protected_targets_identified": list(protected_targets_identified or []),
                 "files": [],
-                "seam_split_families": list(seam_families),
-                "seam_split_recommendation": seam_recommendation,
             }
-            if not last_bundle_path.exists():
-                last_bundle_path.write_text(
-                    json.dumps(bundle_placeholder_payload, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8",
-                    newline="\n",
-                )
-
-        if last_output_path.exists():
-            print(f"Model output saved to: {last_output_path}")
-        else:
-            print(f"Model output was not written: {last_output_path}")
-        if last_bundle_path.exists():
-            print(f"Parsed file bundle saved to: {last_bundle_path}")
-        else:
-            print(f"Parsed file bundle was not written: {last_bundle_path}")
-
-        if seam_families or seam_recommendation:
-            families_str = ", ".join(seam_families) if seam_families else "(none)"
-            print(f"Seam-scope analysis: families={families_str}")
-            if seam_recommendation:
-                print(f"Seam-scope recommendation: {seam_recommendation}")
+            last_bundle_path.write_text(
+                json.dumps(bundle_placeholder_payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+    if last_output_path.exists():
+        print(f"Model output saved to: {last_output_path}")
+    else:
+        print(f"Model output was not written: {last_output_path}")
+    if last_bundle_path.exists():
+        print(f"Parsed file bundle saved to: {last_bundle_path}")
+    else:
+        print(f"Parsed file bundle was not written: {last_bundle_path}")
 def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
     exports = _artifact_quarantine_exports()
     quarantine = exports.get("quarantine_runtime_artifacts")
@@ -4167,6 +4013,10 @@ def main() -> int:
     ensure_clean_worktree()
 
     required = parse_required_files(task_text)
+    ok_required_contract, required_contract_msg = validate_exact_deliverable_contract(task_text)
+    if not ok_required_contract:
+        print(f"\n❌ {required_contract_msg}")
+        return 1
     require_material_update = task_requires_material_update(task_text)
     allow_unchanged_cli = task_allows_unchanged_cli(task_text)
     harness_policies = parse_harness_file_policies(task_text)

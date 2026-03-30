@@ -2,7 +2,7 @@
 
 ## Task-family aware prompting
 
-The orchestrator classifies tasks into lightweight families before compiling the LLM request:
+The orchestrator now classifies tasks into lightweight families before compiling the LLM request:
 
 - **docs-only**: all required paths are documentation artifacts.
 - **narrow tests-only**: only `tests/` paths are required.
@@ -22,43 +22,21 @@ Instead of one generic request shape, the orchestrator compiles a lane-specific 
 
 Lane-aware prompt compilation improves reliability by reducing ambiguous guidance and matching instructions to seam risk.
 
-## Task-scope heuristics and split recommendations
+## Split strategy for multi-seam risk
 
-The orchestrator also applies lightweight task-scope heuristics before compiling the final request. The goal is to recognize when a task is likely broader than a single safe request and should be narrowed or split into focused follow-on work.
+The classifier can emit a split recommendation when a task mixes risky seam families.  
+A key example is a task that combines **integration-test** + **protected meta-harness** concerns; this is flagged as split-recommended because it tends to produce broad, fragile edits.
 
-These heuristics are advisory. They do **not** require mandatory auto-splitting and they do **not** prevent execution on their own. Instead, they let the harness warn, annotate, and recommend smaller follow-on tasks when the requested scope appears too wide.
-
-A split recommendation is most likely to appear when a task mixes multiple seam families that have historically produced broad or fragile edits, including combinations across:
-
-- **bootstrap/config surfaces**
-- **failure-journal/reporting seams**
-- **safe-parallelism/review semantics**
-- **runtime artifact quarantine behavior**
-- **broad docs normalization**
-
-The heuristics are intentionally lightweight and should stay compatible with evolving controller behavior. The purpose is to surface likely risk, not to encode brittle or overly opinionated rules.
-
-## Broad multi-seam examples
-
-A task may be marked as split-recommended when it appears to combine more than one high-risk seam family in a single request. Representative examples include:
-
-- a protected meta-harness/controller change that also asks for broad runtime-reporting or failure-journal behavior changes
-- a task that combines safe-parallelism or review-contract semantics with artifact quarantine and controller routing changes
-- a task that asks for both substantial bootstrap/config reshaping and broad documentation normalization in one pass
-- a task that mixes integration/e2e expectations with protected meta-harness changes in a way that is likely to force wide edits
-
-When this happens, the orchestrator can include an explicit split recommendation in the compiled request so the work can be broken into smaller, safer tasks.
+When split is recommended, the orchestrator includes an explicit warning in the compiled request so work can be broken into smaller, safer tasks.
 
 ## Why this matters
 
-Task-family classification, lane-specific request shaping, and split recommendations help the orchestrator:
+Task-family classification + lane-specific request shaping + split recommendations provide:
 
-- keep scope tighter,
-- reduce broad rewrites,
-- improve protected-file policy adherence,
-- and converge more deterministically on `ruff` + `pytest`.
-
-This is especially important for controller and protected-lane work, where apparently related changes often span multiple seams and are more reliable when split into narrower continuations.
+- better scope control,
+- fewer broad rewrites,
+- better protected-file policy adherence,
+- and more deterministic convergence on `ruff` + `pytest`.
 
 ## Safe Parallelism and Review Contract
 
@@ -70,3 +48,16 @@ For protected-file review flows, callers should align to the current `run_review
 - `warnings`
 
 Callers and tests should not assume stricter semantics, such as `mergeable == false` or non-empty `reasons` / `warnings`, unless the live implementation explicitly guarantees those outcomes.
+
+## Exact deliverable completeness
+
+When a task enumerates exact files, the controller now treats those paths as part of the live task contract rather than relying only on operator diff review after the run.
+
+At minimum, exact deliverable parsing now recognizes both common backlog section styles:
+
+- `## Deliverables`
+- `## Create or update these exact files`
+
+The controller accepts canonical repo-relative required paths under `agents/`, `src/`, `tests/`, `docs/`, and `tasks/`, and it also accepts explicitly named top-level canonical files such as `README.md`. Unsafe or malformed entries such as traversal paths, absolute filesystem paths, or URLs are rejected clearly.
+
+If a task enumerates exact files and one or more of them are missing from the final accepted result, the run is not considered complete. The failure message now identifies both the parsed exact-file contract and which required deliverables were still missing after final lane reconciliation.

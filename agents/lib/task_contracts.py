@@ -79,6 +79,105 @@ CANONICAL_ROOT_DOC_FILES = {"README.md"}
 CANONICAL_NARRATIVE_DOC_PREFIXES = ("ORCHESTRATOR_", "TRADINGBOT_")
 
 
+EXACT_DELIVERABLE_SECTION_TITLES = {
+    "deliverables",
+    "create or update these exact files",
+}
+REPO_REQUIRED_PATH_PREFIXES = ("agents/", "src/", "tests/", "docs/", "tasks/")
+MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$")
+LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]\s+|\d+\.\s+)(.+?)\s*$")
+BACKTICK_SPAN_RE = re.compile(r"`([^`]+)`")
+ABSOLUTE_PATH_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|/)")
+URL_PATH_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+BARE_PATH_RE = re.compile(r"^(README\.md|[A-Za-z0-9_.\-/]+)$")
+
+
+def _normalize_exact_deliverable_candidate(raw: str) -> str:
+    candidate = str(raw or "").strip().strip('`').strip('"').strip("'")
+    candidate = candidate.split("#", 1)[0].strip()
+    candidate = candidate.rstrip(",:;.)")
+    return candidate.replace("\\", "/")
+
+
+def _iter_exact_deliverable_lines(task_text: str) -> List[str]:
+    lines = task_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    collected: List[str] = []
+    collecting = False
+    for line in lines:
+        heading = MARKDOWN_HEADING_RE.match(line.strip())
+        if heading:
+            title = heading.group(1).strip().lower()
+            collecting = title in EXACT_DELIVERABLE_SECTION_TITLES
+            continue
+        if collecting:
+            collected.append(line)
+    return collected
+
+
+def _validate_exact_deliverable_path(candidate: str) -> tuple[str | None, str | None]:
+    normalized = _normalize_exact_deliverable_candidate(candidate)
+    if not normalized:
+        return None, None
+    if URL_PATH_RE.match(normalized):
+        return None, f"`{candidate}` is not a repo-relative file path."
+    if ABSOLUTE_PATH_RE.match(normalized):
+        return None, f"`{candidate}` is not a repo-relative file path."
+    if not BARE_PATH_RE.match(normalized):
+        return None, f"`{candidate}` is not a recognized repo-relative file path."
+    canonical = canonical_docs_path_for(normalized)
+    if any(part == ".." for part in Path(canonical).parts):
+        return None, f"`{candidate}` uses path traversal and is not allowed."
+    if canonical == "README.md":
+        return canonical, None
+    if canonical.startswith(REPO_REQUIRED_PATH_PREFIXES):
+        return canonical, None
+    return None, f"`{candidate}` is not under an allowed repo-relative path prefix."
+
+
+def parse_required_files_from_task_text(task_text: str) -> List[str]:
+    required: List[str] = []
+    seen: set[str] = set()
+    for raw_line in _iter_exact_deliverable_lines(task_text):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        item_match = LIST_ITEM_RE.match(raw_line)
+        if not item_match:
+            continue
+        item = item_match.group(1).strip()
+        candidates = BACKTICK_SPAN_RE.findall(item) or [item.split()[0]]
+        for candidate in candidates:
+            parsed, _ = _validate_exact_deliverable_path(candidate)
+            if parsed and parsed not in seen:
+                required.append(parsed)
+                seen.add(parsed)
+    return required
+
+
+def exact_deliverable_contract_issues(task_text: str) -> List[str]:
+    issues: List[str] = []
+    for raw_line in _iter_exact_deliverable_lines(task_text):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        item_match = LIST_ITEM_RE.match(raw_line)
+        if not item_match:
+            continue
+        item = item_match.group(1).strip()
+        candidates = BACKTICK_SPAN_RE.findall(item) or [item.split()[0]]
+        for candidate in candidates:
+            parsed, issue = _validate_exact_deliverable_path(candidate)
+            if parsed is None and issue:
+                issues.append(issue)
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        if issue not in seen:
+            deduped.append(issue)
+            seen.add(issue)
+    return deduped
+
+
 def canonical_docs_path_for(path: str) -> str:
     normalized = str(path or "").strip().replace("\\", "/")
     if not normalized.endswith(".md"):
