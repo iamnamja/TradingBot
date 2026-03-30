@@ -26,8 +26,17 @@ Keeping both in one repo currently supports:
 ## Planned evolution
 
 - Continue through 053–061
-- After continuation criteria are met, consider extracting orchestrator into its own repo/package
+- Progress through deferred continuation tasks 062–068, including extraction preparation work
+- Stabilize package boundaries and package-level orchestrator surface before any repository split
+- After continuation criteria are met, execute a planned extraction sequence (documented under `docs/orchestrator_extraction_plan.md`)
 - Do not treat extraction as already done
+
+## Boundary and import contract
+
+- `builder.orchestrator` is the orchestrator package namespace.
+- TradingBot code remains under `tradingbot.*` and is not part of the orchestrator package API.
+- Package-level re-exports from `builder.orchestrator` should remain orchestrator-focused (config + adapter contracts), not TradingBot-facing.
+- Existing module-level orchestrator imports remain valid for compatibility during prep and migration sequencing.
 
 ## Documentation authority
 

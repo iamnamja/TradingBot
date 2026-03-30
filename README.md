@@ -19,6 +19,17 @@ Continuation is now intentionally resumed under the renumbered active sequence:
 
 Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for status narrative.
 
+## Orchestrator extraction preparation (current scope)
+
+Extraction preparation is active, but no repository split has been executed yet.
+
+- The orchestrator package surface is being intentionally shaped at `builder.orchestrator`.
+- Existing module-level imports remain stable for compatibility.
+- Narrative planning and sequencing for extraction live in:
+  - `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
+  - `docs/TRADINGBOT_AND_ORCHESTRATOR_RELATIONSHIP.md`
+  - `docs/orchestrator_extraction_plan.md`
+
 ## Documentation entry points
 
 - `docs/README.md` — docs index and reading order

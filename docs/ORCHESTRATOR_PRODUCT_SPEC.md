@@ -69,6 +69,29 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **Now**: continue in current repo to complete the continuation and prove seam stability
 - **Later**: execute extraction once 053–061 validates seam stability, preflight discipline, integrated confidence, and packaging readiness
 
+## Intended package-level public surface (`builder.orchestrator`)
+
+The package root should provide a deliberate, orchestrator-only import surface for external callers and future extraction consumers.
+
+Current intentional re-exports at package level:
+
+- `ProjectConfig`
+- `GenericProjectConfig`
+- `load_project_config`
+- `bootstrap_project_config_scaffold`
+- `ProjectAdapter`
+- `load_project_adapter`
+- `bootstrap_project_adapter_scaffold`
+- `build_bootstrap_starter_docs_text`
+- `build_bootstrap_task_template_text`
+
+Design rules:
+
+- Re-export orchestrator-facing configuration and adapter contracts only.
+- Keep module-level import paths stable and available (for compatibility and migration safety).
+- Do **not** re-export TradingBot runtime modules from `builder.orchestrator`.
+- Avoid catch-all or wildcard export patterns that obscure the supported API.
+
 ## Success criteria for extraction readiness
 
 - Stable public interfaces with tested compatibility
@@ -78,7 +101,6 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - One integrated E2E flow validated under current live contracts
 - Focused seam-family hardening completed
 - Documentation/state surfaces synchronized and unambiguous
-
 
 ## Bootstrap lane rule
 
