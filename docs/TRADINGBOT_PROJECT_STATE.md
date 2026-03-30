@@ -12,7 +12,7 @@ The repository combines:
 
 ## Implemented baseline
 
-The orchestrator buildout has progressed through the reliability/autonomy continuation and its immediate stabilization extension with the following sequence complete or in progress:
+The orchestrator buildout has progressed through the reliability/autonomy continuation, protected/controller stabilization, and the first backlog-execution groundwork with the following sequence complete or active:
 
 - Core orchestrator lifecycle and workflow execution (015–038 family)
 - Harness hardening and modularization (039–043)
@@ -20,40 +20,40 @@ The orchestrator buildout has progressed through the reliability/autonomy contin
 - Shell convergence and interface stabilization (049–050)
 - Docs/status normalization and seam preparation (051–054 + 054a/054b)
 - Reliability/autonomy umbrella and implementations (055–067 + 065a + 067a)
+- Original Task 068 confirmed and landed after the stabilization work
 - Stabilization extension to support protected/controller execution and controller thinning (068a–068c)
-- Original Task 068 still remains a meaningful follow-on after the stabilization work proves out in practice
+- Controller decomposition second extraction (069)
+- Task-list manifest and queue model groundwork (070)
 
 ## Current state
 
 The orchestrator can now:
 
 - complete ordinary non-protected tasks more reliably than earlier in the project
-- enforce explicit deliverable completeness for tasks that name exact required files
+- enforce explicit deliverable completeness for tasks that name exact required files when operators verify branch diffs against task deliverables
 - write more truthful failure artifacts for key controller/protected failure paths
 - route controller/protected work through narrower, better-defined lanes than before
-- start decomposing `agents/run_task.py` into extracted helper modules
+- continue decomposing `agents/run_task.py` into extracted helper modules
+- classify broad multi-seam tasks and emit advisory split recommendations
+- construct a deterministic task queue from a manifest-like task list input
+- validate manifest inputs for missing task files and explicit duplicate-path policy handling
 
 However, the project is still **not yet at the point where a backlog/list runner should be considered fully ready**.
 
 The next stage must focus on:
 
-- continuing to shrink the controller
-- representing task lists explicitly
 - persisting batch state and resume behavior
-- adding safe per-task isolation and post-task continue/stop policy
-- only then exposing a user-facing batch runner
+- adding safe per-task isolation and explicit post-task continue/stop/manual policy
+- exposing a user-facing batch runner only after queue/state/isolation behavior is proven end to end
 
 ## Active continuation order
 
 Immediate near-term order:
 
-- confirm original **068** after the stabilization extension
-- then begin the backlog-execution continuation at **069**
+- continue the backlog-execution continuation at **071**
 
-Planned continuation after 068:
+Planned continuation after 070:
 
-- **069** controller decomposition second extraction
-- **070** task-list manifest and queue model
 - **071** batch state persistence and resume
 - **072** per-task checkpoint and branch isolation
 - **073** batch failure policy and continue gate

@@ -8,8 +8,10 @@ Build a reusable orchestration engine that can execute constrained implementatio
 
 - **Post-048 baseline achieved** (042–048 complete)
 - **049–052 complete on `main`**
-- **Current continuation: 055–061 reliability / recovery / autonomy tranche followed by 062–068 deferred continuation**
-- Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package
+- **Reliability/autonomy continuation complete through 067** (including 065a and 067a)
+- **Protected/controller stabilization complete through 069** (including 068, 068a, 068b, and 068c)
+- **070 adds task-list manifest and queue groundwork for backlog execution**
+- Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package and **not yet a full end-to-end backlog runner**
 
 ## Users and use cases
 
@@ -30,6 +32,9 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - Multi-project adapter support
 - Stable seam registry for orchestrator integration testing
 - Seam-aware preflight checks for task shape and generated bundles
+- Lightweight task-scope / split heuristics for broad multi-seam tasks
+- Deterministic task-list manifest parsing and queue construction
+- Explicit manifest validation for missing task files and duplicate-path policy handling
 
 ## Sequence summary
 
@@ -52,7 +57,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 3. Documentation/status normalization
 4. Portability proof on a second project
 
-### Active continuation (053–061)
+### Completed continuation and stabilization follow-ons (053–069)
 
 5. Stable seam registry
 6. Task / seam preflight linter
@@ -62,12 +67,23 @@ Build a reusable orchestration engine that can execute constrained implementatio
 10. Runtime artifact quarantine integration stabilization
 11. Extraction prep for future package/repo split
 12. Canonical docs path policy
-13. Task scope / split heuristics
+13. Reliability/autonomy continuation through 067 (plus 065a and 067a)
+14. Task scope / split heuristics (068)
+15. Protected/controller stabilization follow-ons (068a–068c)
+16. Controller decomposition second extraction (069)
+
+### Current backlog-execution groundwork (070)
+
+17. Task-list manifest and deterministic queue model
+18. Missing-file validation and duplicate-path policy handling for manifest inputs
+19. Runtime wiring to support queue-oriented continuation work in later tasks
+
+This stage is intentionally **groundwork only**. It does not yet provide persisted batch state, resume, per-task isolation, or a user-facing batch runner.
 
 ## Packaging and repo strategy
 
-- **Now**: continue in current repo to complete the continuation and prove seam stability
-- **Later**: execute extraction once 053–061 validates seam stability, preflight discipline, integrated confidence, and packaging readiness
+- **Now**: continue in the current repo through the backlog-execution tranche so queue/state/resume/isolation behavior is proven before extraction
+- **Later**: execute extraction once the continuation and backlog-execution surfaces are stable, documented, and validated under test
 
 ## Intended package-level public surface (`builder.orchestrator`)
 
@@ -100,11 +116,14 @@ Design rules:
 - Demonstrated portability beyond the primary project
 - One integrated E2E flow validated under current live contracts
 - Focused seam-family hardening completed
+- Task-list manifest and queue semantics validated under test
+- Batch state / resume / isolation surfaces completed and documented
 - Documentation/state surfaces synchronized and unambiguous
 
 ## Bootstrap lane rule
 
 The orchestrator should support both an autonomous task lane and a manual patch lane. The first harness-bootstrap tasks in the reliability/recovery/autonomy tranche use the manual patch lane to avoid self-modification regressions while the stable contract is being frozen.
+
 ## Canonical docs placement
 
 This product spec lives under `docs/` because orchestrator/tradingbot narrative documents are canonical there. `README.md` remains the only canonical root-level README; do not create duplicate root-level `ORCHESTRATOR_*.md` or `TRADINGBOT_*.md` narrative docs when the `docs/` path is the intended source of truth.
