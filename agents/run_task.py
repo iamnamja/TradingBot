@@ -3406,24 +3406,15 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
     except Exception:
         _partition = None  # type: ignore[assignment]
 
-    if callable(_partition):
-        return _partition(
-            required_paths=required_paths,
-            protected_targets=protected_targets,
-            protected_meta_paths=(
-                "agents/run_task.py",
-                "agents/lib/shell_router.py",
-                "agents/lib/bundle_parser.py",
-                "agents/lib/protected_file_policy.py",
-            ),
-        )
-
+    # Canonical meta harness paths that must be handled via protected method mode
     meta_harness_paths = {
         "agents/run_task.py",
         "agents/lib/shell_router.py",
         "agents/lib/bundle_parser.py",
         "agents/lib/protected_file_policy.py",
     }
+
+    # Gather any explicitly protected targets from policy/contract parsing
     protected_explicit: set[str] = set()
     for target in protected_targets or []:
         if isinstance(target, dict):
@@ -3433,23 +3424,119 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         elif isinstance(target, str) and target.strip():
             protected_explicit.add(target.strip().replace("\\", "/"))
 
-    normal: List[str] = []
-    protected: List[str] = []
-    seen_normal: set[str] = set()
-    seen_protected: set[str] = set()
+    # Delegate to external partitioner first if available, then layer heuristics without changing the partition.
+    if callable(_partition):
+        normal, protected = _partition(
+            required_paths=required_paths,
+            protected_targets=protected_targets,
+            protected_meta_paths=tuple(sorted(meta_harness_paths)),
+        )
+    else:
+        normal = []
+        protected = []
+        seen_normal: set[str] = set()
+        seen_protected: set[str] = set()
+        for raw in required_paths or []:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            path = raw.strip().replace("\\", "/")
+            is_protected = path in protected_explicit or path in meta_harness_paths
+            if is_protected:
+                if path not in seen_protected:
+                    protected.append(path)
+                    seen_protected.add(path)
+            else:
+                if path not in seen_normal:
+                    normal.append(path)
+                    seen_normal.add(path)
+
+    # Lightweight scope heuristics to detect likely over-broad multi-seam tasks.
+    # This does NOT change partitioning; it only annotates environment and prints a one-time hint.
+    families: set[str] = set()
     for raw in required_paths or []:
         if not isinstance(raw, str) or not raw.strip():
             continue
-        path = raw.strip().replace("\\", "/")
-        is_protected = path in protected_explicit or path in meta_harness_paths
-        if is_protected:
-            if path not in seen_protected:
-                protected.append(path)
-                seen_protected.add(path)
-        else:
-            if path not in seen_normal:
-                normal.append(path)
-                seen_normal.add(path)
+        p = raw.strip().replace("\\", "/")
+
+        # Docs/narrative
+        if p.endswith(".md") or p.startswith("docs/") or p == "README.md":
+            families.add("docs")
+
+        # Tests
+        if p.startswith("tests/"):
+            families.add("tests")
+
+        # Meta harness (routing, parser, protected-file policy)
+        if p.startswith("agents/"):
+            if p.startswith("agents/lib/shell_router.py"):
+                families.add("shell_router")
+            elif p.startswith("agents/lib/failure_journal.py"):
+                families.add("failure_journal")
+            elif p.startswith("agents/lib/artifact_quarantine.py"):
+                families.add("artifact_quarantine")
+            elif p.startswith("agents/lib/validator_runner.py") or p.startswith("agents/lib/check_runner.py"):
+                families.add("review_parallel")
+            elif p.startswith("agents/run_task.py") or p.startswith("agents/lib/"):
+                families.add("meta")
+
+        # Orchestrator core vs bootstrap/config surfaces
+        if p.startswith("src/builder/orchestrator/"):
+            name = Path(p).name
+            if name in {"project_config.py", "project_adapter.py", "cli.py"}:
+                families.add("bootstrap_config")
+            else:
+                families.add("orchestrator_core")
+
+    # Heuristic conditions that imply multi-seam scope
+    major_families = {f for f in families if f not in {"tests"}}
+    cross_docs_code = "docs" in families and (("orchestrator_core" in families) or ("bootstrap_config" in families))
+    cross_meta_code = ({"meta", "shell_router"} & families) and (("orchestrator_core" in families) or ("bootstrap_config" in families) or ("docs" in families))
+    cross_failure = ({"failure_journal", "artifact_quarantine"} & families) and (("orchestrator_core" in families) or ("bootstrap_config" in families) or ("docs" in families))
+    broadly_mixed = len(major_families) >= 2 or (len(families) >= 3)
+
+    likely_over_broad = bool(cross_docs_code or cross_meta_code or cross_failure or broadly_mixed)
+
+    if likely_over_broad:
+        # Build a compact recommendation string
+        fam_list = sorted(families)
+        suggestions: List[str] = []
+        if "docs" in families:
+            suggestions.append("docs normalization/narrative update")
+        if "orchestrator_core" in families or "bootstrap_config" in families:
+            suggestions.append("orchestrator code update (runner/config/cli)")
+        if {"meta", "shell_router"} & families:
+            suggestions.append("harness routing/review surfaces")
+        if "artifact_quarantine" in families:
+            suggestions.append("runtime artifact quarantine behavior")
+        if "failure_journal" in families:
+            suggestions.append("failure journal/reporting seams")
+        if "tests" in families:
+            suggestions.append("tests alignment once implementation is shaped")
+
+        advice = (
+            "Task scope heuristic: required deliverables span multiple seam families: "
+            + ", ".join(fam_list)
+            + ". Consider splitting into focused follow-ons such as: "
+            + "; ".join(suggestions)
+            + "."
+        )
+
+        # Expose as environment annotations for callers/tests and print once to console.
+        try:
+            os.environ["TRADINGBOT_SEAM_SPLIT_FAMILIES"] = ",".join(fam_list)
+            os.environ["TRADINGBOT_SEAM_SPLIT_RECOMMENDATION"] = advice
+        except Exception:
+            pass
+
+        warned_key = "_SEAM_SPLIT_WARNED_ONCE"
+        already_warned = bool(globals().get(warned_key))
+        if not already_warned:
+            try:
+                print("⚠️ " + advice)
+            except Exception:
+                pass
+            globals()[warned_key] = True
+
     return normal, protected
 def _local_branch_exists(branch: str) -> bool:
     try:
@@ -3495,52 +3582,81 @@ def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> L
 
 
 
-def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Path, *, create_placeholders: bool = False, task_file: str = "", failure_category: str = "", protected_files: List[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "", protected_execution_attempted: bool = False, mixed_task: bool = False, protected_targets_identified: List[str] | None = None) -> None:
-    try:
-        from agents.lib.failure_artifacts import emit_failure_artifact_messages as _emit  # type: ignore
-    except Exception:
-        _emit = None  # type: ignore[assignment]
+def _emit_failure_artifact_messages(
+        last_output_path: Path,
+        last_bundle_path: Path,
+        *,
+        create_placeholders: bool = False,
+        task_file: str = "",
+        failure_category: str = "",
+        protected_files: List[str] | None = None,
+        before_model_output: bool = False,
+        normal_bundle_attempted: bool = False,
+        reason: str = "",
+        protected_execution_attempted: bool = False,
+        mixed_task: bool = False,
+        protected_targets_identified: List[str] | None = None,
+    ) -> None:
+        try:
+            from agents.lib.failure_artifacts import emit_failure_artifact_messages as _emit  # type: ignore
+        except Exception:
+            _emit = None  # type: ignore[assignment]
 
-    if callable(_emit):
-        _emit(
-            last_output_path=last_output_path,
-            last_bundle_path=last_bundle_path,
-            create_placeholders=create_placeholders,
-            task_file=task_file,
-            failure_category=failure_category,
-            protected_files=protected_files,
-            before_model_output=before_model_output,
-            normal_bundle_attempted=normal_bundle_attempted,
-            reason=reason,
-            protected_execution_attempted=protected_execution_attempted,
-            mixed_task=mixed_task,
-            protected_targets_identified=protected_targets_identified,
-        )
-        return
-
-    should_create_placeholders = bool(create_placeholders or before_model_output)
-    if should_create_placeholders:
-        placeholder_payload = {
-            "placeholder": True,
-            "artifact_kind": "model_output_placeholder",
-            "status": "unavailable",
-            "reason": reason or "failure occurred before artifact content was produced",
-            "task_file": Path(task_file).as_posix() if task_file else "",
-            "failure_category": failure_category,
-            "protected_files": list(protected_files or []),
-            "before_model_output": bool(before_model_output),
-            "normal_bundle_attempted": bool(normal_bundle_attempted),
-            "protected_execution_attempted": bool(protected_execution_attempted),
-            "mixed_task": bool(mixed_task),
-            "protected_targets_identified": list(protected_targets_identified or []),
-        }
-        if not last_output_path.exists():
-            last_output_path.write_text(
-                json.dumps(placeholder_payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-                newline="\n",
+        # Prefer external implementation if available for compatibility with extracted modules.
+        if callable(_emit):
+            _emit(
+                last_output_path=last_output_path,
+                last_bundle_path=last_bundle_path,
+                create_placeholders=create_placeholders,
+                task_file=task_file,
+                failure_category=failure_category,
+                protected_files=protected_files,
+                before_model_output=before_model_output,
+                normal_bundle_attempted=normal_bundle_attempted,
+                reason=reason,
+                protected_execution_attempted=protected_execution_attempted,
+                mixed_task=mixed_task,
+                protected_targets_identified=protected_targets_identified,
             )
-        if not last_bundle_path.exists():
+            return
+
+        # Lightweight multi-seam task guidance propagated via environment by upstream heuristics.
+        seam_families_env = os.getenv("TRADINGBOT_SEAM_SPLIT_FAMILIES", "").strip()
+        seam_families = [x.strip() for x in seam_families_env.split(",") if x.strip()] if seam_families_env else []
+        seam_recommendation = os.getenv("TRADINGBOT_SEAM_SPLIT_RECOMMENDATION", "").strip()
+
+        # Show guidance once to the console, even if we do not create placeholders.
+        if seam_recommendation:
+            try:
+                print("⚠️ " + seam_recommendation)
+            except Exception:
+                pass
+
+        should_create_placeholders = bool(create_placeholders or before_model_output)
+        if should_create_placeholders:
+            placeholder_payload = {
+                "placeholder": True,
+                "artifact_kind": "model_output_placeholder",
+                "status": "unavailable",
+                "reason": reason or "failure occurred before artifact content was produced",
+                "task_file": Path(task_file).as_posix() if task_file else "",
+                "failure_category": failure_category,
+                "protected_files": list(protected_files or []),
+                "before_model_output": bool(before_model_output),
+                "normal_bundle_attempted": bool(normal_bundle_attempted),
+                "protected_execution_attempted": bool(protected_execution_attempted),
+                "mixed_task": bool(mixed_task),
+                "protected_targets_identified": list(protected_targets_identified or []),
+                # Heuristic advisory fields
+                "seam_split_families": list(seam_families),
+                "seam_split_recommendation": seam_recommendation,
+            }
+            if not last_output_path.exists():
+                last_output_path.write_text(
+                    json.dumps(placeholder_payload, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
             bundle_placeholder_payload = {
                 "placeholder": True,
                 "artifact_kind": "file_bundle_placeholder",
@@ -3553,20 +3669,35 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 "before_model_output": bool(before_model_output),
                 "normal_bundle_attempted": bool(normal_bundle_attempted),
                 "files": [],
+                # Heuristic advisory fields (mirror the model_output placeholder)
+                "seam_split_families": list(seam_families),
+                "seam_split_recommendation": seam_recommendation,
             }
-            last_bundle_path.write_text(
-                json.dumps(bundle_placeholder_payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
-    if last_output_path.exists():
-        print(f"Model output saved to: {last_output_path}")
-    else:
-        print(f"Model output was not written: {last_output_path}")
-    if last_bundle_path.exists():
-        print(f"Parsed file bundle saved to: {last_bundle_path}")
-    else:
-        print(f"Parsed file bundle was not written: {last_bundle_path}")
+            if not last_bundle_path.exists():
+                last_bundle_path.write_text(
+                    json.dumps(bundle_placeholder_payload, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
+
+        if last_output_path.exists():
+            print(f"Model output saved to: {last_output_path}")
+        else:
+            print(f"Model output was not written: {last_output_path}")
+        if last_bundle_path.exists():
+            print(f"Parsed file bundle saved to: {last_bundle_path}")
+        else:
+            print(f"Parsed file bundle was not written: {last_bundle_path}")
+
+        # Provide an explicit summary line if we have seam-split context, to aid tests/logs.
+        if seam_families or seam_recommendation:
+            try:
+                families_str = ", ".join(seam_families) if seam_families else "(none)"
+                print(f"Seam-scope analysis: families={families_str}")
+                if seam_recommendation:
+                    print(f"Seam-scope recommendation: {seam_recommendation}")
+            except Exception:
+                pass
 def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
     exports = _artifact_quarantine_exports()
     quarantine = exports.get("quarantine_runtime_artifacts")
