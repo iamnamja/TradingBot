@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,64 @@ def shell_seam_exports() -> dict[str, tuple[str, ...]]:
     return build_shell_seam_registry()
 
 
+_PROTECTED_META_HARNESS_PATHS = frozenset({
+    "agents/run_task.py",
+    "agents/lib/shell_router.py",
+    "agents/lib/bundle_parser.py",
+    "agents/lib/protected_file_policy.py",
+})
+
+
+def _normalize_paths(paths: list[str] | None = None) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in (paths or []):
+        if not isinstance(raw, str):
+            continue
+        path = raw.strip().replace("\\", "/")
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        out.append(path)
+    return out
+
+
+def _partition_required_paths_for_normal_bundle(required: list[str], protected_method_paths: list[str] | set[str] | tuple[str, ...] | None = None) -> tuple[list[str], list[str]]:
+    normalized_required = _normalize_paths(required)
+    protected_required = set(normalized_required) & set(_PROTECTED_META_HARNESS_PATHS)
+    protected_required.update(p for p in _normalize_paths(list(protected_method_paths or [])) if p in _PROTECTED_META_HARNESS_PATHS)
+    protected = [p for p in normalized_required if p in protected_required]
+    normal = [p for p in normalized_required if p not in protected_required]
+    return normal, protected
+
+
+def _ensure_failure_artifacts(last_output_path: Path, last_bundle_path: Path, *, task_file: str, failure_category: str, protected_files: list[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "") -> None:
+    payload = {
+        "task_file": Path(task_file).as_posix(),
+        "failure_category": failure_category,
+        "protected_files": _normalize_paths(protected_files),
+        "before_model_output": bool(before_model_output),
+        "normal_bundle_attempted": bool(normal_bundle_attempted),
+        "reason": reason,
+    }
+    if not last_output_path.exists():
+        body = dict(payload)
+        body["artifact_kind"] = "model_output_placeholder"
+        last_output_path.write_text(json.dumps(body, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    if not last_bundle_path.exists():
+        body = dict(payload)
+        body["artifact_kind"] = "file_bundle_placeholder"
+        last_bundle_path.write_text(json.dumps(body, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+
+
+def _emit_failure_artifact_messages(shell_globals: dict[str, Any], last_output_path: Path, last_bundle_path: Path, *, task_file: str, failure_category: str, protected_files: list[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "") -> None:
+    delegated = shell_globals.get("_emit_failure_artifact_messages")
+    if callable(delegated):
+        delegated(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason)
+        return
+    _ensure_failure_artifacts(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason)
+    print(f"Model output saved to: {last_output_path}")
+    print(f"Parsed file bundle saved to: {last_bundle_path}")
 
 
 def _call_request_and_parse_bundle_compat(
@@ -200,6 +259,12 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     harness_policies = shell_globals["parse_harness_file_policies"](task_text)
     protected_targets = shell_globals["_extract_protected_method_targets"](task_text)
     protected_method_paths = {str(t["path"]) for t in protected_targets}
+    partition = shell_globals.get("_partition_required_paths_for_normal_bundle")
+    if callable(partition):
+        bundle_required, protected_required = partition(required, protected_method_paths)
+    else:
+        bundle_required, protected_required = _partition_required_paths_for_normal_bundle(required, protected_method_paths)
+    protected_bundle_blocked_paths = sorted(set(protected_method_paths) | set(protected_required))
     baseline_builder = shell_globals.get("_task_baseline_paths")
     if callable(baseline_builder):
         baseline_paths = baseline_builder(required, harness_policies, protected_targets)
@@ -232,10 +297,14 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                 baseline[protected_path] = stable_baseline[protected_path]
             else:
                 baseline.pop(protected_path, None)
-        bundle_required = [p for p in required if p not in protected_method_paths]
 
         files: dict[str, str] = {}
         try:
+            if protected_required and not protected_targets and not bundle_required:
+                reason = "Explicit protected deliverables require protected method mode or manual patch: " + ", ".join(protected_required)
+                shell_globals["_report_failure"]("bundle_transport", reason)
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="bundle_transport", protected_files=protected_required, before_model_output=True, normal_bundle_attempted=False, reason=reason)
+                return 1
             for target in protected_targets:
                 target_path = str(target["path"])
                 mode = str(target["mode"])
@@ -289,20 +358,20 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                     non_protected_directives = (
                         (extra_directives.rstrip() + "\n\n") if extra_directives.strip() else ""
                     ) + suffix
-                virtual_context = {p: files[p] for p in sorted(protected_method_paths) if p in files}
+                virtual_context = {p: files[p] for p in protected_bundle_blocked_paths if p in files}
                 messages = shell_globals["build_messages"](
                     task_text,
                     bundle_required,
                     non_protected_directives,
                     virtual_context=virtual_context,
-                    forbidden_normal_bundle_paths=sorted(protected_method_paths),
+                    forbidden_normal_bundle_paths=protected_bundle_blocked_paths,
                 )
                 generated = _call_request_and_parse_bundle_compat(
                     shell_globals,
                     messages,
                     args,
                     last_output_path,
-                    forbidden_paths=sorted(protected_method_paths),
+                    forbidden_paths=protected_bundle_blocked_paths,
                     expected_paths=bundle_required,
                     baseline=baseline,
                     task_text=task_text,
@@ -310,20 +379,20 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                 )
                 files.update(generated)
             elif not files:
-                virtual_context = {p: files[p] for p in sorted(protected_method_paths) if p in files}
+                virtual_context = {p: files[p] for p in protected_bundle_blocked_paths if p in files}
                 messages = shell_globals["build_messages"](
                     task_text,
                     required,
                     extra_directives,
                     virtual_context=virtual_context,
-                    forbidden_normal_bundle_paths=sorted(protected_method_paths),
+                    forbidden_normal_bundle_paths=protected_bundle_blocked_paths,
                 )
                 files = _call_request_and_parse_bundle_compat(
                     shell_globals,
                     messages,
                     args,
                     last_output_path,
-                    forbidden_paths=sorted(protected_method_paths),
+                    forbidden_paths=protected_bundle_blocked_paths,
                     expected_paths=required,
                     baseline=baseline,
                     task_text=task_text,
@@ -331,8 +400,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                 )
         except shell_globals["FileBundleError"] as e:
             shell_globals["_report_failure"]("bundle_transport", str(e))
-            print(f"Model output saved to: {last_output_path}")
-            print(f"Parsed file bundle saved to: {last_bundle_path}")
+            _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="bundle_transport", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason=str(e))
             return 1
 
         pretty: list[str] = [shell_globals["FILE_BUNDLE_BEGIN"]]
@@ -349,8 +417,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             task_text = shell_globals["_append_task_feedback"](task_text, syntax_msg)
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "python_syntax", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated Python syntax failures. Recommended action: manual_patch")
-                print("Model output saved to: _last_agent_model_output.txt")
-                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
                 return 1
             prev_files = files
             continue
@@ -367,8 +434,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             task_text = shell_globals["_append_task_feedback"](task_text, req_msg)
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "deliverables", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated deliverable violations. Recommended action: manual_patch")
-                print("Model output saved to: _last_agent_model_output.txt")
-                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
                 return 1
             prev_files = files
             continue
@@ -379,8 +445,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             task_text = shell_globals["_append_task_feedback"](task_text, policy_msg)
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "protected_file_policy", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated protected-file policy violations. Recommended action: manual_patch")
-                print("Model output saved to: _last_agent_model_output.txt")
-                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
                 return 1
             prev_files = files
             continue
@@ -391,8 +456,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             task_text = shell_globals["_append_task_feedback"](task_text, static_msg)
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "static_contracts", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated static contract violations. Recommended action: manual_patch")
-                print("Model output saved to: _last_agent_model_output.txt")
-                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
                 return 1
             prev_files = files
             continue
@@ -405,8 +469,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             )
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "imports", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated import validation failures. Recommended action: manual_patch")
-                print("Model output saved to: _last_agent_model_output.txt")
-                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
                 return 1
             prev_files = files
             continue

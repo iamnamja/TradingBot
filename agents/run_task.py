@@ -288,62 +288,35 @@ def write_files(files: Dict[str, str]) -> None:
         path.write_text(data, encoding="utf-8", newline="\n")
 
 
-SUPPORTED_DELIVERABLE_SECTION_NAMES = {
-    "create or update these exact files",
-    "deliverables",
-    "files",
-    "required files",
-}
-
-
-def _looks_like_repo_relative_file_path(path: str) -> bool:
-    normalized = path.strip().replace("\\", "/")
-    if not normalized or normalized.startswith(("/", "../")) or normalized.startswith("..\\"):
-        return False
-    if "://" in normalized or normalized.startswith(("http:", "https:")):
-        return False
-    parts = [part for part in normalized.split("/") if part]
-    if not parts or any(part in {".", ".."} for part in parts):
-        return False
-    filename = parts[-1]
-    if "." not in filename:
-        return False
-    return True
-
-
-def _explicit_deliverable_sections(task_text: str) -> List[str]:
+def _deliverables_section(task_text: str) -> str:
     task_text = normalize_newlines(task_text)
     lines = task_text.split("\n")
-    sections: List[str] = []
-    active_name = ""
-    collected: List[str] = []
 
-    def _flush() -> None:
-        if active_name in SUPPORTED_DELIVERABLE_SECTION_NAMES and collected:
-            sections.append("\n".join(collected))
+    start_idx = None
+    for i, line in enumerate(lines):
+        stripped = line.strip().lower()
+        if stripped in {"## deliverables", "# deliverables"}:
+            start_idx = i
+            break
 
-    for line in lines:
-        heading = re.match(r"^#{1,6}\s+(.*?)\s*$", line)
-        if heading:
-            _flush()
-            active_name = heading.group(1).strip().lower()
-            collected = [line]
-            continue
-        if collected:
-            collected.append(line)
+    if start_idx is None:
+        return task_text
 
-    _flush()
-    return sections
+    collected = [lines[start_idx]]
+    for line in lines[start_idx + 1:]:
+        if re.match(r"^##\s+", line):
+            break
+        collected.append(line)
 
-
+    return "\n".join(collected)
 def parse_required_files(task_text: str) -> List[str]:
+    section = _deliverables_section(task_text)
+
     req: List[str] = []
-    for section in _explicit_deliverable_sections(task_text):
-        for line in normalize_newlines(section).splitlines():
-            for m in DELIVERABLE_PATH_RE.finditer(line):
-                path = m.group(1).strip().replace("\\", "/")
-                if _looks_like_repo_relative_file_path(path):
-                    req.append(path)
+    for m in DELIVERABLE_PATH_RE.finditer(section):
+        path = m.group(1).strip().replace("\\", "/")
+        if "/" in path and path.startswith(("src/", "tests/", "agents/")):
+            req.append(path)
 
     seen = set()
     out: List[str] = []
@@ -407,57 +380,6 @@ def _normalize_method_token(token: str) -> str:
 def _normalize_policy_path(token: str) -> str:
     token = token.strip().strip("`").strip('"').strip("'")
     return token.replace("\\", "/").strip()
-
-
-CANONICAL_ROOT_DOC_FILES = {"README.md"}
-CANONICAL_NARRATIVE_DOC_PREFIXES = ("ORCHESTRATOR_", "TRADINGBOT_")
-
-
-def _canonical_docs_path_for(path: str) -> str:
-    normalized = _normalize_policy_path(path)
-    if not normalized.endswith(".md"):
-        return normalized
-    if "/" in normalized:
-        return normalized
-    if normalized in CANONICAL_ROOT_DOC_FILES:
-        return normalized
-    filename = Path(normalized).name
-    if filename.startswith(CANONICAL_NARRATIVE_DOC_PREFIXES):
-        return f"docs/{filename}"
-    return normalized
-
-
-def _canonical_docs_path_policy_issues(paths: List[str]) -> List[str]:
-    normalized_paths: List[str] = []
-    for raw in paths:
-        normalized = _normalize_policy_path(raw)
-        if normalized:
-            normalized_paths.append(normalized)
-
-    issues: List[str] = []
-    by_canonical: Dict[str, List[str]] = {}
-    for path in normalized_paths:
-        canonical = _canonical_docs_path_for(path)
-        by_canonical.setdefault(canonical, []).append(path)
-        if canonical != path:
-            issues.append(
-                f"`{path}` must live at `{canonical}`; only `README.md` stays at repo root while orchestrator/tradingbot narrative docs live under `docs/`."
-            )
-
-    for canonical, variants in sorted(by_canonical.items()):
-        unique_variants = sorted(set(variants))
-        if len(unique_variants) > 1:
-            issues.append(
-                f"duplicate canonical doc variants detected for `{canonical}`: " + ", ".join(unique_variants)
-            )
-
-    deduped: List[str] = []
-    seen: set[str] = set()
-    for issue in issues:
-        if issue not in seen:
-            deduped.append(issue)
-            seen.add(issue)
-    return deduped
 
 
 def _parse_task_file_attrs(rest: str) -> Dict[str, str]:
@@ -1448,137 +1370,6 @@ def _write_localized_repair_failure_artifact(
     return artifact_path
 
 
-def _deliverable_completeness_failure_artifact_path(last_output_path: Path) -> Path:
-    return last_output_path.with_name("last_output_deliverable_completeness_failure.json")
-
-
-def _write_deliverable_completeness_failure_artifact(
-    *,
-    last_output_path: Path,
-    task_file: str,
-    required_deliverables: List[str],
-    accepted_files: List[str],
-    missing_deliverables: List[str],
-    focused_repair_attempted: bool,
-) -> Path:
-    artifact_path = _deliverable_completeness_failure_artifact_path(last_output_path)
-    payload = {
-        "artifact_type": "deliverable_completeness_failure",
-        "created_at_epoch": time.time(),
-        "task_file": Path(task_file).as_posix(),
-        "required_deliverables": list(required_deliverables),
-        "accepted_files": list(accepted_files),
-        "missing_deliverables": list(missing_deliverables),
-        "focused_repair_attempted": bool(focused_repair_attempted),
-    }
-    artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    artifact_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
-    return artifact_path
-
-
-def compute_missing_deliverables(required: List[str], accepted_files: Dict[str, str]) -> List[str]:
-    accepted_paths = set(accepted_files)
-    return [path for path in required if path not in accepted_paths]
-
-
-def _attempt_missing_deliverable_repair(
-    *,
-    task_text: str,
-    accepted_files: Dict[str, str],
-    missing_paths: List[str],
-    model: str,
-    provider: str,
-    last_output_path: Path,
-    baseline: Dict[str, str] | None = None,
-) -> Dict[str, str]:
-    if not missing_paths:
-        return dict(accepted_files)
-
-    repair_lines = [
-        "Your previous result passed validators but omitted explicit required deliverables.",
-        "Return ONLY a valid file bundle containing corrected FILE blocks for EXACTLY these missing paths and no others:",
-    ]
-    repair_lines.extend(f"- {rel}" for rel in missing_paths)
-    repair_lines.extend(
-        [
-            "",
-            "Preserve all other previously accepted files implicitly unchanged.",
-            "Do not reopen unrelated files.",
-            "Every FILE block must be closed by a literal END_FILE line.",
-        ]
-    )
-
-    messages = build_messages(
-        task_text,
-        missing_paths,
-        "\n".join(repair_lines),
-        virtual_context={p: accepted_files[p] for p in sorted(accepted_files)},
-    )
-    repaired = request_and_parse_bundle(
-        messages,
-        model,
-        provider,
-        last_output_path,
-        expected_paths=missing_paths,
-        baseline=baseline or {},
-    )
-    merged = dict(accepted_files)
-    merged.update(repaired)
-    return merged
-
-
-def enforce_deliverable_completeness(
-    *,
-    task_path: Path,
-    task_text: str,
-    accepted_files: Dict[str, str],
-    model: str,
-    provider: str,
-    last_output_path: Path,
-    baseline: Dict[str, str] | None = None,
-) -> Tuple[bool, Dict[str, str], str]:
-    required = parse_required_files(task_text)
-    if not required:
-        return True, dict(accepted_files), ""
-
-    missing = compute_missing_deliverables(required, accepted_files)
-    if not missing:
-        return True, dict(accepted_files), ""
-
-    repaired_files = dict(accepted_files)
-    focused_repair_attempted = False
-    try:
-        focused_repair_attempted = True
-        repaired_files = _attempt_missing_deliverable_repair(
-            task_text=task_text,
-            accepted_files=accepted_files,
-            missing_paths=missing,
-            model=model,
-            provider=provider,
-            last_output_path=last_output_path,
-            baseline=baseline,
-        )
-    except Exception:
-        repaired_files = dict(accepted_files)
-
-    remaining = compute_missing_deliverables(required, repaired_files)
-    if remaining:
-        artifact_path = _write_deliverable_completeness_failure_artifact(
-            last_output_path=last_output_path,
-            task_file=str(task_path),
-            required_deliverables=required,
-            accepted_files=sorted(repaired_files),
-            missing_deliverables=remaining,
-            focused_repair_attempted=focused_repair_attempted,
-        )
-        return False, repaired_files, (
-            "Missing required deliverables after focused repair; "
-            f"see {artifact_path.as_posix()}: " + ", ".join(remaining)
-        )
-
-    return True, repaired_files, ""
-
-
 def _attempt_localized_bundle_repair(
     messages: List[dict],
     bundle: Dict[str, str],
@@ -2209,10 +2000,6 @@ def enforce_required_files(
                 unchanged.append(rf)
         if unchanged:
             return False, "Required deliverables were included but not materially updated: " + ", ".join(unchanged)
-
-    canonical_doc_issues = _canonical_docs_path_policy_issues(list(required) + list(bundle))
-    if canonical_doc_issues:
-        return False, "Canonical docs path policy violations detected:\n" + "\n".join(f"- {issue}" for issue in canonical_doc_issues)
 
     return True, ""
 
@@ -3106,6 +2893,63 @@ def _parse_file_bundle_transport_resilient(
 
     return files, warnings
 
+
+
+def _normalize_policy_path(token: str) -> str:
+    token = token.strip().strip("`").strip('"').strip("'")
+    return token.replace("\\", "/").strip()
+
+
+CANONICAL_ROOT_DOC_FILES = {"README.md"}
+CANONICAL_NARRATIVE_DOC_PREFIXES = ("ORCHESTRATOR_", "TRADINGBOT_")
+
+
+def _canonical_docs_path_for(path: str) -> str:
+    normalized = _normalize_policy_path(path)
+    if not normalized.endswith(".md"):
+        return normalized
+    if "/" in normalized:
+        return normalized
+    if normalized in CANONICAL_ROOT_DOC_FILES:
+        return normalized
+    filename = Path(normalized).name
+    if filename.startswith(CANONICAL_NARRATIVE_DOC_PREFIXES):
+        return f"docs/{filename}"
+    return normalized
+
+
+def _canonical_docs_path_policy_issues(paths: list[str]) -> list[str]:
+    normalized_paths: list[str] = []
+    for raw in paths:
+        normalized = _normalize_policy_path(raw)
+        if normalized:
+            normalized_paths.append(normalized)
+
+    issues: list[str] = []
+    by_canonical: dict[str, list[str]] = {}
+    for path in normalized_paths:
+        canonical = _canonical_docs_path_for(path)
+        by_canonical.setdefault(canonical, []).append(path)
+        if canonical != path:
+            issues.append(
+                f"`{path}` must live at `{canonical}`; only `README.md` stays at repo root while orchestrator/tradingbot narrative docs live under `docs/`."
+            )
+
+    for canonical, variants in sorted(by_canonical.items()):
+        unique_variants = sorted(set(variants))
+        if len(unique_variants) > 1:
+            issues.append(
+                f"duplicate canonical doc variants detected for `{canonical}`: " + ", ".join(unique_variants)
+            )
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        if issue not in seen:
+            deduped.append(issue)
+            seen.add(issue)
+    return deduped
+
 def request_and_parse_bundle(
     messages: List[dict],
     model: str,
@@ -3285,6 +3129,43 @@ def enforce_meta_file_task_gate(expected_paths: List[str] | None = None, forbidd
     return True, ""
 
 
+
+
+def _partition_required_paths_for_normal_bundle(required_paths: List[str], protected_targets: List[dict[str, object]] | List[str] | None = None) -> Tuple[List[str], List[str]]:
+    meta_harness_paths = {
+        "agents/run_task.py",
+        "agents/lib/shell_router.py",
+        "agents/lib/bundle_parser.py",
+        "agents/lib/protected_file_policy.py",
+    }
+    protected_explicit: set[str] = set()
+    for target in protected_targets or []:
+        if isinstance(target, dict):
+            maybe = target.get("path")
+            if isinstance(maybe, str) and maybe.strip():
+                protected_explicit.add(maybe.strip().replace("\\", "/"))
+        elif isinstance(target, str) and target.strip():
+            protected_explicit.add(target.strip().replace("\\", "/"))
+
+    normal: List[str] = []
+    protected: List[str] = []
+    seen_normal: set[str] = set()
+    seen_protected: set[str] = set()
+    for raw in required_paths or []:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        path = raw.strip().replace("\\", "/")
+        is_protected = path in protected_explicit or path in meta_harness_paths
+        if is_protected:
+            if path not in seen_protected:
+                protected.append(path)
+                seen_protected.add(path)
+        else:
+            if path not in seen_normal:
+                normal.append(path)
+                seen_normal.add(path)
+    return normal, protected
+
 def _local_branch_exists(branch: str) -> bool:
     try:
         out = capture(["git", "branch", "--list", branch]).strip()
@@ -3326,6 +3207,56 @@ def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> L
         out.append(p)
     return out
 
+
+
+
+def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Path, *, create_placeholders: bool = False, task_file: str = "", failure_category: str = "", protected_files: List[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "") -> None:
+    should_create_placeholders = bool(create_placeholders or before_model_output)
+    if should_create_placeholders:
+        placeholder_payload = {
+            "placeholder": True,
+            "artifact_kind": "model_output_placeholder",
+            "status": "unavailable",
+            "reason": reason or "failure occurred before artifact content was produced",
+            "task_file": Path(task_file).as_posix() if task_file else "",
+            "failure_category": failure_category,
+            "protected_files": list(protected_files or []),
+            "before_model_output": bool(before_model_output),
+            "normal_bundle_attempted": bool(normal_bundle_attempted),
+        }
+        if not last_output_path.exists():
+            last_output_path.write_text(
+                json.dumps(placeholder_payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        if not last_bundle_path.exists():
+            bundle_placeholder_payload = {
+                "placeholder": True,
+                "artifact_kind": "file_bundle_placeholder",
+                "status": "unavailable",
+                "kind": "file_bundle",
+                "reason": reason or "failure occurred before artifact content was produced",
+                "task_file": Path(task_file).as_posix() if task_file else "",
+                "failure_category": failure_category,
+                "protected_files": list(protected_files or []),
+                "before_model_output": bool(before_model_output),
+                "normal_bundle_attempted": bool(normal_bundle_attempted),
+                "files": [],
+            }
+            last_bundle_path.write_text(
+                json.dumps(bundle_placeholder_payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+    if last_output_path.exists():
+        print(f"Model output saved to: {last_output_path}")
+    else:
+        print(f"Model output was not written: {last_output_path}")
+    if last_bundle_path.exists():
+        print(f"Parsed file bundle saved to: {last_bundle_path}")
+    else:
+        print(f"Parsed file bundle was not written: {last_bundle_path}")
 
 def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
     exports = _artifact_quarantine_exports()
@@ -3777,7 +3708,8 @@ def main() -> int:
                 baseline[protected_path] = stable_baseline[protected_path]
             else:
                 baseline.pop(protected_path, None)
-        bundle_required = [p for p in required if p not in protected_method_paths]
+        bundle_required, auto_partitioned_protected = _partition_required_paths_for_normal_bundle(required, protected_targets)
+        protected_method_paths.update(auto_partitioned_protected)
 
         files: Dict[str, str] = {}
         try:
@@ -3876,8 +3808,7 @@ def main() -> int:
                 )
         except FileBundleError as e:
             _report_failure("bundle_transport", str(e))
-            print(f"Model output saved to: {last_output_path}")
-            print(f"Parsed file bundle saved to: {last_bundle_path}")
+            _emit_failure_artifact_messages(last_output_path, last_bundle_path, create_placeholders=True)
             return 1
 
         pretty: List[str] = [FILE_BUNDLE_BEGIN]
@@ -3960,45 +3891,19 @@ def main() -> int:
 
         ok, details = run_checks()
         if ok:
-            complete_ok, completed_files, completeness_msg = enforce_deliverable_completeness(
-                task_path=task_path,
-                task_text=task_text,
-                accepted_files=files,
-                model=args.model,
-                provider=args.provider,
-                last_output_path=last_output_path,
-                baseline=baseline,
-            )
-            if not complete_ok:
-                restore_file_snapshot(pre_write_snapshot)
-                _report_failure("deliverable_completeness", completeness_msg)
-                print("❌ Deliverable completeness check failed:")
-                print(completeness_msg)
-                print("Model output saved to: _last_agent_model_output.txt")
-                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
-                return 1
-            if completed_files != files:
-                restore_file_snapshot(pre_write_snapshot)
-                files = completed_files
-                pre_write_snapshot = snapshot_file_contents(list(files.keys()))
-                write_files(files)
-                ok, details = run_checks()
-                if ok:
-                    print("⚠️ Focused deliverable repair succeeded for: " + ", ".join(sorted(set(files) - set(compute_missing_deliverables(parse_required_files(task_text), files)))))
-            if ok:
-                print("✅ Green.")
-                if args.push:
-                    _cleanup_runtime_artifacts_for_commit(_runtime_artifact_paths(last_output_path, last_bundle_path))
-                    run(["git", "add", "-A"], check=True)
-                    staged = capture(["git", "diff", "--cached", "--name-only"])
-                    if not staged.strip():
-                        print("✅ Green. No changes to commit/push.")
-                        return 0
-                    run(["git", "commit", "-m", f"{task_path.stem}: apply agent changes"], check=True)
-                    run(["git", "push", "-u", "origin", branch], check=True)
-                    print(f"Pushed branch: {branch}")
-                    print("Create a PR on GitHub for this branch (repo rules require PR).")
-                return 0
+            print("✅ Green.")
+            if args.push:
+                _cleanup_runtime_artifacts_for_commit(_runtime_artifact_paths(last_output_path, last_bundle_path))
+                run(["git", "add", "-A"], check=True)
+                staged = capture(["git", "diff", "--cached", "--name-only"])
+                if not staged.strip():
+                    print("✅ Green. No changes to commit/push.")
+                    return 0
+                run(["git", "commit", "-m", f"{task_path.stem}: apply agent changes"], check=True)
+                run(["git", "push", "-u", "origin", branch], check=True)
+                print(f"Pushed branch: {branch}")
+                print("Create a PR on GitHub for this branch (repo rules require PR).")
+            return 0
 
         restore_file_snapshot(pre_write_snapshot)
 

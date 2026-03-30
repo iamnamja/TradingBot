@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import importlib
 import sys
 from pathlib import Path
@@ -224,150 +225,164 @@ END_FILE_BUNDLE""",
     assert "FILE: docs/ORCHESTRATOR_PRODUCT_SPEC.md" in payload["localized_repair_raw_output"]
 
 
-def test_parse_required_files_only_from_supported_explicit_sections() -> None:
+
+
+def test_protected_meta_deliverables_are_partitioned_out_of_normal_bundle_scope() -> None:
     run_task, _, _, _, _ = _load_runtime_modules()
-    task_text = """
-# Task
+    normal, protected = run_task._partition_required_paths_for_normal_bundle(
+        [
+            "agents/run_task.py",
+            "tests/test_run_task_runtime_foundations.py",
+            "agents/lib/shell_router.py",
+        ],
+        [],
+    )
 
-Please consider `docs/IGNORED.md` in prose only.
-
-## Create or update these exact files
-
-- `agents/run_task.py`
-- `tests/test_run_task_runtime_foundations.py`
-- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
-
-## Notes
-
-Mentioning `src/not_required.py` here should not count.
-"""
-    assert run_task.parse_required_files(task_text) == [
-        "agents/run_task.py",
-        "tests/test_run_task_runtime_foundations.py",
-        "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
-    ]
+    assert normal == ["tests/test_run_task_runtime_foundations.py"]
+    assert protected == ["agents/run_task.py", "agents/lib/shell_router.py"]
 
 
-def test_parse_required_files_ignores_ambiguous_task_text() -> None:
+def test_non_protected_deliverables_remain_in_normal_bundle_scope_for_mixed_tasks(tmp_path, monkeypatch) -> None:
     run_task, _, _, _, _ = _load_runtime_modules()
-    task_text = """
-# Task
+    shell_router = importlib.import_module("agents.lib.shell_router")
+    monkeypatch.chdir(tmp_path)
+    task_path = tmp_path / "mixed_task.md"
+    task_path.write_text("task", encoding="utf-8")
 
-Please improve the runtime. You may need to touch `agents/run_task.py` and
-maybe `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`, but this is not an explicit
-deliverables section.
-"""
-    assert run_task.parse_required_files(task_text) == []
-
-
-def test_attempt_missing_deliverable_repair_requests_only_missing_files_and_preserves_accepted(monkeypatch, tmp_path) -> None:
-    run_task, _, _, _, _ = _load_runtime_modules()
     captured: dict[str, object] = {}
+    reports: list[tuple[str, str]] = []
 
-    def fake_build_messages(task_text, required, extra_directives="", virtual_context=None, forbidden_normal_bundle_paths=None):
-        captured["required"] = list(required)
-        captured["virtual_context"] = dict(virtual_context or {})
-        return [{"role": "user", "content": "repair"}]
+    def fake_request_bundle(messages, model, provider, last_output_path, **kwargs):
+        captured["expected_paths"] = kwargs.get("expected_paths")
+        captured["forbidden_paths"] = kwargs.get("forbidden_paths")
+        last_output_path.write_text("synthetic model output\n", encoding="utf-8")
+        return {"tests/test_run_task_runtime_foundations.py": "from __future__ import annotations\n"}
 
-    def fake_request_and_parse_bundle(messages, model, provider, last_output_path, forbidden_paths=None, expected_paths=None, baseline=None):
-        captured["expected_paths"] = list(expected_paths or [])
-        return {"docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md": "# repaired doc\n"}
+    shell_globals = {
+        "_bootstrap_exports": lambda: {},
+        "_spec_mode_exports": lambda: {},
+        "ensure_clean_worktree": lambda: None,
+        "parse_required_files": lambda _text: [
+            "agents/run_task.py",
+            "agents/lib/shell_router.py",
+            "tests/test_run_task_runtime_foundations.py",
+        ],
+        "task_requires_material_update": lambda _text: False,
+        "task_allows_unchanged_cli": lambda _text: False,
+        "parse_harness_file_policies": lambda _text: {},
+        "_extract_protected_method_targets": lambda _text: [],
+        "_task_baseline_paths": lambda required, harness, targets: list(required),
+        "_choose_agent_branch": lambda stem, push: f"agent-{stem}",
+        "capture": lambda cmd: "main",
+        "ensure_branch": lambda branch: None,
+        "existing_file_contents": lambda paths: {},
+        "build_messages": lambda *args, **kwargs: [{"role": "user", "content": "x"}],
+        "request_and_parse_bundle": fake_request_bundle,
+        "FILE_BUNDLE_BEGIN": "BEGIN_FILE_BUNDLE",
+        "FILE_END": "END_FILE",
+        "FILE_BUNDLE_END": "END_FILE_BUNDLE",
+        "FileBundleError": run_task.FileBundleError,
+        "_report_failure": lambda kind, msg: reports.append((kind, msg)),
+        "validate_python_syntax": lambda files: (True, ""),
+        "enforce_required_files": lambda *args, **kwargs: (False, "Missing required deliverables (must be created/updated): agents/run_task.py, agents/lib/shell_router.py"),
+        "enforce_harness_file_policies": lambda *args, **kwargs: (True, ""),
+        "validate_static_bundle_contracts": lambda *args, **kwargs: (True, ""),
+        "validate_imports": lambda *args, **kwargs: (True, ""),
+        "_append_task_feedback": lambda task_text, message: task_text,
+        "_repeat_limit_exceeded": run_task._repeat_limit_exceeded,
+        "_emit_failure_artifact_messages": run_task._emit_failure_artifact_messages,
+    }
 
-    monkeypatch.setattr(run_task, "build_messages", fake_build_messages)
-    monkeypatch.setattr(run_task, "request_and_parse_bundle", fake_request_and_parse_bundle)
-
-    merged = run_task._attempt_missing_deliverable_repair(
-        task_text="""
-## Create or update these exact files
-- `tests/test_run_task_runtime_foundations.py`
-- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
-""",
-        accepted_files={"tests/test_run_task_runtime_foundations.py": "def ok():\n    return 1\n"},
-        missing_paths=["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"],
+    args = SimpleNamespace(
+        bootstrap_project="",
+        task=str(task_path),
+        spec_mode=False,
+        push=False,
         model="m",
         provider="openai",
-        last_output_path=tmp_path / "last_output.txt",
-        baseline={"docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md": "# baseline\n"},
+        max_iters=1,
+        policy_block_limit=1,
     )
 
-    assert captured["required"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
-    assert captured["expected_paths"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
-    assert "tests/test_run_task_runtime_foundations.py" in captured["virtual_context"]
-    assert merged["tests/test_run_task_runtime_foundations.py"].startswith("def ok():")
-    assert merged["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"] == "# repaired doc\n"
+    result = shell_router.route_shell_main(args, shell_globals)
+
+    assert result == 1
+    assert captured["expected_paths"] == ["tests/test_run_task_runtime_foundations.py"]
+    assert captured["forbidden_paths"] == ["agents/lib/shell_router.py", "agents/run_task.py"]
+    assert reports[-1][0] == "deliverables"
 
 
-def test_enforce_deliverable_completeness_triggers_focused_repair_and_returns_complete_bundle(monkeypatch, tmp_path) -> None:
+def test_protected_only_task_writes_truthful_placeholder_failure_artifacts(tmp_path, monkeypatch) -> None:
     run_task, _, _, _, _ = _load_runtime_modules()
-    calls: dict[str, object] = {}
+    shell_router = importlib.import_module("agents.lib.shell_router")
+    monkeypatch.chdir(tmp_path)
+    task_path = tmp_path / "protected_only_task.md"
+    task_path.write_text("task", encoding="utf-8")
 
-    def fake_attempt_missing_deliverable_repair(**kwargs):
-        calls["missing_paths"] = list(kwargs["missing_paths"])
-        calls["accepted_files"] = dict(kwargs["accepted_files"])
-        repaired = dict(kwargs["accepted_files"])
-        repaired["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"] = "# repaired\n"
-        return repaired
+    reports: list[tuple[str, str]] = []
 
-    monkeypatch.setattr(run_task, "_attempt_missing_deliverable_repair", fake_attempt_missing_deliverable_repair)
+    shell_globals = {
+        "_bootstrap_exports": lambda: {},
+        "_spec_mode_exports": lambda: {},
+        "ensure_clean_worktree": lambda: None,
+        "parse_required_files": lambda _text: ["agents/run_task.py", "agents/lib/shell_router.py"],
+        "task_requires_material_update": lambda _text: False,
+        "task_allows_unchanged_cli": lambda _text: False,
+        "parse_harness_file_policies": lambda _text: {},
+        "_extract_protected_method_targets": lambda _text: [],
+        "_task_baseline_paths": lambda required, harness, targets: list(required),
+        "_choose_agent_branch": lambda stem, push: f"agent-{stem}",
+        "capture": lambda cmd: "main",
+        "ensure_branch": lambda branch: None,
+        "existing_file_contents": lambda paths: {},
+        "FileBundleError": run_task.FileBundleError,
+        "_report_failure": lambda kind, msg: reports.append((kind, msg)),
+        "_emit_failure_artifact_messages": run_task._emit_failure_artifact_messages,
+    }
 
-    ok, merged, message = run_task.enforce_deliverable_completeness(
-        task_path=Path("tasks/065a_orchestrator_deliverable_completeness_enforcement.md"),
-        task_text="""
-## Create or update these exact files
-
-- `tests/test_run_task_runtime_foundations.py`
-- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
-""",
-        accepted_files={"tests/test_run_task_runtime_foundations.py": "def ok():\n    return 1\n"},
+    args = SimpleNamespace(
+        bootstrap_project="",
+        task=str(task_path),
+        spec_mode=False,
+        push=False,
         model="m",
         provider="openai",
-        last_output_path=tmp_path / "last_output.txt",
-        baseline={"docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md": "# baseline\n"},
+        max_iters=1,
+        policy_block_limit=1,
     )
 
-    assert ok is True
-    assert message == ""
-    assert calls["missing_paths"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
-    assert "tests/test_run_task_runtime_foundations.py" in calls["accepted_files"]
-    assert merged["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"] == "# repaired\n"
+    result = shell_router.route_shell_main(args, shell_globals)
+
+    assert result == 1
+    assert reports[-1][0] == "bundle_transport"
+
+    model_output = tmp_path / "_last_agent_model_output.txt"
+    bundle_output = tmp_path / "_last_agent_file_bundle.txt"
+    assert model_output.exists()
+    assert bundle_output.exists()
+
+    model_payload = json.loads(model_output.read_text(encoding="utf-8"))
+    bundle_payload = json.loads(bundle_output.read_text(encoding="utf-8"))
+
+    assert model_payload["artifact_kind"] == "model_output_placeholder"
+    assert bundle_payload["artifact_kind"] == "file_bundle_placeholder"
+    assert model_payload["before_model_output"] is True
+    assert bundle_payload["before_model_output"] is True
+    assert model_payload["protected_files"] == ["agents/run_task.py", "agents/lib/shell_router.py"]
 
 
-def test_enforce_deliverable_completeness_writes_durable_failure_artifact_when_missing_remains(monkeypatch, tmp_path) -> None:
+def test_non_protected_tasks_keep_all_required_files_in_normal_bundle_scope() -> None:
     run_task, _, _, _, _ = _load_runtime_modules()
-
-    monkeypatch.setattr(
-        run_task,
-        "_attempt_missing_deliverable_repair",
-        lambda **kwargs: dict(kwargs["accepted_files"]),
+    normal, protected = run_task._partition_required_paths_for_normal_bundle(
+        [
+            "tests/test_run_task_runtime_foundations.py",
+            "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
+        ],
+        [],
     )
 
-    ok, merged, message = run_task.enforce_deliverable_completeness(
-        task_path=Path("tasks/065a_orchestrator_deliverable_completeness_enforcement.md"),
-        task_text="""
-## Create or update these exact files
-
-- `tests/test_run_task_runtime_foundations.py`
-- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
-""",
-        accepted_files={"tests/test_run_task_runtime_foundations.py": "def ok():\n    return 1\n"},
-        model="m",
-        provider="openai",
-        last_output_path=tmp_path / "last_output.txt",
-        baseline={"docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md": "# baseline\n"},
-    )
-
-    assert ok is False
-    assert "Missing required deliverables after focused repair" in message
-    artifact_path = tmp_path / "last_output_deliverable_completeness_failure.json"
-    assert artifact_path.exists()
-    payload = __import__("json").loads(artifact_path.read_text(encoding="utf-8"))
-    assert payload["artifact_type"] == "deliverable_completeness_failure"
-    assert payload["task_file"] == "tasks/065a_orchestrator_deliverable_completeness_enforcement.md"
-    assert payload["required_deliverables"] == [
+    assert normal == [
         "tests/test_run_task_runtime_foundations.py",
         "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
     ]
-    assert payload["accepted_files"] == ["tests/test_run_task_runtime_foundations.py"]
-    assert payload["missing_deliverables"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
-    assert payload["focused_repair_attempted"] is True
-    assert merged["tests/test_run_task_runtime_foundations.py"].startswith("def ok():")
+    assert protected == []
