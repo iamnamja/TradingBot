@@ -1,104 +1,78 @@
-# Orchestrator Roadmap — Reliability / Recovery / Autonomy Continuation (055–068)
+# Orchestrator Roadmap — Reliability / Recovery / Autonomy Continuation (055–068 + stabilization extension)
 
 ## Why this reset exists
 
-The original 055+ continuation was aimed at integrated coverage and extraction prep, but recent execution history showed that the orchestrator still needs stronger **recovery**, **task-family routing**, **semantic validation**, and **control-plane behavior** before it can reliably move through long backlogs without repeated human intervention.
+The original 055+ continuation was aimed at integrated coverage and extraction prep, but recent execution history showed that the orchestrator still needed stronger **recovery**, **task-family routing**, **semantic validation**, and **control-plane behavior** before it could reliably move through long backlogs without repeated human intervention.
 
-This roadmap inserts a new active tranche at **055–061** focused on turning the orchestrator into a resilient controller, then resumes the deferred continuation at **062–068**.
+That tranche landed useful improvements, but post-067 execution still showed a gap between:
 
-## Active tranche (run in this order)
+- successful ordinary task execution
+- protected/controller-file autonomy
+- malformed-bundle recovery for controller work
+- the long-term goal of making `agents/run_task.py` materially less monolithic
 
-### 055 — Reliability and Autonomy Umbrella
-Umbrella only. This task is for framing, docs, and acceptance of the tranche. Do **not** run it as a normal autonomous implementation task.
+This roadmap therefore inserts a short **stabilization extension** before the original Task 068 resumes.
 
-### 055a — Harness Contract Freeze
-Freeze the stable runner/shell contract and lock the surfaces that future reliability work depends on.
-- Runner / shell compatibility
-- Baseline loading / protected target contract
-- Stable helper and message surfaces
-- Manual patch lane
+## Completed tranche
 
-### 055b — Task Family Classifier, Prompt Compiler, and Split Strategy
-Teach the orchestrator to recognize task families and compile the correct request strategy for each.
-- Docs-only
-- Narrow tests-only
-- Integration-test
-- Protected harness/meta
-- Split/defer when too broad
+The following reliability/autonomy continuation now appears complete:
 
-### 055c — Seam Manifest and Semantic Contract Validator
-Replace brittle seam heuristics with explicit manifests and semantic validation.
-- Exact seam names
-- Allowed export keys
-- Contract-aware preflight
-- Manual patch lane
+- 055 — Reliability and Autonomy Umbrella
+- 055a — Harness Contract Freeze
+- 055b — Task Family Classifier, Prompt Compiler, and Split Strategy
+- 055c — Seam Manifest and Semantic Contract Validator
+- 056 — Failure Classifier and Remediation Planner
+- 057 — Localized Repair and Failure Artifacts
+- 058 — Backlog Readiness and State Engine
+- 059 — CI / PR / Merge Controller
+- 060 — Autonomy Loop Integration
+- 061 — Continuation Reset and Numbering Sync
+- 062 — Integrated Capabilities E2E
+- 063 — Failure Journal Live Seam
+- 064 — Safe Parallelism / Review Integration
+- 065 — Runtime Artifact Quarantine Integration
+- 065a — Deliverable Completeness Enforcement
+- 066 — Package Extraction Prep
+- 067 — Canonical Docs Path Policy
+- 067a — Protected Method Mode Routing and Failure Artifact Fix
 
-### 056 — Failure Classifier and Remediation Planner
-Turn failures into structured remediation decisions.
-- Retry vs localized repair vs task patch vs runner patch vs manual lane vs escalate
-- Confidence-gated autonomy
+## New stabilization extension (run in this order)
 
-### 057 — Localized Repair and Failure Artifacts
-Make localized repair the default for small bundles and guarantee usable failure artifacts.
-- Preserve good files
-- Retry only bad files
-- Always write real diagnostics
+### 068a — Protected Lane Execution Hardening
+Turn protected-file detection into a working protected execution lane, especially for mixed protected/non-protected tasks.
 
-### 058 — Backlog Readiness and State Engine
-Make task readiness, blockers, and next-task selection first-class orchestrator behavior.
-- Backlog state
-- Runnable task selection
-- Blocked / deferred / split awareness
+### 068b — Duplicate Bundle Normalization and Focused Repair
+Recover from duplicate `FILE:` path bundles by normalizing safe duplicates or retrying only the conflicted files.
 
-### 059 — CI / PR / Merge Controller
-Bring PR creation, CI polling/classification, merge, and resync into the orchestrator control loop.
+### 068c — Controller Decomposition and First Extraction
+Start making `agents/run_task.py` less monolithic by extracting pure task-contract and failure-artifact helpers into dedicated modules.
 
-### 060 — Autonomy Loop Integration
-Prove the orchestrator can combine readiness, routing, validation, remediation, localized repair, and PR/CI/merge into one control loop.
-
-### 061 — Continuation Reset and Numbering Sync
-Finalize the reset and hand the system back to the deferred continuation under the new numbering.
-
-## Deferred continuation (resume only after 055–061)
-
-### 062 — Integrated Capabilities E2E
-Formerly `055_orchestrator_integrated_capabilities_e2e.md`
-
-### 063 — Failure Journal Live Seam
-Formerly `056_orchestrator_failure_journal_live_seam.md`
-
-### 064 — Safe Parallelism / Review Integration
-Formerly `057_orchestrator_safe_parallelism_review_integration.md`
-
-### 065 — Runtime Artifact Quarantine Integration
-Formerly `058_orchestrator_runtime_artifact_quarantine_integration.md`
-
-### 066 — Package Extraction Prep
-Formerly `059_orchestrator_package_extraction_prep.md`
-
-### 067 — Canonical Docs Path Policy
-Formerly `060_orchestrator_canonical_docs_path_policy.md`
+## Deferred continuation (resume after 068a–068c)
 
 ### 068 — Task Scope / Split Heuristics
-Formerly `061_orchestrator_task_scope_and_split_heuristics.md`
+The original Task 068 remains valid, but it is no longer the immediate next task. The orchestrator needs the stabilization extension above before broader task-scope/split guidance will be trustworthy in practice.
 
-## Lane rules
+## Why 068 moved behind 068a–068c
 
-- **Manual patch lane**
-  - 055a
-  - 055c
-- **Autonomous lane**
-  - 055b
-  - 056
-  - 057
-  - 058
-  - 059
-  - 060
-  - 061
-  - Deferred continuation 062–068 after the tranche lands
+Recent execution history showed:
 
-## First task to run
+- protected/controller tasks still require disproportionate manual intervention
+- malformed bundles can still derail controller tasks even after truthful artifacts improve
+- `run_task.py` remains too central, making controller fixes fragile and regression-prone
 
-After the docs/tasks renumbering patch is merged, the first task to execute is:
+Task-scope/split heuristics still matter, but they are less urgent than making protected/controller execution reliable and shrinking the controller surface itself.
 
-`tasks/055b_orchestrator_task_family_classifier_prompt_compiler_and_split_strategy.md`
+## Lane guidance
+
+- **Likely manual-patch / protected-controller lane**
+  - 068a
+  - 068c
+- **Expected autonomous lane once 068a lands**
+  - 068b
+  - 068
+
+## Immediate next task
+
+After the docs/tasks planning update is merged, the next task to execute is:
+
+`tasks/068a_orchestrator_protected_lane_execution_hardening.md`
