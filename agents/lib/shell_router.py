@@ -110,14 +110,29 @@ def _infer_protected_method_targets_from_required(task_text: str, protected_requ
 
 
 def _partition_required_paths_for_normal_bundle(required: list[str], protected_method_paths: list[str] | set[str] | tuple[str, ...] | None = None) -> tuple[list[str], list[str]]:
+    try:
+        from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as delegated_partition
+    except Exception:
+        delegated_partition = None
+
+    if callable(delegated_partition):
+        try:
+            normal, protected = delegated_partition(
+                required,
+                protected_method_paths,
+                protected_meta_harness_paths=_PROTECTED_META_HARNESS_PATHS,
+            )
+            return _normalize_paths(list(normal)), _normalize_paths(list(protected))
+        except TypeError:
+            normal, protected = delegated_partition(required, protected_method_paths)
+            return _normalize_paths(list(normal)), _normalize_paths(list(protected))
+
     normalized_required = _normalize_paths(required)
     protected_required = set(normalized_required) & set(_PROTECTED_META_HARNESS_PATHS)
     protected_required.update(p for p in _normalize_paths(list(protected_method_paths or [])) if p in _PROTECTED_META_HARNESS_PATHS)
     protected = [p for p in normalized_required if p in protected_required]
     normal = [p for p in normalized_required if p not in protected_required]
     return normal, protected
-
-
 def _ensure_failure_artifacts(last_output_path: Path, last_bundle_path: Path, *, task_file: str, failure_category: str, protected_files: list[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "", protected_execution_attempted: bool = False, mixed_task: bool = False, protected_targets_identified: list[str] | None = None) -> None:
     payload = {
         "task_file": Path(task_file).as_posix(),
@@ -141,6 +156,28 @@ def _ensure_failure_artifacts(last_output_path: Path, last_bundle_path: Path, *,
 
 
 def _emit_failure_artifact_messages(shell_globals: dict[str, Any], last_output_path: Path, last_bundle_path: Path, *, task_file: str, failure_category: str, protected_files: list[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "", protected_execution_attempted: bool = False, mixed_task: bool = False, protected_targets_identified: list[str] | None = None) -> None:
+    try:
+        from agents.lib.failure_artifacts import emit_failure_artifact_messages as delegated_emit
+    except Exception:
+        delegated_emit = None
+
+    if callable(delegated_emit):
+        delegated_emit(
+            shell_globals=shell_globals,
+            last_output_path=last_output_path,
+            last_bundle_path=last_bundle_path,
+            task_file=task_file,
+            failure_category=failure_category,
+            protected_files=protected_files,
+            before_model_output=before_model_output,
+            normal_bundle_attempted=normal_bundle_attempted,
+            reason=reason,
+            protected_execution_attempted=protected_execution_attempted,
+            mixed_task=mixed_task,
+            protected_targets_identified=protected_targets_identified,
+        )
+        return
+
     delegated = shell_globals.get("_emit_failure_artifact_messages")
     if callable(delegated):
         delegated(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason, protected_execution_attempted=protected_execution_attempted, mixed_task=mixed_task, protected_targets_identified=protected_targets_identified)
@@ -148,8 +185,6 @@ def _emit_failure_artifact_messages(shell_globals: dict[str, Any], last_output_p
     _ensure_failure_artifacts(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason, protected_execution_attempted=protected_execution_attempted, mixed_task=mixed_task, protected_targets_identified=protected_targets_identified)
     print(f"Model output saved to: {last_output_path}")
     print(f"Parsed file bundle saved to: {last_bundle_path}")
-
-
 def _call_request_and_parse_bundle_compat(
     shell_globals: dict[str, Any],
     messages: list[dict[str, Any]],

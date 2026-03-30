@@ -3401,6 +3401,23 @@ def _infer_protected_method_targets_from_required(task_text: str, protected_requ
 
 
 def _partition_required_paths_for_normal_bundle(required_paths: List[str], protected_targets: List[dict[str, object]] | List[str] | None = None) -> Tuple[List[str], List[str]]:
+    try:
+        from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as _partition  # type: ignore
+    except Exception:
+        _partition = None  # type: ignore[assignment]
+
+    if callable(_partition):
+        return _partition(
+            required_paths=required_paths,
+            protected_targets=protected_targets,
+            protected_meta_paths=(
+                "agents/run_task.py",
+                "agents/lib/shell_router.py",
+                "agents/lib/bundle_parser.py",
+                "agents/lib/protected_file_policy.py",
+            ),
+        )
+
     meta_harness_paths = {
         "agents/run_task.py",
         "agents/lib/shell_router.py",
@@ -3434,7 +3451,6 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
                 normal.append(path)
                 seen_normal.add(path)
     return normal, protected
-
 def _local_branch_exists(branch: str) -> bool:
     try:
         out = capture(["git", "branch", "--list", branch]).strip()
@@ -3480,6 +3496,28 @@ def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> L
 
 
 def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Path, *, create_placeholders: bool = False, task_file: str = "", failure_category: str = "", protected_files: List[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "", protected_execution_attempted: bool = False, mixed_task: bool = False, protected_targets_identified: List[str] | None = None) -> None:
+    try:
+        from agents.lib.failure_artifacts import emit_failure_artifact_messages as _emit  # type: ignore
+    except Exception:
+        _emit = None  # type: ignore[assignment]
+
+    if callable(_emit):
+        _emit(
+            last_output_path=last_output_path,
+            last_bundle_path=last_bundle_path,
+            create_placeholders=create_placeholders,
+            task_file=task_file,
+            failure_category=failure_category,
+            protected_files=protected_files,
+            before_model_output=before_model_output,
+            normal_bundle_attempted=normal_bundle_attempted,
+            reason=reason,
+            protected_execution_attempted=protected_execution_attempted,
+            mixed_task=mixed_task,
+            protected_targets_identified=protected_targets_identified,
+        )
+        return
+
     should_create_placeholders = bool(create_placeholders or before_model_output)
     if should_create_placeholders:
         placeholder_payload = {
@@ -3529,7 +3567,6 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         print(f"Parsed file bundle saved to: {last_bundle_path}")
     else:
         print(f"Parsed file bundle was not written: {last_bundle_path}")
-
 def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
     exports = _artifact_quarantine_exports()
     quarantine = exports.get("quarantine_runtime_artifacts")
