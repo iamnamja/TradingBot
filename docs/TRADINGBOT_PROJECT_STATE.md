@@ -12,7 +12,7 @@ The repository combines:
 
 ## Implemented baseline
 
-The orchestrator buildout has progressed through the reliability/autonomy tranche with the following sequence complete:
+The orchestrator buildout has progressed through the reliability/autonomy continuation and its immediate follow-ons with the following sequence complete:
 
 - Core orchestrator lifecycle and workflow execution (015–038 family)
 - Harness hardening and modularization (039–043)
@@ -20,22 +20,32 @@ The orchestrator buildout has progressed through the reliability/autonomy tranch
 - Shell convergence and interface stabilization (049–050)
 - Docs/status normalization and seam preparation (051–054 + 054a/054b)
 - Reliability/autonomy umbrella and implementations (055–060)
+- Continuation reset and resumed follow-ons (061–067 + 065a + 067a)
 
-## Continuation reset (this sync point)
+## Current state
 
-To prevent post-tranche drift, continuation is explicitly resumed from:
+The orchestrator can now:
 
-- **061** `orchestrator_continuation_reset_and_numbering_sync` (this alignment task)
+- complete ordinary non-protected tasks more reliably than before
+- enforce explicit deliverable completeness for tasks that name exact required files
+- write truthful failure artifacts for key protected/controller failure paths
 
-Follow-on deferred continuation remains:
+However, post-067 execution also showed that the system is **not yet at the point where protected/controller-file tasks can be trusted to complete autonomously**.
 
-- **062** integrated capabilities e2e
-- **063** failure journal live seam
-- **064** safe parallelism review integration
-- **065** runtime artifact quarantine integration
-- **066** package extraction prep
-- **067** canonical docs path policy
-- **068** task scope and split heuristics
+The next work is therefore a stabilization extension focused on:
+
+- real protected execution lane behavior
+- duplicate-bundle recovery
+- making `agents/run_task.py` less monolithic
+
+## Active continuation order
+
+The next task sequence is:
+
+- **068a** protected lane execution hardening
+- **068b** duplicate bundle normalization and focused repair
+- **068c** controller decomposition and first extraction
+- **068** task scope / split heuristics (resume after the stabilization extension)
 
 ## Canonical ordering source
 
