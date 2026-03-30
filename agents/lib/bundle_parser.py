@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Pattern, Type
+from typing import Callable, Dict, List, Pattern, Type, Tuple
 
 
 def parse_file_bundle(
@@ -13,6 +13,40 @@ def parse_file_bundle(
     file_end: str,
     error_cls: Type[Exception],
 ) -> Dict[str, str]:
+    entries = parse_file_bundle_entries(
+        text=text,
+        normalize_newlines=normalize_newlines,
+        file_bundle_begin=file_bundle_begin,
+        file_bundle_end=file_bundle_end,
+        file_header_re=file_header_re,
+        file_end=file_end,
+        error_cls=error_cls,
+    )
+
+    files: Dict[str, str] = {}
+    for relpath, content in entries:
+        if relpath in files:
+            raise error_cls(f"Duplicate FILE path in bundle: {relpath}")
+        files[relpath] = content
+
+    if not files:
+        raise error_cls("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
+
+    return files
+
+
+
+
+def parse_file_bundle_entries(
+    *,
+    text: str,
+    normalize_newlines: Callable[[str], str],
+    file_bundle_begin: str,
+    file_bundle_end: str,
+    file_header_re: Pattern[str],
+    file_end: str,
+    error_cls: Type[Exception],
+) -> List[Tuple[str, str]]:
     text = normalize_newlines(text)
 
     if file_bundle_begin not in text or file_bundle_end not in text:
@@ -23,12 +57,12 @@ def parse_file_bundle(
     body = text[start:end].strip("\n")
 
     if not body.strip():
-        return {}
+        return []
 
     if "FILE:" not in body:
         raise error_cls("No FILE: headers found inside file bundle.")
 
-    files: Dict[str, str] = {}
+    entries: List[Tuple[str, str]] = []
     lines = body.split("\n")
     i = 0
     while i < len(lines):
@@ -55,12 +89,41 @@ def parse_file_bundle(
             raise error_cls(f"Missing END_FILE for {relpath}.")
 
         i += 1
-        files[relpath] = "\n".join(buf).rstrip("\n") + "\n"
+        entries.append((relpath, "\n".join(buf).rstrip("\n") + "\n"))
 
-    if not files:
+    if not entries:
         raise error_cls("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
 
-    return files
+    return entries
+
+
+def classify_duplicate_file_entries(
+    *,
+    entries: List[Tuple[str, str]],
+    normalize_newlines: Callable[[str], str],
+) -> Tuple[Dict[str, str], Dict[str, List[str]], List[str]]:
+    grouped: Dict[str, List[str]] = {}
+    for relpath, content in entries:
+        path = relpath.strip()
+        if not path:
+            continue
+        grouped.setdefault(path, []).append(content)
+
+    normalized: Dict[str, str] = {}
+    conflicts: Dict[str, List[str]] = {}
+    equivalent_duplicates: List[str] = []
+
+    for relpath, variants in grouped.items():
+        canonical_variants = [normalize_newlines(v).rstrip("\n") + "\n" for v in variants]
+        first = canonical_variants[0]
+        if all(v == first for v in canonical_variants[1:]):
+            normalized[relpath] = first
+            if len(canonical_variants) > 1:
+                equivalent_duplicates.append(relpath)
+        else:
+            conflicts[relpath] = canonical_variants
+
+    return normalized, conflicts, sorted(equivalent_duplicates)
 
 
 def parse_method_insertion_bundle(
@@ -130,172 +193,3 @@ def parse_method_insertion_bundle(
         i += 1
 
     raise error_cls("Method insertion response did not include BEGIN_METHOD / END_METHOD block.")
-
-
-def parse_file_bundle_transport_resilient(
-    *,
-    text: str,
-    expected_paths: List[str] | None,
-    normalize_newlines: Callable[[str], str],
-    file_bundle_begin: str,
-    file_bundle_end: str,
-    file_header_re: Pattern[str],
-    bundle_file_header_re: Pattern[str],
-    file_end: str,
-    error_cls: Type[Exception],
-) -> tuple[Dict[str, str], List[str]]:
-    """Best-effort recovery for malformed outer file-bundle transport."""
-    normalized = normalize_newlines(text)
-    lines = normalized.split("\n")
-
-    warnings: List[str] = []
-    expected = {
-        p.strip().replace("\\", "/")
-        for p in (expected_paths or [])
-        if isinstance(p, str) and p.strip()
-    }
-
-    begin_idxs = [i for i, line in enumerate(lines) if line.strip() == file_bundle_begin]
-    end_idxs = [i for i, line in enumerate(lines) if line.strip() == file_bundle_end]
-
-    markerless = False
-    if begin_idxs and end_idxs:
-        b = begin_idxs[0]
-        e = end_idxs[-1]
-        if e < b:
-            raise error_cls("END_FILE_BUNDLE appears before BEGIN_FILE_BUNDLE.")
-        inner = lines[b + 1 : e]
-        if b > 0 and any(line.strip() for line in lines[:b]):
-            warnings.append("ignored leading non-bundle text before BEGIN_FILE_BUNDLE")
-        if e + 1 < len(lines) and any(line.strip() for line in lines[e + 1 :]):
-            warnings.append("ignored trailing non-bundle text after END_FILE_BUNDLE")
-    elif not begin_idxs and not end_idxs:
-        inner = lines
-        markerless = True
-        warnings.append("recovered markerless file bundle transport (missing outer BEGIN_FILE_BUNDLE/END_FILE_BUNDLE)")
-    else:
-        raise error_cls("Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.")
-
-    files: Dict[str, str] = {}
-    cur_path: str | None = None
-    cur_lines: List[str] = []
-    saw_file = False
-    trailing_text_ignored = False
-
-    def _normalize_path(raw_path: str) -> str:
-        return raw_path.strip().replace("\\", "/")
-
-    def close_current(reason: str) -> None:
-        nonlocal cur_path, cur_lines
-        if cur_path is None:
-            return
-        files[cur_path] = "\n".join(cur_lines).rstrip("\n") + "\n"
-        warnings.append(f"{reason}: {cur_path}")
-        cur_path = None
-        cur_lines = []
-
-    def _next_meaningful(index: int) -> tuple[str | None, str | None]:
-        j = index + 1
-        while j < len(inner):
-            candidate = inner[j]
-            stripped = candidate.strip()
-            if not stripped:
-                j += 1
-                continue
-            if markerless and stripped in {"```", "~~~"}:
-                j += 1
-                continue
-            return stripped, candidate
-        return None, None
-
-    def _should_treat_header_as_new_file(path: str) -> bool:
-        return not expected or path in expected
-
-    def _should_close_on_end_file(index: int) -> bool:
-        next_stripped, next_raw = _next_meaningful(index)
-        if next_stripped is None:
-            return True
-        if markerless:
-            return True
-        if next_raw is not None:
-            header = bundle_file_header_re.match(next_raw)
-            if header:
-                next_path = _normalize_path(header.group(1))
-                return _should_treat_header_as_new_file(next_path)
-        return False
-
-    i = 0
-    while i < len(inner):
-        line = inner[i]
-        stripped = line.strip()
-
-        if cur_path is None:
-            if not stripped:
-                i += 1
-                continue
-            if markerless and stripped in {"```", "~~~"}:
-                i += 1
-                continue
-            if stripped in {file_bundle_begin, file_bundle_end}:
-                warnings.append(f"ignored stray bundle marker outside FILE block: {stripped}")
-                i += 1
-                continue
-
-            m = bundle_file_header_re.match(line)
-            if not m:
-                if markerless:
-                    if saw_file:
-                        trailing_text_ignored = True
-                    i += 1
-                    continue
-                warnings.append(f"ignored non-bundle text outside FILE block: {stripped[:80]}")
-                i += 1
-                continue
-
-            path = _normalize_path(m.group(1))
-            if not path:
-                raise error_cls("Empty FILE path.")
-            if expected and path not in expected:
-                warnings.append(f"ignored unexpected FILE header outside FILE block: {path}")
-                i += 1
-                continue
-            if path in files:
-                raise error_cls(f"Duplicate FILE path in bundle: {path}")
-            cur_path = path
-            cur_lines = []
-            saw_file = True
-            i += 1
-            continue
-
-        if stripped == file_end:
-            if _should_close_on_end_file(i):
-                close_current("closed explicit END_FILE")
-                i += 1
-                continue
-            cur_lines.append(line)
-            i += 1
-            continue
-
-        m = bundle_file_header_re.match(line)
-        if m:
-            next_path = _normalize_path(m.group(1))
-            if _should_treat_header_as_new_file(next_path):
-                close_current("auto-closed missing END_FILE before next FILE")
-                continue
-            cur_lines.append(line)
-            i += 1
-            continue
-
-        cur_lines.append(line)
-        i += 1
-
-    if cur_path is not None:
-        close_current("auto-closed missing trailing END_FILE at bundle end")
-
-    if not files:
-        raise error_cls("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
-
-    if trailing_text_ignored:
-        warnings.append("ignored trailing non-bundle text after final FILE block")
-
-    return files, warnings
