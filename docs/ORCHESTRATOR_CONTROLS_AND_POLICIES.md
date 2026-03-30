@@ -77,23 +77,19 @@ into unrelated internal modules or guessing private names.
 
 The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
 
-## Protected method mode routing and truthful failure artifacts
+## Duplicate bundle path recovery
 
-When a task explicitly lists protected meta harness files such as `agents/run_task.py` or `agents/lib/shell_router.py` in its required deliverables, those files must be pre-routed out of the normal file-bundle lane. Ordinary non-protected deliverables in the same task may still remain eligible for the normal bundle lane.
+When a returned file bundle repeats the same `FILE:` path multiple times, the controller distinguishes between two cases:
 
-The runtime must not claim that `_last_agent_model_output.txt` or `_last_agent_file_bundle.txt` were saved unless those files actually exist on disk. If a protected-file failure occurs before any model output or parsed file bundle exists, the runtime should write truthful placeholder artifacts that explain what failed, whether a normal bundle was attempted, and which protected files were involved.
+- **equivalent duplicates**: every duplicate entry for the path normalizes to the same content
+- **conflicting duplicates**: the repeated entries normalize to materially different content
 
+Equivalent duplicates may be collapsed into one accepted file entry when the normalized contents are byte-equivalent after the existing newline normalization rules.
 
+Conflicting duplicates must not be silently resolved by picking one version. Instead, the controller should:
 
-## Protected execution lane
+- preserve already accepted non-conflicted files
+- run one focused repair request for only the conflicted path(s)
+- keep explicit deliverable enforcement active
 
-When a task explicitly requires protected meta harness files such as `agents/run_task.py` or `agents/lib/shell_router.py`, the controller should not send those files through the ordinary file-bundle lane.
-
-The protected execution lane is intentionally narrow:
-
-- protected deliverables are partitioned out of the normal bundle scope
-- known protected controller files may be assigned a deterministic protected target profile
-- mixed tasks may still keep non-protected deliverables in the normal bundle lane
-- final deliverable accounting must reconcile accepted files from both lanes before validators run
-
-If protected execution fails after routing, the runtime must still emit truthful failure artifacts describing whether protected execution was attempted, whether the task was mixed protected/non-protected, and which protected targets were identified.
+If the conflicted paths still cannot be resolved after the focused repair attempt, the run writes `last_output_duplicate_bundle_conflict.json` in repo root and fails with a duplicate-conflict error.

@@ -534,3 +534,174 @@ def test_mixed_task_reconciles_protected_and_normal_lane_results(tmp_path, monke
     written = captured["written"]
     assert "agents/run_task.py" in written
     assert "tests/test_run_task_runtime_foundations.py" in written
+
+
+
+def test_equivalent_duplicate_file_entries_are_normalized_safely(tmp_path, monkeypatch) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    last_output = tmp_path / "last_output.txt"
+
+    bundle = (
+        f"{run_task.FILE_BUNDLE_BEGIN}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 1\n"
+        f"{run_task.FILE_END}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 1\n"
+        f"{run_task.FILE_END}\n"
+        f"{run_task.FILE_BUNDLE_END}\n"
+    )
+
+    monkeypatch.setattr(run_task, "chat", lambda messages, model, provider=None: bundle)
+    parsed = run_task.request_and_parse_bundle(
+        [{"role": "user", "content": "x"}],
+        model="m",
+        provider="openai",
+        last_output_path=last_output,
+        expected_paths=["tests/test_run_task_runtime_foundations.py"],
+    )
+
+    assert parsed == {"tests/test_run_task_runtime_foundations.py": "def repaired():\n    return 1\n"}
+    assert not (tmp_path / "last_output_duplicate_bundle_conflict.json").exists()
+
+
+
+def test_conflicting_duplicate_entries_trigger_focused_repair_and_preserve_accepted_files(tmp_path, monkeypatch) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    last_output = tmp_path / "last_output.txt"
+
+    first_bundle = (
+        f"{run_task.FILE_BUNDLE_BEGIN}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 1\n"
+        f"{run_task.FILE_END}\n"
+        "FILE: docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md\n"
+        "# retained doc\n"
+        f"{run_task.FILE_END}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 2\n"
+        f"{run_task.FILE_END}\n"
+        f"{run_task.FILE_BUNDLE_END}\n"
+    )
+    second_bundle = (
+        f"{run_task.FILE_BUNDLE_BEGIN}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 3\n"
+        f"{run_task.FILE_END}\n"
+        f"{run_task.FILE_BUNDLE_END}\n"
+    )
+    prompts: list[str] = []
+    responses = [first_bundle, second_bundle]
+
+    def fake_chat(messages, model, provider=None):
+        prompts.append(messages[-1]["content"])
+        return responses.pop(0)
+
+    monkeypatch.setattr(run_task, "chat", fake_chat)
+    parsed = run_task.request_and_parse_bundle(
+        [{"role": "user", "content": "x"}],
+        model="m",
+        provider="openai",
+        last_output_path=last_output,
+        expected_paths=[
+            "tests/test_run_task_runtime_foundations.py",
+            "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
+        ],
+    )
+
+    assert parsed["tests/test_run_task_runtime_foundations.py"] == "def repaired():\n    return 3\n"
+    assert parsed["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"] == "# retained doc\n"
+    assert any("Already accepted non-conflicted files:" in prompt for prompt in prompts)
+    assert any("docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md" in prompt for prompt in prompts)
+    assert not (tmp_path / "last_output_duplicate_bundle_conflict.json").exists()
+
+
+
+def test_unresolved_duplicate_conflict_writes_durable_artifact(tmp_path, monkeypatch) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    last_output = tmp_path / "last_output.txt"
+
+    first_bundle = (
+        f"{run_task.FILE_BUNDLE_BEGIN}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 1\n"
+        f"{run_task.FILE_END}\n"
+        "FILE: docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md\n"
+        "# retained doc\n"
+        f"{run_task.FILE_END}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 2\n"
+        f"{run_task.FILE_END}\n"
+        f"{run_task.FILE_BUNDLE_END}\n"
+    )
+    second_bundle = (
+        f"{run_task.FILE_BUNDLE_BEGIN}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 3\n"
+        f"{run_task.FILE_END}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 4\n"
+        f"{run_task.FILE_END}\n"
+        f"{run_task.FILE_BUNDLE_END}\n"
+    )
+    responses = [first_bundle, second_bundle]
+    monkeypatch.setattr(run_task, "chat", lambda messages, model, provider=None: responses.pop(0))
+    monkeypatch.chdir(tmp_path)
+
+    try:
+        run_task.request_and_parse_bundle(
+            [{"role": "user", "content": "x"}],
+            model="m",
+            provider="openai",
+            last_output_path=last_output,
+            expected_paths=[
+                "tests/test_run_task_runtime_foundations.py",
+                "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
+            ],
+        )
+    except run_task.FileBundleError as exc:
+        assert "Duplicate bundle conflict unresolved after focused repair" in str(exc)
+    else:
+        raise AssertionError("expected duplicate bundle conflict failure")
+
+    artifact_path = tmp_path / "last_output_duplicate_bundle_conflict.json"
+    assert artifact_path.exists()
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert payload["artifact_type"] == "duplicate_bundle_conflict"
+    assert payload["conflicted_paths"] == ["tests/test_run_task_runtime_foundations.py"]
+    assert payload["accepted_non_conflicted_files"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
+    assert payload["focused_repair_attempted"] is True
+
+
+
+def test_non_duplicate_malformed_bundle_keeps_current_retry_behavior(tmp_path, monkeypatch) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    last_output = tmp_path / "last_output.txt"
+
+    first_output = "not a bundle at all\n"
+    second_output = (
+        f"{run_task.FILE_BUNDLE_BEGIN}\n"
+        "FILE: tests/test_run_task_runtime_foundations.py\n"
+        "def repaired():\n    return 5\n"
+        f"{run_task.FILE_END}\n"
+        f"{run_task.FILE_BUNDLE_END}\n"
+    )
+    prompts: list[str] = []
+    responses = [first_output, second_output]
+
+    def fake_chat(messages, model, provider=None):
+        prompts.append(messages[-1]["content"])
+        return responses.pop(0)
+
+    monkeypatch.setattr(run_task, "chat", fake_chat)
+    parsed = run_task.request_and_parse_bundle(
+        [{"role": "user", "content": "x"}],
+        model="m",
+        provider="openai",
+        last_output_path=last_output,
+        expected_paths=["tests/test_run_task_runtime_foundations.py"],
+    )
+
+    assert parsed == {"tests/test_run_task_runtime_foundations.py": "def repaired():\n    return 5\n"}
+    assert any("Your previous response was INVALID." in prompt for prompt in prompts[1:])
+    assert not (tmp_path / "last_output_duplicate_bundle_conflict.json").exists()

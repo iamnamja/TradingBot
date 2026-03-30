@@ -2894,6 +2894,116 @@ def _parse_file_bundle_transport_resilient(
     return files, warnings
 
 
+def _is_duplicate_bundle_error(exc_or_message: Exception | str) -> bool:
+    message = str(exc_or_message)
+    return "Duplicate FILE path in bundle:" in message
+
+
+def _parse_file_bundle_entries_allowing_duplicates(text: str) -> List[Tuple[str, str]]:
+    try:
+        from agents.lib.bundle_parser import parse_file_bundle_entries as _parse_entries  # type: ignore
+    except Exception:
+        _parse_entries = None  # type: ignore[assignment]
+
+    if _parse_entries is not None:
+        return _parse_entries(
+            text=text,
+            normalize_newlines=normalize_newlines,
+            file_bundle_begin=FILE_BUNDLE_BEGIN,
+            file_bundle_end=FILE_BUNDLE_END,
+            file_header_re=FILE_HEADER_RE,
+            file_end=FILE_END,
+            error_cls=FileBundleError,
+        )
+
+    normalized = normalize_newlines(text)
+    if FILE_BUNDLE_BEGIN not in normalized or FILE_BUNDLE_END not in normalized:
+        raise FileBundleError("Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.")
+    start = normalized.index(FILE_BUNDLE_BEGIN) + len(FILE_BUNDLE_BEGIN)
+    end = normalized.index(FILE_BUNDLE_END)
+    body = normalized[start:end].strip("\n")
+    if not body.strip():
+        return []
+    entries: List[Tuple[str, str]] = []
+    lines = body.split("\n")
+    i = 0
+    while i < len(lines):
+        m = FILE_HEADER_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        relpath = m.group(1).strip()
+        if not relpath:
+            raise FileBundleError("Empty FILE: path.")
+        i += 1
+        buf: List[str] = []
+        while i < len(lines) and lines[i].strip("\n") != FILE_END:
+            if FILE_HEADER_RE.match(lines[i]):
+                raise FileBundleError(
+                    f"Nested FILE header encountered before END_FILE for {relpath}. "
+                    "Every FILE block must be closed with END_FILE before the next FILE header."
+                )
+            buf.append(lines[i])
+            i += 1
+        if i >= len(lines):
+            raise FileBundleError(f"Missing END_FILE for {relpath}.")
+        i += 1
+        entries.append((relpath, "\n".join(buf).rstrip("\n") + "\n"))
+    if not entries:
+        raise FileBundleError("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
+    return entries
+
+
+def _classify_duplicate_file_entries(entries: List[Tuple[str, str]]) -> Tuple[Dict[str, str], Dict[str, List[str]], List[str]]:
+    try:
+        from agents.lib.bundle_parser import classify_duplicate_file_entries as _classify_entries  # type: ignore
+    except Exception:
+        _classify_entries = None  # type: ignore[assignment]
+
+    if _classify_entries is not None:
+        return _classify_entries(entries=entries, normalize_newlines=normalize_newlines)
+
+    grouped: Dict[str, List[str]] = {}
+    for relpath, content in entries:
+        grouped.setdefault(relpath.strip(), []).append(content)
+    normalized: Dict[str, str] = {}
+    conflicts: Dict[str, List[str]] = {}
+    equivalent: List[str] = []
+    for relpath, variants in grouped.items():
+        canonical = [normalize_newlines(v).rstrip("\n") + "\n" for v in variants]
+        first = canonical[0]
+        if all(v == first for v in canonical[1:]):
+            normalized[relpath] = first
+            if len(canonical) > 1:
+                equivalent.append(relpath)
+        else:
+            conflicts[relpath] = canonical
+    return normalized, conflicts, sorted(equivalent)
+
+
+def _write_duplicate_bundle_conflict_artifact(
+    *,
+    task_path: Path | str,
+    conflicted_paths: List[str],
+    accepted_non_conflicted_files: Dict[str, str],
+    normalization_possible: bool,
+    focused_repair_attempted: bool,
+    reason: str,
+) -> Path:
+    artifact_path = Path("last_output_duplicate_bundle_conflict.json")
+    payload = {
+        "artifact_type": "duplicate_bundle_conflict",
+        "task_file": Path(task_path).as_posix(),
+        "conflicted_paths": sorted(conflicted_paths),
+        "accepted_non_conflicted_files": sorted(accepted_non_conflicted_files),
+        "normalization_possible": bool(normalization_possible),
+        "focused_repair_attempted": bool(focused_repair_attempted),
+        "reason": str(reason),
+    }
+    artifact_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    return artifact_path
+
+
 
 def _normalize_policy_path(token: str) -> str:
     token = token.strip().strip("`").strip('"').strip("'")
@@ -3027,6 +3137,119 @@ def request_and_parse_bundle(
     def _parse_subset(raw: str, subset_paths: List[str]) -> Dict[str, str]:
         return _parse_validate_or_salvage(raw, subset_paths, require_all=True)
 
+    def _normalize_duplicate_bundle_entries(
+        raw: str,
+        allowed_paths_subset: List[str] | None = None,
+        *,
+        require_all: bool = False,
+    ) -> Tuple[Dict[str, str], Dict[str, List[str]], List[str]]:
+        entries = _parse_file_bundle_entries_allowing_duplicates(raw)
+        normalized, conflicts, equivalent_paths = _classify_duplicate_file_entries(entries)
+        if conflicts:
+            validated_non_conflicted = _validate_transport(normalized, allowed_paths_subset, require_all=False)
+            return validated_non_conflicted, conflicts, equivalent_paths
+        validated = _validate_transport(normalized, allowed_paths_subset, require_all=require_all)
+        return validated, {}, equivalent_paths
+
+    def _attempt_duplicate_bundle_repair(
+        raw: str,
+        allowed_paths_subset: List[str] | None = None,
+        *,
+        require_all: bool = False,
+    ) -> Dict[str, str]:
+        accepted, conflicts, equivalent_paths = _normalize_duplicate_bundle_entries(
+            raw,
+            allowed_paths_subset,
+            require_all=require_all,
+        )
+        if not conflicts:
+            if equivalent_paths:
+                print("⚠️ Normalized byte-equivalent duplicate FILE entries:")
+                for rel in equivalent_paths:
+                    print(f"  - collapsed duplicate FILE path: {rel}")
+            return accepted
+
+        conflicted_paths = sorted(conflicts)
+        accepted_paths = sorted(accepted)
+        repair_lines = [
+            "Your previous response repeated one or more FILE paths with conflicting content.",
+            "Return ONLY a valid file bundle containing one final FILE block for EXACTLY these conflicted paths and no others:",
+        ]
+        repair_lines.extend(f"- {rel}" for rel in conflicted_paths)
+        repair_lines.extend(
+            [
+                "",
+                "Preserve all already accepted non-conflicted files implicitly unchanged.",
+                "Do not reopen unrelated files.",
+                "Do not emit duplicate FILE blocks for the same path.",
+                "Every FILE block must be closed by a literal END_FILE line.",
+            ]
+        )
+        if accepted_paths:
+            repair_lines.extend(["", "Already accepted non-conflicted files:"])
+            repair_lines.extend(f"- {rel}" for rel in accepted_paths)
+        if equivalent_paths:
+            repair_lines.extend(["", "Paths already normalized from equivalent duplicates:"])
+            repair_lines.extend(f"- {rel}" for rel in equivalent_paths)
+        repair_lines.extend(["", "Conflicted duplicate paths to resolve:"])
+        for rel in conflicted_paths:
+            repair_lines.append(f"- {rel}: model emitted multiple conflicting FILE entries for this path")
+
+        out = chat(messages + [{"role": "user", "content": "\n".join(repair_lines) + "\n"}], model=model, provider=provider)
+        last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
+
+        try:
+            repaired_subset = _parse_validate_or_salvage(out, conflicted_paths, require_all=True)
+        except Exception as repair_exc:
+            if _is_duplicate_bundle_error(repair_exc):
+                try:
+                    repaired_subset, remaining_conflicts, repair_equivalent_paths = _normalize_duplicate_bundle_entries(
+                        out,
+                        conflicted_paths,
+                        require_all=True,
+                    )
+                    if remaining_conflicts:
+                        reason = f"duplicate conflicts remained after focused repair: {', '.join(sorted(remaining_conflicts))}"
+                        _write_duplicate_bundle_conflict_artifact(
+                            task_path=last_output_path,
+                            conflicted_paths=conflicted_paths,
+                            accepted_non_conflicted_files=accepted,
+                            normalization_possible=bool(equivalent_paths or repair_equivalent_paths),
+                            focused_repair_attempted=True,
+                            reason=reason,
+                        )
+                        raise FileBundleError(f"Duplicate bundle conflict unresolved after focused repair: {reason}") from repair_exc
+                    if repair_equivalent_paths:
+                        print("⚠️ Normalized byte-equivalent duplicate FILE entries during focused repair:")
+                        for rel in repair_equivalent_paths:
+                            print(f"  - collapsed duplicate FILE path: {rel}")
+                except Exception as duplicate_exc:
+                    reason = str(duplicate_exc)
+                    _write_duplicate_bundle_conflict_artifact(
+                        task_path=last_output_path,
+                        conflicted_paths=conflicted_paths,
+                        accepted_non_conflicted_files=accepted,
+                        normalization_possible=bool(equivalent_paths),
+                        focused_repair_attempted=True,
+                        reason=reason,
+                    )
+                    raise FileBundleError(f"Duplicate bundle conflict unresolved after focused repair: {reason}") from repair_exc
+            else:
+                reason = str(repair_exc)
+                _write_duplicate_bundle_conflict_artifact(
+                    task_path=last_output_path,
+                    conflicted_paths=conflicted_paths,
+                    accepted_non_conflicted_files=accepted,
+                    normalization_possible=bool(equivalent_paths),
+                    focused_repair_attempted=True,
+                    reason=reason,
+                )
+                raise FileBundleError(f"Duplicate bundle conflict unresolved after focused repair: {reason}") from repair_exc
+
+        merged = dict(accepted)
+        merged.update(repaired_subset)
+        return _validate_transport(merged, allowed_paths_subset, require_all=require_all)
+
     forbidden_hint = ""
     if forbidden_paths:
         forbidden_hint = (
@@ -3042,34 +3265,46 @@ def request_and_parse_bundle(
     try:
         parsed = _parse_validate_or_salvage(out, allowed_paths, require_all=bool(allowed_paths))
     except Exception as e:
-        reminder = (
-            "Your previous response was INVALID.\n"
-            "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
-            "Do NOT use commented headers like '# FILE:'.\n"
-            "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n"
-            "There must be an END_FILE before any later FILE header.\n"
-            "Do not open a new FILE block until the previous FILE block is closed.\n"
-            "If generated source or tests need literal bundle markers, do not place raw BEGIN_FILE_BUNDLE, FILE:, END_FILE, or END_FILE_BUNDLE at the start of a source line.\n"
-            "Instead use split string tokens such as 'FI' + 'LE:' and 'END_' + 'FILE'.\n"
-            "Do not rewrite protected meta harness files such as agents/run_task.py as miniature replacements.\n"
-            + forbidden_hint
-            + "\nRequired structure:\n"
-            "BEGIN_FILE_BUNDLE\n"
-            "FILE: path/to/file.ext\n"
-            "<full file contents>\n"
-            "END_FILE\n"
-            "FILE: another/path.py\n"
-            "<full file contents>\n"
-            "END_FILE\n"
-            "END_FILE_BUNDLE\n\n"
-            f"Parser/policy error: {e}"
-        )
-        out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
-        last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
-        try:
-            parsed = _parse_validate_or_salvage(out2, allowed_paths, require_all=bool(allowed_paths))
-        except Exception as e2:
-            raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
+        if _is_duplicate_bundle_error(e):
+            try:
+                parsed = _attempt_duplicate_bundle_repair(out, allowed_paths, require_all=bool(allowed_paths))
+            except Exception as duplicate_exc:
+                raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {duplicate_exc}") from duplicate_exc
+        else:
+            reminder = (
+                "Your previous response was INVALID.\n"
+                "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
+                "Do NOT use commented headers like '# FILE:'.\n"
+                "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n"
+                "There must be an END_FILE before any later FILE header.\n"
+                "Do not open a new FILE block until the previous FILE block is closed.\n"
+                "If generated source or tests need literal bundle markers, do not place raw BEGIN_FILE_BUNDLE, FILE:, END_FILE, or END_FILE_BUNDLE at the start of a source line.\n"
+                "Instead use split string tokens such as 'FI' + 'LE:' and 'END_' + 'FILE'.\n"
+                "Do not rewrite protected meta harness files such as agents/run_task.py as miniature replacements.\n"
+                + forbidden_hint
+                + "\nRequired structure:\n"
+                "BEGIN_FILE_BUNDLE\n"
+                "FILE: path/to/file.ext\n"
+                "<full file contents>\n"
+                "END_FILE\n"
+                "FILE: another/path.py\n"
+                "<full file contents>\n"
+                "END_FILE\n"
+                "END_FILE_BUNDLE\n\n"
+                f"Parser/policy error: {e}"
+            )
+            out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+            last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+            try:
+                parsed = _parse_validate_or_salvage(out2, allowed_paths, require_all=bool(allowed_paths))
+            except Exception as e2:
+                if _is_duplicate_bundle_error(e2):
+                    try:
+                        parsed = _attempt_duplicate_bundle_repair(out2, allowed_paths, require_all=bool(allowed_paths))
+                    except Exception as duplicate_exc:
+                        raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {duplicate_exc}") from duplicate_exc
+                else:
+                    raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
 
     localized_issues = _localized_bundle_issues(parsed, baseline)
     if localized_issues:
