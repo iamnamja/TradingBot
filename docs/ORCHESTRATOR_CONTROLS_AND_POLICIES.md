@@ -101,3 +101,17 @@ into unrelated internal modules or guessing private names.
 ## Failure classification and remediation planning
 
 The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
+
+## Runtime Artifact Quarantine Contract
+
+The orchestrator supports runtime artifact quarantine for generated or modified artifacts that need cleanup or isolation during live execution flows.
+
+Tests and callers should align to the current live helper behavior and may rely on the following high-level guarantees:
+- quarantine bookkeeping occurs when the runtime quarantine path is exercised
+- expected file categories are considered for cleanup/quarantine
+- git cleanup commands are issued in a manner consistent with the current helper behavior
+
+Tests and callers should not assume:
+- one exact git-command sequence when the live helper permits equivalent command shapes
+- quarantine invocation on failure paths that the current runtime does not actually route through quarantine
+- stricter artifact-category or cleanup semantics than the live helper currently guarantees
