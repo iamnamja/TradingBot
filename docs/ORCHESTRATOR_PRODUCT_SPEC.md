@@ -30,8 +30,6 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - Multi-project adapter support
 - Stable seam registry for orchestrator integration testing
 - Seam-aware preflight checks for task shape and generated bundles
-- Localized subset repair that preserves accepted files in small bundles when safe
-- Durable failure artifacts for rejected localized repair attempts
 
 ## Sequence summary
 
@@ -85,5 +83,3 @@ Build a reusable orchestration engine that can execute constrained implementatio
 ## Bootstrap lane rule
 
 The orchestrator should support both an autonomous task lane and a manual patch lane. The first harness-bootstrap tasks in the reliability/recovery/autonomy tranche use the manual patch lane to avoid self-modification regressions while the stable contract is being frozen.
-
-Localized repair is a core runtime behavior for small generated bundles: accepted files should be preserved while only the bad subset is retried when safe. When that retry is still rejected, the runner must emit a durable failure artifact capturing the raw model output, preserved paths, rejected subset, and rejection reason.
