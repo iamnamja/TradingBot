@@ -3131,6 +3131,40 @@ def enforce_meta_file_task_gate(expected_paths: List[str] | None = None, forbidd
 
 
 
+PROTECTED_EXECUTION_TARGET_PROFILES = {
+    "agents/run_task.py": (
+        {"mode": "replace", "method_name": "_partition_required_paths_for_normal_bundle"},
+        {"mode": "replace", "method_name": "_emit_failure_artifact_messages"},
+    ),
+    "agents/lib/shell_router.py": (
+        {"mode": "replace", "method_name": "_partition_required_paths_for_normal_bundle"},
+        {"mode": "replace", "method_name": "_emit_failure_artifact_messages"},
+        {"mode": "replace", "method_name": "route_shell_main"},
+    ),
+}
+
+
+def _infer_protected_method_targets_from_required(task_text: str, protected_required: List[str]) -> List[Dict[str, object]]:
+    del task_text
+    inferred: List[Dict[str, object]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for raw in protected_required or []:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        path = raw.strip().replace("\\", "/")
+        for spec in PROTECTED_EXECUTION_TARGET_PROFILES.get(path, ()):  # pragma: no branch - deterministic table
+            mode = str(spec.get("mode", "")).strip()
+            method_name = str(spec.get("method_name", "")).strip()
+            if not mode or not method_name:
+                continue
+            key = (path, mode, method_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            inferred.append({"path": path, "mode": mode, "method_name": method_name})
+    return inferred
+
+
 def _partition_required_paths_for_normal_bundle(required_paths: List[str], protected_targets: List[dict[str, object]] | List[str] | None = None) -> Tuple[List[str], List[str]]:
     meta_harness_paths = {
         "agents/run_task.py",
@@ -3210,7 +3244,7 @@ def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> L
 
 
 
-def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Path, *, create_placeholders: bool = False, task_file: str = "", failure_category: str = "", protected_files: List[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "") -> None:
+def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Path, *, create_placeholders: bool = False, task_file: str = "", failure_category: str = "", protected_files: List[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "", protected_execution_attempted: bool = False, mixed_task: bool = False, protected_targets_identified: List[str] | None = None) -> None:
     should_create_placeholders = bool(create_placeholders or before_model_output)
     if should_create_placeholders:
         placeholder_payload = {
@@ -3223,6 +3257,9 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
             "protected_files": list(protected_files or []),
             "before_model_output": bool(before_model_output),
             "normal_bundle_attempted": bool(normal_bundle_attempted),
+            "protected_execution_attempted": bool(protected_execution_attempted),
+            "mixed_task": bool(mixed_task),
+            "protected_targets_identified": list(protected_targets_identified or []),
         }
         if not last_output_path.exists():
             last_output_path.write_text(

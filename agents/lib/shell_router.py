@@ -64,6 +64,18 @@ _PROTECTED_META_HARNESS_PATHS = frozenset({
     "agents/lib/protected_file_policy.py",
 })
 
+PROTECTED_EXECUTION_TARGET_PROFILES = {
+    "agents/run_task.py": (
+        {"mode": "replace", "method_name": "_partition_required_paths_for_normal_bundle"},
+        {"mode": "replace", "method_name": "_emit_failure_artifact_messages"},
+    ),
+    "agents/lib/shell_router.py": (
+        {"mode": "replace", "method_name": "_partition_required_paths_for_normal_bundle"},
+        {"mode": "replace", "method_name": "_emit_failure_artifact_messages"},
+        {"mode": "replace", "method_name": "route_shell_main"},
+    ),
+}
+
 
 def _normalize_paths(paths: list[str] | None = None) -> list[str]:
     seen: set[str] = set()
@@ -79,6 +91,24 @@ def _normalize_paths(paths: list[str] | None = None) -> list[str]:
     return out
 
 
+def _infer_protected_method_targets_from_required(task_text: str, protected_required: list[str]) -> list[dict[str, object]]:
+    del task_text
+    inferred: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for path in _normalize_paths(protected_required):
+        for spec in PROTECTED_EXECUTION_TARGET_PROFILES.get(path, ()):  # pragma: no branch - tiny deterministic table
+            mode = str(spec.get("mode", "")).strip()
+            method_name = str(spec.get("method_name", "")).strip()
+            if not mode or not method_name:
+                continue
+            key = (path, mode, method_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            inferred.append({"path": path, "mode": mode, "method_name": method_name})
+    return inferred
+
+
 def _partition_required_paths_for_normal_bundle(required: list[str], protected_method_paths: list[str] | set[str] | tuple[str, ...] | None = None) -> tuple[list[str], list[str]]:
     normalized_required = _normalize_paths(required)
     protected_required = set(normalized_required) & set(_PROTECTED_META_HARNESS_PATHS)
@@ -88,7 +118,7 @@ def _partition_required_paths_for_normal_bundle(required: list[str], protected_m
     return normal, protected
 
 
-def _ensure_failure_artifacts(last_output_path: Path, last_bundle_path: Path, *, task_file: str, failure_category: str, protected_files: list[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "") -> None:
+def _ensure_failure_artifacts(last_output_path: Path, last_bundle_path: Path, *, task_file: str, failure_category: str, protected_files: list[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "", protected_execution_attempted: bool = False, mixed_task: bool = False, protected_targets_identified: list[str] | None = None) -> None:
     payload = {
         "task_file": Path(task_file).as_posix(),
         "failure_category": failure_category,
@@ -96,6 +126,9 @@ def _ensure_failure_artifacts(last_output_path: Path, last_bundle_path: Path, *,
         "before_model_output": bool(before_model_output),
         "normal_bundle_attempted": bool(normal_bundle_attempted),
         "reason": reason,
+        "protected_execution_attempted": bool(protected_execution_attempted),
+        "mixed_task": bool(mixed_task),
+        "protected_targets_identified": _normalize_paths(protected_targets_identified),
     }
     if not last_output_path.exists():
         body = dict(payload)
@@ -107,12 +140,12 @@ def _ensure_failure_artifacts(last_output_path: Path, last_bundle_path: Path, *,
         last_bundle_path.write_text(json.dumps(body, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
 
-def _emit_failure_artifact_messages(shell_globals: dict[str, Any], last_output_path: Path, last_bundle_path: Path, *, task_file: str, failure_category: str, protected_files: list[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "") -> None:
+def _emit_failure_artifact_messages(shell_globals: dict[str, Any], last_output_path: Path, last_bundle_path: Path, *, task_file: str, failure_category: str, protected_files: list[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "", protected_execution_attempted: bool = False, mixed_task: bool = False, protected_targets_identified: list[str] | None = None) -> None:
     delegated = shell_globals.get("_emit_failure_artifact_messages")
     if callable(delegated):
-        delegated(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason)
+        delegated(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason, protected_execution_attempted=protected_execution_attempted, mixed_task=mixed_task, protected_targets_identified=protected_targets_identified)
         return
-    _ensure_failure_artifacts(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason)
+    _ensure_failure_artifacts(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason, protected_execution_attempted=protected_execution_attempted, mixed_task=mixed_task, protected_targets_identified=protected_targets_identified)
     print(f"Model output saved to: {last_output_path}")
     print(f"Parsed file bundle saved to: {last_bundle_path}")
 
@@ -264,7 +297,19 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
         bundle_required, protected_required = partition(required, protected_method_paths)
     else:
         bundle_required, protected_required = _partition_required_paths_for_normal_bundle(required, protected_method_paths)
-    protected_bundle_blocked_paths = sorted(set(protected_method_paths) | set(protected_required))
+    if protected_required and not protected_targets:
+        infer_targets = shell_globals.get("_infer_protected_method_targets_from_required")
+        if callable(infer_targets):
+            protected_targets = infer_targets(task_text, protected_required)
+        else:
+            protected_targets = _infer_protected_method_targets_from_required(task_text, protected_required)
+        protected_method_paths = {str(t["path"]) for t in protected_targets}
+        if callable(partition):
+            bundle_required, protected_required = partition(required, protected_method_paths)
+        else:
+            bundle_required, protected_required = _partition_required_paths_for_normal_bundle(required, protected_method_paths)
+    protected_target_names = [str(t.get("path", "")).strip().replace("\\", "/") for t in protected_targets if str(t.get("path", "")).strip()]
+    protected_bundle_blocked_paths = _normalize_paths(protected_required + protected_target_names)
     baseline_builder = shell_globals.get("_task_baseline_paths")
     if callable(baseline_builder):
         baseline_paths = baseline_builder(required, harness_policies, protected_targets)
@@ -303,7 +348,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             if protected_required and not protected_targets and not bundle_required:
                 reason = "Explicit protected deliverables require protected method mode or manual patch: " + ", ".join(protected_required)
                 shell_globals["_report_failure"]("bundle_transport", reason)
-                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="bundle_transport", protected_files=protected_required, before_model_output=True, normal_bundle_attempted=False, reason=reason)
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="bundle_transport", protected_files=protected_required, before_model_output=True, normal_bundle_attempted=False, reason=reason, protected_execution_attempted=False, mixed_task=False, protected_targets_identified=protected_target_names)
                 return 1
             for target in protected_targets:
                 target_path = str(target["path"])
@@ -400,7 +445,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                 )
         except shell_globals["FileBundleError"] as e:
             shell_globals["_report_failure"]("bundle_transport", str(e))
-            _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="bundle_transport", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason=str(e))
+            _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="bundle_transport", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason=str(e), protected_execution_attempted=bool(protected_targets), mixed_task=bool(bundle_required and protected_bundle_blocked_paths), protected_targets_identified=protected_target_names)
             return 1
 
         pretty: list[str] = [shell_globals["FILE_BUNDLE_BEGIN"]]
@@ -417,7 +462,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             task_text = shell_globals["_append_task_feedback"](task_text, syntax_msg)
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "python_syntax", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated Python syntax failures. Recommended action: manual_patch")
-                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure", protected_execution_attempted=bool(protected_targets), mixed_task=bool(bundle_required and protected_bundle_blocked_paths), protected_targets_identified=protected_target_names)
                 return 1
             prev_files = files
             continue
@@ -434,7 +479,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             task_text = shell_globals["_append_task_feedback"](task_text, req_msg)
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "deliverables", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated deliverable violations. Recommended action: manual_patch")
-                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure", protected_execution_attempted=bool(protected_targets), mixed_task=bool(bundle_required and protected_bundle_blocked_paths), protected_targets_identified=protected_target_names)
                 return 1
             prev_files = files
             continue
@@ -445,7 +490,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             task_text = shell_globals["_append_task_feedback"](task_text, policy_msg)
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "protected_file_policy", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated protected-file policy violations. Recommended action: manual_patch")
-                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure", protected_execution_attempted=bool(protected_targets), mixed_task=bool(bundle_required and protected_bundle_blocked_paths), protected_targets_identified=protected_target_names)
                 return 1
             prev_files = files
             continue
@@ -456,7 +501,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             task_text = shell_globals["_append_task_feedback"](task_text, static_msg)
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "static_contracts", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated static contract violations. Recommended action: manual_patch")
-                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure", protected_execution_attempted=bool(protected_targets), mixed_task=bool(bundle_required and protected_bundle_blocked_paths), protected_targets_identified=protected_target_names)
                 return 1
             prev_files = files
             continue
@@ -469,7 +514,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             )
             if shell_globals["_repeat_limit_exceeded"](violation_counts, "imports", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated import validation failures. Recommended action: manual_patch")
-                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure")
+                _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="policy_block", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason="Repeated policy or validation failure", protected_execution_attempted=bool(protected_targets), mixed_task=bool(bundle_required and protected_bundle_blocked_paths), protected_targets_identified=protected_target_names)
                 return 1
             prev_files = files
             continue

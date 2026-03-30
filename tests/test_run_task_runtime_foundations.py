@@ -271,11 +271,16 @@ def test_non_protected_deliverables_remain_in_normal_bundle_scope_for_mixed_task
         "task_allows_unchanged_cli": lambda _text: False,
         "parse_harness_file_policies": lambda _text: {},
         "_extract_protected_method_targets": lambda _text: [],
-        "_task_baseline_paths": lambda required, harness, targets: list(required),
+        "_infer_protected_method_targets_from_required": run_task._infer_protected_method_targets_from_required,
+        "_task_baseline_paths": lambda required, harness, targets: list(dict.fromkeys(list(required) + [str(t["path"]) for t in targets])),
         "_choose_agent_branch": lambda stem, push: f"agent-{stem}",
         "capture": lambda cmd: "main",
         "ensure_branch": lambda branch: None,
-        "existing_file_contents": lambda paths: {},
+        "existing_file_contents": lambda paths: {path: "def placeholder():\n    pass\n" for path in paths},
+        "build_method_insertion_messages": lambda *args, **kwargs: [{"role": "user", "content": "method"}],
+        "request_and_parse_method_insertion": lambda messages, model, provider, last_output_path, expected_path, expected_method_name: f"def {expected_method_name}(...):\n    return None\n",
+        "apply_method_insertion": lambda content, anchor, method_name, method_text: content,
+        "apply_method_replacement": lambda content, method_name, method_text: content + f"\n# replaced {method_name}\n",
         "build_messages": lambda *args, **kwargs: [{"role": "user", "content": "x"}],
         "request_and_parse_bundle": fake_request_bundle,
         "FILE_BUNDLE_BEGIN": "BEGIN_FILE_BUNDLE",
@@ -308,7 +313,7 @@ def test_non_protected_deliverables_remain_in_normal_bundle_scope_for_mixed_task
 
     assert result == 1
     assert captured["expected_paths"] == ["tests/test_run_task_runtime_foundations.py"]
-    assert captured["forbidden_paths"] == ["agents/lib/shell_router.py", "agents/run_task.py"]
+    assert captured["forbidden_paths"] == ["agents/run_task.py", "agents/lib/shell_router.py"]
     assert reports[-1][0] == "deliverables"
 
 
@@ -386,3 +391,146 @@ def test_non_protected_tasks_keep_all_required_files_in_normal_bundle_scope() ->
         "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
     ]
     assert protected == []
+
+
+def test_infer_protected_method_targets_from_required_uses_deterministic_profiles() -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+
+    inferred = run_task._infer_protected_method_targets_from_required(
+        "task",
+        ["agents/run_task.py", "agents/lib/shell_router.py"],
+    )
+
+    assert {target["path"] for target in inferred} == {"agents/run_task.py", "agents/lib/shell_router.py"}
+    assert {target["method_name"] for target in inferred if target["path"] == "agents/run_task.py"} == {
+        "_partition_required_paths_for_normal_bundle",
+        "_emit_failure_artifact_messages",
+    }
+    assert "route_shell_main" in {target["method_name"] for target in inferred if target["path"] == "agents/lib/shell_router.py"}
+
+
+def test_protected_only_task_enters_protected_execution_lane(tmp_path, monkeypatch) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    shell_router = importlib.import_module("agents.lib.shell_router")
+    monkeypatch.chdir(tmp_path)
+    task_path = tmp_path / "protected_only_task.md"
+    task_path.write_text("task", encoding="utf-8")
+
+    inserted: list[tuple[str, str, str]] = []
+
+    def fake_request_and_parse_method_insertion(messages, model, provider, last_output_path, expected_path, expected_method_name):
+        inserted.append((expected_path, expected_method_name, provider))
+        return f"def {expected_method_name}(...):\n    return None\n"
+
+    shell_globals = {
+        "_bootstrap_exports": lambda: {},
+        "_spec_mode_exports": lambda: {},
+        "ensure_clean_worktree": lambda: None,
+        "parse_required_files": lambda _text: ["agents/run_task.py", "agents/lib/shell_router.py"],
+        "task_requires_material_update": lambda _text: False,
+        "task_allows_unchanged_cli": lambda _text: False,
+        "parse_harness_file_policies": lambda _text: {},
+        "_extract_protected_method_targets": lambda _text: [],
+        "_infer_protected_method_targets_from_required": run_task._infer_protected_method_targets_from_required,
+        "_task_baseline_paths": lambda required, harness, targets: list(required),
+        "_choose_agent_branch": lambda stem, push: f"agent-{stem}",
+        "capture": lambda cmd: "main",
+        "ensure_branch": lambda branch: None,
+        "existing_file_contents": lambda paths: {path: "def placeholder():\n    pass\n" for path in paths},
+        "build_method_insertion_messages": lambda *a, **k: [{"role": "user", "content": "method"}],
+        "request_and_parse_method_insertion": fake_request_and_parse_method_insertion,
+        "apply_method_insertion": lambda content, anchor, method_name, method_text: content,
+        "apply_method_replacement": lambda content, method_name, method_text: content + f"\n# replaced {method_name}\n",
+        "FileBundleError": run_task.FileBundleError,
+        "_report_failure": lambda kind, msg: None,
+        "_emit_failure_artifact_messages": run_task._emit_failure_artifact_messages,
+        "validate_python_syntax": lambda files: (True, ""),
+        "enforce_required_files": lambda *args, **kwargs: (True, ""),
+        "enforce_harness_file_policies": lambda *args, **kwargs: (True, ""),
+        "validate_static_bundle_contracts": lambda *args, **kwargs: (True, ""),
+        "validate_imports": lambda *args, **kwargs: (True, ""),
+        "snapshot_file_contents": lambda paths: {},
+        "write_files": lambda files: None,
+        "run_checks": lambda: (True, ""),
+        "_runtime_artifact_paths": lambda *a: [],
+        "_cleanup_runtime_artifacts_for_commit": lambda *a, **k: None,
+        "run": lambda *a, **k: None,
+        "FILE_BUNDLE_BEGIN": "BEGIN_FILE_BUNDLE",
+        "FILE_END": "END_FILE",
+        "FILE_BUNDLE_END": "END_FILE_BUNDLE",
+    }
+
+    args = SimpleNamespace(bootstrap_project="", task=str(task_path), spec_mode=False, push=False, model="m", provider="openai", max_iters=1, policy_block_limit=1)
+    result = shell_router.route_shell_main(args, shell_globals)
+
+    assert result == 0
+    assert inserted
+    assert {path for path, _, _ in inserted} == {"agents/run_task.py", "agents/lib/shell_router.py"}
+
+
+def test_mixed_task_reconciles_protected_and_normal_lane_results(tmp_path, monkeypatch) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+    shell_router = importlib.import_module("agents.lib.shell_router")
+    monkeypatch.chdir(tmp_path)
+    task_path = tmp_path / "mixed_task.md"
+    task_path.write_text("task", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_request_and_parse_method_insertion(messages, model, provider, last_output_path, expected_path, expected_method_name):
+        return f"def {expected_method_name}(...):\n    return None\n"
+
+    def fake_request_bundle(messages, model, provider, last_output_path, **kwargs):
+        captured["expected_paths"] = kwargs.get("expected_paths")
+        captured["forbidden_paths"] = kwargs.get("forbidden_paths")
+        return {"tests/test_run_task_runtime_foundations.py": "def repaired():\n    return 1\n"}
+
+    shell_globals = {
+        "_bootstrap_exports": lambda: {},
+        "_spec_mode_exports": lambda: {},
+        "ensure_clean_worktree": lambda: None,
+        "parse_required_files": lambda _text: ["agents/run_task.py", "tests/test_run_task_runtime_foundations.py"],
+        "task_requires_material_update": lambda _text: False,
+        "task_allows_unchanged_cli": lambda _text: False,
+        "parse_harness_file_policies": lambda _text: {},
+        "_extract_protected_method_targets": lambda _text: [],
+        "_infer_protected_method_targets_from_required": run_task._infer_protected_method_targets_from_required,
+        "_task_baseline_paths": lambda required, harness, targets: list(dict.fromkeys(list(required) + [str(t["path"]) for t in targets])),
+        "_choose_agent_branch": lambda stem, push: f"agent-{stem}",
+        "capture": lambda cmd: "main",
+        "ensure_branch": lambda branch: None,
+        "existing_file_contents": lambda paths: {path: "def placeholder():\n    pass\n" for path in paths},
+        "build_method_insertion_messages": lambda *a, **k: [{"role": "user", "content": "method"}],
+        "request_and_parse_method_insertion": fake_request_and_parse_method_insertion,
+        "apply_method_insertion": lambda content, anchor, method_name, method_text: content,
+        "apply_method_replacement": lambda content, method_name, method_text: content + f"\n# replaced {method_name}\n",
+        "build_messages": lambda *a, **k: [{"role": "user", "content": "bundle"}],
+        "request_and_parse_bundle": fake_request_bundle,
+        "FileBundleError": run_task.FileBundleError,
+        "_report_failure": lambda kind, msg: None,
+        "_emit_failure_artifact_messages": run_task._emit_failure_artifact_messages,
+        "validate_python_syntax": lambda files: (True, ""),
+        "enforce_required_files": lambda required, files, baseline, **kwargs: (set(required).issubset(set(files)), "Missing") ,
+        "enforce_harness_file_policies": lambda *args, **kwargs: (True, ""),
+        "validate_static_bundle_contracts": lambda *args, **kwargs: (True, ""),
+        "validate_imports": lambda *args, **kwargs: (True, ""),
+        "snapshot_file_contents": lambda paths: {},
+        "write_files": lambda files: captured.setdefault("written", dict(files)),
+        "run_checks": lambda: (True, ""),
+        "_runtime_artifact_paths": lambda *a: [],
+        "_cleanup_runtime_artifacts_for_commit": lambda *a, **k: None,
+        "run": lambda *a, **k: None,
+        "FILE_BUNDLE_BEGIN": "BEGIN_FILE_BUNDLE",
+        "FILE_END": "END_FILE",
+        "FILE_BUNDLE_END": "END_FILE_BUNDLE",
+    }
+
+    args = SimpleNamespace(bootstrap_project="", task=str(task_path), spec_mode=False, push=False, model="m", provider="openai", max_iters=1, policy_block_limit=1)
+    result = shell_router.route_shell_main(args, shell_globals)
+
+    assert result == 0
+    assert captured["expected_paths"] == ["tests/test_run_task_runtime_foundations.py"]
+    assert captured["forbidden_paths"] == ["agents/run_task.py"]
+    written = captured["written"]
+    assert "agents/run_task.py" in written
+    assert "tests/test_run_task_runtime_foundations.py" in written
