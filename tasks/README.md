@@ -1,42 +1,36 @@
-# TradingBot — Task Backlog
+# Tasks Index (Canonical)
 
-This folder is the execution backlog for the TradingBot build and the co-located orchestrator product.
+This file is the canonical visible ordering for task execution history and continuation planning.
 
-## Current posture
+## Completed foundation and buildout
 
-The next priority is **not** broad feature continuation. The next priority is the orchestrator’s **Reliability / Recovery / Autonomy tranche** so the controller can eventually manage long backlogs with much less human steering.
+- 001–014: TradingBot runtime foundation and paper-cycle features
+- 015–038 family: Orchestrator state, policy, execution, review, guardrails, resume, persistence, and run-loop surfaces
+- 039–043 family: Harness hardening, protected-edit/semantic checks, modularization, artifact quarantine
+- 044–048 family: Spec execution lanes, failure journaling context, bootstrap adapters, validator plugins, safe parallelism
+- 049–050: Shell convergence umbrella and public interface freeze
+- 051–054 (+054a/054b): Docs normalization, portability proof, seam registry, seam-lint and harness gate extensions
+- 055–060: Reliability/autonomy tranche
 
-## Near-term task order
+## Continuation reset and active deferred sequence
 
-### Reliability / Recovery / Autonomy tranche (active)
+- **061** `orchestrator_continuation_reset_and_numbering_sync`  
+  Documentation/task-order realignment checkpoint after reliability/autonomy completion.
 
-- `055_orchestrator_reliability_and_autonomy_umbrella` (do not run directly)
-- `055a_orchestrator_harness_contract_freeze`
-- `055b_orchestrator_task_family_classifier_prompt_compiler_and_split_strategy`
-- `055c_orchestrator_seam_manifest_and_semantic_contract_validator`
-- `056_orchestrator_failure_classifier_and_remediation_planner`
-- `057_orchestrator_localized_repair_and_failure_artifacts`
-- `058_orchestrator_backlog_readiness_and_state_engine`
-- `059_orchestrator_ci_pr_merge_controller`
-- `060_orchestrator_autonomy_loop_integration`
-- `061_orchestrator_continuation_reset_and_numbering_sync`
+- **062** `orchestrator_integrated_capabilities_e2e`
+- **063** `orchestrator_failure_journal_live_seam`
+- **064** `orchestrator_safe_parallelism_review_integration`
+- **065** `orchestrator_runtime_artifact_quarantine_integration`
+- **066** `orchestrator_package_extraction_prep`
+- **067** `orchestrator_canonical_docs_path_policy`
+- **068** `orchestrator_task_scope_and_split_heuristics`
 
-### Deferred continuation (resume after reliability tranche)
+## Numbering policy
 
-- `062_orchestrator_integrated_capabilities_e2e`
-- `063_orchestrator_failure_journal_live_seam`
-- `064_orchestrator_safe_parallelism_review_integration`
-- `065_orchestrator_runtime_artifact_quarantine_integration`
-- `066_orchestrator_package_extraction_prep`
-- `067_orchestrator_canonical_docs_path_policy`
-- `068_orchestrator_task_scope_and_split_heuristics`
+1. Task IDs and filenames in `tasks/` are the source of truth.
+2. Continuation references in docs must use the existing numbered IDs (no ad-hoc renumbering).
+3. Umbrella/subtask suffixes (`a`, `b`, etc.) remain part of canonical identity when present.
 
-## Execution recommendation
+## Related planning artifact
 
-For the active tranche:
-
-- treat meta-harness tasks as protected/manual-patch-first where needed
-- prefer narrow, deterministic acceptance criteria
-- require semantic contract validation for seam-heavy tasks
-- prefer localized repair over whole-task restart when a small bundle partially succeeds
-- keep docs/roadmap/task numbering synchronized whenever the trajectory changes
+- `TASK_CLEANUP_055_068.md` tracks cleanup/planning considerations spanning the reliability/autonomy tranche through the deferred continuation window.

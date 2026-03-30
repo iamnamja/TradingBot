@@ -1,33 +1,48 @@
-# TradingBot / Orchestrator Project State
+# TradingBot Project State
 
-## TradingBot
+## Repository scope
 
-- still at manual paper-trading readiness
-- app-level backlog is intentionally paused behind orchestrator reliability work
+The repository combines:
 
-## Orchestrator
+- Trading runtime (`src/tradingbot`)
+- Orchestrator engine and control plane (`src/builder/orchestrator`)
+- Agent execution harness (`agents`)
+- Numbered implementation tasks (`tasks`)
+- Documentation and project-state tracking (`docs`)
 
-### Completed on `main`
+## Implemented baseline
 
-- 042–048 hardening tranche
-- 049–052 shell/public-interface/docs/portability tranche
-- 053 stable seam registry
-- 054a–054b meta harness lane gate + bundle preflight/localized repair
+The orchestrator buildout has progressed through the reliability/autonomy tranche with the following sequence complete:
 
-### Active next tranche
+- Core orchestrator lifecycle and workflow execution (015–038 family)
+- Harness hardening and modularization (039–043)
+- Spec execution and reliability lanes (044–048)
+- Shell convergence and interface stabilization (049–050)
+- Docs/status normalization and seam preparation (051–054 + 054a/054b)
+- Reliability/autonomy umbrella and implementations (055–060)
 
-The orchestrator is now on a **Reliability / Recovery / Autonomy** trajectory.
+## Continuation reset (this sync point)
 
-The controller must become good at:
+To prevent post-tranche drift, continuation is explicitly resumed from:
 
-- choosing the right lane for a task family
-- compiling a better request for that lane
-- validating seam contracts semantically
-- classifying failures into repair, retry, split, defer, or escalation
-- preserving good outputs and repairing only the bad subset
-- deciding what task is ready next
-- controlling PR/CI/merge as part of the same loop
+- **061** `orchestrator_continuation_reset_and_numbering_sync` (this alignment task)
 
-### Deferred continuation
+Follow-on deferred continuation remains:
 
-The earlier integration/seam-family continuation remains deferred until the reliability tranche lands.
+- **062** integrated capabilities e2e
+- **063** failure journal live seam
+- **064** safe parallelism review integration
+- **065** runtime artifact quarantine integration
+- **066** package extraction prep
+- **067** canonical docs path policy
+- **068** task scope and split heuristics
+
+## Canonical ordering source
+
+For all contributor and automation references, the canonical visible order is:
+
+1. `tasks/README.md` (source of truth for task order and status labels)
+2. task markdown files under `tasks/` by exact numeric/alphanumeric filename
+3. supporting roadmap docs in `docs/`
+
+Any continuation language should reference task IDs exactly as numbered above (no alternate renumbering aliases).
