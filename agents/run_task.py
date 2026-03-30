@@ -409,6 +409,57 @@ def _normalize_policy_path(token: str) -> str:
     return token.replace("\\", "/").strip()
 
 
+CANONICAL_ROOT_DOC_FILES = {"README.md"}
+CANONICAL_NARRATIVE_DOC_PREFIXES = ("ORCHESTRATOR_", "TRADINGBOT_")
+
+
+def _canonical_docs_path_for(path: str) -> str:
+    normalized = _normalize_policy_path(path)
+    if not normalized.endswith(".md"):
+        return normalized
+    if "/" in normalized:
+        return normalized
+    if normalized in CANONICAL_ROOT_DOC_FILES:
+        return normalized
+    filename = Path(normalized).name
+    if filename.startswith(CANONICAL_NARRATIVE_DOC_PREFIXES):
+        return f"docs/{filename}"
+    return normalized
+
+
+def _canonical_docs_path_policy_issues(paths: List[str]) -> List[str]:
+    normalized_paths: List[str] = []
+    for raw in paths:
+        normalized = _normalize_policy_path(raw)
+        if normalized:
+            normalized_paths.append(normalized)
+
+    issues: List[str] = []
+    by_canonical: Dict[str, List[str]] = {}
+    for path in normalized_paths:
+        canonical = _canonical_docs_path_for(path)
+        by_canonical.setdefault(canonical, []).append(path)
+        if canonical != path:
+            issues.append(
+                f"`{path}` must live at `{canonical}`; only `README.md` stays at repo root while orchestrator/tradingbot narrative docs live under `docs/`."
+            )
+
+    for canonical, variants in sorted(by_canonical.items()):
+        unique_variants = sorted(set(variants))
+        if len(unique_variants) > 1:
+            issues.append(
+                f"duplicate canonical doc variants detected for `{canonical}`: " + ", ".join(unique_variants)
+            )
+
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        if issue not in seen:
+            deduped.append(issue)
+            seen.add(issue)
+    return deduped
+
+
 def _parse_task_file_attrs(rest: str) -> Dict[str, str]:
     attrs: Dict[str, str] = {}
     text = (rest or "").strip()
@@ -2158,6 +2209,10 @@ def enforce_required_files(
                 unchanged.append(rf)
         if unchanged:
             return False, "Required deliverables were included but not materially updated: " + ", ".join(unchanged)
+
+    canonical_doc_issues = _canonical_docs_path_policy_issues(list(required) + list(bundle))
+    if canonical_doc_issues:
+        return False, "Canonical docs path policy violations detected:\n" + "\n".join(f"- {issue}" for issue in canonical_doc_issues)
 
     return True, ""
 

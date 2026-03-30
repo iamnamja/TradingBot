@@ -96,3 +96,20 @@ In that mode:
 No deliverable completeness enforcement is applied when the task text is
 ambiguous or does not include one of the supported explicit file-list sections.
 
+## Canonical docs path policy
+
+The repo uses one explicit source of truth for narrative doc placement:
+
+- `README.md` remains the only canonical root-level README
+- orchestrator/tradingbot narrative docs live under `docs/`
+- do not create duplicate canonical narrative docs in both repo root and `docs/`
+
+In practice, root-level files such as `ORCHESTRATOR_PRODUCT_SPEC.md` or
+`TRADINGBOT_AND_ORCHESTRATOR_RELATIONSHIP.md` are non-canonical and should live
+at `docs/ORCHESTRATOR_PRODUCT_SPEC.md` and
+`docs/TRADINGBOT_AND_ORCHESTRATOR_RELATIONSHIP.md` instead.
+
+The harness may reject explicit deliverable bundles that include root-level
+orchestrator/tradingbot narrative docs when the canonical `docs/` path is the
+correct placement.
+

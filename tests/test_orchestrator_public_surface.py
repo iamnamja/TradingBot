@@ -116,3 +116,24 @@ def test_harness_contract_helpers_are_exposed() -> None:
     assert callable(run_task._task_baseline_paths)
     assert callable(run_task.enforce_meta_file_task_gate)
     assert callable(run_task.request_and_parse_bundle)
+
+def test_canonical_docs_path_policy_helpers_exposed_and_stable() -> None:
+    _ensure_repo_on_path()
+    run_task = importlib.import_module("agents.run_task")
+
+    assert callable(run_task._canonical_docs_path_for)
+    assert callable(run_task._canonical_docs_path_policy_issues)
+
+    assert run_task._canonical_docs_path_for("README.md") == "README.md"
+    assert run_task._canonical_docs_path_for("ORCHESTRATOR_PRODUCT_SPEC.md") == "docs/ORCHESTRATOR_PRODUCT_SPEC.md"
+    assert run_task._canonical_docs_path_for("TRADINGBOT_AND_ORCHESTRATOR_RELATIONSHIP.md") == "docs/TRADINGBOT_AND_ORCHESTRATOR_RELATIONSHIP.md"
+    assert run_task._canonical_docs_path_for("docs/README.md") == "docs/README.md"
+
+    issues = run_task._canonical_docs_path_policy_issues([
+        "README.md",
+        "ORCHESTRATOR_PRODUCT_SPEC.md",
+        "docs/ORCHESTRATOR_PRODUCT_SPEC.md",
+    ])
+    assert any("must live at `docs/ORCHESTRATOR_PRODUCT_SPEC.md`" in issue for issue in issues)
+    assert any("duplicate canonical doc variants detected" in issue for issue in issues)
+
