@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -161,3 +162,51 @@ def test_failure_artifact_helper_shared_between_run_task_and_shell_router(monkey
     printed = capsys.readouterr().out
     assert called["count"] == 2
     assert "emit:_last_agent_model_output.txt:_last_agent_file_bundle.txt" in printed
+
+
+def test_task_scope_heuristic_sets_env_and_recommends_split(monkeypatch, capsys) -> None:
+    run_task, _, _, _, _, _, _, _ = _load_runtime_modules()
+    # Reset any previous advisory flag and env annotations
+    monkeypatch.delenv("TRADINGBOT_SEAM_SPLIT_FAMILIES", raising=False)
+    monkeypatch.delenv("TRADINGBOT_SEAM_SPLIT_RECOMMENDATION", raising=False)
+    try:
+        run_task.__dict__.pop("_SEAM_SPLIT_WARNED_ONCE", None)
+    except Exception:
+        pass
+
+    required = [
+        "docs/ORCHESTRATOR_VISION_AND_CONTROLS.md",
+        "agents/lib/shell_router.py",
+        "src/builder/orchestrator/runner.py",
+    ]
+    # Trigger heuristic via partition helper (advisory-only)
+    run_task._partition_required_paths_for_normal_bundle(required, [])
+
+    out = capsys.readouterr().out
+    # Either the explicit advisory or the lower-level heuristic message should appear
+    assert ("Task scope heuristic" in out) or ("Recommendation: split this task" in out)
+
+    families = os.getenv("TRADINGBOT_SEAM_SPLIT_FAMILIES", "")
+    assert families is not None
+    # Expect at least these seam families to be recognized
+    assert "docs" in families
+    assert ("orchestrator_core" in families) or ("bootstrap_config" in families)
+    assert ("shell_router" in families) or ("meta" in families)
+
+    recommendation = os.getenv("TRADINGBOT_SEAM_SPLIT_RECOMMENDATION", "")
+    # Recommendation may be empty if the heuristic routed via shell path later;
+    # if present, ensure it contains a split suggestion
+    if recommendation:
+        assert "split" in recommendation
+
+
+def test_shell_router_partition_recommends_split(capsys) -> None:
+    _, _, _, _, _, _, _, shell_router = _load_runtime_modules()
+    required = [
+        "docs/ORCHESTRATOR_VISION_AND_CONTROLS.md",
+        "agents/run_task.py",
+        "agents/lib/failure_journal.py",
+    ]
+    shell_router._partition_required_paths_for_normal_bundle(required, [])
+    out = capsys.readouterr().out
+    assert "Recommendation: split this task into focused subtasks." in out

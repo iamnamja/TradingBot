@@ -115,23 +115,87 @@ def _partition_required_paths_for_normal_bundle(required: list[str], protected_m
     except Exception:
         delegated_partition = None
 
+    normalized_required = _normalize_paths(required)
+    normalized_protected_method_paths = _normalize_paths(list(protected_method_paths or []))
+
+    # Partition using a delegated helper if available (preferred), but still run local heuristics.
+    normal: list[str] | None = None
+    protected: list[str] | None = None
     if callable(delegated_partition):
         try:
-            normal, protected = delegated_partition(
-                required,
-                protected_method_paths,
+            n, p = delegated_partition(
+                normalized_required,
+                normalized_protected_method_paths,
                 protected_meta_harness_paths=_PROTECTED_META_HARNESS_PATHS,
             )
-            return _normalize_paths(list(normal)), _normalize_paths(list(protected))
         except TypeError:
-            normal, protected = delegated_partition(required, protected_method_paths)
-            return _normalize_paths(list(normal)), _normalize_paths(list(protected))
+            n, p = delegated_partition(normalized_required, normalized_protected_method_paths)
+        normal = _normalize_paths(list(n))
+        protected = _normalize_paths(list(p))
 
-    normalized_required = _normalize_paths(required)
-    protected_required = set(normalized_required) & set(_PROTECTED_META_HARNESS_PATHS)
-    protected_required.update(p for p in _normalize_paths(list(protected_method_paths or [])) if p in _PROTECTED_META_HARNESS_PATHS)
-    protected = [p for p in normalized_required if p in protected_required]
-    normal = [p for p in normalized_required if p not in protected_required]
+    # Fallback partition if no delegation or delegation failed to produce values.
+    if normal is None or protected is None:
+        protected_required = set(normalized_required) & set(_PROTECTED_META_HARNESS_PATHS)
+        protected_required.update(p for p in normalized_protected_method_paths if p in _PROTECTED_META_HARNESS_PATHS)
+        protected = [p for p in normalized_required if p in protected_required]
+        normal = [p for p in normalized_required if p not in protected_required]
+
+    # Lightweight task-scope heuristics: detect broad multi-seam tasks and recommend splitting.
+    # Families focus on orchestrator seams and broad shapes only (non-fatal, advisory only).
+    families: set[str] = set()
+    for p in normalized_required:
+        lp = p.lower()
+        # Docs and tests
+        if lp.endswith(".md") or lp.startswith("docs/") or "/docs/" in lp:
+            families.add("docs")
+        if lp.startswith("tests/"):
+            families.add("tests")
+        # Orchestrator CLI and core harness internals
+        if p == "agents/run_task.py":
+            families.add("orchestrator_cli")
+        if lp.startswith("agents/lib/"):
+            name = p.split("/")[-1].lower()
+            # Coarse-grained seam family hints by filename keywords only.
+            if "shell_router" in name:
+                families.add("orchestrator_core")
+            if "bundle" in name or "protected" in name or "policy" in name or "parser" in name:
+                families.add("policy_or_parser")
+            if "failure" in name or "journal" in name or "report" in name:
+                families.add("failure_journal")
+            if "artifact" in name or "quarantine" in name:
+                families.add("artifact_quarantine")
+            if "runtime" in name or "snapshot" in name or "worktree" in name or "branch" in name:
+                families.add("runtime_foundations")
+            if "spec" in name:
+                families.add("spec_mode")
+
+    if normalized_protected_method_paths:
+        families.add("protected_method_mode")
+
+    core_like = {"orchestrator_cli", "orchestrator_core", "policy_or_parser", "failure_journal", "artifact_quarantine", "runtime_foundations", "spec_mode"}
+    core_present = families & core_like
+
+    recommend_reasons: list[str] = []
+    # Mixing multiple core orchestrator seams tends to be over-broad.
+    if len(core_present) >= 2:
+        recommend_reasons.append("multiple_orchestrator_seams")
+    # Docs plus deep orchestrator internals often warrant separate normalization tasks.
+    if "docs" in families and core_present:
+        recommend_reasons.append("docs_plus_core")
+    # Protected method mode mixed with broad normal file edits can be split for clarity.
+    if "protected_method_mode" in families and (core_present or ("docs" in families)) and (bool(normal) and bool(protected)):
+        recommend_reasons.append("protected_plus_normal")
+
+    if recommend_reasons:
+        # Non-fatal advisory to help users split tasks when appropriate.
+        # Keep output concise and deterministic.
+        fam_list = ", ".join(sorted(families))
+        reason_list = ", ".join(sorted(set(recommend_reasons)))
+        print("Recommendation: split this task into focused subtasks.")
+        print(f"Detected seam families: {fam_list}")
+        print(f"Heuristic triggers: {reason_list}")
+        print("Proceeding without enforcing a split.")
+
     return normal, protected
 def _ensure_failure_artifacts(last_output_path: Path, last_bundle_path: Path, *, task_file: str, failure_category: str, protected_files: list[str] | None = None, before_model_output: bool = False, normal_bundle_attempted: bool = False, reason: str = "", protected_execution_attempted: bool = False, mixed_task: bool = False, protected_targets_identified: list[str] | None = None) -> None:
     payload = {
@@ -180,11 +244,114 @@ def _emit_failure_artifact_messages(shell_globals: dict[str, Any], last_output_p
 
     delegated = shell_globals.get("_emit_failure_artifact_messages")
     if callable(delegated):
-        delegated(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason, protected_execution_attempted=protected_execution_attempted, mixed_task=mixed_task, protected_targets_identified=protected_targets_identified)
+        delegated(
+            last_output_path,
+            last_bundle_path,
+            task_file=task_file,
+            failure_category=failure_category,
+            protected_files=protected_files,
+            before_model_output=before_model_output,
+            normal_bundle_attempted=normal_bundle_attempted,
+            reason=reason,
+            protected_execution_attempted=protected_execution_attempted,
+            mixed_task=mixed_task,
+            protected_targets_identified=protected_targets_identified,
+        )
         return
-    _ensure_failure_artifacts(last_output_path, last_bundle_path, task_file=task_file, failure_category=failure_category, protected_files=protected_files, before_model_output=before_model_output, normal_bundle_attempted=normal_bundle_attempted, reason=reason, protected_execution_attempted=protected_execution_attempted, mixed_task=mixed_task, protected_targets_identified=protected_targets_identified)
+
+    _ensure_failure_artifacts(
+        last_output_path,
+        last_bundle_path,
+        task_file=task_file,
+        failure_category=failure_category,
+        protected_files=protected_files,
+        before_model_output=before_model_output,
+        normal_bundle_attempted=normal_bundle_attempted,
+        reason=reason,
+        protected_execution_attempted=protected_execution_attempted,
+        mixed_task=mixed_task,
+        protected_targets_identified=protected_targets_identified,
+    )
     print(f"Model output saved to: {last_output_path}")
     print(f"Parsed file bundle saved to: {last_bundle_path}")
+
+    # Lightweight, advisory-only split heuristic (non-fatal).
+    try:
+        paths_for_family: list[str] = []
+        paths_for_family.extend(_normalize_paths(protected_files))
+        paths_for_family.extend(_normalize_paths(protected_targets_identified))
+
+        # Try to glean additional paths from the last parsed bundle artifact if present.
+        if last_bundle_path.exists():
+            bundle_text = last_bundle_path.read_text(encoding="utf-8", errors="replace")
+            if "FILE_BUNDLE_BEGIN" in bundle_text and "FILE_BUNDLE_END" in bundle_text:
+                for line in bundle_text.splitlines():
+                    if line.startswith("FILE: "):
+                        p = line[len("FILE: ") :].strip()
+                        if p:
+                            paths_for_family.append(p)
+
+        families: set[str] = set()
+        for p in _normalize_paths(paths_for_family):
+            lp = p.lower()
+            if lp.endswith(".md") or lp.startswith("docs/") or "/docs/" in lp:
+                families.add("docs")
+            if lp.startswith("tests/"):
+                families.add("tests")
+            if p == "agents/run_task.py":
+                families.add("orchestrator_cli")
+            if lp.startswith("agents/lib/"):
+                name = p.split("/")[-1].lower()
+                if "shell_router" in name:
+                    families.add("orchestrator_core")
+                if "bundle" in name or "protected" in name or "policy" in name or "parser" in name:
+                    families.add("policy_or_parser")
+                if "failure" in name or "journal" in name or "report" in name:
+                    families.add("failure_journal")
+                if "artifact" in name or "quarantine" in name:
+                    families.add("artifact_quarantine")
+                if "runtime" in name or "snapshot" in name or "worktree" in name or "branch" in name:
+                    families.add("runtime_foundations")
+                if "spec" in name:
+                    families.add("spec_mode")
+
+        if protected_execution_attempted or protected_targets_identified:
+            families.add("protected_method_mode")
+        if mixed_task:
+            # Strong signal that protected and normal edits were mixed.
+            families.add("mixed_modes")
+
+        core_like = {
+            "orchestrator_cli",
+            "orchestrator_core",
+            "policy_or_parser",
+            "failure_journal",
+            "artifact_quarantine",
+            "runtime_foundations",
+            "spec_mode",
+        }
+        core_present = families & core_like
+
+        recommend_reasons: list[str] = []
+        if len(core_present) >= 2:
+            recommend_reasons.append("multiple_orchestrator_seams")
+        if "docs" in families and core_present:
+            recommend_reasons.append("docs_plus_core")
+        if ("protected_method_mode" in families or mixed_task) and (core_present or normal_bundle_attempted):
+            recommend_reasons.append("protected_plus_normal")
+
+        # Produce guidance once per run.
+        if recommend_reasons and not shell_globals.get("_split_advisory_emitted"):
+            fam_list = ", ".join(sorted(families))
+            reason_list = ", ".join(sorted(set(recommend_reasons)))
+            print("Recommendation: split this task into focused subtasks.")
+            print(f"Detected seam families: {fam_list}")
+            print(f"Heuristic triggers: {reason_list}")
+            print("Proceeding without enforcing a split.")
+            shell_globals["_split_advisory_emitted"] = True
+    except Exception:
+        # Heuristic is best-effort and non-fatal; ignore any issues silently.
+        pass
 def _call_request_and_parse_bundle_compat(
     shell_globals: dict[str, Any],
     messages: list[dict[str, Any]],
@@ -350,6 +517,68 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
         baseline_paths = baseline_builder(required, harness_policies, protected_targets)
     else:
         baseline_paths = sorted(set(required) | set(harness_policies.keys()) | protected_method_paths)
+
+    # Advisory-only task-scope heuristic: detect broad multi-seam tasks early.
+    try:
+        if not shell_globals.get("_split_advisory_emitted"):
+            families: set[str] = set()
+            all_paths = _normalize_paths(list(required))
+            # Docs/tests
+            for p in all_paths:
+                lp = p.lower()
+                if lp.endswith(".md") or lp.startswith("docs/") or "/docs/" in lp:
+                    families.add("docs")
+                if lp.startswith("tests/"):
+                    families.add("tests")
+                if p == "agents/run_task.py":
+                    families.add("orchestrator_cli")
+                if lp.startswith("agents/lib/"):
+                    name = p.split("/")[-1].lower()
+                    if "shell_router" in name:
+                        families.add("orchestrator_core")
+                    if "bundle" in name or "protected" in name or "policy" in name or "parser" in name:
+                        families.add("policy_or_parser")
+                    if "failure" in name or "journal" in name or "report" in name:
+                        families.add("failure_journal")
+                    if "artifact" in name or "quarantine" in name:
+                        families.add("artifact_quarantine")
+                    if "runtime" in name or "snapshot" in name or "worktree" in name or "branch" in name:
+                        families.add("runtime_foundations")
+                    if "spec" in name:
+                        families.add("spec_mode")
+            if protected_method_paths:
+                families.add("protected_method_mode")
+
+            core_like = {
+                "orchestrator_cli",
+                "orchestrator_core",
+                "policy_or_parser",
+                "failure_journal",
+                "artifact_quarantine",
+                "runtime_foundations",
+                "spec_mode",
+            }
+            core_present = families & core_like
+
+            recommend_reasons: list[str] = []
+            if len(core_present) >= 2:
+                recommend_reasons.append("multiple_orchestrator_seams")
+            if "docs" in families and core_present:
+                recommend_reasons.append("docs_plus_core")
+            if "protected_method_mode" in families and (core_present or ("docs" in families)) and (bool(bundle_required) and bool(protected_required or protected_targets)):
+                recommend_reasons.append("protected_plus_normal")
+
+            if recommend_reasons:
+                fam_list = ", ".join(sorted(families))
+                reason_list = ", ".join(sorted(set(recommend_reasons)))
+                print("Recommendation: split this task into focused subtasks.")
+                print(f"Detected seam families: {fam_list}")
+                print(f"Heuristic triggers: {reason_list}")
+                print("Proceeding without enforcing a split.")
+                shell_globals["_split_advisory_emitted"] = True
+    except Exception:
+        # Non-fatal heuristic best-effort.
+        pass
 
     branch = shell_globals["_choose_agent_branch"](task_path.stem, args.push)
     print(f"Current branch: {shell_globals['capture'](['git', 'rev-parse', '--abbrev-ref', 'HEAD'])}")
