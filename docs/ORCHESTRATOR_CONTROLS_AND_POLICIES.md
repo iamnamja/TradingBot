@@ -83,3 +83,17 @@ When a task explicitly lists protected meta harness files such as `agents/run_ta
 
 The runtime must not claim that `_last_agent_model_output.txt` or `_last_agent_file_bundle.txt` were saved unless those files actually exist on disk. If a protected-file failure occurs before any model output or parsed file bundle exists, the runtime should write truthful placeholder artifacts that explain what failed, whether a normal bundle was attempted, and which protected files were involved.
 
+
+
+## Protected execution lane
+
+When a task explicitly requires protected meta harness files such as `agents/run_task.py` or `agents/lib/shell_router.py`, the controller should not send those files through the ordinary file-bundle lane.
+
+The protected execution lane is intentionally narrow:
+
+- protected deliverables are partitioned out of the normal bundle scope
+- known protected controller files may be assigned a deterministic protected target profile
+- mixed tasks may still keep non-protected deliverables in the normal bundle lane
+- final deliverable accounting must reconcile accepted files from both lanes before validators run
+
+If protected execution fails after routing, the runtime must still emit truthful failure artifacts describing whether protected execution was attempted, whether the task was mixed protected/non-protected, and which protected targets were identified.
