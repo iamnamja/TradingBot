@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agents import run_task
 from agents.lib.artifact_quarantine import (
     KNOWN_SAFE_ARTIFACT_NAMES,
     classify_runtime_artifacts,
     quarantine_runtime_artifacts,
 )
-from agents import run_task
 
 
 def test_classify_runtime_artifacts_known_safe_and_unknown() -> None:
@@ -87,7 +87,8 @@ def test_quarantine_preserves_warning_audit_visibility() -> None:
     assert result["warnings"]["quarantined_known_safe"] == ["last_output.txt"]
     assert result["warnings"]["unknown_artifacts"] == ["notes.tmp"]
     assert removed == ["last_output.txt"]
-    assert git_calls[0][:3] == ["git", "rm", "--cached"]
+    assert any(cmd[:3] == ["git", "rm", "--cached"] for cmd in git_calls)
+    assert any("last_output.txt" in cmd for cmd in git_calls)
 
 
 def test_unknown_artifacts_still_block() -> None:
@@ -111,3 +112,24 @@ def test_quarantined_artifacts_still_present_in_decision_output() -> None:
     )
     assert result["classified"]["known_safe"][0].as_posix() == "_last_agent_file_bundle.txt"
     assert result["warnings"]["quarantined_known_safe"] == ["_last_agent_file_bundle.txt"]
+
+
+def test_quarantine_unknown_only_does_not_require_git_cleanup() -> None:
+    git_calls: list[list[str]] = []
+
+    def fake_run_git(cmd, check=True):
+        _ = check
+        git_calls.append(list(cmd))
+        return object()
+
+    result = quarantine_runtime_artifacts(
+        [Path("scratch/random.out")],
+        run_git_command=fake_run_git,
+        path_exists=lambda _p: True,
+        unlink_path=lambda _p: None,
+    )
+
+    assert result["warnings"]["quarantined_known_safe"] == []
+    assert result["warnings"]["unknown_artifacts"] == ["scratch/random.out"]
+    assert result["should_block"] is True
+    assert git_calls == []
