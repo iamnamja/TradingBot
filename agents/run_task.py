@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import ast
 import difflib
+import json
 import os
 import random
 import re
@@ -1336,6 +1337,39 @@ def _context_snippet_for_path(rel: str, content: str, required_set: set[str]) ->
     return "\n".join(lines[:60]).rstrip()
 
 
+def _localized_repair_failure_artifact_path(last_output_path: Path) -> Path:
+    return last_output_path.with_name(last_output_path.stem + "_localized_repair_failure.json")
+
+
+def _write_localized_repair_failure_artifact(
+    *,
+    last_output_path: Path,
+    initial_raw_output: str,
+    localized_repair_raw_output: str | None,
+    candidate_bundle: Dict[str, str],
+    issues_by_path: Dict[str, List[str]],
+    preserved_paths: List[str],
+    rejected_paths: List[str],
+    rejection_reason: str,
+) -> Path:
+    artifact_path = _localized_repair_failure_artifact_path(last_output_path)
+    payload = {
+        "artifact_type": "localized_repair_failure",
+        "created_at_epoch": time.time(),
+        "last_output_path": last_output_path.as_posix(),
+        "preserved_paths": list(preserved_paths),
+        "rejected_paths": list(rejected_paths),
+        "issues_by_path": {k: list(v) for k, v in issues_by_path.items()},
+        "rejection_reason": str(rejection_reason),
+        "candidate_bundle": dict(candidate_bundle),
+        "initial_raw_output": str(initial_raw_output),
+        "localized_repair_raw_output": None if localized_repair_raw_output is None else str(localized_repair_raw_output),
+    }
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    return artifact_path
+
+
 def _attempt_localized_bundle_repair(
     messages: List[dict],
     bundle: Dict[str, str],
@@ -1346,14 +1380,15 @@ def _attempt_localized_bundle_repair(
     forbidden_paths: List[str] | None,
     baseline: Dict[str, str] | None,
     parse_and_validate_subset,
-) -> Dict[str, str] | None:
+    initial_raw_output: str,
+) -> Dict[str, str]:
     if not issues_by_path:
-        return None
+        return bundle
 
     repair_paths = sorted(issues_by_path)
     repair_bundle = {rel: bundle[rel] for rel in repair_paths if rel in bundle}
     if not repair_bundle:
-        return None
+        return bundle
 
     repair_lines = [
         'Your previous response had localized blocking issues in only a subset of files.',
@@ -1395,8 +1430,20 @@ def _attempt_localized_bundle_repair(
     try:
         repaired_subset = parse_and_validate_subset(out, repair_paths)
     except Exception as exc:
-        print(f"⚠️ Localized repair attempt failed; falling back to original bundle: {exc}")
-        return None
+        preserved_paths = sorted(set(bundle) - set(repair_paths))
+        artifact_path = _write_localized_repair_failure_artifact(
+            last_output_path=last_output_path,
+            initial_raw_output=initial_raw_output,
+            localized_repair_raw_output=out,
+            candidate_bundle=bundle,
+            issues_by_path=issues_by_path,
+            preserved_paths=preserved_paths,
+            rejected_paths=repair_paths,
+            rejection_reason=str(exc),
+        )
+        raise FileBundleError(
+            f"Localized repair rejected bad subset after preserving {len(preserved_paths)} accepted file(s); see {artifact_path.as_posix()}: {exc}"
+        ) from exc
 
     merged = dict(bundle)
     merged.update(repaired_subset)
@@ -2673,12 +2720,24 @@ def _parse_file_bundle_transport_resilient(
     text: str,
     expected_paths: List[str] | None = None,
 ) -> Tuple[Dict[str, str], List[str]]:
-    """
-    Best-effort recovery for malformed outer file-bundle transport.
+    try:
+        from agents.lib.bundle_parser import parse_file_bundle_transport_resilient as _resilient  # type: ignore
+    except Exception:
+        _resilient = None  # type: ignore[assignment]
 
-    This is intentionally separate from parse_file_bundle() so the public parser
-    can retain its current strict behavior for parity-sensitive code/tests.
-    """
+    if callable(_resilient):
+        return _resilient(
+            text=text,
+            expected_paths=expected_paths,
+            normalize_newlines=normalize_newlines,
+            file_bundle_begin=FILE_BUNDLE_BEGIN,
+            file_bundle_end=FILE_BUNDLE_END,
+            file_header_re=FILE_HEADER_RE,
+            bundle_file_header_re=BUNDLE_FILE_HEADER_RE,
+            file_end=FILE_END,
+            error_cls=FileBundleError,
+        )
+
     normalized = normalize_newlines(text)
     lines = normalized.split("\n")
 
@@ -2920,6 +2979,7 @@ def request_and_parse_bundle(
         )
 
     out = chat(messages, model=model, provider=provider)
+    initial_raw_output = out
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
     try:
@@ -2956,7 +3016,7 @@ def request_and_parse_bundle(
 
     localized_issues = _localized_bundle_issues(parsed, baseline)
     if localized_issues:
-        repaired = _attempt_localized_bundle_repair(
+        parsed = _attempt_localized_bundle_repair(
             messages,
             parsed,
             localized_issues,
@@ -2966,9 +3026,8 @@ def request_and_parse_bundle(
             forbidden_paths,
             baseline,
             _parse_subset,
+            initial_raw_output,
         )
-        if repaired is not None:
-            parsed = repaired
 
     return parsed
 

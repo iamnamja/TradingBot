@@ -125,3 +125,100 @@ def test_report_failure_records_confidence_and_plan(tmp_path, monkeypatch) -> No
     assert last["chosen_remediation_path"] == "semantic_contract_repair"
     assert isinstance(last["autonomy_confidence"], float)
     assert last["continue_autonomously"] is False
+
+
+
+def test_request_and_parse_bundle_preserves_good_file_during_localized_subset_repair(tmp_path, monkeypatch) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+
+    outputs = iter([
+        """BEGIN_FILE_BUNDLE
+FILE: tests/test_run_task_runtime_foundations.py
+def broken(:
+    pass
+END_FILE
+FILE: docs/ORCHESTRATOR_PRODUCT_SPEC.md
+# patched doc
+END_FILE
+END_FILE_BUNDLE""",
+        """BEGIN_FILE_BUNDLE
+FILE: tests/test_run_task_runtime_foundations.py
+def repaired():
+    return 1
+END_FILE
+END_FILE_BUNDLE""",
+    ])
+
+    monkeypatch.setattr(run_task, "chat", lambda *a, **k: next(outputs))
+
+    parsed = run_task.request_and_parse_bundle(
+        messages=[{"role": "user", "content": "task"}],
+        model="m",
+        provider="openai",
+        last_output_path=tmp_path / "last_output.txt",
+        expected_paths=[
+            "tests/test_run_task_runtime_foundations.py",
+            "docs/ORCHESTRATOR_PRODUCT_SPEC.md",
+        ],
+        baseline={
+            "tests/test_run_task_runtime_foundations.py": "def baseline():\n    return 0\n",
+            "docs/ORCHESTRATOR_PRODUCT_SPEC.md": "# baseline doc\n",
+        },
+    )
+
+    assert parsed["docs/ORCHESTRATOR_PRODUCT_SPEC.md"] == "# patched doc\n"
+    assert "def repaired():" in parsed["tests/test_run_task_runtime_foundations.py"]
+
+
+def test_request_and_parse_bundle_writes_durable_failure_artifact_on_localized_repair_rejection(tmp_path, monkeypatch) -> None:
+    run_task, _, _, _, _ = _load_runtime_modules()
+
+    outputs = iter([
+        """BEGIN_FILE_BUNDLE
+FILE: tests/test_run_task_runtime_foundations.py
+def broken(:
+    pass
+END_FILE
+FILE: docs/ORCHESTRATOR_PRODUCT_SPEC.md
+# patched doc
+END_FILE
+END_FILE_BUNDLE""",
+        """BEGIN_FILE_BUNDLE
+FILE: docs/ORCHESTRATOR_PRODUCT_SPEC.md
+# wrong subset
+END_FILE
+END_FILE_BUNDLE""",
+    ])
+
+    monkeypatch.setattr(run_task, "chat", lambda *a, **k: next(outputs))
+    last_output = tmp_path / "last_output.txt"
+
+    try:
+        run_task.request_and_parse_bundle(
+            messages=[{"role": "user", "content": "task"}],
+            model="m",
+            provider="openai",
+            last_output_path=last_output,
+            expected_paths=[
+                "tests/test_run_task_runtime_foundations.py",
+                "docs/ORCHESTRATOR_PRODUCT_SPEC.md",
+            ],
+            baseline={
+                "tests/test_run_task_runtime_foundations.py": "def baseline():\n    return 0\n",
+                "docs/ORCHESTRATOR_PRODUCT_SPEC.md": "# baseline doc\n",
+            },
+        )
+    except run_task.FileBundleError as exc:
+        assert "Localized repair rejected bad subset" in str(exc)
+    else:
+        raise AssertionError("expected localized repair rejection")
+
+    artifact_path = tmp_path / "last_output_localized_repair_failure.json"
+    assert artifact_path.exists()
+    payload = __import__("json").loads(artifact_path.read_text(encoding="utf-8"))
+    assert payload["artifact_type"] == "localized_repair_failure"
+    assert payload["preserved_paths"] == ["docs/ORCHESTRATOR_PRODUCT_SPEC.md"]
+    assert payload["rejected_paths"] == ["tests/test_run_task_runtime_foundations.py"]
+    assert payload["rejection_reason"]
+    assert ("requested scope" in payload["rejection_reason"] or "No FILE: blocks could be parsed" in payload["rejection_reason"])
+    assert "FILE: docs/ORCHESTRATOR_PRODUCT_SPEC.md" in payload["localized_repair_raw_output"]
