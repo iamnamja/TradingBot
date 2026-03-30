@@ -11,16 +11,21 @@ This file is the canonical visible ordering for task execution history and conti
 - 049–050: Shell convergence umbrella and public interface freeze
 - 051–054 (+054a/054b): Docs normalization, portability proof, seam registry, seam-lint and harness gate extensions
 - 055–067 (+065a, 067a): Reliability/autonomy continuation and follow-on control-plane hardening
+- 068a–068c: stabilization extension for protected/controller execution and controller thinning
 
-## Stabilization extension before Task 068
+## Immediate follow-on before backlog continuation
 
-- **068a** `orchestrator_protected_lane_execution_hardening`
-- **068b** `orchestrator_duplicate_bundle_normalization_and_repair`
-- **068c** `orchestrator_controller_decomposition_and_first_extraction`
+- **068** `orchestrator_task_scope_and_split_heuristics` (retry/confirm after the stabilization extension)
 
-## Deferred continuation after the stabilization extension
+## Backlog execution continuation
 
-- **068** `orchestrator_task_scope_and_split_heuristics`
+- **069** `orchestrator_controller_decomposition_second_extraction`
+- **070** `orchestrator_task_list_manifest_and_queue_model`
+- **071** `orchestrator_batch_state_persistence_and_resume`
+- **072** `orchestrator_per_task_checkpoint_and_branch_isolation`
+- **073** `orchestrator_batch_failure_policy_and_continue_gate`
+- **074** `orchestrator_batch_runner_cli_and_summary_artifacts`
+- **075** `orchestrator_backlog_execution_end_to_end_proof`
 
 ## Numbering policy
 
@@ -31,5 +36,6 @@ This file is the canonical visible ordering for task execution history and conti
 
 ## Related planning artifacts
 
-- `TASK_CLEANUP_055_068.md` tracks cleanup/planning considerations spanning the reliability/autonomy tranche through the current continuation window.
-- `docs/ORCHESTRATOR_ROADMAP_055_068.md` is the active roadmap for the stabilization extension.
+- `TASK_CLEANUP_055_068.md` tracks cleanup/planning considerations spanning the reliability/autonomy tranche through the stabilization extension.
+- `docs/ORCHESTRATOR_ROADMAP_055_068.md` covers the stabilization extension around Task 068.
+- `docs/ORCHESTRATOR_ROADMAP_069_075.md` covers the backlog-execution continuation after 068.
