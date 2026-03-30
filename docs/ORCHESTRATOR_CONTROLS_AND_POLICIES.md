@@ -77,39 +77,9 @@ into unrelated internal modules or guessing private names.
 
 The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
 
-## Deliverable completeness enforcement
+## Protected method mode routing and truthful failure artifacts
 
-When a task includes an explicit deliverable file list under a supported heading
-such as `Create or update these exact files`, `Deliverables`, `Files`, or
-`Required files`, the runner treats that list as a conservative completeness
-contract.
+When a task explicitly lists protected meta harness files such as `agents/run_task.py` or `agents/lib/shell_router.py` in its required deliverables, those files must be pre-routed out of the normal file-bundle lane. Ordinary non-protected deliverables in the same task may still remain eligible for the normal bundle lane.
 
-In that mode:
-
-- validator-green is not sufficient on its own
-- every explicitly listed deliverable must be present in the final accepted file set
-- the controller may attempt one focused missing-file repair that asks only for
-  the missing deliverables while preserving already accepted files
-- unresolved missing deliverables produce a durable
-  `last_output_deliverable_completeness_failure.json` artifact in repo root
-
-No deliverable completeness enforcement is applied when the task text is
-ambiguous or does not include one of the supported explicit file-list sections.
-
-## Canonical docs path policy
-
-The repo uses one explicit source of truth for narrative doc placement:
-
-- `README.md` remains the only canonical root-level README
-- orchestrator/tradingbot narrative docs live under `docs/`
-- do not create duplicate canonical narrative docs in both repo root and `docs/`
-
-In practice, root-level files such as `ORCHESTRATOR_PRODUCT_SPEC.md` or
-`TRADINGBOT_AND_ORCHESTRATOR_RELATIONSHIP.md` are non-canonical and should live
-at `docs/ORCHESTRATOR_PRODUCT_SPEC.md` and
-`docs/TRADINGBOT_AND_ORCHESTRATOR_RELATIONSHIP.md` instead.
-
-The harness may reject explicit deliverable bundles that include root-level
-orchestrator/tradingbot narrative docs when the canonical `docs/` path is the
-correct placement.
+The runtime must not claim that `_last_agent_model_output.txt` or `_last_agent_file_bundle.txt` were saved unless those files actually exist on disk. If a protected-file failure occurs before any model output or parsed file bundle exists, the runtime should write truthful placeholder artifacts that explain what failed, whether a normal bundle was attempted, and which protected files were involved.
 
