@@ -144,3 +144,13 @@ def test_bootstrap_config_defaults_parallel_execution_to_off(tmp_path: Path) -> 
     config_path = bootstrap_project_config_scaffold(tmp_path)
     loaded = load_project_config(config_path)
     assert loaded.parallel_execution_enabled is False
+
+
+def test_run_review_contract_for_protected_files_is_shape_stable_and_best_effort() -> None:
+    runner = _runner(parallel_enabled=True, protected=[".github/workflows/*"])
+    verdict = runner.run_review([".github/workflows/ci.yml"])
+
+    assert set(("mergeable", "reasons", "warnings")).issubset(verdict.keys())
+    assert isinstance(verdict["mergeable"], bool)
+    assert isinstance(verdict["reasons"], list)
+    assert isinstance(verdict["warnings"], list)
