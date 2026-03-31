@@ -12,6 +12,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **Protected/controller stabilization complete through 069** (including 068, 068a, 068b, and 068c)
 - **070 adds task-list manifest and queue groundwork for backlog execution**
 - **070b clarifies runtime-artifact lifecycle controls with explicit retention mode**
+- **071 adds persisted batch-state and deterministic resume groundwork for queue execution**
 - Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package and **not yet a full end-to-end backlog runner**
 
 ## Users and use cases
@@ -37,6 +38,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - Deterministic task-list manifest parsing and queue construction
 - Explicit manifest validation for missing task files and duplicate-path policy handling
 - Runtime artifact quarantine with explicit operator retention controls for known-safe scratch files
+- Persisted machine-readable batch state for task-list execution and deterministic resume
 
 ## Sequence summary
 
@@ -87,6 +89,61 @@ Build a reusable orchestration engine that can execute constrained implementatio
 22. Retained known-safe artifacts are still unstaged (`git rm --cached --ignore-unmatch`) to prevent accidental auto-commit
 23. Unknown runtime artifacts remain protective blockers and are surfaced distinctly from known-safe retained/quarantined states
 24. Lifecycle messaging is explicit across retained, quarantined-removed, and blocked-unknown outcomes
+
+### Batch state persistence and resume groundwork (071)
+
+25. Batch execution state is persisted as a narrow machine-readable JSON artifact containing manifest identity, ordered queue items, per-task status, current index, sequence counters, and timestamps
+26. New batch state can be initialized directly from a validated manifest queue without replacing the single-task flow
+27. Resume path validates manifest fingerprint identity; mismatched state/manifest combinations are rejected with explicit errors
+28. Resume may enforce exact manifest source matching unless an explicit override rule is enabled
+29. Queue status transitions are deterministic and narrow (`queued -> running`, `running -> completed|failed|manual_patch|blocked`) with invalid transitions rejected
+30. Resume now also validates queue identity/ordering against the provided manifest-derived queue to prevent accidental resume on fingerprint-compatible but queue-divergent state
+
+## Batch state file model (071)
+
+The persisted batch state file is intentionally narrow and reusable:
+
+- `state_version`: schema version for forward compatibility
+- `manifest.source`: identity/path string used to initialize the batch
+- `manifest.fingerprint`: deterministic digest over canonical manifest JSON
+- `queue[]` ordered entries:
+  - `task_path`
+  - `ordinal`
+  - `status`
+  - `status_note`
+  - `attempts`
+  - `updated_seq`
+- `current_index`: next queue position to process
+- `event_seq`: monotonic transition counter
+- `created_ts` / `updated_ts`: deterministic integer timestamps/counters supplied by caller
+- `batch_status`: derived aggregate (`active|completed|blocked|failed|manual_patch`)
+
+Design constraints:
+
+- no speculative parallel semantics in the state shape
+- no git-history coupling and no external-service dependency
+- deterministic counters/ordering suitable for replay and later orchestration layers
+
+## Resume behavior rules (071)
+
+- **Start new batch**: initialize from manifest + constructed queue, all task statuses begin as `queued`
+- **Resume existing batch**: load persisted state and require manifest fingerprint match
+- **Mismatched manifest**: fail fast with explicit mismatch error
+- **Manifest source mismatch**: fail by default; optional override can allow path/source mismatch when operator intends it
+- **Queue mismatch on resume**: fail fast when persisted state queue paths/order do not match the supplied manifest-derived queue
+- **Current index advancement**: advances only after terminal transition on the currently running item, preserving deterministic ordering
+
+## Safe transition policy (071)
+
+Allowed transitions are intentionally narrow:
+
+- `queued -> running`
+- `running -> completed`
+- `running -> failed`
+- `running -> manual_patch`
+- `running -> blocked`
+
+All other transitions are invalid and rejected. This keeps resume stable, prevents silent rewinds/skips, and gives later backlog runners explicit control points.
 
 ## Runtime artifact lifecycle policy
 

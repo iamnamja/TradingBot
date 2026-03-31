@@ -6,9 +6,22 @@ from typing import Any, Literal
 
 QueueStatus = Literal["queued", "running", "completed", "blocked", "failed", "manual_patch"]
 
+ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
+    "queued": ("running",),
+    "running": ("completed", "failed", "manual_patch", "blocked"),
+    "completed": (),
+    "failed": (),
+    "manual_patch": (),
+    "blocked": (),
+}
+
 
 class TaskQueueManifestError(ValueError):
     """Raised when a task-list manifest is invalid."""
+
+
+class TaskQueueTransitionError(ValueError):
+    """Raised when a queue item status transition is invalid."""
 
 
 @dataclass(frozen=True)
@@ -44,6 +57,18 @@ def _coerce_manifest_task_entry(entry: Any, index: int) -> dict[str, str]:
     raise TaskQueueManifestError(
         f"Task entry at index {index} must be a string path or object with `path`."
     )
+
+
+def validate_queue_status_transition(from_status: QueueStatus, to_status: QueueStatus) -> None:
+    allowed = ALLOWED_STATUS_TRANSITIONS.get(from_status, ())
+    if to_status not in allowed:
+        raise TaskQueueTransitionError(
+            f"Invalid queue status transition: {from_status} -> {to_status}."
+        )
+
+
+def queue_signature(queue: list[TaskQueueItem]) -> tuple[str, ...]:
+    return tuple(item.task_path for item in queue)
 
 
 def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Path = ".") -> list[TaskQueueItem]:

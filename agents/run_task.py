@@ -3435,10 +3435,62 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
     except Exception:
         _partition = None  # type: ignore[assignment]
 
+    normalized_required: List[str] = []
+    seen_required: set[str] = set()
+    for raw in required_paths or []:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+        if canonical in seen_required:
+            continue
+        seen_required.add(canonical)
+        normalized_required.append(canonical)
+
+    normalized_protected: List[dict[str, object]] = []
+    seen_protected_entries: set[tuple[str, str, str]] = set()
+    for target in protected_targets or []:
+        if isinstance(target, dict):
+            raw_path = target.get("path")
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                continue
+            canonical_path = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
+            mode = str(target.get("mode", "") or "").strip()
+            method_name = str(target.get("method_name", "") or "").strip()
+            dedupe_key = (canonical_path, mode, method_name)
+            if dedupe_key in seen_protected_entries:
+                continue
+            seen_protected_entries.add(dedupe_key)
+            target_copy: dict[str, object] = dict(target)
+            target_copy["path"] = canonical_path
+            normalized_protected.append(target_copy)
+        elif isinstance(target, str) and target.strip():
+            canonical_path = _canonical_docs_path_for(target.strip().replace("\\", "/"))
+            dedupe_key = (canonical_path, "", "")
+            if dedupe_key in seen_protected_entries:
+                continue
+            seen_protected_entries.add(dedupe_key)
+            normalized_protected.append({"path": canonical_path})
+
+    inferred_targets = _infer_protected_method_targets_from_required("", normalized_required)
+    for inferred in inferred_targets:
+        raw_path = inferred.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        canonical_path = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
+        mode = str(inferred.get("mode", "") or "").strip()
+        method_name = str(inferred.get("method_name", "") or "").strip()
+        dedupe_key = (canonical_path, mode, method_name)
+        if dedupe_key in seen_protected_entries:
+            continue
+        seen_protected_entries.add(dedupe_key)
+        inferred_copy: dict[str, object] = dict(inferred)
+        inferred_copy["path"] = canonical_path
+        normalized_protected.append(inferred_copy)
+
     if callable(_partition):
         return _partition(
-            required_paths=required_paths,
-            protected_targets=protected_targets,
+            required_paths=normalized_required,
+            protected_targets=normalized_protected,
             protected_meta_paths=(
                 "agents/run_task.py",
                 "agents/lib/shell_router.py",
@@ -3454,22 +3506,16 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         "agents/lib/protected_file_policy.py",
     }
     protected_explicit: set[str] = set()
-    for target in protected_targets or []:
-        if isinstance(target, dict):
-            maybe = target.get("path")
-            if isinstance(maybe, str) and maybe.strip():
-                protected_explicit.add(maybe.strip().replace("\\", "/"))
-        elif isinstance(target, str) and target.strip():
-            protected_explicit.add(target.strip().replace("\\", "/"))
+    for target in normalized_protected:
+        maybe = target.get("path")
+        if isinstance(maybe, str) and maybe.strip():
+            protected_explicit.add(maybe.strip().replace("\\", "/"))
 
     normal: List[str] = []
     protected: List[str] = []
     seen_normal: set[str] = set()
     seen_protected: set[str] = set()
-    for raw in required_paths or []:
-        if not isinstance(raw, str) or not raw.strip():
-            continue
-        path = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+    for path in normalized_required:
         is_protected = path in protected_explicit or path in meta_harness_paths
         if is_protected:
             if path not in seen_protected:
@@ -3548,46 +3594,65 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         return
 
     should_create_placeholders = bool(create_placeholders or before_model_output)
+    protected_files_list = [str(x) for x in (protected_files or []) if str(x).strip()]
+    protected_targets_list = [str(x) for x in (protected_targets_identified or []) if str(x).strip()]
+    task_file_path = Path(task_file).as_posix() if task_file else ""
+    normalized_reason = reason or "failure occurred before artifact content was produced"
+
     if should_create_placeholders:
-        placeholder_payload = {
-            "placeholder": True,
-            "artifact_kind": "model_output_placeholder",
-            "status": "unavailable",
-            "reason": reason or "failure occurred before artifact content was produced",
-            "task_file": Path(task_file).as_posix() if task_file else "",
-            "failure_category": failure_category,
-            "protected_files": list(protected_files or []),
-            "before_model_output": bool(before_model_output),
-            "normal_bundle_attempted": bool(normal_bundle_attempted),
-            "protected_execution_attempted": bool(protected_execution_attempted),
-            "mixed_task": bool(mixed_task),
-            "protected_targets_identified": list(protected_targets_identified or []),
-        }
         if not last_output_path.exists():
+            output_payload = {
+                "placeholder": True,
+                "artifact_kind": "model_output_placeholder",
+                "status": "unavailable",
+                "reason": normalized_reason,
+                "task_file": task_file_path,
+                "failure_category": failure_category,
+                "protected_files": protected_files_list,
+                "before_model_output": bool(before_model_output),
+                "normal_bundle_attempted": bool(normal_bundle_attempted),
+                "protected_execution_attempted": bool(protected_execution_attempted),
+                "mixed_task": bool(mixed_task),
+                "protected_targets_identified": protected_targets_list,
+                "batch_state": {
+                    "persisted": False,
+                    "resumable": False,
+                    "resume_hint": "",
+                },
+            }
             last_output_path.write_text(
-                json.dumps(placeholder_payload, indent=2, sort_keys=True) + "\n",
+                json.dumps(output_payload, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
                 newline="\n",
             )
         if not last_bundle_path.exists():
-            bundle_placeholder_payload = {
+            bundle_payload = {
                 "placeholder": True,
                 "artifact_kind": "file_bundle_placeholder",
                 "status": "unavailable",
                 "kind": "file_bundle",
-                "reason": reason or "failure occurred before artifact content was produced",
-                "task_file": Path(task_file).as_posix() if task_file else "",
+                "reason": normalized_reason,
+                "task_file": task_file_path,
                 "failure_category": failure_category,
-                "protected_files": list(protected_files or []),
+                "protected_files": protected_files_list,
                 "before_model_output": bool(before_model_output),
                 "normal_bundle_attempted": bool(normal_bundle_attempted),
+                "protected_execution_attempted": bool(protected_execution_attempted),
+                "mixed_task": bool(mixed_task),
+                "protected_targets_identified": protected_targets_list,
                 "files": [],
+                "batch_state": {
+                    "persisted": False,
+                    "resumable": False,
+                    "resume_hint": "",
+                },
             }
             last_bundle_path.write_text(
-                json.dumps(bundle_placeholder_payload, indent=2, sort_keys=True) + "\n",
+                json.dumps(bundle_payload, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
                 newline="\n",
             )
+
     if last_output_path.exists():
         print(f"Model output saved to: {last_output_path}")
     else:

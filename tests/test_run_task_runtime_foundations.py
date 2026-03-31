@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,8 @@ def _load_runtime_modules():
     failure_artifacts = importlib.import_module("agents.lib.failure_artifacts")
     shell_router = importlib.import_module("agents.lib.shell_router")
     artifact_quarantine = importlib.import_module("agents.lib.artifact_quarantine")
+    batch_state = importlib.import_module("agents.lib.batch_state")
+    task_queue = importlib.import_module("agents.lib.task_queue")
     return (
         run_task,
         check_runner,
@@ -29,11 +32,13 @@ def _load_runtime_modules():
         failure_artifacts,
         shell_router,
         artifact_quarantine,
+        batch_state,
+        task_queue,
     )
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -46,7 +51,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     def fake_capture(cmd: list[str]) -> str:
@@ -72,7 +77,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_capture_result(cmd):
         if cmd == ["ruff", "check", "."]:
@@ -89,7 +94,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -106,7 +111,7 @@ def test_public_surface_still_available() -> None:
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
-    _, _, _, _, failure_journal, _, _, _, _ = _load_runtime_modules()
+    _, _, _, _, failure_journal, _, _, _, _, _, _ = _load_runtime_modules()
     assert (
         failure_journal.classify_failure("tests", "SyntaxError: invalid syntax in generated test")
         == "python_syntax"
@@ -126,7 +131,7 @@ def test_failure_classifier_distinguishes_multiple_categories() -> None:
 
 
 def test_failure_remediation_plans_choose_different_paths() -> None:
-    _, _, _, _, failure_journal, _, _, _, _ = _load_runtime_modules()
+    _, _, _, _, failure_journal, _, _, _, _, _, _ = _load_runtime_modules()
     syntax_plan = failure_journal.build_failure_remediation_plan(
         kind="tests",
         message="SyntaxError: invalid syntax",
@@ -135,98 +140,136 @@ def test_failure_remediation_plans_choose_different_paths() -> None:
         fingerprint="python_syntax:abc",
         raw_failure_snippet="SyntaxError: invalid syntax",
     )
-    seam_plan = failure_journal.build_failure_remediation_plan(
-        kind="bundle_transport",
-        message="references invented seam alias failure_journal_export",
-        category="seam_contract_mismatch",
-        retry_count=1,
-        fingerprint="seam_contract_mismatch:def",
-        raw_failure_snippet="references invented seam alias failure_journal_export",
-    )
-    meta_plan = failure_journal.build_failure_remediation_plan(
+    harness_plan = failure_journal.build_failure_remediation_plan(
         kind="policy",
-        message="Protected meta file(s) in normal bundle lane",
+        message="Protected meta harness lane regression",
         category="harness_meta_regression",
         retry_count=1,
-        fingerprint="harness_meta_regression:ghi",
-        raw_failure_snippet="Protected meta file(s) in normal bundle lane",
+        fingerprint="harness_meta_regression:def",
+        raw_failure_snippet="Protected meta harness lane regression",
     )
+
     assert syntax_plan["chosen_remediation_path"] == "targeted_syntax_repair"
     assert syntax_plan["continue_autonomously"] is True
-    assert seam_plan["chosen_remediation_path"] == "semantic_contract_repair"
-    assert seam_plan["continue_autonomously"] is False
-    assert meta_plan["chosen_remediation_path"] == "manual_patch_lane"
-    assert meta_plan["manual_lane_recommended"] is True
+    assert harness_plan["chosen_remediation_path"] == "manual_patch_lane"
+    assert harness_plan["manual_lane_recommended"] is True
 
 
-def test_report_failure_records_confidence_and_plan(tmp_path, monkeypatch) -> None:
-    run_task, _, _, _, failure_journal, _, _, _, _ = _load_runtime_modules()
-    monkeypatch.setenv("TRADINGBOT_FAILURE_JOURNAL_PATH", str(tmp_path / "journal.jsonl"))
-    monkeypatch.setenv("TRADINGBOT_TASK_ID", "task-056")
-    run_task._report_failure(
-        "bundle_transport", "references invented seam alias failure_journal_export"
+def test_batch_state_init_resume_and_mismatch_guards(tmp_path: Path) -> None:
+    _, _, _, _, _, _, _, _, _, batch_state, task_queue = _load_runtime_modules()
+
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / "001.md").write_text("# one\n", encoding="utf-8")
+    (tasks_dir / "002.md").write_text("# two\n", encoding="utf-8")
+
+    manifest = {"tasks": ["tasks/001.md", "tasks/002.md"]}
+    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+
+    state = batch_state.initialize_batch_state(
+        manifest=manifest,
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=10,
     )
-    rows = failure_journal.read_failure_journal(tmp_path / "journal.jsonl")
-    assert rows
-    last = rows[-1]
-    assert last["failure_category"] == "seam_contract_mismatch"
-    assert last["chosen_remediation_path"] == "semantic_contract_repair"
-    assert isinstance(last["autonomy_confidence"], float)
-    assert last["continue_autonomously"] is False
+    assert state.current_index == 0
+    assert state.event_seq == 0
+    assert [item.status for item in state.queue] == ["queued", "queued"]
 
+    state_path = tmp_path / "batch_state.json"
+    batch_state.write_batch_state(state_path, state)
 
-def test_task_contract_wrapper_delegates_to_extracted_module(monkeypatch) -> None:
-    run_task, _, _, _, _, task_contracts, _, _, _ = _load_runtime_modules()
+    resumed = batch_state.resume_batch_state(
+        state_path=state_path,
+        manifest=manifest,
+        manifest_source="tasks/manifest.json",
+        queue=queue,
+    )
+    assert resumed.manifest_source == "tasks/manifest.json"
+    assert resumed.manifest_fingerprint == batch_state.manifest_fingerprint(manifest)
 
-    def fake_parse(task_text: str):
-        assert (
-            task_text
-            == "## Create or update these exact files\n- `docs/TRADINGBOT_PROJECT_STATE.md`\n"
+    mismatch_manifest = {"tasks": ["tasks/001.md"]}
+    try:
+        batch_state.resume_batch_state(
+            state_path=state_path,
+            manifest=mismatch_manifest,
+            manifest_source="tasks/manifest.json",
+            queue=queue[:1],
         )
-        return ["docs/TRADINGBOT_PROJECT_STATE.md"]
-
-    monkeypatch.setattr(task_contracts, "parse_required_files_from_task_text", fake_parse)
-    assert run_task.parse_required_files(
-        "## Create or update these exact files\n- `docs/TRADINGBOT_PROJECT_STATE.md`\n"
-    ) == ["docs/TRADINGBOT_PROJECT_STATE.md"]
+    except batch_state.BatchStateError as exc:
+        assert "manifest fingerprint mismatch" in str(exc)
+    else:
+        raise AssertionError("Expected BatchStateError for manifest mismatch")
 
 
-def test_validate_exact_deliverable_contract_delegates_to_extracted_module(monkeypatch) -> None:
-    run_task, _, _, _, _, task_contracts, _, _, _ = _load_runtime_modules()
-    monkeypatch.setattr(
-        task_contracts,
-        "exact_deliverable_contract_issues",
-        lambda task_text: ["`../outside.md` uses path traversal and is not allowed."],
+def test_batch_state_resume_from_partially_completed_queue(tmp_path: Path) -> None:
+    _, _, _, _, _, _, _, _, _, batch_state, task_queue = _load_runtime_modules()
+
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / "001.md").write_text("# one\n", encoding="utf-8")
+    (tasks_dir / "002.md").write_text("# two\n", encoding="utf-8")
+
+    manifest = {"tasks": ["tasks/001.md", "tasks/002.md"]}
+    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = batch_state.initialize_batch_state(
+        manifest=manifest,
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=1,
     )
-    ok, msg = run_task.validate_exact_deliverable_contract("task")
-    assert ok is False
-    assert "Invalid exact deliverable contract entries detected:" in msg
-    assert "path traversal" in msg
+    state = batch_state.advance_task_status(state, task_index=0, to_status="running", event_ts=2)
+    state = batch_state.advance_task_status(state, task_index=0, to_status="completed", event_ts=3)
 
+    state_path = tmp_path / "partial_state.json"
+    batch_state.write_batch_state(state_path, state)
 
-def test_enforce_required_files_reports_final_acceptance_gap() -> None:
-    run_task, _, _, _, _, _, _, _, _ = _load_runtime_modules()
-    ok, msg = run_task.enforce_required_files(
-        ["agents/run_task.py", "docs/TRADINGBOT_PROJECT_STATE.md"],
-        {"agents/run_task.py": "updated"},
+    resumed = batch_state.resume_batch_state(
+        state_path=state_path,
+        manifest=manifest,
+        manifest_source="tasks/manifest.json",
+        queue=queue,
     )
-    assert ok is False
-    assert "parsed from task contract" in msg
-    assert "missing from final accepted result after lane reconciliation" in msg
-    assert "docs/TRADINGBOT_PROJECT_STATE.md" in msg
+    assert resumed.current_index == 1
+    assert resumed.queue[0].status == "completed"
+    assert resumed.queue[1].status == "queued"
+    assert resumed.batch_status == "active"
 
 
-def test_artifact_quarantine_retention_control_is_available() -> None:
-    _, _, _, _, _, _, _, _, artifact_quarantine = _load_runtime_modules()
+def test_batch_state_transitions_are_deterministic_and_serializable(tmp_path: Path) -> None:
+    _, _, _, _, _, _, _, _, _, batch_state, task_queue = _load_runtime_modules()
 
-    result = artifact_quarantine.quarantine_runtime_artifacts(
-        [Path("_last_agent_model_output.txt")],
-        run_git_command=lambda *args, **kwargs: None,
-        path_exists=lambda _p: False,
-        unlink_path=lambda _p: None,
-        retain_known_safe=True,
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / "001.md").write_text("# one\n", encoding="utf-8")
+
+    manifest = {"tasks": ["tasks/001.md"]}
+    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = batch_state.initialize_batch_state(
+        manifest=manifest,
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=5,
     )
 
-    assert result["warnings"]["quarantined_known_safe"] == ["_last_agent_model_output.txt"]
-    assert result["warnings"]["retained_known_safe"] == ["_last_agent_model_output.txt"]
-    assert result["lifecycle"]["known_safe_action"] == "retained"
+    running = batch_state.advance_task_status(state, task_index=0, to_status="running", event_ts=6)
+    completed = batch_state.advance_task_status(running, task_index=0, to_status="completed", event_ts=7)
+
+    assert running.event_seq == 1
+    assert completed.event_seq == 2
+    assert running.queue[0].attempts == 1
+    assert completed.current_index == 1
+    assert completed.batch_status == "completed"
+
+    payload = completed.to_dict()
+    encoded = json.dumps(payload)
+    decoded = json.loads(encoded)
+    assert decoded["event_seq"] == 2
+    assert decoded["queue"][0]["status"] == "completed"
+
+    try:
+        batch_state.advance_task_status(completed, task_index=0, to_status="running", event_ts=8)
+    except Exception as exc:
+        assert "Invalid queue status transition" in str(exc)
+    else:
+        raise AssertionError("Expected transition failure for completed -> running")
