@@ -35,10 +35,13 @@ def quarantine_runtime_artifacts(
     path_exists: Callable[[Path], bool],
     unlink_path: Callable[[Path], None],
     known_safe_names: Iterable[str] = KNOWN_SAFE_ARTIFACT_NAMES,
+    retain_known_safe: bool = False,
 ) -> dict[str, object]:
     classified = classify_runtime_artifacts(paths, known_safe_names=known_safe_names)
 
     quarantined: list[Path] = []
+    retained: list[Path] = []
+
     for path in classified["known_safe"]:
         try:
             run_git_command(
@@ -47,9 +50,16 @@ def quarantine_runtime_artifacts(
             )
         except Exception:
             pass
+
+        if retain_known_safe:
+            retained.append(path)
+            continue
+
         try:
             if path_exists(path):
                 unlink_path(path)
+                quarantined.append(path)
+            else:
                 quarantined.append(path)
         except Exception:
             pass
@@ -58,9 +68,15 @@ def quarantine_runtime_artifacts(
     return {
         "classified": classified,
         "quarantined": quarantined,
+        "retained": retained,
         "warnings": {
             "quarantined_known_safe": [p.as_posix() for p in classified["known_safe"]],
+            "retained_known_safe": [p.as_posix() for p in retained],
             "unknown_artifacts": [p.as_posix() for p in unknown],
+        },
+        "lifecycle": {
+            "known_safe_action": "retained" if retain_known_safe else "quarantined_removed",
+            "unknown_action": "blocked" if unknown else "none",
         },
         "should_block": bool(unknown),
     }

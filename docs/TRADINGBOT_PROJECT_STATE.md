@@ -22,6 +22,7 @@ The orchestrator buildout has progressed through the reliability/autonomy contin
 - Reliability/autonomy umbrella and implementations (055–067 + 065a + 067a)
 - Stabilization extension to support protected/controller execution and controller thinning (068a–068c)
 - Original Task 068 still remains a meaningful follow-on after the stabilization work proves out in practice
+- 070 queue groundwork complete with 070b runtime artifact lifecycle retention controls
 
 ## Current state
 
@@ -32,6 +33,11 @@ The orchestrator can now:
 - write more truthful failure artifacts for key controller/protected failure paths
 - route controller/protected work through narrower, better-defined lanes than before
 - start decomposing `agents/run_task.py` into extracted helper modules
+- enforce clear runtime-artifact lifecycle outcomes:
+  - default successful push quarantine/removal for known-safe scratch artifacts
+  - explicit operator-controlled retention mode for known-safe scratch artifacts
+  - retained known-safe artifacts still unstaged from auto-commit paths
+  - unknown runtime artifacts remain protective blockers
 
 However, the project is still **not yet at the point where a backlog/list runner should be considered fully ready**.
 
@@ -69,3 +75,14 @@ For all contributor and automation references, the canonical visible order is:
 3. supporting roadmap docs in `docs/`
 
 Any continuation language should reference task IDs exactly as numbered above.
+
+## Runtime artifact policy snapshot (operational)
+
+Known-safe scratch artifact behavior is intentionally conservative:
+
+- Default successful push path: quarantine + remove known-safe runtime artifacts before staging.
+- Explicit retention mode only: keep known-safe scratch on disk for debugging when operator requests it.
+- Retention does not change commit safety: retained scratch is still de-indexed and not auto-committed.
+- Unknown runtime artifacts remain quarantine-protected blockers and require remediation before completion.
+
+This preserves the existing safety posture while making artifact retention intent visible and operator-controlled.

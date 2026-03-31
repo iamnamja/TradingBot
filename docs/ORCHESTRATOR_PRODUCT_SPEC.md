@@ -11,6 +11,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **Reliability/autonomy continuation complete through 067** (including 065a and 067a)
 - **Protected/controller stabilization complete through 069** (including 068, 068a, 068b, and 068c)
 - **070 adds task-list manifest and queue groundwork for backlog execution**
+- **070b clarifies runtime-artifact lifecycle controls with explicit retention mode**
 - Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package and **not yet a full end-to-end backlog runner**
 
 ## Users and use cases
@@ -35,6 +36,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - Lightweight task-scope / split heuristics for broad multi-seam tasks
 - Deterministic task-list manifest parsing and queue construction
 - Explicit manifest validation for missing task files and duplicate-path policy handling
+- Runtime artifact quarantine with explicit operator retention controls for known-safe scratch files
 
 ## Sequence summary
 
@@ -78,7 +80,39 @@ Build a reusable orchestration engine that can execute constrained implementatio
 18. Missing-file validation and duplicate-path policy handling for manifest inputs
 19. Runtime wiring to support queue-oriented continuation work in later tasks
 
-This stage is intentionally **groundwork only**. It does not yet provide persisted batch state, resume, per-task isolation, or a user-facing batch runner.
+### Runtime artifact lifecycle clarity extension (070b)
+
+20. Successful `--push` runs keep default safety: known-safe runtime scratch artifacts are quarantined/removed before staging
+21. Operators can explicitly retain known-safe runtime artifacts (flag/env controlled) for debugging
+22. Retained known-safe artifacts are still unstaged (`git rm --cached --ignore-unmatch`) to prevent accidental auto-commit
+23. Unknown runtime artifacts remain protective blockers and are surfaced distinctly from known-safe retained/quarantined states
+24. Lifecycle messaging is explicit across retained, quarantined-removed, and blocked-unknown outcomes
+
+## Runtime artifact lifecycle policy
+
+Known-safe runtime scratch artifacts include files such as:
+
+- `last_output.txt`
+- `_last_agent_model_output.txt`
+- `_last_agent_file_bundle.txt`
+
+Default posture on successful push flow:
+
+- remove these known-safe scratch artifacts from disk as part of quarantine cleanup
+- unstage them from index before staging (`git rm --cached --ignore-unmatch`)
+- prevent accidental commit drift from temporary runtime files
+
+Explicit retention mode:
+
+- operators may opt in to retain known-safe scratch artifacts on disk for forensic/debug review
+- retention is narrow and explicit (flag/env driven), never implicit default behavior
+- even when retained, known-safe artifacts remain unstaged by default controller behavior
+
+Unknown runtime artifacts:
+
+- are never treated as known-safe retained scratch
+- continue to trigger protective blocking behavior until resolved
+- are messaged as blocked unknowns, distinct from known-safe retention/removal
 
 ## Packaging and repo strategy
 
