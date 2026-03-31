@@ -3499,7 +3499,7 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         normalized_protected.append(inferred_copy)
 
     if callable(_partition):
-        return _partition(
+        normal, protected = _partition(
             required_paths=normalized_required,
             protected_targets=normalized_protected,
             protected_meta_paths=(
@@ -3509,6 +3509,27 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
                 "agents/lib/protected_file_policy.py",
             ),
         )
+        normalized_normal: List[str] = []
+        normalized_protected_paths: List[str] = []
+        seen_normal: set[str] = set()
+        seen_protected: set[str] = set()
+        for raw in normal or []:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+            if canonical in seen_normal:
+                continue
+            seen_normal.add(canonical)
+            normalized_normal.append(canonical)
+        for raw in protected or []:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+            if canonical in seen_protected:
+                continue
+            seen_protected.add(canonical)
+            normalized_protected_paths.append(canonical)
+        return normalized_normal, normalized_protected_paths
 
     meta_harness_paths = {
         "agents/run_task.py",
@@ -3587,6 +3608,37 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
     except Exception:
         _emit = None  # type: ignore[assignment]
 
+    should_create_placeholders = bool(create_placeholders or before_model_output)
+    protected_files_list = [str(x) for x in (protected_files or []) if str(x).strip()]
+    protected_targets_list = [str(x) for x in (protected_targets_identified or []) if str(x).strip()]
+    task_file_path = Path(task_file).as_posix() if task_file else ""
+    normalized_reason = reason or "failure occurred before artifact content was produced"
+
+    checkpoint_status = "blocked_manual"
+    if before_model_output:
+        checkpoint_status = "failed_before_model_output"
+    elif failure_category and str(failure_category).strip().lower() in {"manual_patch", "manual", "blocked"}:
+        checkpoint_status = "blocked_manual"
+    elif failure_category:
+        checkpoint_status = "failed"
+
+    checkpoint = {
+        "task_file": task_file_path,
+        "context_kind": "branch",
+        "context_ref": "",
+        "task_completed_cleanly": False,
+        "cleanup_required_before_next_task": True,
+        "next_task_may_proceed": False,
+        "transition": checkpoint_status,
+        "failure_category": str(failure_category or ""),
+        "reason": normalized_reason,
+        "normal_bundle_attempted": bool(normal_bundle_attempted),
+        "protected_execution_attempted": bool(protected_execution_attempted),
+        "mixed_task": bool(mixed_task),
+        "protected_files": protected_files_list,
+        "protected_targets_identified": protected_targets_list,
+    }
+
     if callable(_emit):
         _emit(
             last_output_path=last_output_path,
@@ -3602,13 +3654,47 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
             mixed_task=mixed_task,
             protected_targets_identified=protected_targets_identified,
         )
+        if should_create_placeholders and last_output_path.exists():
+            try:
+                payload = json.loads(last_output_path.read_text(encoding="utf-8"))
+            except Exception:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            payload.setdefault("batch_checkpoint", checkpoint)
+            if isinstance(payload.get("batch_state"), dict):
+                payload["batch_state"].setdefault("next_task_may_proceed", False)
+                payload["batch_state"].setdefault("checkpoint_transition", checkpoint_status)
+            last_output_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        if should_create_placeholders and last_bundle_path.exists():
+            try:
+                payload = json.loads(last_bundle_path.read_text(encoding="utf-8"))
+            except Exception:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            payload.setdefault("batch_checkpoint", checkpoint)
+            if isinstance(payload.get("batch_state"), dict):
+                payload["batch_state"].setdefault("next_task_may_proceed", False)
+                payload["batch_state"].setdefault("checkpoint_transition", checkpoint_status)
+            last_bundle_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        if last_output_path.exists():
+            print(f"Model output saved to: {last_output_path}")
+        else:
+            print(f"Model output was not written: {last_output_path}")
+        if last_bundle_path.exists():
+            print(f"Parsed file bundle saved to: {last_bundle_path}")
+        else:
+            print(f"Parsed file bundle was not written: {last_bundle_path}")
         return
-
-    should_create_placeholders = bool(create_placeholders or before_model_output)
-    protected_files_list = [str(x) for x in (protected_files or []) if str(x).strip()]
-    protected_targets_list = [str(x) for x in (protected_targets_identified or []) if str(x).strip()]
-    task_file_path = Path(task_file).as_posix() if task_file else ""
-    normalized_reason = reason or "failure occurred before artifact content was produced"
 
     if should_create_placeholders:
         if not last_output_path.exists():
@@ -3625,10 +3711,13 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 "protected_execution_attempted": bool(protected_execution_attempted),
                 "mixed_task": bool(mixed_task),
                 "protected_targets_identified": protected_targets_list,
+                "batch_checkpoint": checkpoint,
                 "batch_state": {
                     "persisted": False,
                     "resumable": False,
                     "resume_hint": "",
+                    "next_task_may_proceed": False,
+                    "checkpoint_transition": checkpoint_status,
                 },
             }
             last_output_path.write_text(
@@ -3652,10 +3741,13 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 "mixed_task": bool(mixed_task),
                 "protected_targets_identified": protected_targets_list,
                 "files": [],
+                "batch_checkpoint": checkpoint,
                 "batch_state": {
                     "persisted": False,
                     "resumable": False,
                     "resume_hint": "",
+                    "next_task_may_proceed": False,
+                    "checkpoint_transition": checkpoint_status,
                 },
             }
             last_bundle_path.write_text(

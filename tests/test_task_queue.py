@@ -8,6 +8,7 @@ from agents.lib.task_queue import (
     TaskQueueManifestError,
     TaskQueueTransitionError,
     build_task_queue_from_manifest,
+    may_proceed_to_next_task,
     queue_signature,
     validate_queue_status_transition,
 )
@@ -117,3 +118,12 @@ def test_queue_signature_is_stable_for_resume_identity(tmp_path: Path) -> None:
     queue = build_task_queue_from_manifest(manifest, repo_root=tmp_path)
 
     assert queue_signature(queue) == ("tasks/001.md", "tasks/002.md")
+
+
+def test_may_proceed_to_next_task_only_when_completed() -> None:
+    assert may_proceed_to_next_task("completed") is True
+    assert may_proceed_to_next_task("failed") is False
+    assert may_proceed_to_next_task("manual_patch") is False
+    assert may_proceed_to_next_task("blocked") is False
+    assert may_proceed_to_next_task("running") is False
+    assert may_proceed_to_next_task("queued") is False

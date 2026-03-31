@@ -61,3 +61,23 @@ At minimum, exact deliverable parsing now recognizes both common backlog section
 The controller accepts canonical repo-relative required paths under `agents/`, `src/`, `tests/`, `docs/`, and `tasks/`, and it also accepts explicitly named top-level canonical files such as `README.md`. Unsafe or malformed entries such as traversal paths, absolute filesystem paths, or URLs are rejected clearly.
 
 If a task enumerates exact files and one or more of them are missing from the final accepted result, the run is not considered complete. The failure message now identifies both the parsed exact-file contract and which required deliverables were still missing after final lane reconciliation.
+
+## Batch per-task checkpoint and isolation policy
+
+For queued batch execution, the orchestrator now uses a narrow deterministic checkpoint model per task.
+
+- one task runs in one explicit branch/worktree context
+- before and after each status transition, checkpoint state records context and transition outcome
+- a task is considered **cleanly transitioned** only when it reaches `completed`
+- `failed`, `manual_patch`, and `blocked` transitions are isolation-relevant outcomes and are recorded explicitly
+- after isolation-relevant outcomes, `next_task_may_proceed` is `false` until cleanup/reset/manual action is performed
+
+Each checkpoint records at least:
+
+- task identity (`task_path`, `ordinal`)
+- context (`context_kind`, `context_ref`)
+- transition (`running`, `completed_clean`, `failed_requires_cleanup`, `manual_patch_requires_isolation`, `blocked_requires_manual`)
+- whether cleanup is required before the next task
+- whether the next task may proceed
+
+This is intentionally incremental: it adds explicit state and gating rules for sequential batch safety without introducing speculative multi-task concurrency or redesigning worktree management.

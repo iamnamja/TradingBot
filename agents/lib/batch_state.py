@@ -9,14 +9,51 @@ from typing import Any, Literal
 from agents.lib.task_queue import (
     QueueStatus,
     TaskQueueItem,
+    may_proceed_to_next_task,
     validate_queue_status_transition,
 )
 
 BatchStatus = Literal["active", "completed", "blocked", "failed", "manual_patch"]
+CheckpointTransition = Literal[
+    "pending",
+    "running",
+    "completed_clean",
+    "failed_requires_cleanup",
+    "manual_patch_requires_isolation",
+    "blocked_requires_manual",
+]
 
 
 class BatchStateError(ValueError):
     """Raised when batch state persistence or resume validation fails."""
+
+
+@dataclass(frozen=True)
+class BatchTaskCheckpoint:
+    task_path: str
+    ordinal: int
+    context_kind: str
+    context_ref: str
+    completed_cleanly: bool
+    cleanup_required_before_next_task: bool
+    next_task_may_proceed: bool
+    transition: CheckpointTransition
+    note: str
+    event_seq: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "task_path": self.task_path,
+            "ordinal": self.ordinal,
+            "context_kind": self.context_kind,
+            "context_ref": self.context_ref,
+            "completed_cleanly": self.completed_cleanly,
+            "cleanup_required_before_next_task": self.cleanup_required_before_next_task,
+            "next_task_may_proceed": self.next_task_may_proceed,
+            "transition": self.transition,
+            "note": self.note,
+            "event_seq": self.event_seq,
+        }
 
 
 @dataclass(frozen=True)
@@ -34,12 +71,14 @@ class BatchState:
     manifest_source: str
     manifest_fingerprint: str
     queue: tuple[BatchTaskState, ...]
+    checkpoints: tuple[BatchTaskCheckpoint, ...]
     current_index: int
     state_version: int
     event_seq: int
     created_ts: int
     updated_ts: int
     batch_status: BatchStatus
+    next_task_may_proceed: bool
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -59,11 +98,13 @@ class BatchState:
                 }
                 for item in self.queue
             ],
+            "checkpoints": [checkpoint.to_dict() for checkpoint in self.checkpoints],
             "current_index": self.current_index,
             "event_seq": self.event_seq,
             "created_ts": self.created_ts,
             "updated_ts": self.updated_ts,
             "batch_status": self.batch_status,
+            "next_task_may_proceed": self.next_task_may_proceed,
         }
 
 
@@ -95,6 +136,60 @@ def _derive_batch_status(queue: tuple[BatchTaskState, ...]) -> BatchStatus:
     return "active"
 
 
+def _checkpoint_from_status(
+    *,
+    item: BatchTaskState,
+    to_status: QueueStatus,
+    note: str,
+    event_seq: int,
+    context_kind: str,
+    context_ref: str,
+) -> BatchTaskCheckpoint:
+    if to_status == "running":
+        transition: CheckpointTransition = "running"
+        completed_cleanly = False
+        cleanup_required = False
+        may_proceed = False
+    elif to_status == "completed":
+        transition = "completed_clean"
+        completed_cleanly = True
+        cleanup_required = False
+        may_proceed = True
+    elif to_status == "failed":
+        transition = "failed_requires_cleanup"
+        completed_cleanly = False
+        cleanup_required = True
+        may_proceed = False
+    elif to_status == "manual_patch":
+        transition = "manual_patch_requires_isolation"
+        completed_cleanly = False
+        cleanup_required = True
+        may_proceed = False
+    elif to_status == "blocked":
+        transition = "blocked_requires_manual"
+        completed_cleanly = False
+        cleanup_required = True
+        may_proceed = False
+    else:
+        transition = "pending"
+        completed_cleanly = False
+        cleanup_required = False
+        may_proceed = False
+
+    return BatchTaskCheckpoint(
+        task_path=item.task_path,
+        ordinal=item.ordinal,
+        context_kind=context_kind,
+        context_ref=context_ref,
+        completed_cleanly=completed_cleanly,
+        cleanup_required_before_next_task=cleanup_required,
+        next_task_may_proceed=may_proceed,
+        transition=transition,
+        note=note,
+        event_seq=event_seq,
+    )
+
+
 def initialize_batch_state(
     *,
     manifest: dict[str, Any],
@@ -117,12 +212,14 @@ def initialize_batch_state(
         manifest_source=manifest_source,
         manifest_fingerprint=manifest_fingerprint(manifest),
         queue=queue_state,
+        checkpoints=(),
         current_index=0,
-        state_version=1,
+        state_version=2,
         event_seq=0,
         created_ts=created_ts,
         updated_ts=created_ts,
         batch_status="active",
+        next_task_may_proceed=True,
     )
 
 
@@ -133,6 +230,8 @@ def advance_task_status(
     to_status: QueueStatus,
     status_note: str = "",
     event_ts: int = 0,
+    context_kind: str = "branch",
+    context_ref: str = "",
 ) -> BatchState:
     if task_index < 0 or task_index >= len(state.queue):
         raise BatchStateError(f"task_index {task_index} is out of range for queue size {len(state.queue)}.")
@@ -158,17 +257,33 @@ def advance_task_status(
     if to_status in {"completed", "failed", "manual_patch", "blocked"} and task_index >= next_index:
         next_index = task_index + 1
 
+    checkpoint = _checkpoint_from_status(
+        item=updated_item,
+        to_status=to_status,
+        note=status_note,
+        event_seq=next_event_seq,
+        context_kind=context_kind,
+        context_ref=context_ref,
+    )
+
     queue_tuple = tuple(new_queue)
+    if to_status == "running":
+        next_task_may_proceed = state.next_task_may_proceed
+    else:
+        next_task_may_proceed = may_proceed_to_next_task(to_status)
+
     return BatchState(
         manifest_source=state.manifest_source,
         manifest_fingerprint=state.manifest_fingerprint,
         queue=queue_tuple,
+        checkpoints=state.checkpoints + (checkpoint,),
         current_index=next_index,
         state_version=state.state_version,
         event_seq=next_event_seq,
         created_ts=state.created_ts,
         updated_ts=event_ts,
         batch_status=_derive_batch_status(queue_tuple),
+        next_task_may_proceed=next_task_may_proceed,
     )
 
 
@@ -191,17 +306,34 @@ def load_batch_state(path: str | Path) -> BatchState:
         )
         for item in data.get("queue", [])
     )
+    checkpoints = tuple(
+        BatchTaskCheckpoint(
+            task_path=str(item.get("task_path", "")),
+            ordinal=int(item.get("ordinal", 0)),
+            context_kind=str(item.get("context_kind", "branch")),
+            context_ref=str(item.get("context_ref", "")),
+            completed_cleanly=bool(item.get("completed_cleanly", False)),
+            cleanup_required_before_next_task=bool(item.get("cleanup_required_before_next_task", False)),
+            next_task_may_proceed=bool(item.get("next_task_may_proceed", False)),
+            transition=str(item.get("transition", "pending")),
+            note=str(item.get("note", "")),
+            event_seq=int(item.get("event_seq", 0)),
+        )
+        for item in data.get("checkpoints", [])
+    )
     manifest = data.get("manifest", {})
     return BatchState(
         manifest_source=str(manifest.get("source", "")),
         manifest_fingerprint=str(manifest.get("fingerprint", "")),
         queue=queue,
+        checkpoints=checkpoints,
         current_index=int(data.get("current_index", 0)),
         state_version=int(data.get("state_version", 1)),
         event_seq=int(data.get("event_seq", 0)),
         created_ts=int(data.get("created_ts", 0)),
         updated_ts=int(data.get("updated_ts", 0)),
         batch_status=str(data.get("batch_status", _derive_batch_status(queue))),
+        next_task_may_proceed=bool(data.get("next_task_may_proceed", True)),
     )
 
 
