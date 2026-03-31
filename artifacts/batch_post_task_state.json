@@ -1,0 +1,7 @@
+{
+  "failure_category": "tests",
+  "next_task_may_proceed": false,
+  "post_task_decision": "stop",
+  "reason": "early failure",
+  "task_file": "tasks/072.md"
+}

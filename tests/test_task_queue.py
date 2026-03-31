@@ -8,6 +8,7 @@ from agents.lib.task_queue import (
     TaskQueueManifestError,
     TaskQueueTransitionError,
     build_task_queue_from_manifest,
+    decide_post_task_action,
     may_proceed_to_next_task,
     queue_signature,
     validate_queue_status_transition,
@@ -127,3 +128,34 @@ def test_may_proceed_to_next_task_only_when_completed() -> None:
     assert may_proceed_to_next_task("blocked") is False
     assert may_proceed_to_next_task("running") is False
     assert may_proceed_to_next_task("queued") is False
+
+
+def test_decide_post_task_action_continue_for_success() -> None:
+    decision = decide_post_task_action(
+        "completed",
+        signals={
+            "validator_ok": True,
+            "deliverable_complete": True,
+            "protected_lane_ok": True,
+        },
+    )
+    assert decision == "continue"
+
+
+def test_decide_post_task_action_manual_patch_when_recommended() -> None:
+    decision = decide_post_task_action(
+        "failed",
+        signals={"manual_patch_recommended": True},
+    )
+    assert decision == "manual_patch"
+
+
+def test_decide_post_task_action_hard_failures_stop_or_block() -> None:
+    assert decide_post_task_action("failed", signals={"validator_ok": False}) == "stop"
+    assert (
+        decide_post_task_action(
+            "failed",
+            signals={"duplicate_bundle_conflict": True},
+        )
+        == "blocked"
+    )
