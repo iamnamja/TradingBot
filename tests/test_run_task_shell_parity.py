@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,9 @@ import pytest
 
 
 def _import_run_task_module() -> Any:
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
     return importlib.import_module("agents.run_task")
 
 
@@ -93,6 +97,7 @@ def test_main_keeps_cli_surface_and_delegates_post_parse_routing() -> None:
         "--policy-block-limit",
         "--spec-mode",
         "--bootstrap-project",
+        "--keep-runtime-artifacts",
     }
     assert set(arg_names) == expected_args
     assert delegate_call_present is True

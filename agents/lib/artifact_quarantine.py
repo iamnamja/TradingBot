@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 KNOWN_SAFE_ARTIFACT_NAMES = (
     "last_output.txt",
@@ -80,3 +80,36 @@ def quarantine_runtime_artifacts(
         },
         "should_block": bool(unknown),
     }
+
+
+def describe_runtime_artifact_lifecycle(decision: Mapping[str, Any]) -> list[str]:
+    warnings = decision.get("warnings", {})
+    lifecycle = decision.get("lifecycle", {})
+    if not isinstance(warnings, Mapping):
+        warnings = {}
+    if not isinstance(lifecycle, Mapping):
+        lifecycle = {}
+
+    quarantined = [str(x) for x in warnings.get("quarantined_known_safe", []) or []]
+    retained = [str(x) for x in warnings.get("retained_known_safe", []) or []]
+    unknown = [str(x) for x in warnings.get("unknown_artifacts", []) or []]
+
+    messages: list[str] = []
+    known_safe_action = str(lifecycle.get("known_safe_action", "") or "")
+    if retained and known_safe_action == "retained":
+        messages.append(
+            "ℹ️ Retained known-safe runtime artifacts (unstaged): " + ", ".join(retained)
+        )
+    elif quarantined and known_safe_action == "quarantined_removed":
+        messages.append(
+            "ℹ️ Quarantined and removed known-safe runtime artifacts before commit: "
+            + ", ".join(quarantined)
+        )
+
+    if unknown:
+        messages.append(
+            "⚠️ Unknown runtime artifacts remain blocked for manual review: "
+            + ", ".join(unknown)
+        )
+
+    return messages

@@ -108,6 +108,7 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.run_checks)
     assert callable(run_task.parse_required_files)
     assert callable(run_task.validate_exact_deliverable_contract)
+    assert callable(run_task.keep_runtime_artifacts_requested)
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
@@ -273,3 +274,53 @@ def test_batch_state_transitions_are_deterministic_and_serializable(tmp_path: Pa
         assert "Invalid queue status transition" in str(exc)
     else:
         raise AssertionError("Expected transition failure for completed -> running")
+
+
+def test_keep_runtime_artifacts_requested_accepts_cli_or_env(monkeypatch) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    monkeypatch.delenv("TRADINGBOT_KEEP_RUNTIME_ARTIFACTS", raising=False)
+    assert run_task.keep_runtime_artifacts_requested(SimpleNamespace(keep_runtime_artifacts=True)) is True
+    assert run_task.keep_runtime_artifacts_requested(SimpleNamespace(keep_runtime_artifacts=False)) is False
+
+    monkeypatch.setenv("TRADINGBOT_KEEP_RUNTIME_ARTIFACTS", "1")
+    assert run_task.keep_runtime_artifacts_requested(SimpleNamespace(keep_runtime_artifacts=False)) is True
+
+
+def test_cleanup_runtime_artifacts_respects_user_facing_retention_controls(monkeypatch, capsys) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    observed: dict[str, object] = {}
+
+    def fake_quarantine(paths, **kwargs):
+        observed["paths"] = [p.as_posix() for p in paths]
+        observed["retain_known_safe"] = kwargs.get("retain_known_safe")
+        return {
+            "warnings": {
+                "quarantined_known_safe": ["_last_agent_model_output.txt"],
+                "retained_known_safe": ["_last_agent_model_output.txt"],
+                "unknown_artifacts": [],
+            },
+            "lifecycle": {"known_safe_action": "retained", "unknown_action": "none"},
+            "classified": {"known_safe": [], "unknown": []},
+            "retained": [],
+            "quarantined": [],
+            "should_block": False,
+        }
+
+    monkeypatch.setattr(run_task, "_KEEP_RUNTIME_ARTIFACTS_FOR_RUN", True)
+    monkeypatch.setattr(
+        run_task,
+        "_artifact_quarantine_exports",
+        lambda: {
+            "known_safe_artifact_names": run_task.RUNTIME_ARTIFACT_NAMES,
+            "quarantine_runtime_artifacts": fake_quarantine,
+            "describe_runtime_artifact_lifecycle": lambda decision: [
+                "ℹ️ Retained known-safe runtime artifacts (unstaged): _last_agent_model_output.txt"
+            ],
+        },
+    )
+
+    run_task._cleanup_runtime_artifacts_for_commit([Path("_last_agent_model_output.txt")])
+    out = capsys.readouterr().out
+    assert observed["retain_known_safe"] is True
+    assert "Retained known-safe runtime artifacts" in out

@@ -99,3 +99,26 @@ def test_classify_runtime_artifacts_with_known_safe_defaults() -> None:
     )
     assert [p.name for p in classified["known_safe"]] == list(artifact_quarantine.KNOWN_SAFE_ARTIFACT_NAMES)
     assert [p.name for p in classified["unknown"]] == ["unknown.dat"]
+
+
+def test_describe_runtime_artifact_lifecycle_for_retained_and_blocked_states() -> None:
+    artifact_quarantine = _load_artifact_quarantine_module()
+    retained = artifact_quarantine.describe_runtime_artifact_lifecycle({
+        "warnings": {
+            "quarantined_known_safe": ["_last_agent_model_output.txt"],
+            "retained_known_safe": ["_last_agent_model_output.txt"],
+            "unknown_artifacts": [],
+        },
+        "lifecycle": {"known_safe_action": "retained", "unknown_action": "none"},
+    })
+    blocked = artifact_quarantine.describe_runtime_artifact_lifecycle({
+        "warnings": {
+            "quarantined_known_safe": [],
+            "retained_known_safe": [],
+            "unknown_artifacts": ["mystery_runtime.tmp"],
+        },
+        "lifecycle": {"known_safe_action": "quarantined_removed", "unknown_action": "blocked"},
+    })
+
+    assert "Retained known-safe runtime artifacts" in retained[0]
+    assert "Unknown runtime artifacts remain blocked" in blocked[0]
