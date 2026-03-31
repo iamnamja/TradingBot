@@ -59,6 +59,8 @@ NAME_ERROR_RE = re.compile(r"NameError: name '([^']+)' is not defined")
 KEY_ERROR_RE = re.compile(r"KeyError: '([^']+)'")
 WIN_ECHO_RE = re.compile(r"FileNotFoundError: \[WinError 2\]", re.MULTILINE)
 
+KEEP_RUNTIME_ARTIFACTS_ENV = "TRADINGBOT_KEEP_RUNTIME_ARTIFACTS"
+
 RUNTIME_ARTIFACT_NAMES = (
     "last_output.txt",
     "_last_agent_model_output.txt",
@@ -68,6 +70,9 @@ RUNTIME_ARTIFACT_NAMES = (
 
 class FileBundleError(ValueError):
     pass
+
+
+_KEEP_RUNTIME_ARTIFACTS_FOR_RUN = False
 
 
 def _ensure_repo_root_on_sys_path() -> None:
@@ -168,6 +173,12 @@ def _int_env(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def keep_runtime_artifacts_requested(args: argparse.Namespace | None = None) -> bool:
+    cli_requested = bool(getattr(args, "keep_runtime_artifacts", False)) if args is not None else False
+    env_requested = _bool_env(KEEP_RUNTIME_ARTIFACTS_ENV, False)
+    return bool(cli_requested or env_requested)
 
 
 def _float_env(name: str, default: float) -> float:
@@ -3661,19 +3672,26 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         print(f"Parsed file bundle saved to: {last_bundle_path}")
     else:
         print(f"Parsed file bundle was not written: {last_bundle_path}")
-def _cleanup_runtime_artifacts_for_commit(paths: List[Path]) -> None:
+def _cleanup_runtime_artifacts_for_commit(paths: List[Path], keep_runtime_artifacts: bool | None = None) -> None:
     exports = _artifact_quarantine_exports()
     quarantine = exports.get("quarantine_runtime_artifacts")
+    describe = exports.get("describe_runtime_artifact_lifecycle")
     known_safe = exports.get("known_safe_artifact_names", RUNTIME_ARTIFACT_NAMES)
+    keep = _KEEP_RUNTIME_ARTIFACTS_FOR_RUN if keep_runtime_artifacts is None else bool(keep_runtime_artifacts)
 
     if callable(quarantine):
-        quarantine(
+        decision = quarantine(
             paths,
             run_git_command=run,
             path_exists=lambda p: p.exists(),
             unlink_path=lambda p: p.unlink(),
             known_safe_names=known_safe,
+            retain_known_safe=keep,
         )
+        if callable(describe):
+            for line in describe(decision):
+                if str(line).strip():
+                    print(str(line))
         return
 
     for path in paths:
@@ -3964,6 +3982,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("task", nargs="?", help="Path to task markdown, e.g. tasks/008_risk_gate.md")
     ap.add_argument("--push", action="store_true", help="Commit + push the resulting branch")
+    ap.add_argument("--keep-runtime-artifacts", action="store_true", help="Retain known-safe runtime artifacts like _last_agent_* after successful pushed runs (still unstaged).")
     ap.add_argument("--provider", default=None, choices=["openai", "anthropic"])
     ap.add_argument("--model", default=None)
     ap.add_argument("--max-iters", type=int, default=4)
@@ -3971,6 +3990,9 @@ def main() -> int:
     ap.add_argument("--spec-mode", action="store_true", help="Generate a frozen spec artifact only (no implementation)")
     ap.add_argument("--bootstrap-project", default="", help="Bootstrap orchestrator scaffold into the target directory and exit")
     args = ap.parse_args()
+    global _KEEP_RUNTIME_ARTIFACTS_FOR_RUN
+    _KEEP_RUNTIME_ARTIFACTS_FOR_RUN = keep_runtime_artifacts_requested(args)
+
     if not getattr(args, "provider", None):
         args.provider = default_provider()
     if not getattr(args, "model", None):
@@ -4435,6 +4457,7 @@ def _artifact_quarantine_exports() -> Dict[str, object]:
         "artifact_quarantine": _artifact_quarantine,
         "known_safe_artifact_names": RUNTIME_ARTIFACT_NAMES,
         "quarantine_runtime_artifacts": None,
+        "describe_runtime_artifact_lifecycle": None,
     }
 
     if _artifact_quarantine is not None:
@@ -4444,6 +4467,9 @@ def _artifact_quarantine_exports() -> Dict[str, object]:
         quarantine = getattr(_artifact_quarantine, "quarantine_runtime_artifacts", None)
         if callable(quarantine):
             exports["quarantine_runtime_artifacts"] = quarantine
+        describe = getattr(_artifact_quarantine, "describe_runtime_artifact_lifecycle", None)
+        if callable(describe):
+            exports["describe_runtime_artifact_lifecycle"] = describe
 
     return exports
 

@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+import importlib
+import sys
 from pathlib import Path
 
-from agents import run_task
-from agents.lib.artifact_quarantine import (
-    KNOWN_SAFE_ARTIFACT_NAMES,
-    classify_runtime_artifacts,
-    quarantine_runtime_artifacts,
-)
+
+def _load_runtime_artifact_modules():
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    run_task = importlib.import_module("agents.run_task")
+    artifact_quarantine = importlib.import_module("agents.lib.artifact_quarantine")
+    return run_task, artifact_quarantine
 
 
 def test_classify_runtime_artifacts_known_safe_and_unknown() -> None:
+    _, artifact_quarantine = _load_runtime_artifact_modules()
+    classify_runtime_artifacts = artifact_quarantine.classify_runtime_artifacts
+
     paths = [
         Path("last_output.txt"),
         Path("_last_agent_model_output.txt"),
@@ -27,6 +34,9 @@ def test_classify_runtime_artifacts_known_safe_and_unknown() -> None:
 
 
 def test_cleanup_runtime_artifacts_delegates_to_helper(monkeypatch) -> None:
+    run_task, artifact_quarantine = _load_runtime_artifact_modules()
+    known_safe_names = artifact_quarantine.KNOWN_SAFE_ARTIFACT_NAMES
+
     called = {"ok": False}
     seen: dict[str, object] = {}
 
@@ -35,11 +45,13 @@ def test_cleanup_runtime_artifacts_delegates_to_helper(monkeypatch) -> None:
         run_git_command,
         path_exists,
         unlink_path,
-        known_safe_names=KNOWN_SAFE_ARTIFACT_NAMES,
+        known_safe_names=known_safe_names,
+        retain_known_safe: bool = False,
     ):
         called["ok"] = True
         seen["paths"] = [p.as_posix() for p in paths]
         seen["known_safe_names"] = tuple(known_safe_names)
+        seen["retain_known_safe"] = retain_known_safe
         _ = run_git_command
         _ = path_exists
         _ = unlink_path
@@ -50,7 +62,7 @@ def test_cleanup_runtime_artifacts_delegates_to_helper(monkeypatch) -> None:
         "_artifact_quarantine_exports",
         lambda: {
             "quarantine_runtime_artifacts": fake_quarantine,
-            "known_safe_artifact_names": KNOWN_SAFE_ARTIFACT_NAMES,
+            "known_safe_artifact_names": known_safe_names,
         },
     )
 
@@ -58,10 +70,14 @@ def test_cleanup_runtime_artifacts_delegates_to_helper(monkeypatch) -> None:
 
     assert called["ok"] is True
     assert seen["paths"] == ["last_output.txt"]
-    assert seen["known_safe_names"] == KNOWN_SAFE_ARTIFACT_NAMES
+    assert seen["known_safe_names"] == known_safe_names
+    assert seen["retain_known_safe"] is False
 
 
 def test_quarantine_preserves_warning_audit_visibility() -> None:
+    _, artifact_quarantine = _load_runtime_artifact_modules()
+    quarantine_runtime_artifacts = artifact_quarantine.quarantine_runtime_artifacts
+
     git_calls: list[list[str]] = []
     removed: list[str] = []
 
@@ -92,6 +108,9 @@ def test_quarantine_preserves_warning_audit_visibility() -> None:
 
 
 def test_unknown_artifacts_still_block() -> None:
+    _, artifact_quarantine = _load_runtime_artifact_modules()
+    quarantine_runtime_artifacts = artifact_quarantine.quarantine_runtime_artifacts
+
     result = quarantine_runtime_artifacts(
         [Path("unexpected.bin")],
         run_git_command=lambda *args, **kwargs: object(),
@@ -104,6 +123,9 @@ def test_unknown_artifacts_still_block() -> None:
 
 
 def test_quarantined_artifacts_still_present_in_decision_output() -> None:
+    _, artifact_quarantine = _load_runtime_artifact_modules()
+    quarantine_runtime_artifacts = artifact_quarantine.quarantine_runtime_artifacts
+
     result = quarantine_runtime_artifacts(
         [Path("_last_agent_file_bundle.txt")],
         run_git_command=lambda *args, **kwargs: object(),
@@ -115,6 +137,9 @@ def test_quarantined_artifacts_still_present_in_decision_output() -> None:
 
 
 def test_quarantine_unknown_only_does_not_require_git_cleanup() -> None:
+    _, artifact_quarantine = _load_runtime_artifact_modules()
+    quarantine_runtime_artifacts = artifact_quarantine.quarantine_runtime_artifacts
+
     git_calls: list[list[str]] = []
 
     def fake_run_git(cmd, check=True):
