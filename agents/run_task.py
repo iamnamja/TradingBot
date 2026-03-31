@@ -3469,7 +3469,7 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
     for raw in required_paths or []:
         if not isinstance(raw, str) or not raw.strip():
             continue
-        path = raw.strip().replace("\\", "/")
+        path = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
         is_protected = path in protected_explicit or path in meta_harness_paths
         if is_protected:
             if path not in seen_protected:
