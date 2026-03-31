@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import importlib
+import sys
 from pathlib import Path
 
-from agents.lib.artifact_quarantine import KNOWN_SAFE_ARTIFACT_NAMES, classify_runtime_artifacts, quarantine_runtime_artifacts
+
+def _load_artifact_quarantine_module():
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    return importlib.import_module("agents.lib.artifact_quarantine")
 
 
 def test_known_safe_runtime_artifacts_removed_on_default_push_path() -> None:
+    artifact_quarantine = _load_artifact_quarantine_module()
     removed: list[str] = []
     git_calls: list[list[str]] = []
 
-    result = quarantine_runtime_artifacts(
+    result = artifact_quarantine.quarantine_runtime_artifacts(
         [Path("_last_agent_model_output.txt"), Path("_last_agent_file_bundle.txt")],
         run_git_command=lambda cmd, check=False: git_calls.append(cmd),
         path_exists=lambda _p: True,
@@ -28,10 +36,11 @@ def test_known_safe_runtime_artifacts_removed_on_default_push_path() -> None:
 
 
 def test_known_safe_runtime_artifacts_retained_when_explicit_control_enabled() -> None:
+    artifact_quarantine = _load_artifact_quarantine_module()
     removed: list[str] = []
     git_calls: list[list[str]] = []
 
-    result = quarantine_runtime_artifacts(
+    result = artifact_quarantine.quarantine_runtime_artifacts(
         [Path("_last_agent_model_output.txt"), Path("_last_agent_file_bundle.txt")],
         run_git_command=lambda cmd, check=False: git_calls.append(cmd),
         path_exists=lambda _p: True,
@@ -54,9 +63,10 @@ def test_known_safe_runtime_artifacts_retained_when_explicit_control_enabled() -
 
 
 def test_retained_runtime_artifacts_are_unstaged_even_when_kept() -> None:
+    artifact_quarantine = _load_artifact_quarantine_module()
     observed: list[list[str]] = []
 
-    quarantine_runtime_artifacts(
+    artifact_quarantine.quarantine_runtime_artifacts(
         [Path("_last_agent_model_output.txt")],
         run_git_command=lambda cmd, check=False: observed.append(cmd),
         path_exists=lambda _p: True,
@@ -68,7 +78,8 @@ def test_retained_runtime_artifacts_are_unstaged_even_when_kept() -> None:
 
 
 def test_unknown_runtime_artifacts_still_block() -> None:
-    result = quarantine_runtime_artifacts(
+    artifact_quarantine = _load_artifact_quarantine_module()
+    result = artifact_quarantine.quarantine_runtime_artifacts(
         [Path("mystery_runtime.tmp")],
         run_git_command=lambda *args, **kwargs: object(),
         path_exists=lambda _p: False,
@@ -82,8 +93,9 @@ def test_unknown_runtime_artifacts_still_block() -> None:
 
 
 def test_classify_runtime_artifacts_with_known_safe_defaults() -> None:
-    classified = classify_runtime_artifacts(
-        [Path(name) for name in KNOWN_SAFE_ARTIFACT_NAMES] + [Path("unknown.dat")]
+    artifact_quarantine = _load_artifact_quarantine_module()
+    classified = artifact_quarantine.classify_runtime_artifacts(
+        [Path(name) for name in artifact_quarantine.KNOWN_SAFE_ARTIFACT_NAMES] + [Path("unknown.dat")]
     )
-    assert [p.name for p in classified["known_safe"]] == list(KNOWN_SAFE_ARTIFACT_NAMES)
+    assert [p.name for p in classified["known_safe"]] == list(artifact_quarantine.KNOWN_SAFE_ARTIFACT_NAMES)
     assert [p.name for p in classified["unknown"]] == ["unknown.dat"]
