@@ -19,6 +19,8 @@ def _load_runtime_modules():
     failure_artifacts = importlib.import_module("agents.lib.failure_artifacts")
     shell_router = importlib.import_module("agents.lib.shell_router")
     artifact_quarantine = importlib.import_module("agents.lib.artifact_quarantine")
+    batch_state = importlib.import_module("agents.lib.batch_state")
+    task_queue = importlib.import_module("agents.lib.task_queue")
     return (
         run_task,
         check_runner,
@@ -29,11 +31,13 @@ def _load_runtime_modules():
         failure_artifacts,
         shell_router,
         artifact_quarantine,
+        batch_state,
+        task_queue,
     )
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -46,7 +50,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     def fake_capture(cmd: list[str]) -> str:
@@ -72,7 +76,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_capture_result(cmd):
         if cmd == ["ruff", "check", "."]:
@@ -89,7 +93,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -106,7 +110,7 @@ def test_public_surface_still_available() -> None:
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
-    _, _, _, _, failure_journal, _, _, _, _ = _load_runtime_modules()
+    _, _, _, _, failure_journal, _, _, _, _, _, _ = _load_runtime_modules()
     assert (
         failure_journal.classify_failure("tests", "SyntaxError: invalid syntax in generated test")
         == "python_syntax"
@@ -126,7 +130,7 @@ def test_failure_classifier_distinguishes_multiple_categories() -> None:
 
 
 def test_failure_remediation_plans_choose_different_paths() -> None:
-    _, _, _, _, failure_journal, _, _, _, _ = _load_runtime_modules()
+    _, _, _, _, failure_journal, _, _, _, _, _, _ = _load_runtime_modules()
     syntax_plan = failure_journal.build_failure_remediation_plan(
         kind="tests",
         message="SyntaxError: invalid syntax",
@@ -160,7 +164,7 @@ def test_failure_remediation_plans_choose_different_paths() -> None:
 
 
 def test_report_failure_records_confidence_and_plan(tmp_path, monkeypatch) -> None:
-    run_task, _, _, _, failure_journal, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, failure_journal, _, _, _, _, _, _ = _load_runtime_modules()
     monkeypatch.setenv("TRADINGBOT_FAILURE_JOURNAL_PATH", str(tmp_path / "journal.jsonl"))
     monkeypatch.setenv("TRADINGBOT_TASK_ID", "task-056")
     run_task._report_failure(
@@ -176,7 +180,7 @@ def test_report_failure_records_confidence_and_plan(tmp_path, monkeypatch) -> No
 
 
 def test_task_contract_wrapper_delegates_to_extracted_module(monkeypatch) -> None:
-    run_task, _, _, _, _, task_contracts, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_parse(task_text: str):
         assert (
@@ -192,7 +196,7 @@ def test_task_contract_wrapper_delegates_to_extracted_module(monkeypatch) -> Non
 
 
 def test_validate_exact_deliverable_contract_delegates_to_extracted_module(monkeypatch) -> None:
-    run_task, _, _, _, _, task_contracts, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
     monkeypatch.setattr(
         task_contracts,
         "exact_deliverable_contract_issues",
@@ -205,7 +209,7 @@ def test_validate_exact_deliverable_contract_delegates_to_extracted_module(monke
 
 
 def test_enforce_required_files_reports_final_acceptance_gap() -> None:
-    run_task, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     ok, msg = run_task.enforce_required_files(
         ["agents/run_task.py", "docs/TRADINGBOT_PROJECT_STATE.md"],
         {"agents/run_task.py": "updated"},
@@ -217,7 +221,7 @@ def test_enforce_required_files_reports_final_acceptance_gap() -> None:
 
 
 def test_artifact_quarantine_retention_control_is_available() -> None:
-    _, _, _, _, _, _, _, _, artifact_quarantine = _load_runtime_modules()
+    _, _, _, _, _, _, _, _, artifact_quarantine, _, _ = _load_runtime_modules()
 
     result = artifact_quarantine.quarantine_runtime_artifacts(
         [Path("_last_agent_model_output.txt")],
@@ -230,3 +234,43 @@ def test_artifact_quarantine_retention_control_is_available() -> None:
     assert result["warnings"]["quarantined_known_safe"] == ["_last_agent_model_output.txt"]
     assert result["warnings"]["retained_known_safe"] == ["_last_agent_model_output.txt"]
     assert result["lifecycle"]["known_safe_action"] == "retained"
+
+
+def test_batch_state_initialize_resume_and_transition_determinism(tmp_path: Path) -> None:
+    _, _, _, _, _, _, _, _, _, batch_state, task_queue = _load_runtime_modules()
+
+    task_file_1 = tmp_path / "tasks" / "001.md"
+    task_file_2 = tmp_path / "tasks" / "002.md"
+    task_file_1.parent.mkdir(parents=True, exist_ok=True)
+    task_file_1.write_text("# one\n", encoding="utf-8")
+    task_file_2.write_text("# two\n", encoding="utf-8")
+
+    manifest = {"tasks": ["tasks/001.md", "tasks/002.md"]}
+    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+
+    state = batch_state.initialize_batch_state(
+        manifest=manifest,
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=10,
+    )
+    assert state.current_index == 0
+    assert state.event_seq == 0
+    assert state.queue[0].status == "queued"
+
+    state = batch_state.advance_task_status(state, task_index=0, to_status="running", event_ts=11)
+    state = batch_state.advance_task_status(state, task_index=0, to_status="completed", event_ts=12)
+    assert state.current_index == 1
+    assert state.event_seq == 2
+    assert state.queue[0].status == "completed"
+    assert state.queue[0].attempts == 1
+
+    path = tmp_path / "batch_state.json"
+    batch_state.write_batch_state(path, state)
+    resumed = batch_state.resume_batch_state(
+        state_path=path,
+        manifest=manifest,
+        manifest_source="tasks/manifest.json",
+    )
+    assert resumed.current_index == 1
+    assert resumed.queue[0].status == "completed"

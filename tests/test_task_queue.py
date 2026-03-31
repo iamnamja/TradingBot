@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from agents.lib.task_queue import TaskQueueManifestError, build_task_queue_from_manifest
+from agents.lib.task_queue import (
+    TaskQueueManifestError,
+    TaskQueueTransitionError,
+    build_task_queue_from_manifest,
+    validate_queue_status_transition,
+)
 
 
 def _write_task(path: Path) -> None:
@@ -90,3 +95,14 @@ def test_queue_status_defaults_are_stable(tmp_path: Path) -> None:
     item = queue[0]
     assert item.status == "queued"
     assert item.status_note == ""
+
+
+def test_queue_status_transitions_are_deterministic_and_narrow() -> None:
+    validate_queue_status_transition("queued", "running")
+    validate_queue_status_transition("running", "completed")
+    validate_queue_status_transition("running", "failed")
+    validate_queue_status_transition("running", "manual_patch")
+    validate_queue_status_transition("running", "blocked")
+
+    with pytest.raises(TaskQueueTransitionError):
+        validate_queue_status_transition("queued", "completed")
