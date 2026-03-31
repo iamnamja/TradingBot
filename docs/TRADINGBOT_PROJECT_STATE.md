@@ -12,7 +12,7 @@ The repository combines:
 
 ## Implemented baseline
 
-The orchestrator buildout has progressed through the reliability/autonomy continuation and its immediate stabilization extension with the following sequence complete or in progress:
+The orchestrator buildout has progressed through the reliability/autonomy continuation and the backlog-execution preparation tranche with the following sequence complete or in progress:
 
 - Core orchestrator lifecycle and workflow execution (015–038 family)
 - Harness hardening and modularization (039–043)
@@ -21,46 +21,33 @@ The orchestrator buildout has progressed through the reliability/autonomy contin
 - Docs/status normalization and seam preparation (051–054 + 054a/054b)
 - Reliability/autonomy umbrella and implementations (055–067 + 065a + 067a)
 - Stabilization extension to support protected/controller execution and controller thinning (068a–068c)
-- Original Task 068 still remains a meaningful follow-on after the stabilization work proves out in practice
-- 070 queue groundwork complete with 070b runtime artifact lifecycle retention controls
+- Original Task 068 confirmation after the stabilization extension
+- 069 controller decomposition second extraction
+- 070 task-list manifest and queue model
+- 070a exact-deliverable parser and completion gate hardening
+- 070b runtime artifact retention and visibility
+- 071 batch state persistence and resume
 
 ## Current state
 
 The orchestrator can now:
 
 - complete ordinary non-protected tasks more reliably than earlier in the project
-- enforce explicit deliverable completeness for tasks that name exact required files
-- write more truthful failure artifacts for key controller/protected failure paths
-- route controller/protected work through narrower, better-defined lanes than before
-- start decomposing `agents/run_task.py` into extracted helper modules
-- enforce clear runtime-artifact lifecycle outcomes:
-  - default successful push quarantine/removal for known-safe scratch artifacts
-  - explicit operator-controlled retention mode for known-safe scratch artifacts
-  - retained known-safe artifacts still unstaged from auto-commit paths
-  - unknown runtime artifacts remain protective blockers
+- enforce explicit deliverable completeness for tasks that name exact required files using the current task contract styles
+- represent a deterministic task queue and persist machine-readable batch execution state
+- resume backlog execution from saved state
+- quarantine known-safe runtime artifacts by default on successful pushed runs while supporting internal retention logic
+- continue decomposing `agents/run_task.py` into extracted helper modules
 
-However, the project is still **not yet at the point where a backlog/list runner should be considered fully ready**.
+However, one follow-up remains before moving deeper into backlog execution policy:
 
-The next stage must focus on:
-
-- continuing to shrink the controller
-- representing task lists explicitly
-- persisting batch state and resume behavior
-- adding safe per-task isolation and post-task continue/stop policy
-- only then exposing a user-facing batch runner
+- the runtime-artifact retention capability is not yet surfaced cleanly to operators through an explicit CLI/env switch
 
 ## Active continuation order
 
 Immediate near-term order:
 
-- confirm original **068** after the stabilization extension
-- then begin the backlog-execution continuation at **069**
-
-Planned continuation after 068:
-
-- **069** controller decomposition second extraction
-- **070** task-list manifest and queue model
-- **071** batch state persistence and resume
+- **071a** user-facing runtime artifact retention switch
 - **072** per-task checkpoint and branch isolation
 - **073** batch failure policy and continue gate
 - **074** batch runner CLI and summary artifacts
@@ -75,14 +62,3 @@ For all contributor and automation references, the canonical visible order is:
 3. supporting roadmap docs in `docs/`
 
 Any continuation language should reference task IDs exactly as numbered above.
-
-## Runtime artifact policy snapshot (operational)
-
-Known-safe scratch artifact behavior is intentionally conservative:
-
-- Default successful push path: quarantine + remove known-safe runtime artifacts before staging.
-- Explicit retention mode only: keep known-safe scratch on disk for debugging when operator requests it.
-- Retention does not change commit safety: retained scratch is still de-indexed and not auto-committed.
-- Unknown runtime artifacts remain quarantine-protected blockers and require remediation before completion.
-
-This preserves the existing safety posture while making artifact retention intent visible and operator-controlled.
