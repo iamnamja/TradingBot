@@ -71,6 +71,10 @@ def queue_signature(queue: list[TaskQueueItem]) -> tuple[str, ...]:
     return tuple(item.task_path for item in queue)
 
 
+def may_proceed_to_next_task(status: QueueStatus) -> bool:
+    return status == "completed"
+
+
 def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Path = ".") -> list[TaskQueueItem]:
     tasks = manifest.get("tasks")
     if not isinstance(tasks, list):
