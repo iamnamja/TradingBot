@@ -3447,16 +3447,45 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         normalized_required.append(canonical)
 
     normalized_protected: List[dict[str, object]] = []
+    seen_protected_entries: set[tuple[str, str, str]] = set()
     for target in protected_targets or []:
         if isinstance(target, dict):
             raw_path = target.get("path")
             if not isinstance(raw_path, str) or not raw_path.strip():
                 continue
+            canonical_path = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
+            mode = str(target.get("mode", "") or "").strip()
+            method_name = str(target.get("method_name", "") or "").strip()
+            dedupe_key = (canonical_path, mode, method_name)
+            if dedupe_key in seen_protected_entries:
+                continue
+            seen_protected_entries.add(dedupe_key)
             target_copy: dict[str, object] = dict(target)
-            target_copy["path"] = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
+            target_copy["path"] = canonical_path
             normalized_protected.append(target_copy)
         elif isinstance(target, str) and target.strip():
-            normalized_protected.append({"path": _canonical_docs_path_for(target.strip().replace("\\", "/"))})
+            canonical_path = _canonical_docs_path_for(target.strip().replace("\\", "/"))
+            dedupe_key = (canonical_path, "", "")
+            if dedupe_key in seen_protected_entries:
+                continue
+            seen_protected_entries.add(dedupe_key)
+            normalized_protected.append({"path": canonical_path})
+
+    inferred_targets = _infer_protected_method_targets_from_required("", normalized_required)
+    for inferred in inferred_targets:
+        raw_path = inferred.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        canonical_path = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
+        mode = str(inferred.get("mode", "") or "").strip()
+        method_name = str(inferred.get("method_name", "") or "").strip()
+        dedupe_key = (canonical_path, mode, method_name)
+        if dedupe_key in seen_protected_entries:
+            continue
+        seen_protected_entries.add(dedupe_key)
+        inferred_copy: dict[str, object] = dict(inferred)
+        inferred_copy["path"] = canonical_path
+        normalized_protected.append(inferred_copy)
 
     if callable(_partition):
         return _partition(
@@ -3585,6 +3614,11 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 "protected_execution_attempted": bool(protected_execution_attempted),
                 "mixed_task": bool(mixed_task),
                 "protected_targets_identified": protected_targets_list,
+                "batch_state": {
+                    "persisted": False,
+                    "resumable": False,
+                    "resume_hint": "",
+                },
             }
             last_output_path.write_text(
                 json.dumps(output_payload, indent=2, sort_keys=True) + "\n",
@@ -3607,6 +3641,11 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 "mixed_task": bool(mixed_task),
                 "protected_targets_identified": protected_targets_list,
                 "files": [],
+                "batch_state": {
+                    "persisted": False,
+                    "resumable": False,
+                    "resume_hint": "",
+                },
             }
             last_bundle_path.write_text(
                 json.dumps(bundle_payload, indent=2, sort_keys=True) + "\n",

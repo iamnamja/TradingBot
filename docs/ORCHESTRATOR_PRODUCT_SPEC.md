@@ -97,6 +97,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 27. Resume path validates manifest fingerprint identity; mismatched state/manifest combinations are rejected with explicit errors
 28. Resume may enforce exact manifest source matching unless an explicit override rule is enabled
 29. Queue status transitions are deterministic and narrow (`queued -> running`, `running -> completed|failed|manual_patch|blocked`) with invalid transitions rejected
+30. Resume now also validates queue identity/ordering against the provided manifest-derived queue to prevent accidental resume on fingerprint-compatible but queue-divergent state
 
 ## Batch state file model (071)
 
@@ -129,6 +130,7 @@ Design constraints:
 - **Resume existing batch**: load persisted state and require manifest fingerprint match
 - **Mismatched manifest**: fail fast with explicit mismatch error
 - **Manifest source mismatch**: fail by default; optional override can allow path/source mismatch when operator intends it
+- **Queue mismatch on resume**: fail fast when persisted state queue paths/order do not match the supplied manifest-derived queue
 - **Current index advancement**: advances only after terminal transition on the currently running item, preserving deterministic ordering
 
 ## Safe transition policy (071)

@@ -8,6 +8,7 @@ from agents.lib.task_queue import (
     TaskQueueManifestError,
     TaskQueueTransitionError,
     build_task_queue_from_manifest,
+    queue_signature,
     validate_queue_status_transition,
 )
 
@@ -106,3 +107,13 @@ def test_queue_status_transitions_are_deterministic_and_narrow() -> None:
 
     with pytest.raises(TaskQueueTransitionError):
         validate_queue_status_transition("queued", "completed")
+
+
+def test_queue_signature_is_stable_for_resume_identity(tmp_path: Path) -> None:
+    _write_task(tmp_path / "tasks" / "001.md")
+    _write_task(tmp_path / "tasks" / "002.md")
+
+    manifest = {"tasks": ["tasks/001.md", "tasks/002.md"]}
+    queue = build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+
+    assert queue_signature(queue) == ("tasks/001.md", "tasks/002.md")

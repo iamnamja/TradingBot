@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from agents.lib.task_queue import TaskQueueItem, QueueStatus, validate_queue_status_transition
+from agents.lib.task_queue import (
+    QueueStatus,
+    TaskQueueItem,
+    validate_queue_status_transition,
+)
 
 BatchStatus = Literal["active", "completed", "blocked", "failed", "manual_patch"]
 
@@ -66,6 +70,14 @@ class BatchState:
 def manifest_fingerprint(manifest: dict[str, Any]) -> str:
     canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _queue_signature_from_items(items: list[TaskQueueItem]) -> tuple[str, ...]:
+    return tuple(item.task_path for item in items)
+
+
+def _queue_signature_from_state(state: BatchState) -> tuple[str, ...]:
+    return tuple(item.task_path for item in state.queue)
 
 
 def _derive_batch_status(queue: tuple[BatchTaskState, ...]) -> BatchStatus:
@@ -199,6 +211,7 @@ def resume_batch_state(
     manifest: dict[str, Any],
     manifest_source: str,
     allow_manifest_source_mismatch: bool = False,
+    queue: list[TaskQueueItem] | None = None,
 ) -> BatchState:
     state = load_batch_state(state_path)
     expected_fingerprint = manifest_fingerprint(manifest)
@@ -212,5 +225,13 @@ def resume_batch_state(
         raise BatchStateError(
             f"Cannot resume batch: manifest source mismatch (state={state.manifest_source}, provided={manifest_source})."
         )
+
+    if queue is not None:
+        state_signature = _queue_signature_from_state(state)
+        queue_signature = _queue_signature_from_items(queue)
+        if state_signature != queue_signature:
+            raise BatchStateError(
+                "Cannot resume batch: queue ordering/path set in state does not match the provided manifest queue."
+            )
 
     return state

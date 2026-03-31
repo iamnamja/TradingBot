@@ -67,6 +67,10 @@ def validate_queue_status_transition(from_status: QueueStatus, to_status: QueueS
         )
 
 
+def queue_signature(queue: list[TaskQueueItem]) -> tuple[str, ...]:
+    return tuple(item.task_path for item in queue)
+
+
 def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Path = ".") -> list[TaskQueueItem]:
     tasks = manifest.get("tasks")
     if not isinstance(tasks, list):
