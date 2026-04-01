@@ -3454,54 +3454,65 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
     normalized_required: List[str] = []
     seen_required: set[str] = set()
     for raw in required_paths or []:
-        if not isinstance(raw, str) or not raw.strip():
+        if not isinstance(raw, str):
             continue
-        canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+        cleaned = raw.strip()
+        if not cleaned:
+            continue
+        canonical = _canonical_docs_path_for(cleaned.replace("\\", "/"))
         if canonical in seen_required:
             continue
         seen_required.add(canonical)
         normalized_required.append(canonical)
 
-    normalized_protected: List[dict[str, object]] = []
-    seen_protected_entries: set[tuple[str, str, str]] = set()
+    normalized_protected_targets: List[dict[str, object]] = []
+    seen_target_keys: set[tuple[str, str, str]] = set()
     for target in protected_targets or []:
         if isinstance(target, dict):
             raw_path = target.get("path")
-            if not isinstance(raw_path, str) or not raw_path.strip():
+            if not isinstance(raw_path, str):
                 continue
-            canonical_path = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
+            cleaned_path = raw_path.strip()
+            if not cleaned_path:
+                continue
+            canonical_path = _canonical_docs_path_for(cleaned_path.replace("\\", "/"))
             mode = str(target.get("mode", "") or "").strip()
             method_name = str(target.get("method_name", "") or "").strip()
-            dedupe_key = (canonical_path, mode, method_name)
-            if dedupe_key in seen_protected_entries:
+            key = (canonical_path, mode, method_name)
+            if key in seen_target_keys:
                 continue
-            seen_protected_entries.add(dedupe_key)
-            target_copy: dict[str, object] = dict(target)
-            target_copy["path"] = canonical_path
-            normalized_protected.append(target_copy)
-        elif isinstance(target, str) and target.strip():
-            canonical_path = _canonical_docs_path_for(target.strip().replace("\\", "/"))
-            dedupe_key = (canonical_path, "", "")
-            if dedupe_key in seen_protected_entries:
+            seen_target_keys.add(key)
+            copied: dict[str, object] = dict(target)
+            copied["path"] = canonical_path
+            normalized_protected_targets.append(copied)
+        elif isinstance(target, str):
+            cleaned_path = target.strip()
+            if not cleaned_path:
                 continue
-            seen_protected_entries.add(dedupe_key)
-            normalized_protected.append({"path": canonical_path})
+            canonical_path = _canonical_docs_path_for(cleaned_path.replace("\\", "/"))
+            key = (canonical_path, "", "")
+            if key in seen_target_keys:
+                continue
+            seen_target_keys.add(key)
+            normalized_protected_targets.append({"path": canonical_path})
 
-    inferred_targets = _infer_protected_method_targets_from_required("", normalized_required)
-    for inferred in inferred_targets:
+    for inferred in _infer_protected_method_targets_from_required("", normalized_required):
         raw_path = inferred.get("path")
-        if not isinstance(raw_path, str) or not raw_path.strip():
+        if not isinstance(raw_path, str):
             continue
-        canonical_path = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
+        cleaned_path = raw_path.strip()
+        if not cleaned_path:
+            continue
+        canonical_path = _canonical_docs_path_for(cleaned_path.replace("\\", "/"))
         mode = str(inferred.get("mode", "") or "").strip()
         method_name = str(inferred.get("method_name", "") or "").strip()
-        dedupe_key = (canonical_path, mode, method_name)
-        if dedupe_key in seen_protected_entries:
+        key = (canonical_path, mode, method_name)
+        if key in seen_target_keys:
             continue
-        seen_protected_entries.add(dedupe_key)
-        inferred_copy: dict[str, object] = dict(inferred)
-        inferred_copy["path"] = canonical_path
-        normalized_protected.append(inferred_copy)
+        seen_target_keys.add(key)
+        copied: dict[str, object] = dict(inferred)
+        copied["path"] = canonical_path
+        normalized_protected_targets.append(copied)
 
     protected_meta_paths = {
         "agents/run_task.py",
@@ -3509,59 +3520,66 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         "agents/lib/bundle_parser.py",
         "agents/lib/protected_file_policy.py",
     }
-    protected_explicit: set[str] = set()
-    for target in normalized_protected:
-        maybe = target.get("path")
-        if isinstance(maybe, str) and maybe.strip():
-            protected_explicit.add(maybe.strip().replace("\\", "/"))
+
+    explicit_protected_paths: set[str] = set()
+    for target in normalized_protected_targets:
+        maybe_path = target.get("path")
+        if isinstance(maybe_path, str):
+            normalized = maybe_path.strip().replace("\\", "/")
+            if normalized:
+                explicit_protected_paths.add(normalized)
 
     normal: List[str] = []
     protected: List[str] = []
     seen_normal: set[str] = set()
     seen_protected: set[str] = set()
 
-    def _append_protected(path: str) -> None:
-        normalized = path.strip().replace("\\", "/")
-        if not normalized or normalized in seen_protected:
-            return
-        protected.append(normalized)
-        seen_protected.add(normalized)
-
-    def _append_normal(path: str) -> None:
-        normalized = path.strip().replace("\\", "/")
-        if not normalized or normalized in seen_normal:
-            return
-        normal.append(normalized)
-        seen_normal.add(normalized)
-
     if callable(_partition):
         partition_normal, partition_protected = _partition(
             required_paths=normalized_required,
-            protected_targets=normalized_protected,
+            protected_targets=normalized_protected_targets,
             protected_meta_paths=tuple(sorted(protected_meta_paths)),
         )
         for raw in partition_normal or []:
-            if not isinstance(raw, str) or not raw.strip():
+            if not isinstance(raw, str):
                 continue
-            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
-            if canonical in protected_explicit or canonical in protected_meta_paths:
-                _append_protected(canonical)
+            cleaned = raw.strip()
+            if not cleaned:
+                continue
+            canonical = _canonical_docs_path_for(cleaned.replace("\\", "/"))
+            if canonical in explicit_protected_paths or canonical in protected_meta_paths:
+                if canonical not in seen_protected:
+                    protected.append(canonical)
+                    seen_protected.add(canonical)
             else:
-                _append_normal(canonical)
+                if canonical not in seen_normal:
+                    normal.append(canonical)
+                    seen_normal.add(canonical)
         for raw in partition_protected or []:
-            if not isinstance(raw, str) or not raw.strip():
+            if not isinstance(raw, str):
                 continue
-            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
-            _append_protected(canonical)
+            cleaned = raw.strip()
+            if not cleaned:
+                continue
+            canonical = _canonical_docs_path_for(cleaned.replace("\\", "/"))
+            if canonical not in seen_protected:
+                protected.append(canonical)
+                seen_protected.add(canonical)
 
     for canonical in normalized_required:
-        if canonical in protected_explicit or canonical in protected_meta_paths:
-            _append_protected(canonical)
+        if canonical in explicit_protected_paths or canonical in protected_meta_paths:
+            if canonical not in seen_protected:
+                protected.append(canonical)
+                seen_protected.add(canonical)
         else:
-            _append_normal(canonical)
+            if canonical not in seen_normal:
+                normal.append(canonical)
+                seen_normal.add(canonical)
 
-    for canonical in sorted(protected_explicit):
-        _append_protected(canonical)
+    for canonical in sorted(explicit_protected_paths):
+        if canonical not in seen_protected:
+            protected.append(canonical)
+            seen_protected.add(canonical)
 
     return normal, protected
 def _local_branch_exists(branch: str) -> bool:

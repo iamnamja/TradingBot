@@ -16,8 +16,35 @@ Continuation is now intentionally resumed under the renumbered active sequence:
 
 - **061** — continuation reset and numbering sync
 - **062–068** — deferred continuation implementation tranche (integrated capabilities, live seam/failure journal integration, review integration, quarantine integration, package extraction prep, canonical docs policy, task scope/split heuristics)
+- **070–074** — backlog execution foundations (manifest queue, batch state persistence/resume, conservative batch runner + summaries)
 
 Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for status narrative.
+
+## Batch runner (first conservative mode)
+
+The agent runner now supports a conservative batch mode in addition to single-task mode.
+
+- Input: a task-list manifest (ordered task paths)
+- Behavior: sequential execution, intentionally conservative
+- Stop posture: may stop at first blocking/manual/failure outcome
+- Goal: reviewable progression over broad autonomy
+
+Single-task behavior remains available and unchanged for normal `agents/run_task.py <task.md>` usage.
+
+## Batch summary artifacts
+
+Batch mode emits:
+
+- **Machine-readable summary artifact** containing at least:
+  - manifest path
+  - total tasks
+  - completed tasks
+  - failed/manual/blocked tasks
+  - final batch decision
+  - per-task short outcomes
+- **Human-readable terminal summary** at the end of batch execution for fast operator review
+
+See `docs/ORCHESTRATOR_PRODUCT_SPEC.md` for the canonical product-level description of these surfaces.
 
 ## Orchestrator extraction preparation (current scope)
 
@@ -41,6 +68,7 @@ Extraction preparation is active, but no repository split has been executed yet.
 
 - Lint: `ruff check .`
 - Tests: `pytest -q`
+
 ## Documentation placement
 
 `README.md` is the canonical root-level entrypoint for the repo. Orchestrator and TradingBot narrative documents, product specs, controls/policies docs, and relationship documents should live under `docs/` rather than being duplicated at repo root.

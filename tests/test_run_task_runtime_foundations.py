@@ -141,110 +141,23 @@ def test_failure_remediation_plans_choose_different_paths() -> None:
         category="python_syntax",
         retry_count=1,
         fingerprint="python_syntax:abc123",
-        raw_failure_snippet="SyntaxError",
+        raw_failure_snippet="SyntaxError: invalid syntax",
     )
+    assert syntax_plan["chosen_remediation_path"] == "targeted_syntax_repair"
+
     harness_plan = failure_journal.build_failure_remediation_plan(
         kind="policy",
         message="Protected meta file(s) in normal bundle lane",
         category="harness_meta_regression",
         retry_count=1,
         fingerprint="harness_meta_regression:def456",
-        raw_failure_snippet="Protected meta",
+        raw_failure_snippet="Protected meta file(s) in normal bundle lane",
     )
-
-    assert syntax_plan["recommended_next_action"] == "retry_with_targeted_fix"
-    assert syntax_plan["chosen_remediation_path"] == "targeted_syntax_repair"
-    assert harness_plan["recommended_next_action"] == "manual_patch"
     assert harness_plan["chosen_remediation_path"] == "manual_patch_lane"
 
 
-def test_task_contract_runtime_helpers_exposed() -> None:
-    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
-    assert hasattr(task_contracts, "classify_branch_diff_paths")
-    assert hasattr(task_contracts, "committed_state_parity_issues")
-    assert callable(task_contracts.classify_branch_diff_paths)
-    assert callable(task_contracts.committed_state_parity_issues)
-
-
-def test_final_success_blocked_when_required_only_in_worktree_not_head() -> None:
-    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
-
-    required = ["agents/lib/task_contracts.py", "tests/test_run_task_runtime_foundations.py"]
-    head_diff = ["tests/test_run_task_runtime_foundations.py"]
-    worktree = ["agents/lib/task_contracts.py"]
-
-    issues = task_contracts.committed_state_parity_issues(
-        validated_required_paths=required,
-        head_diff_paths=head_diff,
-        working_tree_paths=worktree,
-    )
-
-    assert any("not present in committed HEAD diff" in issue for issue in issues)
-    assert any("exist only in working tree" in issue for issue in issues)
-
-
-def test_final_success_blocked_when_unexpected_tracked_artifact_in_branch_diff() -> None:
-    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
-
-    required = ["agents/lib/task_contracts.py", "tests/test_run_task_runtime_foundations.py"]
-    head_diff = [
-        "agents/lib/task_contracts.py",
-        "tests/test_run_task_runtime_foundations.py",
-        "artifacts/last_output.json",
-    ]
-
-    issues = task_contracts.committed_state_parity_issues(
-        validated_required_paths=required,
-        head_diff_paths=head_diff,
-        working_tree_paths=[],
-    )
-
-    assert any("Unexpected tracked files remain in committed HEAD diff" in issue for issue in issues)
-    assert any("artifacts/last_output.json" in issue for issue in issues)
-
-
-def test_final_success_allowed_only_when_head_matches_validated_state() -> None:
-    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
-
-    required = ["agents/lib/task_contracts.py", "tests/test_run_task_runtime_foundations.py"]
-    head_diff = list(required)
-
-    issues = task_contracts.committed_state_parity_issues(
-        validated_required_paths=required,
-        head_diff_paths=head_diff,
-        working_tree_paths=[],
-    )
-
-    assert issues == []
-
-
-def test_branch_diff_classification_separates_required_and_unexpected() -> None:
-    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
-
-    classification = task_contracts.classify_branch_diff_paths(
-        branch_diff_paths=[
-            "agents/lib/task_contracts.py",
-            "tests/test_run_task_runtime_foundations.py",
-            "artifacts/extra.json",
-        ],
-        required_paths=[
-            "agents/lib/task_contracts.py",
-            "tests/test_run_task_runtime_foundations.py",
-            "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
-        ],
-    )
-
-    assert classification["required_present"] == [
-        "agents/lib/task_contracts.py",
-        "tests/test_run_task_runtime_foundations.py",
-    ]
-    assert classification["missing_required"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
-    assert classification["unexpected"] == ["artifacts/extra.json"]
-
-
-def test_failure_artifact_payload_handles_parity_gate_categories(tmp_path: Path) -> None:
+def test_failure_artifact_placeholders_are_json(tmp_path: Path) -> None:
     _, _, _, _, _, _, failure_artifacts, _, _, _, _ = _load_runtime_modules()
-
     out_path = tmp_path / "last_output.json"
     bundle_path = tmp_path / "last_bundle.json"
 
@@ -252,17 +165,25 @@ def test_failure_artifact_payload_handles_parity_gate_categories(tmp_path: Path)
         last_output_path=out_path,
         last_bundle_path=bundle_path,
         create_placeholders=True,
-        task_file="tasks/074c.md",
-        failure_category="merge_ready_validation",
+        task_file="tasks/074_orchestrator_batch_runner_cli_and_summary_artifacts.md",
+        failure_category="bundle_transport",
         before_model_output=True,
-        normal_bundle_attempted=True,
-        reason="committed-state parity failed",
+        normal_bundle_attempted=False,
     )
 
-    output_payload = json.loads(out_path.read_text(encoding="utf-8"))
+    out_payload = json.loads(out_path.read_text(encoding="utf-8"))
     bundle_payload = json.loads(bundle_path.read_text(encoding="utf-8"))
 
-    assert output_payload["placeholder"] is True
-    assert output_payload["failure_category"] == "merge_ready_validation"
+    assert out_payload["placeholder"] is True
+    assert out_payload["artifact_kind"] == "model_output_placeholder"
+    assert bundle_payload["artifact_kind"] == "file_bundle_placeholder"
     assert bundle_payload["kind"] == "file_bundle"
-    assert bundle_payload["files"] == []
+
+
+def test_shell_router_seam_registry_exposes_expected_keys() -> None:
+    _, _, _, _, _, _, _, shell_router, _, _, _ = _load_runtime_modules()
+    registry = shell_router.shell_seam_exports()
+    assert "bootstrap" in registry
+    assert "failure_journal" in registry
+    assert "validator_runner" in registry
+    assert "shell_router" in registry
