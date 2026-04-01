@@ -3515,59 +3515,54 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         if isinstance(maybe, str) and maybe.strip():
             protected_explicit.add(maybe.strip().replace("\\", "/"))
 
-    if callable(_partition):
-        normal, protected = _partition(
-            required_paths=normalized_required,
-            protected_targets=normalized_protected,
-            protected_meta_paths=tuple(sorted(protected_meta_paths)),
-        )
-        normalized_normal: List[str] = []
-        normalized_protected_paths: List[str] = []
-        seen_normal: set[str] = set()
-        seen_protected: set[str] = set()
-        for raw in normal or []:
-            if not isinstance(raw, str) or not raw.strip():
-                continue
-            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
-            if canonical in protected_explicit or canonical in protected_meta_paths:
-                if canonical not in seen_protected:
-                    normalized_protected_paths.append(canonical)
-                    seen_protected.add(canonical)
-                continue
-            if canonical not in seen_normal:
-                normalized_normal.append(canonical)
-                seen_normal.add(canonical)
-        for raw in protected or []:
-            if not isinstance(raw, str) or not raw.strip():
-                continue
-            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
-            if canonical not in seen_protected:
-                normalized_protected_paths.append(canonical)
-                seen_protected.add(canonical)
-        for canonical in normalized_required:
-            if canonical in protected_explicit or canonical in protected_meta_paths:
-                if canonical not in seen_protected:
-                    normalized_protected_paths.append(canonical)
-                    seen_protected.add(canonical)
-            elif canonical not in seen_normal:
-                normalized_normal.append(canonical)
-                seen_normal.add(canonical)
-        return normalized_normal, normalized_protected_paths
-
     normal: List[str] = []
     protected: List[str] = []
     seen_normal: set[str] = set()
     seen_protected: set[str] = set()
-    for path in normalized_required:
-        is_protected = path in protected_explicit or path in protected_meta_paths
-        if is_protected:
-            if path not in seen_protected:
-                protected.append(path)
-                seen_protected.add(path)
+
+    def _append_protected(path: str) -> None:
+        normalized = path.strip().replace("\\", "/")
+        if not normalized or normalized in seen_protected:
+            return
+        protected.append(normalized)
+        seen_protected.add(normalized)
+
+    def _append_normal(path: str) -> None:
+        normalized = path.strip().replace("\\", "/")
+        if not normalized or normalized in seen_normal:
+            return
+        normal.append(normalized)
+        seen_normal.add(normalized)
+
+    if callable(_partition):
+        partition_normal, partition_protected = _partition(
+            required_paths=normalized_required,
+            protected_targets=normalized_protected,
+            protected_meta_paths=tuple(sorted(protected_meta_paths)),
+        )
+        for raw in partition_normal or []:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+            if canonical in protected_explicit or canonical in protected_meta_paths:
+                _append_protected(canonical)
+            else:
+                _append_normal(canonical)
+        for raw in partition_protected or []:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+            _append_protected(canonical)
+
+    for canonical in normalized_required:
+        if canonical in protected_explicit or canonical in protected_meta_paths:
+            _append_protected(canonical)
         else:
-            if path not in seen_normal:
-                normal.append(path)
-                seen_normal.add(path)
+            _append_normal(canonical)
+
+    for canonical in sorted(protected_explicit):
+        _append_protected(canonical)
+
     return normal, protected
 def _local_branch_exists(branch: str) -> bool:
     try:
@@ -3653,6 +3648,12 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         "protected_targets_identified": protected_targets_list,
         "retryable_in_iteration_loop": category in {"merge_ready_validation", "post_green_validation", "post-green-validation"},
     }
+
+    parity_enforced = category in {"merge_ready_validation", "post_green_validation", "post-green-validation", "deliverables", "blocked", "blocked_failure"}
+    artifact_gate_enforced = category in {"merge_ready_validation", "post_green_validation", "post-green-validation", "blocked", "blocked_failure"}
+    checkpoint["committed_state_parity_required"] = bool(parity_enforced)
+    checkpoint["exact_required_deliverable_parity_required"] = bool(parity_enforced)
+    checkpoint["unexpected_tracked_artifacts_rejected"] = bool(artifact_gate_enforced)
 
     if callable(_emit):
         _emit(

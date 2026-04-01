@@ -72,7 +72,6 @@ into unrelated internal modules or guessing private names.
 - Tests that mention bundle markers should avoid raw standalone marker lines in
   prose examples; render them inline or split the token if needed.
 
-
 ## Failure classification and remediation planning
 
 The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
@@ -136,7 +135,6 @@ Conflicting duplicates must not be silently resolved by picking one version. Ins
 
 If the conflicted paths still cannot be resolved after the focused repair attempt, the run writes `last_output_duplicate_bundle_conflict.json` in repo root and fails with a duplicate-conflict error.
 
-
 ## Merge-ready validation profile
 
 Autonomous completion now depends on one explicit local merge-ready validation profile.
@@ -167,3 +165,26 @@ Conservative stop rules remain mandatory:
 - Stop honestly when retries are exhausted.
 - Stop honestly when failure class is not safely repairable/autonomous.
 - Never claim final success while post-green validation is still red.
+
+## Committed-state parity and unexpected-artifact gate (074c)
+
+Final autonomous success now requires **committed-state parity** with the tested merge-ready state.
+
+Before final success/push, the controller must enforce all of the following:
+
+1. **Committed-state parity**  
+   The state validated as green must match committed `HEAD` for task deliverables.  
+   Required deliverables left only in working tree state are a hard failure.
+
+2. **Exact required deliverable parity at HEAD**  
+   The exact required-file contract must still be satisfied by the committed branch diff, not merely by unstaged or uncommitted edits.
+
+3. **Unexpected tracked artifact rejection**  
+   Tracked files present in the committed branch diff that are outside the exact required deliverables (for example accidental `artifacts/*.json`) must block success unless explicitly required by the task.
+
+Operational posture for this gate:
+
+- deterministic and repo-local checks only
+- prefer explicit cleanup/failure to silent acceptance
+- no broad artifact allowlist expansion beyond known-safe runtime artifact handling
+- never report completion while unexpected tracked files remain in branch diff
