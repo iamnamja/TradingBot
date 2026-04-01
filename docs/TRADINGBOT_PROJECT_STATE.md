@@ -12,7 +12,7 @@ The repository combines:
 
 ## Implemented baseline
 
-The orchestrator buildout has progressed through the reliability/autonomy continuation and the backlog-execution preparation tranche with the following sequence complete or in progress:
+The orchestrator buildout has progressed through the reliability/autonomy continuation and its immediate stabilization extension with the following sequence complete or in progress:
 
 - Core orchestrator lifecycle and workflow execution (015–038 family)
 - Harness hardening and modularization (039–043)
@@ -21,35 +21,42 @@ The orchestrator buildout has progressed through the reliability/autonomy contin
 - Docs/status normalization and seam preparation (051–054 + 054a/054b)
 - Reliability/autonomy umbrella and implementations (055–067 + 065a + 067a)
 - Stabilization extension to support protected/controller execution and controller thinning (068a–068c)
-- Original Task 068 confirmation after the stabilization extension
-- 069 controller decomposition second extraction
-- 070 task-list manifest and queue model
-- 070a exact-deliverable parser and completion gate hardening
-- 070b runtime artifact retention and visibility
-- 071 batch state persistence and resume
+- Original Task 068 still remains a meaningful follow-on after the stabilization work proves out in practice
 
 ## Current state
 
 The orchestrator can now:
 
 - complete ordinary non-protected tasks more reliably than earlier in the project
-- enforce explicit deliverable completeness for tasks that name exact required files using the current task contract styles
-- represent a deterministic task queue and persist machine-readable batch execution state
-- resume backlog execution from saved state
-- quarantine known-safe runtime artifacts by default on successful pushed runs while supporting internal retention logic
-- continue decomposing `agents/run_task.py` into extracted helper modules
+- enforce explicit deliverable completeness for tasks that name exact required files
+- write more truthful failure artifacts for key controller/protected failure paths
+- route controller/protected work through narrower, better-defined lanes than before
+- persist task-list state and per-task checkpoints for conservative batch progression
+- expose a user-facing switch for retaining known-safe runtime artifacts during debugging
 
-However, one follow-up remains before moving deeper into backlog execution policy:
+However, the project is still **not yet at the point where a backlog/list runner should be considered fully ready**.
 
-- the runtime-artifact retention capability is not yet surfaced cleanly to operators through an explicit CLI/env switch
+The most recent 069–073 work also exposed a remaining gap: internal "green" inside the orchestrator loop does not yet always mean the same thing as the operator’s merge-ready standard under direct local checks and exact branch-diff review.
+
+The next stage must therefore focus on:
+
+- continuing to shrink the controller
+- keeping batch/list execution conservative and explicit
+- making final autonomous success match operator-observed merge readiness
+- only then exposing a first user-facing batch runner CLI and end-to-end proof
 
 ## Active continuation order
 
 Immediate near-term order:
 
-- **071a** user-facing runtime artifact retention switch
-- **072** per-task checkpoint and branch isolation
-- **073** batch failure policy and continue gate
+- confirm original **068** after the stabilization extension
+- then continue the backlog-execution tranche through the merge-readiness hardening follow-ons before the first batch runner CLI
+
+Planned continuation after 073:
+
+- **074a** merge-ready validation profile
+- **074b** post-green validation retry loop
+- **074c** committed-state parity and unexpected-artifact gate
 - **074** batch runner CLI and summary artifacts
 - **075** backlog execution end-to-end proof
 

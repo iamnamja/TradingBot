@@ -1,43 +1,113 @@
-# Orchestrator Roadmap 069–075
+# Orchestrator Roadmap — Backlog Execution and Controller Decomposition Continuation (069–075)
 
-## Purpose
+## Where this continuation starts
 
-This roadmap covers the backlog-execution continuation after the protected/controller stabilization work.
+The 055–068 continuation and stabilization extension drove the orchestrator to a better place, but they also made the next gap obvious:
 
-## Sequence
+- ordinary tasks are more reliable
+- explicit deliverable completeness is enforced
+- protected/controller failures are now surfaced more truthfully
+- duplicate-bundle recovery and the first controller extraction are underway
 
-1. **069** — controller decomposition second extraction  
-   Extract protected-lane and duplicate-bundle-repair helpers out of `agents/run_task.py` while preserving helper compatibility.
+However, the orchestrator is **not yet at the point where it can confidently take a list of tasks and work through them end to end**.
 
-2. **070** — task-list manifest and queue model  
-   Add a narrow manifest format plus deterministic queue construction with validation and duplicate handling.
+This roadmap continues from that reality rather than pretending the backlog runner already exists.
 
-3. **070a** — exact deliverable parser and completion gate hardening  
-   Broaden exact-deliverable parsing to the current task contract styles and fail closed when required deliverables are omitted.
+## Current prerequisite state
 
-4. **070b** — runtime artifact retention and visibility  
-   Preserve runtime artifact quarantine as the default pushed-run behavior, while adding clearer retention/quarantine lifecycle handling for known-safe `_last_agent_*` artifacts.
+Before starting this roadmap, the expected immediate sequence is:
 
-5. **071** — batch state persistence and resume  
-   Persist queue/batch execution state and allow deterministic resume behavior.
+- original **068** should be retried after the 068a–068c stabilization work
+- then the continuation below begins at **069**
 
-6. **071a** — user-facing runtime artifact retention switch  
-   Surface the internal known-safe artifact retention path through an explicit CLI flag and environment variable so operators can intentionally keep `_last_agent_model_output.txt` and `_last_agent_file_bundle.txt` after successful pushed runs.
+## Continuation goals
 
-7. **072** — per-task checkpoint and branch isolation  
-   Add safer task-level checkpointing and isolation boundaries for backlog execution.
+This tranche now has three linked goals:
 
-8. **073** — batch failure policy and continue gate  
-   Make post-task continue/stop/manual policy explicit and machine-readable.
+1. keep making `agents/run_task.py` less monolithic
+2. add the minimum viable backlog/list-execution model needed for the orchestrator to progress through multiple tasks automatically
+3. make “green” mean the same thing as operator-observed merge readiness before exposing the first batch runner CLI
 
-9. **074** — batch runner CLI and summary artifacts  
-   Add a user-facing batch runner entry point and stable batch summary outputs.
+## Planned order
 
-10. **075** — backlog execution end-to-end proof  
-    Validate the backlog-runner flow across multiple tasks under the current contracts.
+### 069 — Controller decomposition second extraction
+Extract protected-lane coordination and bundle-repair helpers out of the controller so later backlog work is not piled onto one protected file.
 
-## Current guidance
+### 070 — Task-list manifest and queue model
+Add a deterministic manifest format and queue representation for a list of tasks.
 
-- Treat controller/protected tasks with higher scrutiny than additive queue/state tasks.
-- Enforce exact deliverable completeness from real branch diffs.
-- Keep backlog execution conservative: explicit state, resume, isolation, and policy should land before broader autonomous batching claims.
+### 070a — Exact deliverable parser and completion gate
+Make exact required-file parsing and completion enforcement match the current backlog task format.
+
+### 070b — Runtime artifact retention and visibility
+Make runtime artifact lifecycle behavior visible and operator-controllable while preserving quarantine as the default.
+
+### 071 — Batch state persistence and resume
+Persist queue progress so a backlog run can resume rather than starting over.
+
+### 071a — User-facing runtime artifact retention switch
+Expose the runtime-artifact retention path through a supported env/CLI control.
+
+### 072 — Per-task checkpoint and branch isolation
+Record task-by-task isolation/checkpoint data so one task does not silently contaminate the next.
+
+### 073 — Batch failure policy and continue gate
+Add explicit continue/stop/manual decisions between queued tasks.
+
+### 074a — Merge-ready validation profile
+Require the orchestrator to run an authoritative local merge-ready validation profile before claiming success.
+
+### 074b — Post-green validation retry loop
+If the merge-ready validation profile fails after a nominal green pass, iterate and repair rather than silently stopping at a false green.
+
+### 074c — Committed-state parity and unexpected-artifact gate
+Require final success to match committed `HEAD` and reject unexpected tracked artifacts before completion.
+
+### 074 — Batch runner CLI and summary artifacts
+Expose a first user-facing way to execute a task list and review the results.
+
+### 075 — Backlog execution end-to-end proof
+Add a narrow but honest E2E proof that the orchestrator can move through a short manifest conservatively.
+
+## Why this order
+
+The backlog runner should not arrive first. If it arrives before the controller is further decomposed and before inter-task policy/state exist, it will simply make existing controller fragility more expensive.
+
+Recent 069–073 work also showed a more specific gap: a task can appear green in the orchestrator loop while still not being fully merge-ready under the operator’s real post-run checks. The first batch runner CLI should not be introduced until that gap is narrowed.
+
+This order therefore goes:
+
+- controller thinning
+- queue representation
+- persisted batch state
+- task isolation
+- post-task continue gate
+- merge-ready validation hardening (074a–074c)
+- user-facing batch runner
+- E2E proof
+
+## Expected lane mix
+
+- **Likely manual-patch / controller-touching tasks**
+  - 069
+  - 074a
+  - 074b
+  - 074c
+- **Expected autonomous lane once the hardening tasks land**
+  - 070
+  - 071
+  - 072
+  - 073
+  - 074
+  - 075
+
+## Success criteria for this roadmap
+
+This roadmap is successful when:
+
+- `agents/run_task.py` is materially thinner than it was at the start of 069
+- the orchestrator can parse and persist a task-list manifest
+- “green” inside the orchestrator means the same thing as operator-observed merge readiness
+- the batch runner can progress through a short manifest conservatively
+- state, summaries, and stop/continue decisions are explicit and test-backed
+- the project can honestly say it has a first backlog-execution proof, not just a collection of single-task capabilities
