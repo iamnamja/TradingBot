@@ -181,3 +181,19 @@ def test_runtime_artifact_placeholder_contains_checkpoint_fields(tmp_path: Path)
     assert checkpoint["cleanup_required_before_next_task"] is True
     assert checkpoint["next_task_may_proceed"] is False
     assert checkpoint["transition"] == "failed_before_model_output"
+
+
+def test_post_task_policy_gates_next_task_after_manual_patch() -> None:
+    _, _, _, _, _, _, _, _, _, _, task_queue = _load_runtime_modules()
+
+    decision = task_queue.decide_post_task_action(
+        "failed",
+        signals={
+            "manual_patch_recommended": True,
+            "validator_ok": True,
+            "deliverable_complete": True,
+        },
+    )
+
+    assert decision == "manual_patch"
+    assert task_queue.may_proceed_to_next_task("manual_patch") is False
