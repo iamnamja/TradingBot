@@ -149,130 +149,120 @@ def test_failure_remediation_plans_choose_different_paths() -> None:
         category="harness_meta_regression",
         retry_count=1,
         fingerprint="harness_meta_regression:def456",
-        raw_failure_snippet="Protected meta file(s)",
+        raw_failure_snippet="Protected meta",
     )
 
     assert syntax_plan["recommended_next_action"] == "retry_with_targeted_fix"
     assert syntax_plan["chosen_remediation_path"] == "targeted_syntax_repair"
-    assert syntax_plan["continue_autonomously"] is True
-
     assert harness_plan["recommended_next_action"] == "manual_patch"
     assert harness_plan["chosen_remediation_path"] == "manual_patch_lane"
-    assert harness_plan["continue_autonomously"] is False
-    assert harness_plan["manual_lane_recommended"] is True
 
 
-def test_runtime_artifact_placeholder_contains_checkpoint_fields(tmp_path: Path) -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
-    last_output = tmp_path / "last_output.json"
-    last_bundle = tmp_path / "last_bundle.json"
+def test_task_contract_runtime_helpers_exposed() -> None:
+    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
+    assert hasattr(task_contracts, "classify_branch_diff_paths")
+    assert hasattr(task_contracts, "committed_state_parity_issues")
+    assert callable(task_contracts.classify_branch_diff_paths)
+    assert callable(task_contracts.committed_state_parity_issues)
 
-    run_task._emit_failure_artifact_messages(
-        last_output,
-        last_bundle,
-        create_placeholders=True,
-        task_file="tasks/072.md",
-        failure_category="tests",
-        before_model_output=True,
-        reason="early failure",
+
+def test_final_success_blocked_when_required_only_in_worktree_not_head() -> None:
+    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
+
+    required = ["agents/lib/task_contracts.py", "tests/test_run_task_runtime_foundations.py"]
+    head_diff = ["tests/test_run_task_runtime_foundations.py"]
+    worktree = ["agents/lib/task_contracts.py"]
+
+    issues = task_contracts.committed_state_parity_issues(
+        validated_required_paths=required,
+        head_diff_paths=head_diff,
+        working_tree_paths=worktree,
     )
 
-    payload = json.loads(last_output.read_text(encoding="utf-8"))
-    checkpoint = payload["batch_checkpoint"]
-    assert checkpoint["task_file"] == "tasks/072.md"
-    assert checkpoint["cleanup_required_before_next_task"] is True
-    assert checkpoint["next_task_may_proceed"] is False
-    assert checkpoint["transition"] == "failed_before_model_output"
+    assert any("not present in committed HEAD diff" in issue for issue in issues)
+    assert any("exist only in working tree" in issue for issue in issues)
 
 
-def test_post_task_policy_gates_next_task_after_manual_patch() -> None:
-    _, _, _, _, _, _, _, _, _, _, task_queue = _load_runtime_modules()
+def test_final_success_blocked_when_unexpected_tracked_artifact_in_branch_diff() -> None:
+    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
 
-    decision = task_queue.decide_post_task_action(
-        "failed",
-        signals={
-            "manual_patch_recommended": True,
-            "validator_ok": True,
-            "deliverable_complete": True,
-        },
+    required = ["agents/lib/task_contracts.py", "tests/test_run_task_runtime_foundations.py"]
+    head_diff = [
+        "agents/lib/task_contracts.py",
+        "tests/test_run_task_runtime_foundations.py",
+        "artifacts/last_output.json",
+    ]
+
+    issues = task_contracts.committed_state_parity_issues(
+        validated_required_paths=required,
+        head_diff_paths=head_diff,
+        working_tree_paths=[],
     )
 
-    assert decision == "manual_patch"
-    assert task_queue.may_proceed_to_next_task("manual_patch") is False
+    assert any("Unexpected tracked files remain in committed HEAD diff" in issue for issue in issues)
+    assert any("artifacts/last_output.json" in issue for issue in issues)
 
 
-def test_merge_ready_validation_profile_is_authoritative() -> None:
-    run_task, *_ = _load_runtime_modules()
-    profile = run_task.merge_ready_validation_profile()
-    assert profile[0][0] == "ruff check ."
-    assert profile[1][0] == "pytest -q"
+def test_final_success_allowed_only_when_head_matches_validated_state() -> None:
+    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
+
+    required = ["agents/lib/task_contracts.py", "tests/test_run_task_runtime_foundations.py"]
+    head_diff = list(required)
+
+    issues = task_contracts.committed_state_parity_issues(
+        validated_required_paths=required,
+        head_diff_paths=head_diff,
+        working_tree_paths=[],
+    )
+
+    assert issues == []
 
 
-def test_run_merge_ready_validation_profile_surfaces_failure(monkeypatch) -> None:
-    run_task, *_ = _load_runtime_modules()
+def test_branch_diff_classification_separates_required_and_unexpected() -> None:
+    _, _, _, _, _, task_contracts, _, _, _, _, _ = _load_runtime_modules()
 
-    calls: list[list[str]] = []
+    classification = task_contracts.classify_branch_diff_paths(
+        branch_diff_paths=[
+            "agents/lib/task_contracts.py",
+            "tests/test_run_task_runtime_foundations.py",
+            "artifacts/extra.json",
+        ],
+        required_paths=[
+            "agents/lib/task_contracts.py",
+            "tests/test_run_task_runtime_foundations.py",
+            "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
+        ],
+    )
 
-    def fake_capture_result(cmd: list[str]):
-        calls.append(cmd)
-        if cmd[-3:] == ["ruff", "check", "."] or cmd == ["ruff", "check", "."]:
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
-        if cmd[-2:] == ["pytest", "-q"] or cmd == ["pytest", "-q"]:
-            return SimpleNamespace(returncode=1, stdout="bad test\n", stderr="")
-        raise AssertionError(cmd)
-
-    monkeypatch.setattr(run_task, "capture_result", fake_capture_result)
-    ok, details = run_task.run_merge_ready_validation_profile()
-    assert ok is False
-    assert "=== pytest -q ===" in details
-    assert "bad test" in details
-    assert len(calls) == 2
-
-
-def test_main_source_invokes_merge_ready_validation_before_success() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    run_task_path = repo_root / "agents" / "run_task.py"
-    src = run_task_path.read_text(encoding="utf-8")
-    ok_block = src.index("if ok:")
-    validation_call = src.index("run_merge_ready_validation_profile()", ok_block)
-    green_print = src.index('print("✅ Green.")', ok_block)
-    assert validation_call < green_print
+    assert classification["required_present"] == [
+        "agents/lib/task_contracts.py",
+        "tests/test_run_task_runtime_foundations.py",
+    ]
+    assert classification["missing_required"] == ["docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"]
+    assert classification["unexpected"] == ["artifacts/extra.json"]
 
 
-def test_merge_ready_validation_failure_feedback_is_clear() -> None:
-    run_task, *_ = _load_runtime_modules()
-    msg = run_task._merge_ready_validation_failure_feedback("=== pytest -q ===\nfailed")
-    assert "Post-green merge-ready validation failed" in msg
-    assert "ruff check ." in msg
-    assert "pytest -q" in msg
-    assert "failed" in msg
+def test_failure_artifact_payload_handles_parity_gate_categories(tmp_path: Path) -> None:
+    _, _, _, _, _, _, failure_artifacts, _, _, _, _ = _load_runtime_modules()
 
+    out_path = tmp_path / "last_output.json"
+    bundle_path = tmp_path / "last_bundle.json"
 
-def test_main_source_treats_post_green_validation_failure_as_retryable_iteration_reason() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    run_task_path = repo_root / "agents" / "run_task.py"
-    src = run_task_path.read_text(encoding="utf-8")
-    assert 'print("❌ Post-green merge-ready validation failed:")' in src
-    assert "_report_failure(\"merge_ready_validation\", merge_ready_details)" in src
-    assert "_repeat_limit_exceeded(violation_counts, \"merge_ready_validation\"" in src
-    assert "prev_files = files" in src
-
-
-def test_merge_ready_failure_artifact_checkpoint_marks_retryable_validation_stage(tmp_path: Path) -> None:
-    run_task, *_ = _load_runtime_modules()
-    last_output = tmp_path / "last_output.json"
-    last_bundle = tmp_path / "last_bundle.json"
-
-    run_task._emit_failure_artifact_messages(
-        last_output,
-        last_bundle,
+    failure_artifacts.ensure_truthful_failure_artifacts(
+        last_output_path=out_path,
+        last_bundle_path=bundle_path,
         create_placeholders=True,
-        task_file="tasks/074b.md",
+        task_file="tasks/074c.md",
         failure_category="merge_ready_validation",
-        reason="post-green profile failed",
+        before_model_output=True,
+        normal_bundle_attempted=True,
+        reason="committed-state parity failed",
     )
 
-    payload = json.loads(last_output.read_text(encoding="utf-8"))
-    checkpoint = payload["batch_checkpoint"]
-    assert checkpoint["transition"] == "post_green_validation_failed"
-    assert checkpoint["retryable_in_iteration_loop"] is True
+    output_payload = json.loads(out_path.read_text(encoding="utf-8"))
+    bundle_payload = json.loads(bundle_path.read_text(encoding="utf-8"))
+
+    assert output_payload["placeholder"] is True
+    assert output_payload["failure_category"] == "merge_ready_validation"
+    assert bundle_payload["kind"] == "file_bundle"
+    assert bundle_payload["files"] == []

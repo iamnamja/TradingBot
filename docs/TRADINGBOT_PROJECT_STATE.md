@@ -42,6 +42,8 @@ Task 074a addresses the first part of that gap: autonomous success now depends o
 
 Task 074b extends that behavior: when the final post-green authoritative profile fails, the orchestrator can treat it as a repairable validation-stage failure, consume remaining iteration budget conservatively, repair, and re-run the authoritative profile before declaring success.
 
+Task 074c closes the next critical gap: final completion now requires committed-state parity, exact required-deliverable parity in committed `HEAD`, and rejection of unexpected tracked artifacts in branch diff.
+
 The next stage must therefore focus on:
 
 - continuing to shrink the controller
@@ -49,6 +51,8 @@ The next stage must therefore focus on:
 - making final autonomous success match operator-observed merge readiness
 - establishing an explicit authoritative merge-ready validation profile before success
 - retrying post-green validation failures only within bounded iteration limits
+- enforcing committed-state parity and exact deliverable parity at committed `HEAD`
+- blocking completion when unexpected tracked artifacts survive in branch diff
 - only then exposing a first user-facing batch runner CLI and end-to-end proof
 
 ## Active continuation order
