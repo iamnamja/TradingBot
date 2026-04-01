@@ -109,6 +109,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.parse_required_files)
     assert callable(run_task.validate_exact_deliverable_contract)
     assert callable(run_task.keep_runtime_artifacts_requested)
+    assert callable(run_task.merge_ready_validation_profile)
+    assert callable(run_task.run_merge_ready_validation_profile)
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
@@ -197,3 +199,51 @@ def test_post_task_policy_gates_next_task_after_manual_patch() -> None:
 
     assert decision == "manual_patch"
     assert task_queue.may_proceed_to_next_task("manual_patch") is False
+
+
+def test_merge_ready_validation_profile_is_authoritative() -> None:
+    run_task, *_ = _load_runtime_modules()
+    profile = run_task.merge_ready_validation_profile()
+    assert profile[0][0] == "ruff check ."
+    assert profile[1][0] == "pytest -q"
+
+
+def test_run_merge_ready_validation_profile_surfaces_failure(monkeypatch) -> None:
+    run_task, *_ = _load_runtime_modules()
+
+    calls: list[list[str]] = []
+
+    def fake_capture_result(cmd: list[str]):
+        calls.append(cmd)
+        if cmd[-3:] == ["ruff", "check", "."] or cmd == ["ruff", "check", "."]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if cmd[-2:] == ["pytest", "-q"] or cmd == ["pytest", "-q"]:
+            return SimpleNamespace(returncode=1, stdout="bad test\n", stderr="")
+        raise AssertionError(cmd)
+
+    monkeypatch.setattr(run_task, "capture_result", fake_capture_result)
+    ok, details = run_task.run_merge_ready_validation_profile()
+    assert ok is False
+    assert "=== pytest -q ===" in details
+    assert "bad test" in details
+    assert len(calls) == 2
+
+
+def test_main_source_invokes_merge_ready_validation_before_success() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    run_task_path = repo_root / "agents" / "run_task.py"
+    src = run_task_path.read_text(encoding="utf-8")
+    ok_block = src.index("if ok:")
+    validation_call = src.index("run_merge_ready_validation_profile()", ok_block)
+    green_print = src.index('print("✅ Green.")', ok_block)
+    assert validation_call < green_print
+
+
+def test_merge_ready_validation_failure_feedback_is_clear() -> None:
+    run_task, *_ = _load_runtime_modules()
+    msg = run_task._merge_ready_validation_failure_feedback("=== pytest -q ===\nfailed")
+    assert "Post-green merge-ready validation failed" in msg
+    assert "ruff check ." in msg
+    assert "pytest -q" in msg
+    assert "failed" in msg
+

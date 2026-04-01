@@ -38,11 +38,14 @@ However, the project is still **not yet at the point where a backlog/list runner
 
 The most recent 069–073 work also exposed a remaining gap: internal "green" inside the orchestrator loop does not yet always mean the same thing as the operator’s merge-ready standard under direct local checks and exact branch-diff review.
 
+Task 074a addresses the first part of that gap: autonomous success now depends on an explicit final merge-ready validation profile instead of only the earlier in-loop checks.
+
 The next stage must therefore focus on:
 
 - continuing to shrink the controller
 - keeping batch/list execution conservative and explicit
 - making final autonomous success match operator-observed merge readiness
+- establishing an explicit authoritative merge-ready validation profile before success
 - only then exposing a first user-facing batch runner CLI and end-to-end proof
 
 ## Active continuation order

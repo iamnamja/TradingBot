@@ -135,3 +135,17 @@ Conflicting duplicates must not be silently resolved by picking one version. Ins
 - keep explicit deliverable enforcement active
 
 If the conflicted paths still cannot be resolved after the focused repair attempt, the run writes `last_output_duplicate_bundle_conflict.json` in repo root and fails with a duplicate-conflict error.
+
+
+## Merge-ready validation profile
+
+Autonomous completion now depends on one explicit local merge-ready validation profile.
+
+The authoritative final profile is:
+
+- `ruff check .`
+- `pytest -q`
+
+The controller may still run narrower targeted checks earlier in an iteration to improve convergence, but it must not declare success until this final profile passes after a nominal green pass.
+
+If the post-green merge-ready profile fails, the run is treated as a validation-stage failure. The controller must not report success or push the branch as complete, and the failure must be surfaced explicitly in runtime output so the next iteration repairs the final merge-ready gap rather than silently treating the task as done.

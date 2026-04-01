@@ -67,6 +67,11 @@ RUNTIME_ARTIFACT_NAMES = (
     "_last_agent_file_bundle.txt",
 )
 
+MERGE_READY_VALIDATION_PROFILE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("ruff check .", (sys.executable, "-m", "ruff", "check", ".")),
+    ("pytest -q", (sys.executable, "-m", "pytest", "-q")),
+)
+
 
 class FileBundleError(ValueError):
     pass
@@ -4052,6 +4057,28 @@ def run_checks() -> Tuple[bool, str]:
     raise TypeError(f"Unsupported run_checks() result shape: {type(result).__name__}")
 
 
+def merge_ready_validation_profile() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return MERGE_READY_VALIDATION_PROFILE
+
+
+def run_merge_ready_validation_profile() -> Tuple[bool, str]:
+    details: List[str] = []
+    for display_name, cmd in merge_ready_validation_profile():
+        result = capture_result(list(cmd))
+        if result.returncode != 0:
+            details.append(f"=== {display_name} ===\n" + (result.stdout or "") + (result.stderr or ""))
+    if details:
+        return False, "\n\n".join(part.strip() for part in details if part.strip())
+    return True, ""
+
+
+def _merge_ready_validation_failure_feedback(details: str) -> str:
+    return (
+        "Post-green merge-ready validation failed under the authoritative validation profile. "
+        "The task is not complete until `ruff check .` and `pytest -q` both pass at the final gate.\n\n"
+        + details.strip()
+    ).strip()
+
 
 def main() -> int:
     _load_dotenv_if_available()
@@ -4397,6 +4424,23 @@ def main() -> int:
 
         ok, details = run_checks()
         if ok:
+            merge_ready_ok, merge_ready_details = run_merge_ready_validation_profile()
+            if not merge_ready_ok:
+                restore_file_snapshot(pre_write_snapshot)
+                print("❌ Post-green merge-ready validation failed:")
+                print(merge_ready_details)
+                _report_failure("merge_ready_validation", merge_ready_details)
+                task_text = _append_task_feedback(
+                    task_text,
+                    _merge_ready_validation_failure_feedback(merge_ready_details),
+                )
+                if _repeat_limit_exceeded(violation_counts, "merge_ready_validation", args.policy_block_limit):
+                    print("\n❌ Stopping early: repeated merge-ready validation failures. Recommended action: manual_patch")
+                    print("Model output saved to: _last_agent_model_output.txt")
+                    print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                    return 1
+                prev_files = files
+                continue
             print("✅ Green.")
             if args.push:
                 _cleanup_runtime_artifacts_for_commit(_runtime_artifact_paths(last_output_path, last_bundle_path))
