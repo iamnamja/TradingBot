@@ -247,3 +247,32 @@ def test_merge_ready_validation_failure_feedback_is_clear() -> None:
     assert "pytest -q" in msg
     assert "failed" in msg
 
+
+def test_main_source_treats_post_green_validation_failure_as_retryable_iteration_reason() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    run_task_path = repo_root / "agents" / "run_task.py"
+    src = run_task_path.read_text(encoding="utf-8")
+    assert 'print("❌ Post-green merge-ready validation failed:")' in src
+    assert "_report_failure(\"merge_ready_validation\", merge_ready_details)" in src
+    assert "_repeat_limit_exceeded(violation_counts, \"merge_ready_validation\"" in src
+    assert "prev_files = files" in src
+
+
+def test_merge_ready_failure_artifact_checkpoint_marks_retryable_validation_stage(tmp_path: Path) -> None:
+    run_task, *_ = _load_runtime_modules()
+    last_output = tmp_path / "last_output.json"
+    last_bundle = tmp_path / "last_bundle.json"
+
+    run_task._emit_failure_artifact_messages(
+        last_output,
+        last_bundle,
+        create_placeholders=True,
+        task_file="tasks/074b.md",
+        failure_category="merge_ready_validation",
+        reason="post-green profile failed",
+    )
+
+    payload = json.loads(last_output.read_text(encoding="utf-8"))
+    checkpoint = payload["batch_checkpoint"]
+    assert checkpoint["transition"] == "post_green_validation_failed"
+    assert checkpoint["retryable_in_iteration_loop"] is True

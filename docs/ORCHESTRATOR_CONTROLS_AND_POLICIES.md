@@ -149,3 +149,21 @@ The authoritative final profile is:
 The controller may still run narrower targeted checks earlier in an iteration to improve convergence, but it must not declare success until this final profile passes after a nominal green pass.
 
 If the post-green merge-ready profile fails, the run is treated as a validation-stage failure. The controller must not report success or push the branch as complete, and the failure must be surfaced explicitly in runtime output so the next iteration repairs the final merge-ready gap rather than silently treating the task as done.
+
+### Post-green validation retry loop policy (074b)
+
+Post-green failures are handled by the same bounded autonomous repair loop used for earlier iteration failures, with explicit conservative limits:
+
+- A failed authoritative profile after an in-loop green result is classified as `merge_ready_validation`.
+- If iteration budget remains, this failure is retryable and triggers another repair iteration.
+- Runtime output must visibly state that the retry reason is **post-green merge-ready validation failure**.
+- The controller must re-run the authoritative profile (`ruff check .`, then `pytest -q`) after each repair before success.
+- Success is allowed only when the authoritative profile passes at the final gate.
+
+Conservative stop rules remain mandatory:
+
+- Do not run unbounded retries.
+- Preserve the configured max-iteration cap.
+- Stop honestly when retries are exhausted.
+- Stop honestly when failure class is not safely repairable/autonomous.
+- Never claim final success while post-green validation is still red.

@@ -3503,40 +3503,7 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         inferred_copy["path"] = canonical_path
         normalized_protected.append(inferred_copy)
 
-    if callable(_partition):
-        normal, protected = _partition(
-            required_paths=normalized_required,
-            protected_targets=normalized_protected,
-            protected_meta_paths=(
-                "agents/run_task.py",
-                "agents/lib/shell_router.py",
-                "agents/lib/bundle_parser.py",
-                "agents/lib/protected_file_policy.py",
-            ),
-        )
-        normalized_normal: List[str] = []
-        normalized_protected_paths: List[str] = []
-        seen_normal: set[str] = set()
-        seen_protected: set[str] = set()
-        for raw in normal or []:
-            if not isinstance(raw, str) or not raw.strip():
-                continue
-            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
-            if canonical in seen_normal:
-                continue
-            seen_normal.add(canonical)
-            normalized_normal.append(canonical)
-        for raw in protected or []:
-            if not isinstance(raw, str) or not raw.strip():
-                continue
-            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
-            if canonical in seen_protected:
-                continue
-            seen_protected.add(canonical)
-            normalized_protected_paths.append(canonical)
-        return normalized_normal, normalized_protected_paths
-
-    meta_harness_paths = {
+    protected_meta_paths = {
         "agents/run_task.py",
         "agents/lib/shell_router.py",
         "agents/lib/bundle_parser.py",
@@ -3548,12 +3515,51 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         if isinstance(maybe, str) and maybe.strip():
             protected_explicit.add(maybe.strip().replace("\\", "/"))
 
+    if callable(_partition):
+        normal, protected = _partition(
+            required_paths=normalized_required,
+            protected_targets=normalized_protected,
+            protected_meta_paths=tuple(sorted(protected_meta_paths)),
+        )
+        normalized_normal: List[str] = []
+        normalized_protected_paths: List[str] = []
+        seen_normal: set[str] = set()
+        seen_protected: set[str] = set()
+        for raw in normal or []:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+            if canonical in protected_explicit or canonical in protected_meta_paths:
+                if canonical not in seen_protected:
+                    normalized_protected_paths.append(canonical)
+                    seen_protected.add(canonical)
+                continue
+            if canonical not in seen_normal:
+                normalized_normal.append(canonical)
+                seen_normal.add(canonical)
+        for raw in protected or []:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+            if canonical not in seen_protected:
+                normalized_protected_paths.append(canonical)
+                seen_protected.add(canonical)
+        for canonical in normalized_required:
+            if canonical in protected_explicit or canonical in protected_meta_paths:
+                if canonical not in seen_protected:
+                    normalized_protected_paths.append(canonical)
+                    seen_protected.add(canonical)
+            elif canonical not in seen_normal:
+                normalized_normal.append(canonical)
+                seen_normal.add(canonical)
+        return normalized_normal, normalized_protected_paths
+
     normal: List[str] = []
     protected: List[str] = []
     seen_normal: set[str] = set()
     seen_protected: set[str] = set()
     for path in normalized_required:
-        is_protected = path in protected_explicit or path in meta_harness_paths
+        is_protected = path in protected_explicit or path in protected_meta_paths
         if is_protected:
             if path not in seen_protected:
                 protected.append(path)
@@ -3627,6 +3633,8 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         checkpoint_transition = "manual_patch"
     elif category in {"blocked", "blocked_failure"}:
         checkpoint_transition = "blocked"
+    elif category in {"merge_ready_validation", "post_green_validation", "post-green-validation"}:
+        checkpoint_transition = "post_green_validation_failed"
 
     checkpoint = {
         "task_file": task_file_path,
@@ -3643,6 +3651,7 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         "mixed_task": bool(mixed_task),
         "protected_files": protected_files_list,
         "protected_targets_identified": protected_targets_list,
+        "retryable_in_iteration_loop": category in {"merge_ready_validation", "post_green_validation", "post-green-validation"},
     }
 
     if callable(_emit):
