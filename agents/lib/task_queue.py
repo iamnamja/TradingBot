@@ -2,9 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 QueueStatus = Literal["queued", "running", "completed", "blocked", "failed", "manual_patch"]
+BatchPostTaskDecision = Literal["continue", "stop", "manual_patch", "blocked"]
+
+
+class PostTaskSignals(TypedDict, total=False):
+    validator_ok: bool
+    deliverable_complete: bool
+    protected_lane_ok: bool
+    duplicate_bundle_conflict: bool
+    manual_patch_recommended: bool
+
 
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "queued": ("running",),
@@ -69,6 +79,30 @@ def validate_queue_status_transition(from_status: QueueStatus, to_status: QueueS
 
 def queue_signature(queue: list[TaskQueueItem]) -> tuple[str, ...]:
     return tuple(item.task_path for item in queue)
+
+
+def decide_post_task_action(
+    status: QueueStatus,
+    *,
+    signals: PostTaskSignals | None = None,
+) -> BatchPostTaskDecision:
+    s = signals or {}
+
+    if s.get("duplicate_bundle_conflict", False):
+        return "blocked"
+    if status == "blocked":
+        return "blocked"
+    if status == "manual_patch" or s.get("manual_patch_recommended", False):
+        return "manual_patch"
+    if not s.get("deliverable_complete", True):
+        return "stop"
+    if not s.get("protected_lane_ok", True):
+        return "stop"
+    if not s.get("validator_ok", True):
+        return "stop"
+    if status == "completed":
+        return "continue"
+    return "stop"
 
 
 def may_proceed_to_next_task(status: QueueStatus) -> bool:

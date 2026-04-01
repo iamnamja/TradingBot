@@ -7,10 +7,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 from agents.lib.task_queue import (
+    BatchPostTaskDecision,
     QueueStatus,
     TaskQueueItem,
+    decide_post_task_action,
     may_proceed_to_next_task,
-    validate_queue_status_transition,
 )
 
 BatchStatus = Literal["active", "completed", "blocked", "failed", "manual_patch"]
@@ -40,6 +41,7 @@ class BatchTaskCheckpoint:
     transition: CheckpointTransition
     note: str
     event_seq: int
+    post_task_decision: BatchPostTaskDecision = "stop"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -53,6 +55,7 @@ class BatchTaskCheckpoint:
             "transition": self.transition,
             "note": self.note,
             "event_seq": self.event_seq,
+            "post_task_decision": self.post_task_decision,
         }
 
 
@@ -79,6 +82,7 @@ class BatchState:
     updated_ts: int
     batch_status: BatchStatus
     next_task_may_proceed: bool
+    post_task_decision: BatchPostTaskDecision = "stop"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -105,6 +109,7 @@ class BatchState:
             "updated_ts": self.updated_ts,
             "batch_status": self.batch_status,
             "next_task_may_proceed": self.next_task_may_proceed,
+            "post_task_decision": self.post_task_decision,
         }
 
 
@@ -138,232 +143,213 @@ def _derive_batch_status(queue: tuple[BatchTaskState, ...]) -> BatchStatus:
 
 def _checkpoint_from_status(
     *,
-    item: BatchTaskState,
-    to_status: QueueStatus,
-    note: str,
+    task_path: str,
+    ordinal: int,
+    status: QueueStatus,
+    status_note: str,
     event_seq: int,
-    context_kind: str,
-    context_ref: str,
+    decision: BatchPostTaskDecision,
 ) -> BatchTaskCheckpoint:
-    if to_status == "running":
-        transition: CheckpointTransition = "running"
-        completed_cleanly = False
-        cleanup_required = False
-        may_proceed = False
-    elif to_status == "completed":
-        transition = "completed_clean"
+    if status == "completed":
+        transition: CheckpointTransition = "completed_clean"
         completed_cleanly = True
         cleanup_required = False
-        may_proceed = True
-    elif to_status == "failed":
-        transition = "failed_requires_cleanup"
-        completed_cleanly = False
-        cleanup_required = True
-        may_proceed = False
-    elif to_status == "manual_patch":
+    elif status == "manual_patch":
         transition = "manual_patch_requires_isolation"
         completed_cleanly = False
         cleanup_required = True
-        may_proceed = False
-    elif to_status == "blocked":
+    elif status == "blocked":
         transition = "blocked_requires_manual"
         completed_cleanly = False
         cleanup_required = True
-        may_proceed = False
+    elif status == "failed":
+        transition = "failed_requires_cleanup"
+        completed_cleanly = False
+        cleanup_required = True
+    elif status == "running":
+        transition = "running"
+        completed_cleanly = False
+        cleanup_required = False
     else:
         transition = "pending"
         completed_cleanly = False
         cleanup_required = False
-        may_proceed = False
 
     return BatchTaskCheckpoint(
-        task_path=item.task_path,
-        ordinal=item.ordinal,
-        context_kind=context_kind,
-        context_ref=context_ref,
+        task_path=task_path,
+        ordinal=ordinal,
+        context_kind="branch",
+        context_ref="",
         completed_cleanly=completed_cleanly,
         cleanup_required_before_next_task=cleanup_required,
-        next_task_may_proceed=may_proceed,
+        next_task_may_proceed=decision == "continue",
         transition=transition,
-        note=note,
+        note=status_note,
         event_seq=event_seq,
+        post_task_decision=decision,
     )
 
 
-def initialize_batch_state(
+def create_batch_state(
     *,
     manifest: dict[str, Any],
     queue: list[TaskQueueItem],
-    manifest_source: str,
-    created_ts: int = 0,
+    manifest_source: str = "",
+    now_ts: int = 0,
 ) -> BatchState:
     queue_state = tuple(
         BatchTaskState(
             task_path=item.task_path,
             ordinal=item.ordinal,
-            status="queued",
-            status_note="",
+            status=item.status,
+            status_note=item.status_note,
             attempts=0,
             updated_seq=0,
         )
         for item in queue
     )
+    initial_decision: BatchPostTaskDecision = "continue" if not queue_state else "stop"
     return BatchState(
         manifest_source=manifest_source,
         manifest_fingerprint=manifest_fingerprint(manifest),
         queue=queue_state,
         checkpoints=(),
         current_index=0,
-        state_version=2,
+        state_version=1,
         event_seq=0,
-        created_ts=created_ts,
-        updated_ts=created_ts,
-        batch_status="active",
-        next_task_may_proceed=True,
+        created_ts=now_ts,
+        updated_ts=now_ts,
+        batch_status=_derive_batch_status(queue_state),
+        next_task_may_proceed=not queue_state,
+        post_task_decision=initial_decision,
     )
 
 
-def advance_task_status(
+def apply_task_result(
     state: BatchState,
     *,
-    task_index: int,
-    to_status: QueueStatus,
+    ordinal: int,
+    status: QueueStatus,
     status_note: str = "",
-    event_ts: int = 0,
-    context_kind: str = "branch",
-    context_ref: str = "",
+    now_ts: int | None = None,
+    validator_ok: bool = True,
+    deliverable_complete: bool = True,
+    protected_lane_ok: bool = True,
+    duplicate_bundle_conflict: bool = False,
+    manual_patch_recommended: bool = False,
 ) -> BatchState:
-    if task_index < 0 or task_index >= len(state.queue):
-        raise BatchStateError(f"task_index {task_index} is out of range for queue size {len(state.queue)}.")
+    if ordinal < 1 or ordinal > len(state.queue):
+        raise BatchStateError(f"Task ordinal out of range: {ordinal}")
 
-    current = state.queue[task_index]
-    validate_queue_status_transition(current.status, to_status)
-
-    next_event_seq = state.event_seq + 1
-    attempts = current.attempts + (1 if to_status == "running" else 0)
-    updated_item = BatchTaskState(
-        task_path=current.task_path,
-        ordinal=current.ordinal,
-        status=to_status,
+    idx = ordinal - 1
+    queue = list(state.queue)
+    prev = queue[idx]
+    queue[idx] = BatchTaskState(
+        task_path=prev.task_path,
+        ordinal=prev.ordinal,
+        status=status,
         status_note=status_note,
-        attempts=attempts,
-        updated_seq=next_event_seq,
+        attempts=prev.attempts + 1,
+        updated_seq=state.event_seq + 1,
     )
 
-    new_queue = list(state.queue)
-    new_queue[task_index] = updated_item
+    decision = decide_post_task_action(
+        status,
+        signals={
+            "validator_ok": validator_ok,
+            "deliverable_complete": deliverable_complete,
+            "protected_lane_ok": protected_lane_ok,
+            "duplicate_bundle_conflict": duplicate_bundle_conflict,
+            "manual_patch_recommended": manual_patch_recommended,
+        },
+    )
+    may_proceed = decision == "continue" and may_proceed_to_next_task(status)
 
-    next_index = state.current_index
-    if to_status in {"completed", "failed", "manual_patch", "blocked"} and task_index >= next_index:
-        next_index = task_index + 1
-
-    checkpoint = _checkpoint_from_status(
-        item=updated_item,
-        to_status=to_status,
-        note=status_note,
-        event_seq=next_event_seq,
-        context_kind=context_kind,
-        context_ref=context_ref,
+    checkpoints = list(state.checkpoints)
+    checkpoints.append(
+        _checkpoint_from_status(
+            task_path=prev.task_path,
+            ordinal=prev.ordinal,
+            status=status,
+            status_note=status_note,
+            event_seq=state.event_seq + 1,
+            decision=decision,
+        )
     )
 
-    queue_tuple = tuple(new_queue)
-    if to_status == "running":
-        next_task_may_proceed = state.next_task_may_proceed
-    else:
-        next_task_may_proceed = may_proceed_to_next_task(to_status)
+    current_index = idx + 1 if may_proceed else idx
 
     return BatchState(
         manifest_source=state.manifest_source,
         manifest_fingerprint=state.manifest_fingerprint,
-        queue=queue_tuple,
-        checkpoints=state.checkpoints + (checkpoint,),
-        current_index=next_index,
+        queue=tuple(queue),
+        checkpoints=tuple(checkpoints),
+        current_index=current_index,
         state_version=state.state_version,
-        event_seq=next_event_seq,
+        event_seq=state.event_seq + 1,
         created_ts=state.created_ts,
-        updated_ts=event_ts,
-        batch_status=_derive_batch_status(queue_tuple),
-        next_task_may_proceed=next_task_may_proceed,
+        updated_ts=state.updated_ts if now_ts is None else now_ts,
+        batch_status=_derive_batch_status(tuple(queue)),
+        next_task_may_proceed=may_proceed,
+        post_task_decision=decision,
     )
 
 
-def write_batch_state(path: str | Path, state: BatchState) -> None:
+def save_batch_state(path: str | Path, state: BatchState) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(state.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    p.write_text(json.dumps(state.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def load_batch_state(path: str | Path) -> BatchState:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    p = Path(path)
+    if not p.exists():
+        raise BatchStateError(f"Batch state file not found: {p.as_posix()}")
+    payload = json.loads(p.read_text(encoding="utf-8"))
+
     queue = tuple(
         BatchTaskState(
-            task_path=str(item["task_path"]),
-            ordinal=int(item["ordinal"]),
-            status=str(item["status"]),
+            task_path=str(item.get("task_path", "")),
+            ordinal=int(item.get("ordinal", 0)),
+            status=str(item.get("status", "queued")),  # type: ignore[arg-type]
             status_note=str(item.get("status_note", "")),
             attempts=int(item.get("attempts", 0)),
             updated_seq=int(item.get("updated_seq", 0)),
         )
-        for item in data.get("queue", [])
+        for item in payload.get("queue", [])
     )
+
     checkpoints = tuple(
         BatchTaskCheckpoint(
             task_path=str(item.get("task_path", "")),
             ordinal=int(item.get("ordinal", 0)),
-            context_kind=str(item.get("context_kind", "branch")),
+            context_kind=str(item.get("context_kind", "")),
             context_ref=str(item.get("context_ref", "")),
             completed_cleanly=bool(item.get("completed_cleanly", False)),
-            cleanup_required_before_next_task=bool(item.get("cleanup_required_before_next_task", False)),
+            cleanup_required_before_next_task=bool(
+                item.get("cleanup_required_before_next_task", False)
+            ),
             next_task_may_proceed=bool(item.get("next_task_may_proceed", False)),
-            transition=str(item.get("transition", "pending")),
+            transition=str(item.get("transition", "pending")),  # type: ignore[arg-type]
             note=str(item.get("note", "")),
             event_seq=int(item.get("event_seq", 0)),
+            post_task_decision=str(item.get("post_task_decision", "stop")),  # type: ignore[arg-type]
         )
-        for item in data.get("checkpoints", [])
+        for item in payload.get("checkpoints", [])
     )
-    manifest = data.get("manifest", {})
+
+    manifest = payload.get("manifest", {})
     return BatchState(
         manifest_source=str(manifest.get("source", "")),
         manifest_fingerprint=str(manifest.get("fingerprint", "")),
         queue=queue,
         checkpoints=checkpoints,
-        current_index=int(data.get("current_index", 0)),
-        state_version=int(data.get("state_version", 1)),
-        event_seq=int(data.get("event_seq", 0)),
-        created_ts=int(data.get("created_ts", 0)),
-        updated_ts=int(data.get("updated_ts", 0)),
-        batch_status=str(data.get("batch_status", _derive_batch_status(queue))),
-        next_task_may_proceed=bool(data.get("next_task_may_proceed", True)),
+        current_index=int(payload.get("current_index", 0)),
+        state_version=int(payload.get("state_version", 1)),
+        event_seq=int(payload.get("event_seq", 0)),
+        created_ts=int(payload.get("created_ts", 0)),
+        updated_ts=int(payload.get("updated_ts", 0)),
+        batch_status=str(payload.get("batch_status", "active")),  # type: ignore[arg-type]
+        next_task_may_proceed=bool(payload.get("next_task_may_proceed", False)),
+        post_task_decision=str(payload.get("post_task_decision", "stop")),  # type: ignore[arg-type]
     )
-
-
-def resume_batch_state(
-    *,
-    state_path: str | Path,
-    manifest: dict[str, Any],
-    manifest_source: str,
-    allow_manifest_source_mismatch: bool = False,
-    queue: list[TaskQueueItem] | None = None,
-) -> BatchState:
-    state = load_batch_state(state_path)
-    expected_fingerprint = manifest_fingerprint(manifest)
-
-    if state.manifest_fingerprint != expected_fingerprint:
-        raise BatchStateError(
-            "Cannot resume batch: manifest fingerprint mismatch between state and provided manifest."
-        )
-
-    if not allow_manifest_source_mismatch and state.manifest_source != manifest_source:
-        raise BatchStateError(
-            f"Cannot resume batch: manifest source mismatch (state={state.manifest_source}, provided={manifest_source})."
-        )
-
-    if queue is not None:
-        state_signature = _queue_signature_from_state(state)
-        queue_signature = _queue_signature_from_items(queue)
-        if state_signature != queue_signature:
-            raise BatchStateError(
-                "Cannot resume batch: queue ordering/path set in state does not match the provided manifest queue."
-            )
-
-    return state

@@ -3614,13 +3614,14 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
     task_file_path = Path(task_file).as_posix() if task_file else ""
     normalized_reason = reason or "failure occurred before artifact content was produced"
 
-    checkpoint_status = "blocked_manual"
+    category = str(failure_category or "").strip().lower()
+    checkpoint_transition = "failed"
     if before_model_output:
-        checkpoint_status = "failed_before_model_output"
-    elif failure_category and str(failure_category).strip().lower() in {"manual_patch", "manual", "blocked"}:
-        checkpoint_status = "blocked_manual"
-    elif failure_category:
-        checkpoint_status = "failed"
+        checkpoint_transition = "failed_before_model_output"
+    elif category in {"manual_patch", "manual"}:
+        checkpoint_transition = "manual_patch"
+    elif category in {"blocked", "blocked_failure"}:
+        checkpoint_transition = "blocked"
 
     checkpoint = {
         "task_file": task_file_path,
@@ -3629,7 +3630,7 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         "task_completed_cleanly": False,
         "cleanup_required_before_next_task": True,
         "next_task_may_proceed": False,
-        "transition": checkpoint_status,
+        "transition": checkpoint_transition,
         "failure_category": str(failure_category or ""),
         "reason": normalized_reason,
         "normal_bundle_attempted": bool(normal_bundle_attempted),
@@ -3663,13 +3664,9 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 payload = {}
             payload.setdefault("batch_checkpoint", checkpoint)
             if isinstance(payload.get("batch_state"), dict):
-                payload["batch_state"].setdefault("next_task_may_proceed", False)
-                payload["batch_state"].setdefault("checkpoint_transition", checkpoint_status)
-            last_output_path.write_text(
-                json.dumps(payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
+                payload["batch_state"]["next_task_may_proceed"] = False
+                payload["batch_state"]["checkpoint_transition"] = checkpoint_transition
+            last_output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
         if should_create_placeholders and last_bundle_path.exists():
             try:
                 payload = json.loads(last_bundle_path.read_text(encoding="utf-8"))
@@ -3679,13 +3676,9 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 payload = {}
             payload.setdefault("batch_checkpoint", checkpoint)
             if isinstance(payload.get("batch_state"), dict):
-                payload["batch_state"].setdefault("next_task_may_proceed", False)
-                payload["batch_state"].setdefault("checkpoint_transition", checkpoint_status)
-            last_bundle_path.write_text(
-                json.dumps(payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
+                payload["batch_state"]["next_task_may_proceed"] = False
+                payload["batch_state"]["checkpoint_transition"] = checkpoint_transition
+            last_bundle_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
         if last_output_path.exists():
             print(f"Model output saved to: {last_output_path}")
         else:
@@ -3717,14 +3710,10 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                     "resumable": False,
                     "resume_hint": "",
                     "next_task_may_proceed": False,
-                    "checkpoint_transition": checkpoint_status,
+                    "checkpoint_transition": checkpoint_transition,
                 },
             }
-            last_output_path.write_text(
-                json.dumps(output_payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
+            last_output_path.write_text(json.dumps(output_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
         if not last_bundle_path.exists():
             bundle_payload = {
                 "placeholder": True,
@@ -3747,14 +3736,10 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                     "resumable": False,
                     "resume_hint": "",
                     "next_task_may_proceed": False,
-                    "checkpoint_transition": checkpoint_status,
+                    "checkpoint_transition": checkpoint_transition,
                 },
             }
-            last_bundle_path.write_text(
-                json.dumps(bundle_payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-                newline="\n",
-            )
+            last_bundle_path.write_text(json.dumps(bundle_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
     if last_output_path.exists():
         print(f"Model output saved to: {last_output_path}")

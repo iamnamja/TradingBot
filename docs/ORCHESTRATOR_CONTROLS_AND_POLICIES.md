@@ -77,6 +77,48 @@ into unrelated internal modules or guessing private names.
 
 The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
 
+## Batch continue gate (explicit post-task decision)
+
+After each queued task, the orchestrator computes and persists one explicit batch
+decision:
+
+- `continue`
+- `stop`
+- `manual_patch`
+- `blocked`
+
+The decision is conservative and deterministic. It is grounded in runtime
+signals already emitted by the shell and validators, including:
+
+- validator success/failure
+- deliverable completeness pass/fail
+- protected-lane policy pass/fail
+- duplicate bundle conflict artifacts
+- manual patch recommendation signals
+
+### Current conservative rules
+
+- Return `continue` only when task status is `completed` and all hard gates pass.
+- Return `manual_patch` when the task status is `manual_patch` or when a manual
+  patch recommendation is present.
+- Return `blocked` for queue-blocking conditions (for example duplicate bundle
+  conflict artifacts or explicit blocked status).
+- Return `stop` for hard failures that are not blocked/manual-patch.
+
+This prevents silent continuation after hard failures and ensures manual-patch
+paths are never auto-advanced.
+
+### Batch-state persistence contract
+
+Batch state persists both:
+
+- `next_task_may_proceed` (boolean gate)
+- `post_task_decision` (narrow enum above)
+
+Each task checkpoint also stores the same `post_task_decision`. Resume logic must
+treat anything other than `continue` as non-autonomous and require explicit
+intervention.
+
 ## Duplicate bundle path recovery
 
 When a returned file bundle repeats the same `FILE:` path multiple times, the controller distinguishes between two cases:
