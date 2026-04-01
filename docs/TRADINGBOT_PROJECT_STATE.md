@@ -40,12 +40,15 @@ The most recent 069–073 work also exposed a remaining gap: internal "green" in
 
 Task 074a addresses the first part of that gap: autonomous success now depends on an explicit final merge-ready validation profile instead of only the earlier in-loop checks.
 
+Task 074b extends that behavior: when the final post-green authoritative profile fails, the orchestrator can treat it as a repairable validation-stage failure, consume remaining iteration budget conservatively, repair, and re-run the authoritative profile before declaring success.
+
 The next stage must therefore focus on:
 
 - continuing to shrink the controller
 - keeping batch/list execution conservative and explicit
 - making final autonomous success match operator-observed merge readiness
 - establishing an explicit authoritative merge-ready validation profile before success
+- retrying post-green validation failures only within bounded iteration limits
 - only then exposing a first user-facing batch runner CLI and end-to-end proof
 
 ## Active continuation order
