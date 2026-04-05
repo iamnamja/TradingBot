@@ -231,6 +231,29 @@ def task_allows_unchanged_cli(
     return any(phrase in text for phrase in phrases)
 
 
+
+
+def controller_core_required_paths(
+    required_paths: Sequence[str] | None,
+    *,
+    controller_paths: Sequence[str] | None = None,
+) -> List[str]:
+    try:
+        from agents.lib.controller_contract import CONTROLLER_STRICT_MODE_PATHS  # type: ignore
+    except Exception:
+        CONTROLLER_STRICT_MODE_PATHS = tuple(controller_paths or ())  # type: ignore[assignment]
+    strict_paths = normalize_paths(controller_paths or CONTROLLER_STRICT_MODE_PATHS)
+    required = normalize_paths(required_paths)
+    strict_set = set(strict_paths)
+    return [path for path in required if path in strict_set]
+
+
+def task_touches_controller_core(
+    required_paths: Sequence[str] | None,
+    *,
+    controller_paths: Sequence[str] | None = None,
+) -> bool:
+    return bool(controller_core_required_paths(required_paths, controller_paths=controller_paths))
 def normalize_paths(paths: Sequence[str] | None) -> List[str]:
     out: List[str] = []
     seen: set[str] = set()

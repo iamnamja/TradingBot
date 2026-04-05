@@ -29,6 +29,8 @@ def classify_failure(kind: str, message: str) -> str:
         return "task_shape_mismatch"
     if "github actions" in text or "required status check" in text or "workflow" in text or re.search(r"\bci\b", text):
         return "ci_only_failure"
+    if any(token in text for token in ("controller strict mode", "patch-quality gate", "low-discipline generated patch", "compressed multi-import", "semicolon density")):
+        return "controller_patch_quality"
     if any(token in text for token in ("semantic", "unknown export key", "non-live failure-journal", "file-local semantic")):
         return "file_local_semantic_failure"
     if "ruff" in text or "lint" in text:
@@ -71,6 +73,7 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str, re
     plans: Dict[str, Dict[str, Any]] = {
         "python_syntax": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="targeted_syntax_repair", autonomy_confidence=0.95, continue_autonomously=True, manual_lane_recommended=False),
         "file_local_semantic_failure": dict(recommended_next_action="localized_repair", chosen_remediation_path="file_local_semantic_repair", autonomy_confidence=0.82, continue_autonomously=True, manual_lane_recommended=False),
+        "controller_patch_quality": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="controller_patch_quality_repair", autonomy_confidence=0.40, continue_autonomously=True, manual_lane_recommended=False),
         "task_shape_mismatch": dict(recommended_next_action="patch_task_contract", chosen_remediation_path="task_shape_patch", autonomy_confidence=0.38, continue_autonomously=False, manual_lane_recommended=False),
         "seam_contract_mismatch": dict(recommended_next_action="patch_runner_or_task_contract", chosen_remediation_path="semantic_contract_repair", autonomy_confidence=0.30, continue_autonomously=False, manual_lane_recommended=False),
         "harness_meta_regression": dict(recommended_next_action="manual_patch", chosen_remediation_path="manual_patch_lane", autonomy_confidence=0.10, continue_autonomously=False, manual_lane_recommended=True),

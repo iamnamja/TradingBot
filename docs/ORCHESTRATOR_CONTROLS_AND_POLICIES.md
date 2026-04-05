@@ -126,10 +126,13 @@ Controller-core tasks should run under stricter discipline than ordinary consume
 At minimum, controller strict mode should:
 
 1. activate for controller-core file shapes
-2. run focused controller tests first
+2. run focused controller proof tests first (`tests/test_controller_contract.py`, `tests/test_run_task_runtime_foundations.py`, `tests/test_task_queue.py`)
 3. reject obvious low-discipline bundles before apply when deterministic heuristics can do so safely
-4. still require full `ruff check .` and `pytest -q` before proof-complete claims are accepted
-5. avoid over-blocking ordinary non-controller tasks
+4. then require full `ruff check .` and full `pytest -q` before proof-complete claims are accepted
+5. defer docs/README proof-complete claims whenever focused controller proof tests are not green
+6. avoid over-blocking ordinary non-controller tasks
+
+The current strict-mode pre-apply gate is intentionally heuristic and narrow. It looks for deterministic bad-patch signals in touched controller files such as clustered semicolon statements, compressed multi-imports, suspicious minified formatting, and concentrated unused-import churn.
 
 
 ## Canonical controller contract fields

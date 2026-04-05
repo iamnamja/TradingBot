@@ -67,6 +67,8 @@ Task 082 also made the remaining hardening gaps clear:
 - controller-task failures need a stronger semantic repair digest than raw failing output alone
 - controller-core tasks need stricter pre-apply patch quality gates and claim deferral
 
+Task 087 addresses that gap by adding controller strict mode: controller-core tasks now activate a stricter lane, run focused controller proof tests before full repo validation, reject obvious low-discipline generated controller bundles before apply, and defer docs/README proof claims until the focused controller proof surface is green.
+
 These are the focus of the next tranche.
 
 ## Next controller-contract hardening tranche (083–089)
@@ -77,9 +79,9 @@ The next planned tranche focuses on:
 - non-reexecuting retry/self-heal with explicit execution-vs-repair truth fields
 - merge-posture truth persistence and resume contract hardening
 - semantic failure digest and controller repair-context helpers
-- controller-task strict mode and generated-patch quality gate
-- further `agents/run_task.py` decomposition through dedicated helper modules
-- hardened autonomous short-manifest proof after those contracts are stabilized
+- controller-task strict mode and generated-patch quality gate (**087 landed**)
+- further `agents/run_task.py` decomposition through dedicated helper modules (088)
+- hardened autonomous short-manifest proof after those contracts are stabilized (089)
 
 ## Canonical batch execution path
 

@@ -49,6 +49,22 @@ def test_controller_contract_snapshot_is_canonical() -> None:
     assert "acceptance_decision" in snapshot["checkpoint_truth_fields"]
     assert "resume_target_task_path" in snapshot["resume_metadata_fields"]
 
+    assert snapshot["controller_strict_mode_paths"] == [
+        "agents/run_task.py",
+        "agents/lib/controller_contract.py",
+        "agents/lib/batch_executor.py",
+        "agents/lib/batch_state.py",
+        "agents/lib/task_queue.py",
+        "agents/lib/final_acceptance.py",
+        "agents/lib/failure_journal.py",
+        "agents/lib/git_workflow.py",
+    ]
+    assert snapshot["controller_proof_test_paths"] == [
+        "tests/test_controller_contract.py",
+        "tests/test_run_task_runtime_foundations.py",
+        "tests/test_task_queue.py",
+    ]
+
 
 
 def test_controller_modules_share_contract_symbols() -> None:

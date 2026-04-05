@@ -85,6 +85,21 @@ RESUME_METADATA_FIELDS: tuple[str, ...] = (
 )
 POLICY_BLOCKED_FAILURE_CATEGORY = "policy_blocked"
 CONTROLLER_FAILURE_CATEGORIES: tuple[str, ...] = (POLICY_BLOCKED_FAILURE_CATEGORY,)
+CONTROLLER_STRICT_MODE_PATHS: tuple[str, ...] = (
+    "agents/run_task.py",
+    "agents/lib/controller_contract.py",
+    "agents/lib/batch_executor.py",
+    "agents/lib/batch_state.py",
+    "agents/lib/task_queue.py",
+    "agents/lib/final_acceptance.py",
+    "agents/lib/failure_journal.py",
+    "agents/lib/git_workflow.py",
+)
+CONTROLLER_PROOF_TEST_PATHS: tuple[str, ...] = (
+    "tests/test_controller_contract.py",
+    "tests/test_run_task_runtime_foundations.py",
+    "tests/test_task_queue.py",
+)
 CONTROLLER_FAMILY_FILES: tuple[str, ...] = (
     "agents/run_task.py",
     "agents/lib/controller_contract.py",
@@ -270,6 +285,8 @@ def controller_contract_snapshot() -> dict[str, object]:
         "checkpoint_truth_fields": list(CHECKPOINT_TRUTH_FIELDS),
         "resume_metadata_fields": list(RESUME_METADATA_FIELDS),
         "controller_failure_categories": list(CONTROLLER_FAILURE_CATEGORIES),
+        "controller_strict_mode_paths": list(CONTROLLER_STRICT_MODE_PATHS),
+        "controller_proof_test_paths": list(CONTROLLER_PROOF_TEST_PATHS),
         "controller_family_files": list(CONTROLLER_FAMILY_FILES),
         "controller_failure_digest_fields": list(CONTROLLER_FAILURE_DIGEST_FIELDS),
     }
