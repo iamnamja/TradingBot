@@ -8,19 +8,24 @@ This repository contains:
 - `tasks/`: numbered implementation task specs and continuation plan docs
 - `docs/`: project state, roadmap slices, and contributor-facing navigation
 
-## Current continuation status (post reliability/autonomy tranche)
+## Current continuation status
 
-The reliability/autonomy tranche is complete through **Task 060**.
+The reliability/autonomy tranche and the first backlog-execution continuation are now complete through **Task 075**.
 
-Continuation is now intentionally resumed under the renumbered active sequence:
+The current next-stage active sequence is:
 
-- **061** — continuation reset and numbering sync
-- **062–068** — deferred continuation implementation tranche (integrated capabilities, live seam/failure journal integration, review integration, quarantine integration, package extraction prep, canonical docs policy, task scope/split heuristics)
-- **070–074** — backlog execution foundations (manifest queue, batch state persistence/resume, conservative batch runner + summaries)
+- **076–082** — autonomous backlog progression and controller-thinning continuation
+  - final acceptance reviewer/report
+  - targeted self-heal for acceptance failures
+  - explicit batch executor/controller loop
+  - accepted-task PR/check/merge/reset flow
+  - resume-after-merge and manual-resolution behavior
+  - further `agents/run_task.py` decomposition
+  - autonomous backlog-runner proof for a short ordinary-task manifest
 
 Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for status narrative.
 
-## Batch runner (first conservative mode)
+## Current batch posture
 
 The agent runner now supports a conservative batch mode in addition to single-task mode.
 
@@ -31,38 +36,23 @@ The agent runner now supports a conservative batch mode in addition to single-ta
 
 Single-task behavior remains available and unchanged for normal `agents/run_task.py <task.md>` usage.
 
-## Batch summary artifacts
+## What batch mode can honestly claim today
 
-Batch mode emits:
+Today the repo has:
 
-- **Machine-readable summary artifact** containing at least:
-  - manifest path
-  - total tasks
-  - completed tasks
-  - failed/manual/blocked tasks
-  - final batch decision
-  - per-task short outcomes
-- **Human-readable terminal summary** at the end of batch execution for fast operator review
+- a first conservative batch runner CLI
+- machine-readable and human-readable batch summaries
+- a first narrow end-to-end proof that short sequential backlog execution works under deterministic local tests
 
-See `docs/ORCHESTRATOR_PRODUCT_SPEC.md` for the canonical product-level description of these surfaces.
-
-## Orchestrator extraction preparation (current scope)
-
-Extraction preparation is active, but no repository split has been executed yet.
-
-- The orchestrator package surface is being intentionally shaped at `builder.orchestrator`.
-- Existing module-level imports remain stable for compatibility.
-- Narrative planning and sequencing for extraction live in:
-  - `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
-  - `docs/TRADINGBOT_AND_ORCHESTRATOR_RELATIONSHIP.md`
-  - `docs/orchestrator_extraction_plan.md`
+It does **not** yet honestly claim a broad unattended arbitrary-task scheduler. The 076–082 tranche is about closing that gap for short ordinary-task manifests.
 
 ## Documentation entry points
 
 - `docs/README.md` — docs index and reading order
 - `docs/TRADINGBOT_PROJECT_STATE.md` — authoritative current state and tranche boundaries
-- `docs/ORCHESTRATOR_ROADMAP_049_054.md` — historical roadmap context for 049–054
-- `tasks/README.md` — canonical numbered task map (active/deferred alignment)
+- `docs/ORCHESTRATOR_ROADMAP_069_075.md` — historical roadmap context for the first backlog-execution slice
+- `docs/ORCHESTRATOR_ROADMAP_076_082.md` — next autonomy-and-controller-thinning tranche
+- `tasks/README.md` — canonical numbered task map
 
 ## Development
 

@@ -21,7 +21,7 @@ The orchestrator buildout has progressed through the reliability/autonomy contin
 - Docs/status normalization and seam preparation (051–054 + 054a/054b)
 - Reliability/autonomy umbrella and implementations (055–067 + 065a + 067a)
 - Stabilization extension to support protected/controller execution and controller thinning (068a–068c)
-- Original Task 068 still remains a meaningful follow-on after the stabilization work proves out in practice
+- 068–075: backlog execution continuation, merge-readiness hardening, first conservative batch runner, and first narrow end-to-end backlog proof
 
 ## Current state
 
@@ -33,42 +33,57 @@ The orchestrator can now:
 - route controller/protected work through narrower, better-defined lanes than before
 - persist task-list state and per-task checkpoints for conservative batch progression
 - expose a user-facing switch for retaining known-safe runtime artifacts during debugging
+- run a short backlog manifest end-to-end under deterministic local tests
+- stop conservatively on manual-patch or blocked outcomes rather than auto-advancing
+- enforce continue-gate behavior so hard failures do not silently progress to later tasks
+- expose a first conservative batch runner CLI with machine/human summary artifacts
+- require an authoritative merge-ready validation profile and committed-state parity before final autonomous success
 
-However, the project is still **not yet at the point where a backlog/list runner should be considered fully ready**.
+Task 075 provides the first narrow end-to-end proof that sequential backlog execution works with persisted batch state and summary accounting, while remaining intentionally conservative for protected/controller paths.
 
-The most recent 069–073 work also exposed a remaining gap: internal "green" inside the orchestrator loop does not yet always mean the same thing as the operator’s merge-ready standard under direct local checks and exact branch-diff review.
+This remains a proof slice, not a broad production scheduler.
 
-Task 074a addresses the first part of that gap: autonomous success now depends on an explicit final merge-ready validation profile instead of only the earlier in-loop checks.
+## What is still not done
 
-Task 074b extends that behavior: when the final post-green authoritative profile fails, the orchestrator can treat it as a repairable validation-stage failure, consume remaining iteration budget conservatively, repair, and re-run the authoritative profile before declaring success.
+The orchestrator is still **not yet at the point where an arbitrary list of tasks should be fed in unattended and expected to run/repair/merge continuously on its own**.
 
-Task 074c closes the next critical gap: final completion now requires committed-state parity, exact required-deliverable parity in committed `HEAD`, and rejection of unexpected tracked artifacts in branch diff.
+The key remaining gaps are:
 
-The next stage must therefore focus on:
+- final acceptance review still needs a dedicated reusable surface
+- retryable acceptance failures still need targeted self-heal logic
+- accepted-task PR/check/merge/reset lifecycle is not yet a first-class autonomous controller surface
+- resume-after-merge and resume-after-manual-resolution are not yet explicit enough
+- `agents/run_task.py` still owns too much orchestration flow
 
-- continuing to shrink the controller
-- keeping batch/list execution conservative and explicit
-- making final autonomous success match operator-observed merge readiness
-- establishing an explicit authoritative merge-ready validation profile before success
-- retrying post-green validation failures only within bounded iteration limits
-- enforcing committed-state parity and exact deliverable parity at committed `HEAD`
-- blocking completion when unexpected tracked artifacts survive in branch diff
-- only then exposing a first user-facing batch runner CLI and end-to-end proof
+## What “ready for a list” means
+
+The next milestone is not “arbitrary broad scheduler.”  
+The next honest milestone is:
+
+- short ordinary-task manifest
+- retryable self-heal inside bounded limits
+- final acceptance review after all tests
+- accepted-task PR/check/merge/reset before next-task continuation
+- explicit stop on manual/blocked/merge-failure conditions
+
+That is the target of 076–082.
 
 ## Active continuation order
 
 Immediate near-term order:
 
-- confirm original **068** after the stabilization extension
-- then continue the backlog-execution tranche through the merge-readiness hardening follow-ons before the first batch runner CLI
+- maintain original 068 confirmation as historical prerequisite
+- continue into the autonomy-and-controller-thinning tranche after the 075 proof slice
 
-Planned continuation after 073:
+Planned continuation after 075:
 
-- **074a** merge-ready validation profile
-- **074b** post-green validation retry loop
-- **074c** committed-state parity and unexpected-artifact gate
-- **074** batch runner CLI and summary artifacts
-- **075** backlog execution end-to-end proof
+- **076** final acceptance reviewer and report
+- **077** targeted self-heal for acceptance failures
+- **078** batch executor loop and acceptance controller
+- **079** autonomous PR/merge and main-reset gate
+- **080** batch resume after merge and manual resolution
+- **081** controller decomposition third extraction
+- **082** autonomous backlog runner proof
 
 ## Canonical ordering source
 
@@ -79,9 +94,3 @@ For all contributor and automation references, the canonical visible order is:
 3. supporting roadmap docs in `docs/`
 
 Any continuation language should reference task IDs exactly as numbered above.
-
-## Task 075 proof milestone
-
-Task 075 establishes the first narrow end-to-end proof that the orchestrator can run a short backlog manifest sequentially, persist state between items, emit summary information, and stop conservatively on manual-patch or blocked outcomes.
-
-This is intentionally a proof slice, not a broad production scheduler.
