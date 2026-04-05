@@ -115,6 +115,11 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.build_final_acceptance_report)
     assert callable(run_task.classify_final_acceptance_failure)
     assert callable(run_task.build_acceptance_self_heal_context)
+    assert callable(run_task.build_final_acceptance_failure_feedback)
+    assert callable(run_task.report_final_acceptance_failure)
+    assert callable(run_task.execute_batch_loop)
+    assert callable(run_task.accepted_task_pr_merge_flow)
+    assert callable(run_task.report_branch_push_ready)
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
@@ -240,3 +245,53 @@ def test_batch_executor_resume_state_gate_and_skip_semantics() -> None:
     assert len(outcomes) == 1
     assert final_state.resume_reason in {"skip_accepted_merged", "resume_next"}
     assert final_state.resume_gate == "continue_from_next_pending"
+
+
+def test_controller_wrappers_delegate_to_extracted_modules(monkeypatch) -> None:
+    run_task, _, _, _, _, _, _, _, _, batch_state, task_queue, _, batch_executor = _load_runtime_modules()
+
+    queue = [task_queue.TaskQueueItem(task_path="tasks/001.md", ordinal=1)]
+    state = batch_state.initialize_batch_state(
+        manifest={"tasks": ["tasks/001.md"]},
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=1,
+    )
+
+    def fake_execute_batch_loop(**kwargs):
+        assert kwargs["initial_state"] == state
+        return state, [{"task_path": "tasks/001.md", "terminal_status": "completed"}], "continue"
+
+    monkeypatch.setattr(batch_executor, "execute_batch_loop", fake_execute_batch_loop)
+    final_state, outcomes, final_decision = run_task.execute_batch_loop(
+        initial_state=state,
+        queue=queue,
+        execute_task=lambda _item: {},
+        run_authoritative_validation=lambda _i, _r: (True, "ok"),
+        run_final_acceptance_review=lambda _i, _r, _ok, _note: {"acceptance_decision": "accepted", "note": "accepted"},
+        self_heal_and_retry=lambda _i, result, _c: result,
+        retry_budget=0,
+        persist_state=lambda _s: None,
+    )
+    assert final_state == state
+    assert final_decision == "continue"
+    assert outcomes[0]["task_path"] == "tasks/001.md"
+
+
+def test_final_acceptance_feedback_and_git_workflow_wrappers_delegate(monkeypatch) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, final_acceptance, _ = _load_runtime_modules()
+    import importlib
+    git_workflow = importlib.import_module("agents.lib.git_workflow")
+
+    monkeypatch.setattr(final_acceptance, "build_final_acceptance_failure_feedback", lambda report: f"feedback:{report['acceptance_decision']}")
+    monkeypatch.setattr(final_acceptance, "report_final_acceptance_failure", lambda report, printer=print: printer(f"reported:{report['acceptance_decision']}"))
+    monkeypatch.setattr(git_workflow, "report_branch_push_ready", lambda branch, printer=print: printer(f"branch:{branch}"))
+    monkeypatch.setattr(git_workflow, "accepted_task_pr_merge_flow", lambda **kwargs: {"accepted": kwargs.get("accepted"), "next_task_may_proceed": True})
+
+    report = {"acceptance_decision": "blocked", "issues": []}
+    assert run_task.build_final_acceptance_failure_feedback(report) == "feedback:blocked"
+    run_task.report_final_acceptance_failure(report)
+    run_task.report_branch_push_ready("feature/x")
+    result = run_task.accepted_task_pr_merge_flow(accepted=True, autonomous_merge_enabled=False, pr_title="x")
+    assert result["accepted"] is True
+

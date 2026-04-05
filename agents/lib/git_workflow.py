@@ -118,3 +118,8 @@ def accepted_task_pr_merge_flow(
     result["main_reset_clean"] = True
     result["next_task_may_proceed"] = True
     return result
+
+
+def report_branch_push_ready(branch: str, *, printer=print) -> None:
+    printer(f"Pushed branch: {branch}")
+    printer("Create a PR on GitHub for this branch (repo rules require PR).")

@@ -78,37 +78,42 @@ If any precondition is unmet, extraction is deferred.
 - Monorepo callers migrated or bridged during approved transition.
 - Canonical documentation updated to reflect post-split ownership and usage.
 
-## Post-075 controller extraction status
 
-The orchestrator controller still lives in `agents/run_task.py`, but pure helper logic is no longer concentrated only there. The extracted modules now include:
 
-- `agents/lib/task_contracts.py`
-- `agents/lib/failure_artifacts.py`
-- `agents/lib/protected_lane.py`
-- `agents/lib/bundle_repair.py`
-- `agents/lib/task_queue.py`
-- `agents/lib/batch_state.py`
+## Post-081 controller extraction status
 
-This is materially better than earlier in the project, but `agents/run_task.py` still owns too much end-to-end orchestration.
+A third controller extraction has now landed.
 
-### What remains inline
+The orchestrator controller still lives in `agents/run_task.py`, but the shell is thinner again and more controller families now have explicit homes outside the monolithic entrypoint.
 
-Higher-risk orchestration flow still concentrated in `agents/run_task.py` includes:
+### What is now extracted
 
-- final acceptance review reconciliation
-- retryable acceptance-failure self-heal orchestration
-- accepted-task PR/check/merge/reset lifecycle
-- cross-task batch executor sequencing
-- resume-after-merge and resume-after-manual-resolution decisions
+The extracted modules now own these controller families:
+
+- `agents/lib/task_contracts.py` — task/deliverable contract parsing and policy helpers
+- `agents/lib/failure_artifacts.py` — truthful placeholder and durable failure-artifact helpers
+- `agents/lib/protected_lane.py` — protected-lane coordination helpers
+- `agents/lib/bundle_repair.py` — duplicate/conflicted bundle recovery helpers
+- `agents/lib/final_acceptance.py` — final acceptance review/report classification and self-heal feedback helpers
+- `agents/lib/batch_executor.py` — canonical sequential batch executor/controller loop and resume-preparation helpers
+- `agents/lib/git_workflow.py` — accepted-task PR/merge/reset workflow helpers and branch-push guidance
+
+### What remains inline in `agents/run_task.py`
+
+Higher-risk shell coordination still remains inline, including:
+
+- prompt construction and iterative retry/repair loop sequencing
+- file-bundle application, snapshot restore, and localized failure feedback wiring
+- check execution and policy orchestration across multiple helper families
+- top-level CLI and single-task execution shell behavior
 
 ### Next extraction priorities
 
-The next controller-decomposition priorities should be:
+The next controller-thinning priorities after this pass should be:
 
-1. final acceptance reviewer/report surface
-2. batch executor/controller loop
-3. accepted-task git workflow / merge-reset helpers
-4. resume-after-merge and manual-resolution helpers
-5. remaining outer shell routing/orchestration compatibility wrappers
+1. prompt/retry controller decomposition
+2. file-bundle transport + localized repair controller extraction
+3. final single-task success path / push flow shell reduction
+4. batch-runner proof wiring for autonomous merge-and-continue operation
 
-This keeps the decomposition incremental while preserving current runtime behavior and aligns the next tranche to 076–082.
+This keeps the decomposition incremental while preserving current behavior and aligns the remaining inline work to 082 and beyond.

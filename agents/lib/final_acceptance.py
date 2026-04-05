@@ -237,3 +237,60 @@ def build_final_acceptance_report(
         "path_classification": classification,
         "self_heal_context": context,
     }
+
+
+def run_final_acceptance_review(
+    *,
+    task_file: str,
+    validated_required_paths: Sequence[str] | None,
+    head_diff_paths: Sequence[str] | None,
+    working_tree_paths: Sequence[str] | None,
+    validation_profile: dict[str, Any] | None,
+    unexpected_tracked_artifact_findings: Sequence[str] | None = None,
+    manual_patch_required: bool = False,
+) -> dict[str, object]:
+    return build_final_acceptance_report(
+        task_file=task_file,
+        validated_required_paths=validated_required_paths,
+        head_diff_paths=head_diff_paths,
+        working_tree_paths=working_tree_paths,
+        validation_profile=validation_profile,
+        unexpected_tracked_artifact_findings=unexpected_tracked_artifact_findings,
+        manual_patch_required=manual_patch_required,
+    )
+
+
+def build_final_acceptance_failure_feedback(report: dict[str, Any]) -> str:
+    issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]
+    decision = str(report.get("acceptance_decision", "retryable_failure"))
+    lines = [
+        "Final acceptance review rejected the current result.",
+        f"Acceptance decision: {decision}",
+        "Reconcile the exact task contract against the committed/staged diff and final validation before claiming success.",
+    ]
+    try:
+        context = build_acceptance_self_heal_context(report)
+    except Exception:
+        context = {}
+    repair_prompt = str(context.get("repair_prompt", "")).strip()
+    if repair_prompt:
+        lines.append("Focused self-heal guidance:")
+        lines.append(repair_prompt)
+    elif issues:
+        lines.append("Issues:")
+        lines.extend(f"- {issue}" for issue in issues)
+    return "\n".join(lines)
+
+
+def report_final_acceptance_failure(
+    report: dict[str, Any],
+    *,
+    printer: callable = print,
+) -> None:
+    printer("❌ Final acceptance review failed:")
+    issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]
+    if issues:
+        for issue in issues:
+            printer(f"- {issue}")
+    else:
+        printer(f"- acceptance_decision={report.get('acceptance_decision', 'retryable_failure')}")
