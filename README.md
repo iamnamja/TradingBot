@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The reliability/autonomy tranche and the first backlog-execution continuation are now complete through **Task 075**.
+The reliability/autonomy tranche and the first backlog-execution continuation are now complete through **Task 079**.
 
 The current next-stage active sequence is:
 
@@ -27,7 +27,7 @@ Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PRO
 
 ## Current batch posture
 
-The agent runner now supports a conservative batch mode in addition to single-task mode.
+The agent runner supports a conservative batch mode in addition to single-task mode.
 
 - Input: a task-list manifest (ordered task paths)
 - Behavior: sequential execution, intentionally conservative
@@ -36,15 +36,32 @@ The agent runner now supports a conservative batch mode in addition to single-ta
 
 Single-task behavior remains available and unchanged for normal `agents/run_task.py <task.md>` usage.
 
+## Accepted-task autonomous PR/merge posture (optional)
+
+For tasks that have passed final acceptance review, the orchestrator can optionally run:
+
+1. PR creation
+2. required-check watch
+3. merge after successful checks
+4. clean reset to `main` (switch/fetch/reset/clean)
+5. only then unlock next-task progression
+
+Conservative limits:
+
+- no auto-merge for tasks that are not accepted
+- PR/CI/merge/reset failures stop honestly and persist non-proceed state
+- next task cannot proceed unless clean-main reset succeeds
+- operator-controlled mode remains available (autonomous merge is not hidden always-on)
+
 ## What batch mode can honestly claim today
 
 Today the repo has:
 
-- a first conservative batch runner CLI
+- a conservative batch runner CLI
 - machine-readable and human-readable batch summaries
-- a first narrow end-to-end proof that short sequential backlog execution works under deterministic local tests
+- deterministic local proofs for sequential backlog execution and accepted-task PR lifecycle gates under test
 
-It does **not** yet honestly claim a broad unattended arbitrary-task scheduler. The 076–082 tranche is about closing that gap for short ordinary-task manifests.
+It does **not** claim broad unattended arbitrary-task scheduling. The 076–082 tranche is focused on closing that gap safely for short ordinary-task manifests.
 
 ## Documentation entry points
 
@@ -52,6 +69,7 @@ It does **not** yet honestly claim a broad unattended arbitrary-task scheduler. 
 - `docs/TRADINGBOT_PROJECT_STATE.md` — authoritative current state and tranche boundaries
 - `docs/ORCHESTRATOR_ROADMAP_069_075.md` — historical roadmap context for the first backlog-execution slice
 - `docs/ORCHESTRATOR_ROADMAP_076_082.md` — next autonomy-and-controller-thinning tranche
+- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md` — control gates and policy posture
 - `tasks/README.md` — canonical numbered task map
 
 ## Development

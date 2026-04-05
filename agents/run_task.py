@@ -3549,6 +3549,19 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
             seen_protected_entries.add(dedupe_key)
             normalized_protected.append({"path": canonical_path})
 
+    inferred_targets = _infer_protected_method_targets_from_required("", normalized_required)
+    for inferred in inferred_targets:
+        inferred_path = str(inferred.get("path", "")).strip()
+        if not inferred_path:
+            continue
+        mode = str(inferred.get("mode", "") or "").strip()
+        method_name = str(inferred.get("method_name", "") or "").strip()
+        dedupe_key = (inferred_path, mode, method_name)
+        if dedupe_key in seen_protected_entries:
+            continue
+        seen_protected_entries.add(dedupe_key)
+        normalized_protected.append(dict(inferred))
+
     if callable(_partition):
         normal, protected = _partition(
             required_paths=normalized_required,
@@ -3684,6 +3697,14 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         checkpoint_transition = "manual_patch"
     elif category in {"blocked", "blocked_failure"}:
         checkpoint_transition = "blocked"
+    elif category in {"pr_create_failed", "pr_failed", "pr"}:
+        checkpoint_transition = "failed_pr_creation"
+    elif category in {"ci_failed", "checks_failed", "ci"}:
+        checkpoint_transition = "failed_required_checks"
+    elif category in {"merge_failed", "merge"}:
+        checkpoint_transition = "failed_merge"
+    elif category in {"main_reset_failed", "reset_failed", "clean_main_failed", "reset_main"}:
+        checkpoint_transition = "failed_main_reset"
 
     base_checkpoint = {
         "task_file": task_file_path,
@@ -3700,6 +3721,10 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         "mixed_task": bool(mixed_task),
         "protected_files": protected_files_list,
         "protected_targets_identified": protected_targets_list,
+        "accepted_task_pr_flow_completed": False,
+        "required_checks_passed": False,
+        "merged_to_main": False,
+        "clean_main_reset_completed": False,
     }
 
     if callable(_emit):
@@ -3739,6 +3764,10 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 "resume_hint": "",
                 "next_task_may_proceed": False,
                 "checkpoint_transition": checkpoint_transition,
+                "accepted_task_pr_flow_completed": False,
+                "required_checks_passed": False,
+                "merged_to_main": False,
+                "clean_main_reset_completed": False,
             },
         }
         last_output_path.write_text(json.dumps(output_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
@@ -3766,6 +3795,10 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 "resume_hint": "",
                 "next_task_may_proceed": False,
                 "checkpoint_transition": checkpoint_transition,
+                "accepted_task_pr_flow_completed": False,
+                "required_checks_passed": False,
+                "merged_to_main": False,
+                "clean_main_reset_completed": False,
             },
         }
         last_bundle_path.write_text(json.dumps(bundle_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
@@ -3790,6 +3823,10 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
             checkpoint["failure_category"] = str(failure_category or checkpoint.get("failure_category", ""))
             if not str(checkpoint.get("reason", "")).strip():
                 checkpoint["reason"] = normalized_reason
+            checkpoint["accepted_task_pr_flow_completed"] = bool(checkpoint.get("accepted_task_pr_flow_completed", False))
+            checkpoint["required_checks_passed"] = bool(checkpoint.get("required_checks_passed", False))
+            checkpoint["merged_to_main"] = bool(checkpoint.get("merged_to_main", False))
+            checkpoint["clean_main_reset_completed"] = False
             payload["batch_checkpoint"] = checkpoint
 
             existing_state = payload.get("batch_state")
@@ -3797,6 +3834,10 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 existing_state = {}
             existing_state["next_task_may_proceed"] = False
             existing_state["checkpoint_transition"] = checkpoint_transition
+            existing_state["accepted_task_pr_flow_completed"] = bool(existing_state.get("accepted_task_pr_flow_completed", False))
+            existing_state["required_checks_passed"] = bool(existing_state.get("required_checks_passed", False))
+            existing_state["merged_to_main"] = bool(existing_state.get("merged_to_main", False))
+            existing_state["clean_main_reset_completed"] = False
             payload["batch_state"] = existing_state
 
             artifact_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
