@@ -4763,5 +4763,16 @@ def _shell_router_exports() -> Dict[str, object]:
     return exports
 
 
+
+def backlog_execution_proof_capabilities() -> dict[str, object]:
+    """Describe the conservative short-manifest backlog proof covered by Task 075."""
+    return {
+        "short_manifest_e2e_proof": True,
+        "all_success_completion": True,
+        "manual_patch_stops_conservatively": True,
+        "blocked_stops_conservatively": True,
+        "hard_failure_continue_gate_blocks_progression": True,
+    }
 if __name__ == "__main__":
     raise SystemExit(main())
+

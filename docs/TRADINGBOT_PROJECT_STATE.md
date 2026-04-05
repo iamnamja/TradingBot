@@ -79,3 +79,9 @@ For all contributor and automation references, the canonical visible order is:
 3. supporting roadmap docs in `docs/`
 
 Any continuation language should reference task IDs exactly as numbered above.
+
+## Task 075 proof milestone
+
+Task 075 establishes the first narrow end-to-end proof that the orchestrator can run a short backlog manifest sequentially, persist state between items, emit summary information, and stop conservatively on manual-patch or blocked outcomes.
+
+This is intentionally a proof slice, not a broad production scheduler.

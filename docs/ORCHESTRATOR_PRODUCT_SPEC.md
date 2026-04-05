@@ -248,3 +248,12 @@ The orchestrator should support both an autonomous task lane and a manual patch 
 ## Canonical docs placement
 
 This product spec lives under `docs/` because orchestrator/tradingbot narrative documents are canonical there. `README.md` remains the only canonical root-level README; do not create duplicate root-level `ORCHESTRATOR_*.md` or `TRADINGBOT_*.md` narrative docs when the `docs/` path is the intended source of truth.
+
+## Task 075 end-to-end proof note
+
+The Task 075 proof is intentionally narrow and local:
+
+- short manifest only
+- deterministic local state and summary checks
+- conservative stop behavior for manual-patch and blocked outcomes
+- no claim of broad autonomous scheduling beyond the tested proof slice
