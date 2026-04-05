@@ -1,8 +1,8 @@
 # TradingBot Project State
 
-## Repository scope
+## Repository shape
 
-The repository combines:
+The current monorepo contains:
 
 - Trading runtime (`src/tradingbot`)
 - Orchestrator engine and control plane (`src/builder/orchestrator`)
@@ -74,6 +74,21 @@ The controller-contract hardening tranche stabilized:
 - controller strict mode, focused proof tests, and proof-claim deferral for docs/README
 - further `agents/run_task.py` decomposition through dedicated helper modules
 
+## Next planned tranche (090–099)
+
+The next tranche should shift from controller-contract hardening to multi-agent portability and productization.
+
+Planned focus areas are:
+
+- canonical builder/verifier/controller role contract and handoff truth
+- sequential multi-agent execution loop with controller-owned role selection
+- CI-required checks as first-class verification authority
+- repair-strategy routing instead of one generic remediation surface
+- reusable project/workspace bootstrap and validation contracts
+- dependency-aware manifests and task-family routing
+- a second-project Python portability proof
+- a stronger standalone product boundary while still remaining in the monorepo for this tranche
+
 ## Canonical batch execution path
 
 Canonical path for sequential manifest execution is now:
@@ -104,6 +119,13 @@ Persisted outcomes/checkpoints now intentionally include, through one canonical 
 Execution remains intentionally sequential and deterministic.
 No concurrent scheduling is introduced.
 Acceptance before advance is part of the canonical controller contract, and when autonomous merge posture is enabled, clean-main reset before next-task progression is required.
+
+The next broadened product step should still keep role execution sequential at first:
+
+- controller chooses
+- builder acts
+- verifier acts
+- controller decides
 
 ## Scope honesty
 

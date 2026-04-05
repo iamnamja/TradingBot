@@ -1,22 +1,28 @@
 # Docs Index
 
-This directory holds project-level status and roadmap references for the TradingBot + Orchestrator codebase.
+## Core entry points
 
-## Read in this order
+- `TRADINGBOT_PROJECT_STATE.md` — authoritative current state and near-term posture
+- `ORCHESTRATOR_PRODUCT_SPEC.md` — product goal, current capabilities, and next-stage needs
+- `ORCHESTRATOR_CONTROLS_AND_POLICIES.md` — control gates and safety posture
+- `TRADINGBOT_AND_ORCHESTRATOR_RELATIONSHIP.md` — relationship between the current monorepo consumer and the orchestrator product
+- `orchestrator_extraction_plan.md` — current `agents/run_task.py` decomposition map
 
-1. `TRADINGBOT_PROJECT_STATE.md`  
-   Current authoritative status, tranche boundaries, and active continuation plan.
+## Roadmap slices
 
-2. `ORCHESTRATOR_ROADMAP_049_054.md`  
-   Historical roadmap slice for the 049–054 hardening/reliability lead-in.
+- `ORCHESTRATOR_ROADMAP_015_020.md`
+- `ORCHESTRATOR_ROADMAP_032_048.md`
+- `ORCHESTRATOR_ROADMAP_049_054.md`
+- `ORCHESTRATOR_ROADMAP_055_068.md`
+- `ORCHESTRATOR_ROADMAP_069_075.md`
+- `ORCHESTRATOR_ROADMAP_076_082.md`
+- `ORCHESTRATOR_ROADMAP_083_089.md`
+- `ORCHESTRATOR_ROADMAP_090_099.md`
 
-3. `../tasks/README.md`  
-   Canonical numbered task index and active sequencing across completed + deferred work.
+## Miscellaneous
 
-## Continuation alignment note
-
-After completion of the reliability/autonomy tranche (055–060), continuation is resumed under the existing renumbered sequence beginning at **061**.  
-This docs set is normalized to avoid numbering drift and to keep deferred work references consistent with the actual task files in `tasks/`.
-## Canonical placement
-
-`docs/` is the canonical home for orchestrator/tradingbot narrative documentation. Keep `README.md` at repo root, but place product specs, controls/policies, relationship docs, roadmaps, and similar narrative materials under `docs/`.
+- `NEW_CHAT_HANDOFF_PROMPT.md`
+- `ORCHESTRATOR_RELIABILITY_AND_AUTONOMY_REVIEW.md`
+- `ORCHESTRATOR_STABILIZATION_EXTENSION_NOTE.md`
+- `ORCHESTRATOR_VISION_AND_CONTROLS.md`
+- `ci_test.md`
