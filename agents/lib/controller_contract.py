@@ -53,31 +53,17 @@ RESUME_MODES: tuple[ResumeMode, ...] = (
     "resume_after_merge",
     "resume_after_manual_resolution",
 )
-QUEUE_TERMINAL_STATUSES: tuple[QueueTerminalStatus, ...] = (
-    "completed",
-    "failed",
-    "manual_patch",
-    "blocked",
-)
 MERGE_POSTURE_POST_TASK_DECISIONS: tuple[BatchPostTaskDecision, ...] = (
     "failed_merge",
     "failed_checks",
     "failed_reset",
-)
-MERGE_POSTURE_BATCH_STATUSES: tuple[BatchStatus, ...] = cast(
-    tuple[BatchStatus, ...], MERGE_POSTURE_POST_TASK_DECISIONS
-)
-
-EXECUTION_AUDIT_FIELDS: tuple[str, ...] = (
-    "execution_attempt_count",
-    "repair_count",
-    "accepted_after_repair",
 )
 CHECKPOINT_TRUTH_FIELDS: tuple[str, ...] = (
     "task_path",
     "ordinal",
     "context_kind",
     "context_ref",
+    "terminal_status",
     "completed_cleanly",
     "cleanup_required_before_next_task",
     "next_task_may_proceed",
@@ -86,9 +72,6 @@ CHECKPOINT_TRUTH_FIELDS: tuple[str, ...] = (
     "event_seq",
     "post_task_decision",
     "acceptance_decision",
-    "execution_attempt_count",
-    "repair_count",
-    "accepted_after_repair",
     "retry_count",
     "accepted_task_pr_flow_completed",
     "required_checks_passed",
@@ -100,8 +83,6 @@ RESUME_METADATA_FIELDS: tuple[str, ...] = (
     "resume_target_task_path",
     "resume_gate",
 )
-PERSISTED_CONTROLLER_FIELD_NAMES: tuple[str, ...] = CHECKPOINT_TRUTH_FIELDS + RESUME_METADATA_FIELDS
-
 POLICY_BLOCKED_FAILURE_CATEGORY = "policy_blocked"
 CONTROLLER_FAILURE_CATEGORIES: tuple[str, ...] = (POLICY_BLOCKED_FAILURE_CATEGORY,)
 
@@ -126,13 +107,11 @@ def coerce_acceptance_decision(value: Any, default: AcceptanceDecision = "retrya
     return default
 
 
-
 def coerce_post_task_decision(value: Any, default: BatchPostTaskDecision = "stop") -> BatchPostTaskDecision:
     text = str(value or "").strip()
     if text in POST_TASK_DECISIONS:
         return cast(BatchPostTaskDecision, text)
     return default
-
 
 
 def coerce_resume_mode(value: Any, default: ResumeMode = "default") -> ResumeMode:
@@ -142,10 +121,21 @@ def coerce_resume_mode(value: Any, default: ResumeMode = "default") -> ResumeMod
     return default
 
 
+def coerce_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", ""}:
+        return False
+    return bool(value)
+
 
 def acceptance_decision_to_terminal_status(decision: AcceptanceDecision) -> QueueTerminalStatus:
     return _TERMINAL_FROM_ACCEPTANCE[coerce_acceptance_decision(decision)]
-
 
 
 def terminal_status_to_post_task_decision(status: str) -> BatchPostTaskDecision:
@@ -155,15 +145,12 @@ def terminal_status_to_post_task_decision(status: str) -> BatchPostTaskDecision:
     return "stop"
 
 
-
 def should_next_task_proceed(*, terminal_status: str, post_task_decision: str) -> bool:
     return str(terminal_status or "").strip() == "completed" and coerce_post_task_decision(post_task_decision) == "continue"
 
 
-
 def is_merge_posture_decision(value: Any) -> bool:
     return coerce_post_task_decision(value, default="stop") in MERGE_POSTURE_POST_TASK_DECISIONS
-
 
 
 def batch_status_for_post_task_decision(*, default_status: BatchStatus, post_task_decision: Any) -> BatchStatus:
@@ -171,7 +158,6 @@ def batch_status_for_post_task_decision(*, default_status: BatchStatus, post_tas
     if decision in MERGE_POSTURE_POST_TASK_DECISIONS:
         return cast(BatchStatus, decision)
     return default_status
-
 
 
 def merge_posture_decision_for_flow_stage(stage: str) -> BatchPostTaskDecision:
@@ -183,13 +169,11 @@ def merge_posture_decision_for_flow_stage(stage: str) -> BatchPostTaskDecision:
     return "failed_merge"
 
 
-
 def resume_gate_for_mode(*, resume_mode: ResumeMode, explicit_resume: bool) -> str:
     mode = coerce_resume_mode(resume_mode)
     if explicit_resume or mode == "resume_after_merge":
         return mode
     return ""
-
 
 
 def canonical_resume_metadata(*, resume_mode: ResumeMode, resume_target_task_path: str | None, explicit_resume: bool) -> dict[str, str]:
@@ -201,48 +185,57 @@ def canonical_resume_metadata(*, resume_mode: ResumeMode, resume_target_task_pat
     }
 
 
-
-def coerce_non_negative_int(value: Any, default: int = 0) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return max(0, int(default))
-    return max(0, parsed)
-
-
-def canonical_repair_audit(
+def canonical_merge_posture_truth(
+    payload: Mapping[str, Any] | None = None,
     *,
-    execution_attempt_count: Any,
-    repair_count: Any,
-    acceptance_decision: Any,
-    accepted_after_repair: Any | None = None,
-) -> dict[str, int | bool]:
-    execution_count = coerce_non_negative_int(execution_attempt_count)
-    repair_total = coerce_non_negative_int(repair_count)
-    accepted = coerce_acceptance_decision(acceptance_decision) == "accepted"
-    if accepted_after_repair is None:
-        repaired_accept = repair_total > 0 and accepted
-    else:
-        repaired_accept = bool(accepted_after_repair)
+    accepted_task_pr_flow_completed: Any | None = None,
+    required_checks_passed: Any | None = None,
+    merged_to_main: Any | None = None,
+    clean_main_reset_completed: Any | None = None,
+) -> dict[str, bool]:
+    data = payload or {}
+    checks_passed = coerce_bool(required_checks_passed if required_checks_passed is not None else data.get("required_checks_passed"))
+    merged = coerce_bool(merged_to_main if merged_to_main is not None else data.get("merged_to_main", data.get("merged")))
+    reset_clean = coerce_bool(
+        clean_main_reset_completed if clean_main_reset_completed is not None else data.get("clean_main_reset_completed", data.get("main_reset_clean"))
+    )
+    raw_completed = accepted_task_pr_flow_completed if accepted_task_pr_flow_completed is not None else data.get("accepted_task_pr_flow_completed")
+    completed = coerce_bool(raw_completed) if raw_completed is not None else (checks_passed and merged and reset_clean)
     return {
-        "execution_attempt_count": execution_count,
-        "repair_count": repair_total,
-        "accepted_after_repair": repaired_accept,
-        "retry_count": repair_total,
+        "accepted_task_pr_flow_completed": completed,
+        "required_checks_passed": checks_passed,
+        "merged_to_main": merged,
+        "clean_main_reset_completed": reset_clean,
     }
 
 
 def checkpoint_allows_resume_after_merge(checkpoint: Mapping[str, Any] | None) -> bool:
     if not checkpoint:
         return False
+    truth = canonical_merge_posture_truth(checkpoint)
     return bool(
-        coerce_acceptance_decision(checkpoint.get("acceptance_decision")) == "accepted"
-        and checkpoint.get("post_task_decision") == "continue"
+        str(checkpoint.get("terminal_status", "")).strip() == "completed"
+        and coerce_acceptance_decision(checkpoint.get("acceptance_decision")) == "accepted"
+        and coerce_post_task_decision(checkpoint.get("post_task_decision"), default="stop") == "continue"
         and bool(checkpoint.get("next_task_may_proceed", False))
-        and bool(checkpoint.get("merged_to_main", False))
-        and bool(checkpoint.get("clean_main_reset_completed", False))
+        and truth["accepted_task_pr_flow_completed"]
+        and truth["required_checks_passed"]
+        and truth["merged_to_main"]
+        and truth["clean_main_reset_completed"]
     )
 
+
+def checkpoint_requires_manual_resolution(checkpoint: Mapping[str, Any] | None) -> bool:
+    if not checkpoint:
+        return False
+    return coerce_post_task_decision(checkpoint.get("post_task_decision"), default="stop") in {"manual_patch", "blocked"}
+
+
+def resume_mode_allows_execution(*, resume_mode: ResumeMode, explicit_resume: bool) -> bool:
+    mode = coerce_resume_mode(resume_mode)
+    if mode == "resume_after_manual_resolution":
+        return bool(explicit_resume)
+    return True
 
 
 def controller_contract_snapshot() -> dict[str, object]:
@@ -250,7 +243,6 @@ def controller_contract_snapshot() -> dict[str, object]:
         "acceptance_decisions": list(ACCEPTANCE_DECISIONS),
         "post_task_decisions": list(POST_TASK_DECISIONS),
         "resume_modes": list(RESUME_MODES),
-        "execution_audit_fields": list(EXECUTION_AUDIT_FIELDS),
         "checkpoint_truth_fields": list(CHECKPOINT_TRUTH_FIELDS),
         "resume_metadata_fields": list(RESUME_METADATA_FIELDS),
         "controller_failure_categories": list(CONTROLLER_FAILURE_CATEGORIES),

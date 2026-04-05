@@ -11,9 +11,10 @@ from agents.lib.controller_contract import (
     BatchStatus,
     ResumeMode,
     batch_status_for_post_task_decision,
-    canonical_repair_audit,
+    canonical_merge_posture_truth,
     canonical_resume_metadata,
-    coerce_non_negative_int,
+    checkpoint_allows_resume_after_merge,
+    checkpoint_requires_manual_resolution,
 )
 from agents.lib.task_queue import QueueStatus, TaskQueueItem, validate_queue_status_transition
 
@@ -37,6 +38,7 @@ class BatchTaskCheckpoint:
     ordinal: int
     context_kind: str
     context_ref: str
+    terminal_status: QueueStatus
     completed_cleanly: bool
     cleanup_required_before_next_task: bool
     next_task_may_proceed: bool
@@ -45,14 +47,11 @@ class BatchTaskCheckpoint:
     event_seq: int
     post_task_decision: BatchPostTaskDecision | str = "stop"
     acceptance_decision: AcceptanceDecision | str = ""
-    execution_attempt_count: int = 0
-    repair_count: int = 0
-    accepted_after_repair: bool = False
     retry_count: int = 0
-    accepted_task_pr_flow_completed: bool | None = None
-    required_checks_passed: bool | None = None
-    merged_to_main: bool | None = None
-    clean_main_reset_completed: bool | None = None
+    accepted_task_pr_flow_completed: bool = False
+    required_checks_passed: bool = False
+    merged_to_main: bool = False
+    clean_main_reset_completed: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -60,6 +59,7 @@ class BatchTaskCheckpoint:
             "ordinal": self.ordinal,
             "context_kind": self.context_kind,
             "context_ref": self.context_ref,
+            "terminal_status": self.terminal_status,
             "completed_cleanly": self.completed_cleanly,
             "cleanup_required_before_next_task": self.cleanup_required_before_next_task,
             "next_task_may_proceed": self.next_task_may_proceed,
@@ -68,9 +68,6 @@ class BatchTaskCheckpoint:
             "event_seq": self.event_seq,
             "post_task_decision": self.post_task_decision,
             "acceptance_decision": self.acceptance_decision,
-            "execution_attempt_count": self.execution_attempt_count,
-            "repair_count": self.repair_count,
-            "accepted_after_repair": self.accepted_after_repair,
             "retry_count": self.retry_count,
             "accepted_task_pr_flow_completed": self.accepted_task_pr_flow_completed,
             "required_checks_passed": self.required_checks_passed,
@@ -254,10 +251,7 @@ def apply_task_result(
     context_kind: str = "branch",
     context_ref: str = "",
     acceptance_decision: AcceptanceDecision | str = "",
-    execution_attempt_count: int | None = None,
-    repair_count: int = 0,
-    accepted_after_repair: bool | None = None,
-    retry_count: int | None = None,
+    retry_count: int = 0,
     next_task_may_proceed: bool | None = None,
     accepted_task_pr_flow_completed: bool | None = None,
     required_checks_passed: bool | None = None,
@@ -301,11 +295,11 @@ def apply_task_result(
     else:
         transition = "failed_requires_cleanup"
 
-    audit = canonical_repair_audit(
-        execution_attempt_count=current.attempts if execution_attempt_count is None else execution_attempt_count,
-        repair_count=repair_count if retry_count is None else retry_count,
-        acceptance_decision=acceptance_decision,
-        accepted_after_repair=accepted_after_repair,
+    merge_truth = canonical_merge_posture_truth(
+        accepted_task_pr_flow_completed=accepted_task_pr_flow_completed,
+        required_checks_passed=required_checks_passed,
+        merged_to_main=merged_to_main,
+        clean_main_reset_completed=clean_main_reset_completed,
     )
 
     checkpoint = BatchTaskCheckpoint(
@@ -313,6 +307,7 @@ def apply_task_result(
         ordinal=current.ordinal,
         context_kind=context_kind,
         context_ref=context_ref,
+        terminal_status=terminal_status,
         completed_cleanly=terminal_status == "completed",
         cleanup_required_before_next_task=terminal_status != "completed" or not bool(next_task_may_proceed),
         next_task_may_proceed=bool(next_task_may_proceed),
@@ -321,14 +316,11 @@ def apply_task_result(
         event_seq=state.event_seq,
         post_task_decision=post_task_decision,
         acceptance_decision=acceptance_decision,
-        execution_attempt_count=coerce_non_negative_int(audit["execution_attempt_count"]),
-        repair_count=coerce_non_negative_int(audit["repair_count"]),
-        accepted_after_repair=bool(audit["accepted_after_repair"]),
-        retry_count=coerce_non_negative_int(audit["retry_count"]),
-        accepted_task_pr_flow_completed=accepted_task_pr_flow_completed,
-        required_checks_passed=required_checks_passed,
-        merged_to_main=merged_to_main,
-        clean_main_reset_completed=clean_main_reset_completed,
+        retry_count=int(retry_count),
+        accepted_task_pr_flow_completed=merge_truth["accepted_task_pr_flow_completed"],
+        required_checks_passed=merge_truth["required_checks_passed"],
+        merged_to_main=merge_truth["merged_to_main"],
+        clean_main_reset_completed=merge_truth["clean_main_reset_completed"],
     )
 
     batch_status = batch_status_for_post_task_decision(
@@ -347,6 +339,46 @@ def apply_task_result(
 
 
 
+def _resume_index_for_task(queue: list[TaskQueueItem], task_path: str) -> int | None:
+    for idx, item in enumerate(queue):
+        if item.task_path == task_path:
+            return idx
+    return None
+
+
+
+def _reset_queue_for_resume(
+    queue_state: tuple[BatchTaskState, ...],
+    *,
+    from_index: int,
+    status_note: str,
+) -> tuple[BatchTaskState, ...]:
+    items = list(queue_state)
+    for idx in range(from_index, len(items)):
+        items[idx] = replace(items[idx], status="queued", status_note=status_note)
+    return tuple(items)
+
+
+
+def unresolved_manual_resolution_task_path(state: BatchState) -> str:
+    for checkpoint in reversed(state.checkpoints):
+        if checkpoint_requires_manual_resolution(checkpoint.to_dict()):
+            return checkpoint.task_path
+    return ""
+
+
+
+def _resume_after_merge_rewind_index(state: BatchState) -> int | None:
+    for idx, item in enumerate(state.queue[: state.current_index]):
+        if item.status != "completed":
+            continue
+        checkpoint = last_checkpoint_for_task(state, item.task_path)
+        if not checkpoint_allows_resume_after_merge(checkpoint.to_dict() if checkpoint is not None else None):
+            return idx
+    return None
+
+
+
 def mark_resume_plan(
     state: BatchState,
     *,
@@ -356,14 +388,30 @@ def mark_resume_plan(
     explicit_resume: bool,
     updated_ts: int,
 ) -> BatchState:
-    del queue  # queue is present for API symmetry / future validation.
+    inferred_target = str(resume_target_task_path or "")
+    if resume_mode == "resume_after_manual_resolution" and not inferred_target:
+        inferred_target = unresolved_manual_resolution_task_path(state)
     metadata = canonical_resume_metadata(
         resume_mode=resume_mode,
-        resume_target_task_path=resume_target_task_path,
+        resume_target_task_path=inferred_target,
         explicit_resume=explicit_resume,
     )
+    next_index = state.current_index
+    queue_state = state.queue
+    if resume_mode == "resume_after_merge":
+        rewind_index = _resume_after_merge_rewind_index(state)
+        if rewind_index is not None:
+            next_index = rewind_index
+            queue_state = _reset_queue_for_resume(queue_state, from_index=rewind_index, status_note="resume_after_merge")
+    if resume_mode == "resume_after_manual_resolution" and explicit_resume and metadata["resume_target_task_path"]:
+        resolved_index = _resume_index_for_task(queue, metadata["resume_target_task_path"])
+        if resolved_index is not None:
+            next_index = resolved_index
+            queue_state = _reset_queue_for_resume(queue_state, from_index=resolved_index, status_note="resume_after_manual_resolution")
     return replace(
         state,
+        queue=queue_state,
+        current_index=next_index,
         resume_reason=metadata["resume_reason"],
         resume_target_task_path=metadata["resume_target_task_path"],
         resume_gate=metadata["resume_gate"],

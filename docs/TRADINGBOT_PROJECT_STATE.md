@@ -139,4 +139,5 @@ Task 083 should still be treated as a manual patch first. It stabilizes the cont
 
 This is a hardening step, not a broader autonomy claim.
 
-- **084 — non-reexecuting retry/self-heal channel** keeps retryable acceptance repair in a repair-only lane: raw execution remains a single counted attempt while persisted checkpoints record separate execution and repair truth.
+
+- **085** made merge-posture truth first-class persisted checkpoint state and tightened resume contracts to require explicit merged/reset evidence or explicit manual-resolution intent.

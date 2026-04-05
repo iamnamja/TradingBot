@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict
 
-from agents.lib.controller_contract import merge_posture_decision_for_flow_stage
+from agents.lib.controller_contract import canonical_merge_posture_truth, merge_posture_decision_for_flow_stage
 
 Runner = Callable[[list[str], bool], object]
 
@@ -73,17 +73,22 @@ def accepted_task_pr_merge_flow(
         "required_checks_passed": False,
         "merged": False,
         "main_reset_clean": False,
+        "accepted_task_pr_flow_completed": False,
+        "merged_to_main": False,
+        "clean_main_reset_completed": False,
         "next_task_may_proceed": False,
     }
 
     if not accepted:
         result["stop_reason"] = "task not accepted; PR flow skipped"
         result["post_task_decision"] = "stop"
+        result.update(canonical_merge_posture_truth(result))
         return result
 
     if not autonomous_merge_enabled:
         result["stop_reason"] = "autonomous merge disabled by operator control"
         result["post_task_decision"] = "stop"
+        result.update(canonical_merge_posture_truth(result))
         return result
 
     created = create_pr(runner, title=pr_title, body=pr_body)
@@ -91,6 +96,7 @@ def accepted_task_pr_merge_flow(
         result["stopped_honestly"] = True
         result["stop_reason"] = created.message
         result["post_task_decision"] = merge_posture_decision_for_flow_stage("merge")
+        result.update(canonical_merge_posture_truth(result))
         return result
     result["created_pr"] = True
 
@@ -99,6 +105,7 @@ def accepted_task_pr_merge_flow(
         result["stopped_honestly"] = True
         result["stop_reason"] = checks.message
         result["post_task_decision"] = merge_posture_decision_for_flow_stage("checks")
+        result.update(canonical_merge_posture_truth(result))
         return result
     result["required_checks_passed"] = True
 
@@ -107,16 +114,27 @@ def accepted_task_pr_merge_flow(
         result["stopped_honestly"] = True
         result["stop_reason"] = merged.message
         result["post_task_decision"] = merge_posture_decision_for_flow_stage("merge")
+        result.update(canonical_merge_posture_truth(result))
         return result
     result["merged"] = True
+    result["merged_to_main"] = True
 
     reset = reset_main_clean(runner)
     if not reset.ok:
         result["stopped_honestly"] = True
         result["stop_reason"] = reset.message
         result["post_task_decision"] = merge_posture_decision_for_flow_stage("reset")
+        result.update(canonical_merge_posture_truth(result))
         return result
     result["main_reset_clean"] = True
+    result["clean_main_reset_completed"] = True
+    result.update(
+        canonical_merge_posture_truth(
+            required_checks_passed=result["required_checks_passed"],
+            merged_to_main=result["merged_to_main"],
+            clean_main_reset_completed=result["clean_main_reset_completed"],
+        )
+    )
     result["next_task_may_proceed"] = True
     return result
 
