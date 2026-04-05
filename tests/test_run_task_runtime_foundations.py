@@ -112,6 +112,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.validate_exact_deliverable_contract)
     assert callable(run_task.keep_runtime_artifacts_requested)
     assert callable(run_task.build_final_acceptance_report)
+    assert callable(run_task.classify_final_acceptance_failure)
+    assert callable(run_task.build_acceptance_self_heal_context)
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
@@ -258,3 +260,84 @@ def test_run_task_source_uses_final_acceptance_reviewer() -> None:
     run_task_path = Path(__file__).resolve().parents[1] / "agents" / "run_task.py"
     src = run_task_path.read_text(encoding="utf-8")
     assert "build_final_acceptance_report(" in src
+
+
+def test_final_acceptance_taxonomy_missing_required_in_head() -> None:
+    _, _, _, _, _, _, _, _, _, _, _, final_acceptance = _load_runtime_modules()
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/077.md",
+        validated_required_paths=["agents/lib/final_acceptance.py", "tests/test_run_task_runtime_foundations.py"],
+        head_diff_paths=["tests/test_run_task_runtime_foundations.py"],
+        working_tree_paths=[],
+        validation_profile={"passed": True, "details": ""},
+    )
+    context = final_acceptance.build_acceptance_self_heal_context(report)
+    assert context["failure_class"] == "missing_required_in_head"
+    assert context["retryable"] is True
+    assert "agents/lib/final_acceptance.py" in context["repair_prompt"]
+
+
+def test_final_acceptance_taxonomy_worktree_only_required() -> None:
+    _, _, _, _, _, _, _, _, _, _, _, final_acceptance = _load_runtime_modules()
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/077.md",
+        validated_required_paths=["agents/lib/final_acceptance.py"],
+        head_diff_paths=[],
+        working_tree_paths=["agents/lib/final_acceptance.py"],
+        validation_profile={"passed": True, "details": ""},
+    )
+    context = final_acceptance.build_acceptance_self_heal_context(report)
+    assert context["failure_class"] == "missing_required_in_head" or context["failure_class"] == "required_only_in_worktree"
+    assert context["retryable"] is True
+
+
+def test_final_acceptance_taxonomy_unexpected_tracked_artifact_retryable_for_artifacts_only() -> None:
+    _, _, _, _, _, _, _, _, _, _, _, final_acceptance = _load_runtime_modules()
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/077.md",
+        validated_required_paths=["agents/lib/final_acceptance.py"],
+        head_diff_paths=["agents/lib/final_acceptance.py", "artifacts/extra.json"],
+        working_tree_paths=[],
+        validation_profile={"passed": True, "details": ""},
+    )
+    context = final_acceptance.build_acceptance_self_heal_context(report)
+    assert context["failure_class"] == "unexpected_tracked_artifact"
+    assert context["retryable"] is True
+    assert "artifacts/extra.json" in context["repair_prompt"]
+
+
+def test_final_acceptance_taxonomy_validation_failure_retryable() -> None:
+    _, _, _, _, _, _, _, _, _, _, _, final_acceptance = _load_runtime_modules()
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/077.md",
+        validated_required_paths=["agents/lib/final_acceptance.py"],
+        head_diff_paths=["agents/lib/final_acceptance.py"],
+        working_tree_paths=[],
+        validation_profile={"passed": False, "details": "pytest -q failed"},
+    )
+    context = final_acceptance.build_acceptance_self_heal_context(report)
+    assert context["failure_class"] == "merge_ready_validation_failed"
+    assert context["retryable"] is True
+    assert "pytest -q failed" in context["repair_prompt"]
+
+
+def test_failure_journal_classifies_final_acceptance_failures() -> None:
+    _, _, _, _, failure_journal, _, _, _, _, _, _, _ = _load_runtime_modules()
+    assert failure_journal.classify_failure("final_acceptance", "Required deliverables are not present in committed HEAD diff: agents/run_task.py") == "missing_required_in_head"
+    assert failure_journal.classify_failure("final_acceptance", "Required deliverables exist only in working tree (validated but uncommitted): docs/TRADINGBOT_PROJECT_STATE.md") == "required_only_in_worktree"
+    assert failure_journal.classify_failure("final_acceptance", "Unexpected tracked files remain in committed HEAD diff (outside exact required deliverables): artifacts/extra.json") == "unexpected_tracked_artifact"
+    assert failure_journal.classify_failure("final_acceptance", "Authoritative validation profile failed. Details: pytest -q failed") == "merge_ready_validation_failed"
+
+
+def test_failure_journal_remediation_for_final_acceptance_retryable_cases() -> None:
+    _, _, _, _, failure_journal, _, _, _, _, _, _, _ = _load_runtime_modules()
+    plan = failure_journal.build_failure_remediation_plan(
+        kind="final_acceptance",
+        message="Required deliverables are not present in committed HEAD diff: agents/run_task.py",
+        category="missing_required_in_head",
+        retry_count=1,
+        fingerprint="missing_required_in_head:abc123",
+        raw_failure_snippet="Required deliverables are not present in committed HEAD diff: agents/run_task.py",
+    )
+    assert plan["recommended_next_action"] == "retry_with_targeted_fix"
+    assert plan["continue_autonomously"] is True

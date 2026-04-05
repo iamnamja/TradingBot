@@ -418,6 +418,18 @@ def build_final_acceptance_report(
     )
 
 
+def classify_final_acceptance_failure(report: Dict[str, object]) -> Dict[str, object]:
+    from agents.lib.final_acceptance import classify_final_acceptance_failure as _impl  # type: ignore
+
+    return dict(_impl(report))
+
+
+def build_acceptance_self_heal_context(report: Dict[str, object]) -> Dict[str, object]:
+    from agents.lib.final_acceptance import build_acceptance_self_heal_context as _impl  # type: ignore
+
+    return dict(_impl(report))
+
+
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
     issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]
     decision = str(report.get("acceptance_decision", "retryable_failure"))
@@ -426,12 +438,18 @@ def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
         f"Acceptance decision: {decision}",
         "Reconcile the exact task contract against the committed/staged diff and final validation before claiming success.",
     ]
-    if issues:
+    try:
+        context = build_acceptance_self_heal_context(report)
+    except Exception:
+        context = {}
+    repair_prompt = str(context.get("repair_prompt", "")).strip()
+    if repair_prompt:
+        lines.append("Focused self-heal guidance:")
+        lines.append(repair_prompt)
+    elif issues:
         lines.append("Issues:")
         lines.extend(f"- {issue}" for issue in issues)
     return "\n".join(lines)
-
-
 def _report_final_acceptance_failure(report: Dict[str, object]) -> None:
     print("❌ Final acceptance review failed:")
     issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]

@@ -163,3 +163,18 @@ Conservative rules:
 - optimistic acceptance is never preferred over explicit rejection
 
 `agents/run_task.py` may still invoke this reviewer, but the reusable policy/report logic should live in a dedicated helper module rather than remain spread across controller flow.
+
+## Targeted self-heal for final-acceptance failures (077)
+
+When final acceptance rejects an otherwise green result, the controller now distinguishes a narrow retryable taxonomy instead of issuing a generic rerun.
+
+At minimum the taxonomy includes:
+
+- `missing_required_in_head`
+- `required_only_in_worktree`
+- `unexpected_tracked_artifact`
+- `merge_ready_validation_failed`
+
+Retryable cases produce a focused repair prompt naming the acceptance failure class and the specific files to add, commit, or remove. Non-retryable or unsafe cases still stop honestly as `manual_patch` or `blocked`.
+
+This does **not** create an unbounded repair loop. The existing bounded retry budget still governs acceptance self-heal.

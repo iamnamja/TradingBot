@@ -72,3 +72,5 @@ Any continuation language should reference task IDs exactly as numbered above.
 
 
 Task 076 adds the next layer on top of that: a dedicated final acceptance reviewer and machine-readable acceptance report that reconcile task-contract requirements, committed/staged diff state, working-tree state, and final validation before the controller declares a task truly finished.
+
+Task 077 builds on 076 by teaching the controller how to classify and self-heal narrow final-acceptance failures with focused repair context instead of broad reruns. This is still conservative: protected/controller breakages are not downgraded into ordinary retryable cleanup.

@@ -22,6 +22,15 @@ def classify_failure(kind: str, message: str) -> str:
         return "seam_contract_mismatch"
     if any(token in text for token in ("protected meta", "normal bundle lane", "protected-file method mode", "meta harness")):
         return "harness_meta_regression"
+    if kind == "final_acceptance":
+        if "authoritative validation profile failed" in text or "merge-ready validation" in text:
+            return "merge_ready_validation_failed"
+        if "only in working tree" in text:
+            return "required_only_in_worktree"
+        if "not present in committed head diff" in text:
+            return "missing_required_in_head"
+        if "unexpected tracked files remain" in text:
+            return "unexpected_tracked_artifact"
     if any(token in text for token in ("required file", "unexpected file", "deliverable", "task shape", "material update", "split recommendation")):
         return "task_shape_mismatch"
     if "github actions" in text or "required status check" in text or "workflow" in text or re.search(r"\bci\b", text):
@@ -72,6 +81,10 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str, re
         "seam_contract_mismatch": dict(recommended_next_action="patch_runner_or_task_contract", chosen_remediation_path="semantic_contract_repair", autonomy_confidence=0.30, continue_autonomously=False, manual_lane_recommended=False),
         "harness_meta_regression": dict(recommended_next_action="manual_patch", chosen_remediation_path="manual_patch_lane", autonomy_confidence=0.10, continue_autonomously=False, manual_lane_recommended=True),
         "ci_only_failure": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="ci_only_repair", autonomy_confidence=0.55, continue_autonomously=False, manual_lane_recommended=False),
+        "missing_required_in_head": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="acceptance_required_head_repair", autonomy_confidence=0.86, continue_autonomously=True, manual_lane_recommended=False),
+        "required_only_in_worktree": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="acceptance_commit_parity_repair", autonomy_confidence=0.82, continue_autonomously=True, manual_lane_recommended=False),
+        "unexpected_tracked_artifact": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="acceptance_artifact_cleanup", autonomy_confidence=0.74, continue_autonomously=True, manual_lane_recommended=False),
+        "merge_ready_validation_failed": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="acceptance_validation_repair", autonomy_confidence=0.78, continue_autonomously=True, manual_lane_recommended=False),
     }
     plan = dict(plans.get(category, dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="targeted_retry", autonomy_confidence=0.50, continue_autonomously=False, manual_lane_recommended=False)))
     if retry_count >= 3:
