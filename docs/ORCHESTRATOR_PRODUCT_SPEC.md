@@ -39,7 +39,7 @@ It does **not** yet honestly claim:
 Task 082 exposed the next set of hardening priorities:
 
 - controller modules still need one canonical contract for decisions and truth fields
-- retryable self-heal must be explicitly non-reexecuting everywhere
+- retryable self-heal must be explicitly non-reexecuting everywhere with separate execution-vs-repair truth
 - merge/reset posture truth must be first-class and persisted consistently
 - controller-task failures need a semantic repair digest, not just raw logs
 - controller-core tasks need stricter patch-quality gates and proof-claim deferral
@@ -87,8 +87,8 @@ Per queued task, the controller performs:
 2. execute task attempt
 3. run authoritative validation
 4. run final acceptance review
-5. if acceptance is retryable and retry budget remains, run self-heal + retry
-6. persist terminal task outcome + checkpoint/state updates
+5. if acceptance is retryable and retry budget remains, run repair without raw re-execution, then re-validate and re-review
+6. persist terminal task outcome plus checkpoint/state updates
 7. continue to next task only when terminal decision is safe
 
 Conservative stop posture is preserved:
@@ -112,8 +112,8 @@ It is **not** a claim of broad arbitrary-task scheduler autonomy, and it does no
 
 The next tranche is successful when:
 
-- controller-facing modules share one canonical contract
-- retryable self-heal is explicitly non-reexecuting
+- controller-facing modules share one canonical contract module
+- retryable self-heal is explicitly non-reexecuting and auditably persisted
 - merge/reset posture truth is first-class and persisted consistently
 - controller-task repair uses a semantic failure digest
 - controller-core tasks run under stricter patch-quality and claim-deferral rules

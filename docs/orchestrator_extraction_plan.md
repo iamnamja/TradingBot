@@ -2,7 +2,7 @@
 
 ## Scope of this document
 
-This document defines the concrete, ordered plan to extract the orchestrator into a standalone package/repository **after** stabilization gates are complete. It is planning and sequencing only; it does not indicate extraction is already done.
+This document defines the concrete, ordered plan to extract the orchestrator into a standalone package or repository **after** stabilization gates are complete. It is planning and sequencing only; it does not indicate extraction is already done.
 
 ## Preconditions (must be true before extraction starts)
 
@@ -29,6 +29,7 @@ But extraction should still be deferred until the next tranche stabilizes:
 - canonical controller contract
 - non-reexecuting retry/self-heal semantics
 - merge/reset truth persistence
+- semantic failure digest / repair-context helpers
 - controller strict-mode / patch-quality discipline
 
 ## Target package boundary
@@ -37,7 +38,7 @@ But extraction should still be deferred until the next tranche stabilizes:
 
 - `src/builder/orchestrator/*` (orchestrator engine modules)
 - minimal packaging metadata and CI/test harness needed to run orchestrator independently
-- orchestrator-facing docs copied/adapted from canonical `docs/` sources
+- orchestrator-facing docs copied or adapted from canonical `docs/` sources
 
 ### Out of scope for extraction
 
@@ -53,11 +54,11 @@ But extraction should still be deferred until the next tranche stabilizes:
    - Verify no TradingBot symbols are re-exported from orchestrator package root.
 
 2. **Stabilize controller contracts**
-   - Canonicalize controller decisions, merge truth fields, and resume metadata.
-   - Ensure controller-facing tests/docs use one contract vocabulary.
+   - Canonicalize controller decisions, merge truth fields, retry-vs-repair truth, and resume metadata.
+   - Ensure controller-facing tests and docs use one contract vocabulary.
 
 3. **Finish controller thinning**
-   - Continue extracting strict-mode/repair-context/controller glue from `agents/run_task.py`.
+   - Continue extracting strict-mode, repair-context, and controller glue from `agents/run_task.py`.
    - Preserve shell wrappers only where compatibility needs them.
 
 4. **Cut extraction branch and scaffold target repo**
@@ -65,7 +66,7 @@ But extraction should still be deferred until the next tranche stabilizes:
    - Initialize new repository/package scaffold for orchestrator.
 
 5. **Copy orchestrator code with history-aware strategy**
-   - Move/copy `src/builder/orchestrator` content into target layout.
+   - Move or copy `src/builder/orchestrator` content into target layout.
    - Preserve commit traceability where practical.
 
 6. **Rewire imports and packaging metadata**
@@ -93,15 +94,15 @@ But extraction should still be deferred until the next tranche stabilizes:
 
 The most useful controller-thinning priorities before extraction are now:
 
-1. canonical controller contract surfaces
-2. strict-mode and patch-quality gating helpers
-3. semantic failure digest / repair-context helpers
+1. canonical `controller_contract` surface
+2. semantic failure digest and `controller_repair` helpers
+3. `controller_strict_mode` gating helpers
 4. final single-task success-path shell reduction
-5. remaining controller glue around proof/merge/reset sequencing
+5. remaining controller glue around proof and merge/reset sequencing
 
 ## Definition of done (for future extraction execution)
 
-- Standalone orchestrator repo/package is green in CI.
+- Standalone orchestrator repo or package is green in CI.
 - Documented public API surface is preserved.
 - Controller-facing contracts are stable and documented.
 - Monorepo callers migrated or bridged during approved transition.

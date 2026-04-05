@@ -1,7 +1,6 @@
 # Orchestrator Controls and Policies
 
-This document describes the stable seams intended for orchestrator integration
-tests and monkeypatch-based verification.
+This document describes the stable seams intended for orchestrator integration tests and monkeypatch-based verification, plus the current controller-policy posture.
 
 ## Stable seam registry
 
@@ -11,8 +10,7 @@ The orchestrator shell exposes a registry of supported seam families through:
 - `agents.lib.shell_router.build_shell_seam_registry()`
 - `agents.lib.shell_router.shell_seam_exports()`
 
-The registry is intentionally small and stable. It is meant to replace ad hoc
-lookups of private globals such as `run_task.some_internal_name`.
+The registry is intentionally small and stable. It is meant to replace ad hoc lookups of private globals such as `run_task.some_internal_name`.
 
 ## Supported seam families
 
@@ -30,118 +28,80 @@ The current canonical family names are:
 
 Each family maps to the stable helper names that tests may patch or inspect.
 
-### Family intent
-
-- `bootstrap`: project scaffold bootstrap helpers
-- `spec_mode`: frozen spec artifact and execution-resolution helpers
-- `failure_journal`: failure classification, fingerprinting, and journal helpers
-- `validator_runner`: validator execution and validator selection helpers
-- `artifact_quarantine`: runtime artifact cleanup and classification helpers
-- `runtime_foundations`: shell-provider, git, and worktree foundation helpers
-- `parser_policy`: file-bundle parsing and protected-file policy helpers
-- `semantic_preflight`: semantic inspection and protected API validation helpers
-- `shell_router`: outer CLI routing and file-bundle / method-bundle transport helpers
-
 ## Intended use in tests
 
 Tests should patch these seams when they need deterministic behavior:
 
-- model / bundle request invocation
+- model or bundle request invocation
 - validator invocation
 - failure-journal access
-- review / quarantine access
+- review or quarantine access
 - shell routing and bootstrap dispatch
 
-Prefer patching the stable helper returned by the registry rather than reaching
-into unrelated internal modules or guessing private names.
+Prefer patching the stable helper returned by the registry rather than reaching into unrelated internal modules or guessing private names.
 
-## Practical guidance
+## Controller contract posture after 082
 
-- Use the registry from `agents.run_task._shell_router_exports()` when a test
-  needs the shell-router entrypoint.
-- Use `agents.lib.shell_router.shell_seam_exports()` when a test wants the
-  canonical seam mapping for all supported families.
-- Patch only the helper names listed in the registry for the specific family.
-- Avoid monkeypatching unrelated private globals that are not part of the stable
-  seam surface.
+The next hardening tranche should centralize controller truth into one canonical contract surface rather than leaving repeated literal sets spread across modules.
 
-## Policy notes
+That canonical contract should own at least:
 
-- Protected-file method editing remains a separate transport mode.
-- Normal file-bundle responses must not include protected method-edit files.
-- Tests that mention bundle markers should avoid raw standalone marker lines in
-  prose examples; render them inline or split the token if needed.
-
-## Failure classification and remediation planning
-
-The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
+- acceptance decisions
+- post-task decisions
+- merge-posture terminal decisions
+- persisted controller truth-field names
+- canonical resume metadata values
+- mapping helpers used by batch executor, batch state, final acceptance, task queue, and git workflow
 
 ## Batch continue gate (explicit post-task decision)
 
-After each queued task, the orchestrator computes and persists one explicit batch
-decision:
+After each queued task, the orchestrator computes and persists one explicit batch decision.
+
+Current decision surface:
 
 - `continue`
 - `stop`
 - `manual_patch`
 - `blocked`
+- `failed_merge`
+- `failed_checks`
+- `failed_reset`
 
-The decision is conservative and deterministic. It is grounded in runtime
-signals already emitted by the shell and validators, including:
+The decision is conservative and deterministic. It is grounded in runtime signals already emitted by the shell and validators, including:
 
-- validator success/failure
-- deliverable completeness pass/fail
-- protected-lane policy pass/fail
+- validator success or failure
+- deliverable completeness pass or fail
+- protected-lane policy pass or fail
 - duplicate bundle conflict artifacts
 - manual patch recommendation signals
+- accepted-task merge-posture truth
 
 ### Current conservative rules
 
 - Return `continue` only when task status is `completed` and all hard gates pass.
-- Return `manual_patch` when the task status is `manual_patch` or when a manual
-  patch recommendation is present.
-- Return `blocked` for queue-blocking conditions (for example duplicate bundle
-  conflict artifacts or explicit blocked status).
-- Return `stop` for hard failures that are not blocked/manual-patch.
+- Return `manual_patch` when the task status is `manual_patch` or when a manual patch recommendation is present.
+- Return `blocked` for queue-blocking conditions.
+- Return merge-posture failure decisions explicitly when PR, checks, merge, or reset truth says the task cannot safely advance.
+- Return `stop` for hard failures that are not blocked or manual-patch.
 
-This prevents silent continuation after hard failures and ensures manual-patch
-paths are never auto-advanced.
+This prevents silent continuation after hard failures and ensures manual-patch paths are never auto-advanced.
 
-### Batch-state persistence contract
+## Batch-state persistence contract
 
 Batch state persists both:
 
 - `next_task_may_proceed` (boolean gate)
 - `post_task_decision` (narrow enum above)
 
-Each task checkpoint also stores the same `post_task_decision`. Resume logic must
-treat anything other than `continue` as non-autonomous and require explicit
-intervention.
+Each task checkpoint also stores the same `post_task_decision` plus accepted-task PR flow truth and resume metadata. Resume logic must treat anything other than `continue` as non-autonomous unless canonical persisted resume evidence explicitly proves a safe skip posture.
 
-## Duplicate bundle path recovery
+## Final acceptance reviewer and retry posture
 
-When a returned file bundle repeats the same `FILE:` path multiple times, the controller distinguishes between two cases:
-
-- **equivalent duplicates**: every duplicate entry for the path normalizes to the same content
-- **conflicting duplicates**: the repeated entries normalize to materially different content
-
-Equivalent duplicates may be collapsed into one accepted file entry when the normalized contents are byte-equivalent after the existing newline normalization rules.
-
-Conflicting duplicates must not be silently resolved by picking one version. Instead, the controller should:
-
-- preserve already accepted non-conflicted files
-- run one focused repair request for only the conflicted path(s)
-- keep explicit deliverable enforcement active
-
-If the conflicted paths still cannot be resolved after the focused repair attempt, the run writes `last_output_duplicate_bundle_conflict.json` in repo root and fails with a duplicate-conflict error.
-
-## Final acceptance reviewer (076)
-
-The final acceptance reviewer is now the canonical place where the orchestrator reconciles:
+The final acceptance reviewer is the canonical place where the orchestrator reconciles:
 
 - the current task file
 - the exact required deliverables parsed from the task contract
-- the committed/staged branch diff paths that would become the final result
+- the committed or staged branch diff paths that would become the final result
 - the remaining working-tree diff paths
 - the authoritative validation profile result
 - unexpected tracked artifact findings
@@ -153,56 +113,20 @@ It produces one machine-readable acceptance report with a small explicit outcome
 - `manual_patch`
 - `blocked`
 
-Conservative rules:
+Retryable self-heal should remain bounded and should be made explicitly non-reexecuting in controller truth: repair the result, rerun validation and acceptance, and do not rerun the raw execution attempt for the same retryable cycle.
 
-- missing required deliverables at final review reject acceptance
-- validation-profile failure is surfaced distinctly from task-contract mismatch
-- unexpected tracked artifacts in the final diff block acceptance
-- optimistic acceptance is never preferred over explicit rejection
+## Controller repair guidance posture
 
-`agents/run_task.py` may still invoke this reviewer, but the reusable policy/report logic should live in a dedicated helper module rather than remain spread across controller flow.
+Raw failing output should remain available, but controller-core repair should increasingly be driven by a compact semantic digest that names contract drift, merge-posture mismatch, missing persisted truth fields, missing exports, and other controller-family gaps directly.
 
-## Targeted self-heal for final-acceptance failures (077)
+## Controller-task strict mode posture
 
-When final acceptance rejects an otherwise green result, the controller now distinguishes a narrow retryable taxonomy instead of issuing a generic rerun.
+Controller-core tasks should run under stricter discipline than ordinary consumer or proof tasks.
 
-At minimum the taxonomy includes:
+At minimum, controller strict mode should:
 
-- `missing_required_in_head`
-- `required_only_in_worktree`
-- `unexpected_tracked_artifact`
-- `merge_ready_validation_failed`
-
-Retryable cases produce a focused repair prompt naming the acceptance failure class and the specific files to add, commit, or remove. Non-retryable or unsafe cases still stop honestly as `manual_patch` or `blocked`.
-
-This does **not** create an unbounded repair loop. The existing bounded retry budget still governs acceptance self-heal.
-
-## Accepted-task autonomous PR/merge and clean-main reset gate (079)
-
-Accepted-task completion can now be configured to include a fully explicit post-acceptance gate:
-
-1. create PR
-2. wait for required checks
-3. merge only after checks pass
-4. reset local branch context back to clean `main`
-5. only then allow next task progression
-
-### Guardrails
-
-- Tasks not in `accepted` state must never enter automated PR/merge.
-- If PR creation fails, CI checks fail, merge fails, or main reset fails:
-  - stop honestly
-  - persist failure state/checkpoint
-  - set `next_task_may_proceed=false`
-- Do not silently continue to the next queued task without successful clean-main reset.
-- Keep this mode operator-controlled and optional; single-task/manual posture remains valid.
-
-### Operator control posture
-
-Autonomous merge behavior is opt-in. Operators can run:
-
-- single-task mode without autonomous PR flow
-- batch mode with autonomous PR flow disabled
-- batch mode with autonomous PR flow enabled (conservative gate applied)
-
-This keeps automation reviewable and avoids hidden always-on side effects.
+1. activate for controller-core file shapes
+2. run focused controller tests first
+3. reject obvious low-discipline bundles before apply when deterministic heuristics can do so safely
+4. still require full `ruff check .` and `pytest -q` before proof-complete claims are accepted
+5. avoid over-blocking ordinary non-controller tasks

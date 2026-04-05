@@ -11,7 +11,9 @@ Perform another deliberate extraction pass so more controller families move out 
 ## Create or update these exact files
 
 - `agents/run_task.py`
-- `agents/lib/failure_journal.py`
+- `agents/lib/controller_contract.py`
+- `agents/lib/controller_repair.py`
+- `agents/lib/controller_strict_mode.py`
 - `agents/lib/final_acceptance.py`
 - `agents/lib/task_contracts.py`
 - `docs/orchestrator_extraction_plan.md`
@@ -30,7 +32,7 @@ Move additional controller-family helpers out of `agents/run_task.py`, especiall
 
 ### 2) Keep compatibility wrappers
 
-`agents/run_task.py` may keep small compatibility wrappers, but the real behavior should live in the extracted helper modules.
+`agents/run_task.py` may keep small compatibility wrappers, but the real behavior should live in extracted helper modules.
 
 ### 3) Honest extraction plan update
 
@@ -38,7 +40,7 @@ Update the extraction plan to reflect what is now extracted and what still remai
 
 ## Tests
 
-Add/adjust tests that prove the `run_task.py` shell wrappers delegate to extracted helpers for the newly moved controller families.
+Add or adjust tests that prove the `run_task.py` shell wrappers delegate to extracted helpers for the newly moved controller families.
 
 ## Guardrails
 

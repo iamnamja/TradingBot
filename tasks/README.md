@@ -28,7 +28,7 @@ This file is the canonical visible ordering for task execution history and conti
 ## Numbering policy
 
 1. Task IDs and filenames in `tasks/` are the source of truth.
-2. Continuation references in docs must use the existing numbered IDs (no ad-hoc renumbering).
+2. Continuation references in docs must use the existing numbered IDs (no ad hoc renumbering).
 3. Umbrella/subtask suffixes (`a`, `b`, etc.) remain part of canonical identity when present.
 4. When a plain-number task is deferred behind suffix subtasks, the task index must state that ordering explicitly.
 

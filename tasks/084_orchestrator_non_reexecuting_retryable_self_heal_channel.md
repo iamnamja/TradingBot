@@ -2,19 +2,21 @@
 
 ## Why this task exists
 
-Task 082 required retryable self-heal semantics where the orchestrator repairs a task result and re-evaluates acceptance without re-running the raw task execution for the same attempt.
+Task 082 proved the desired behavior: a retryable acceptance failure can be repaired and re-evaluated without re-running raw task execution for the same attempt.
 
-That behavior must now be made explicit, canonical, and well tested.
+That behavior now needs to be made explicit, canonical, and auditable in persisted controller truth.
 
 ## Outcome
 
-Introduce a non-reexecuting retry/self-heal channel so retryable acceptance failures can be repaired deterministically and re-validated without incrementing raw execution attempts.
+Introduce a non-reexecuting retry/self-heal channel so retryable acceptance failures are repaired deterministically and re-validated without incrementing raw execution attempts.
 
 ## Create or update these exact files
 
+- `agents/lib/controller_contract.py`
 - `agents/lib/batch_executor.py`
-- `agents/lib/final_acceptance.py`
 - `agents/lib/batch_state.py`
+- `agents/lib/final_acceptance.py`
+- `tests/test_controller_contract.py`
 - `tests/test_run_task_runtime_foundations.py`
 - `tests/test_task_queue.py`
 - `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
@@ -22,7 +24,7 @@ Introduce a non-reexecuting retry/self-heal channel so retryable acceptance fail
 
 ## Required behavior
 
-### 1) Execution vs repair separation
+### 1) Explicit execution vs repair separation
 
 The controller loop must distinguish between:
 
@@ -30,7 +32,7 @@ The controller loop must distinguish between:
 - repair/self-heal transformation of the result
 - re-validation + re-acceptance of the repaired result
 
-### 2) No raw re-execution for same retryable attempt
+### 2) No raw re-execution for the same retryable attempt
 
 When acceptance is `retryable_failure` and retry budget remains:
 
@@ -38,23 +40,24 @@ When acceptance is `retryable_failure` and retry budget remains:
 - self-heal should receive the failed result and produce a repaired result or patch context
 - validator and acceptance review should be rerun on the repaired result
 
-### 3) Persisted truth
+### 3) Canonical persisted audit fields
 
-Persisted checkpoints/state must make the above behavior auditable, including:
+Persisted checkpoints/state must make the above behavior auditable with explicit fields, including at least:
 
-- raw execution attempt count
-- retry/self-heal count
-- final accepted/not-accepted result
-- whether acceptance followed repaired output
+- `execution_attempt_count`
+- `repair_count`
+- `accepted_after_repair`
+
+Do not overload a single ambiguous counter to mean both raw execution and repair loops.
 
 ## Tests
 
-Add/adjust tests that prove:
+Add or adjust tests that prove:
 
 1. retryable self-heal can lead to acceptance and continue
 2. raw execution count does not increase during repair-only retry
 3. repair/self-heal path remains bounded by retry budget
-4. persisted state reflects repair count and accepted outcome truthfully
+4. persisted state reflects execution-vs-repair truth explicitly and consistently
 
 ## Guardrails
 
@@ -64,4 +67,4 @@ Add/adjust tests that prove:
 
 ## Acceptance
 
-This task is complete when retryable self-heal is explicitly non-reexecuting, persisted truthfully, and proven by tests.
+This task is complete when retryable self-heal is explicitly non-reexecuting, persisted truthfully, and proven by tests using separate execution and repair truth fields.

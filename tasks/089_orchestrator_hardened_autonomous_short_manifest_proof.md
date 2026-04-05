@@ -10,7 +10,7 @@ Produce a hardened autonomous short-manifest proof that consumes the now-canonic
 
 ## Create or update these exact files
 
-- `agents/run_task.py`
+- `tests/test_controller_contract.py`
 - `tests/test_run_task_runtime_foundations.py`
 - `tests/test_task_queue.py`
 - `docs/TRADINGBOT_PROJECT_STATE.md`
@@ -32,18 +32,19 @@ The proof must cover a short ordinary manifest where the orchestrator can honest
 
 ## Tests
 
-Add/adjust deterministic local proof tests that demonstrate:
+Add or adjust deterministic local proof tests that demonstrate:
 
 1. acceptance + non-reexecuting self-heal + continue
 2. honest stop on failed merge/checks/reset posture
 3. resume-after-merge skip semantics based on persisted truth
-4. controller strict-mode/claim-deferral behavior for proof-shaping tasks
+4. controller strict-mode and claim-deferral behavior for proof-shaping tasks
 
 ## Guardrails
 
 - Keep proof scope narrow and honest
 - Do not claim arbitrary protected/controller task-list autonomy
 - Keep deterministic local proofs as the source of truth for this task
+- Treat this as a proof-and-doc synchronization task, not a new controller-core feature tranche
 
 ## Acceptance
 

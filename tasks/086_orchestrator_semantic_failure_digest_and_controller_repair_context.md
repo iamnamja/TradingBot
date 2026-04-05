@@ -8,13 +8,16 @@ The orchestrator needs a structured failure digest that is rich enough to guide 
 
 ## Outcome
 
-Create a semantic failure digest for controller-task failures and use it to generate focused controller repair context.
+Create a semantic failure digest module for controller-task failures and use it to generate focused controller repair context.
 
 ## Create or update these exact files
 
+- `agents/lib/controller_contract.py`
+- `agents/lib/controller_repair.py`
 - `agents/lib/failure_journal.py`
 - `agents/lib/final_acceptance.py`
 - `agents/run_task.py`
+- `tests/test_controller_contract.py`
 - `tests/test_run_task_runtime_foundations.py`
 - `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
 - `docs/TRADINGBOT_PROJECT_STATE.md`
@@ -27,7 +30,7 @@ For controller-task failures, the orchestrator should be able to summarize at le
 
 - failing test names
 - actual vs expected decision strings
-- missing/extra persisted truth fields
+- missing or extra persisted truth fields
 - missing public wrapper/helper exports
 - merge-posture mismatch
 - policy/controller taxonomy mismatch
@@ -35,7 +38,7 @@ For controller-task failures, the orchestrator should be able to summarize at le
 
 ### 2) Controller repair context
 
-The repair loop should be able to turn the semantic failure digest into a focused repair prompt/context instead of handing the model only raw test output.
+The repair loop should be able to turn the semantic failure digest into a focused repair prompt/context instead of handing the model only raw failing output.
 
 ### 3) Reuse of digest
 
@@ -47,7 +50,7 @@ The digest should be reusable by:
 
 ## Tests
 
-Add/adjust tests that prove:
+Add or adjust tests that prove:
 
 1. controller-task failures can be normalized into a semantic digest
 2. repair context names the key drift surfaces rather than only raw stack traces
@@ -57,7 +60,7 @@ Add/adjust tests that prove:
 
 - Do not remove raw failing output; add semantic digest on top of it
 - Keep digest deterministic and compact
-- Do not broaden into general-purpose natural-language summarization of all failures
+- Keep the real logic in a helper module rather than expanding `agents/run_task.py`
 
 ## Acceptance
 
