@@ -97,8 +97,24 @@ The most useful controller-thinning priorities before extraction are now:
 1. canonical `controller_contract` surface
 2. semantic failure digest and `controller_repair` helpers
 3. `controller_strict_mode` gating helpers
-4. final single-task success-path shell reduction
+4. post-acceptance feedback/report helpers moved out of `agents/run_task.py`
 5. remaining controller glue around proof and merge/reset sequencing
+
+## Post-087/088 extraction honesty
+
+Additional controller families now live outside `agents/run_task.py`:
+
+- strict-mode activation description and validation-profile shaping live in `agents/lib/controller_strict_mode.py`
+- semantic failure appendix / repair prompt construction lives in `agents/lib/controller_repair.py`
+- post-acceptance retry feedback/report shaping lives in `agents/lib/final_acceptance.py`
+- controller-core task-shape context lives in `agents/lib/task_contracts.py`
+
+`agents/run_task.py` still intentionally retains:
+
+- the top-level orchestration loop and iteration sequencing
+- write/apply/revert flow around generated bundles
+- shell-visible compatibility wrappers used by tests and downstream callers
+- remaining inline success-path glue that should only move again in reviewable slices
 
 ## Definition of done (for future extraction execution)
 

@@ -120,15 +120,20 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.classify_final_acceptance_failure)
     assert callable(run_task.build_acceptance_self_heal_context)
     assert callable(run_task.build_final_acceptance_failure_feedback)
+    assert callable(run_task.build_final_acceptance_retry_feedback)
     assert callable(run_task.report_final_acceptance_failure)
     assert callable(run_task.build_controller_failure_digest)
     assert callable(run_task.build_controller_repair_context)
+    assert callable(run_task.build_controller_test_failure_appendix)
     assert callable(run_task.execute_batch_loop)
     assert callable(run_task.accepted_task_pr_merge_flow)
     assert callable(run_task.report_branch_push_ready)
     assert callable(run_task.build_controller_strict_mode_context)
+    assert callable(run_task.describe_controller_strict_mode)
     assert callable(run_task.controller_strict_preapply_issues)
+    assert callable(run_task.format_controller_strict_preapply_issues)
     assert callable(run_task.run_controller_strict_checks)
+    assert callable(run_task.strict_validation_profile)
 
 
 def test_run_task_runtime_contract_modules_share_canonical_surface() -> None:
@@ -137,7 +142,8 @@ def test_run_task_runtime_contract_modules_share_canonical_surface() -> None:
     assert batch_state.BatchStatus is controller_contract.BatchStatus
     assert batch_executor.ResumeMode is controller_contract.ResumeMode
     assert failure_journal.POLICY_BLOCKED_FAILURE_CATEGORY == controller_contract.POLICY_BLOCKED_FAILURE_CATEGORY
-
+    assert "build_controller_test_failure_appendix" in controller_contract.CONTROLLER_RUNTIME_DELEGATE_SURFACES
+    assert "describe_controller_strict_mode" in controller_contract.CONTROLLER_RUNTIME_DELEGATE_SURFACES
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
@@ -235,6 +241,59 @@ def test_git_workflow_success_reports_canonical_merge_reset_truth() -> None:
     assert result["merged_to_main"] is True
     assert result["clean_main_reset_completed"] is True
     assert result["next_task_may_proceed"] is True
+
+
+def test_run_task_delegates_new_controller_repair_appendix_wrapper(monkeypatch) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    controller_repair = importlib.import_module("agents.lib.controller_repair")
+
+    def fake_appendix(**kwargs):
+        assert kwargs["details"] == "boom"
+        assert kwargs["semantic_hints"] == "hint"
+        return "delegated appendix"
+
+    monkeypatch.setattr(controller_repair, "build_controller_test_failure_appendix", fake_appendix)
+    assert run_task.build_controller_test_failure_appendix(details="boom", semantic_hints="hint") == "delegated appendix"
+
+
+def test_run_task_delegates_new_final_acceptance_retry_feedback_wrapper(monkeypatch) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, final_acceptance, _, _ = _load_runtime_modules()
+
+    def fake_feedback(report):
+        assert report == {"acceptance_decision": "retryable_failure"}
+        return {"feedback_text": "delegated feedback", "should_stop": False}
+
+    monkeypatch.setattr(final_acceptance, "build_final_acceptance_retry_feedback", fake_feedback)
+    assert run_task.build_final_acceptance_retry_feedback({"acceptance_decision": "retryable_failure"}) == {"feedback_text": "delegated feedback", "should_stop": False}
+
+
+def test_run_task_delegates_new_controller_strict_mode_wrappers(monkeypatch) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, controller_strict_mode = _load_runtime_modules()
+
+    def fake_describe(*, required_paths=None, task_file=""):
+        assert required_paths == ["agents/run_task.py"]
+        assert task_file == "tasks/088_orchestrator_controller_decomposition_fourth_extraction.md"
+        return {"enabled": True, "status_lines": ["delegated strict mode"]}
+
+    def fake_profile(result):
+        assert result == {"focused_ok": True, "lint_ok": True, "test_ok": True, "output_text": ""}
+        return {"passed": True, "details": "delegated"}
+
+    def fake_format(issues):
+        assert issues == ["issue"]
+        return "delegated formatting"
+
+    monkeypatch.setattr(controller_strict_mode, "describe_controller_strict_mode", fake_describe)
+    monkeypatch.setattr(controller_strict_mode, "strict_validation_profile", fake_profile)
+    monkeypatch.setattr(controller_strict_mode, "format_controller_strict_preapply_issues", fake_format)
+
+    described = run_task.describe_controller_strict_mode(
+        required_paths=["agents/run_task.py"],
+        task_file="tasks/088_orchestrator_controller_decomposition_fourth_extraction.md",
+    )
+    assert described == {"enabled": True, "status_lines": ["delegated strict mode"]}
+    assert run_task.strict_validation_profile({"focused_ok": True, "lint_ok": True, "test_ok": True, "output_text": ""}) == {"passed": True, "details": "delegated"}
+    assert run_task.format_controller_strict_preapply_issues(["issue"]) == "delegated formatting"
 
 
 def test_controller_repair_context_names_semantic_drift_surfaces() -> None:

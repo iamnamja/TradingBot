@@ -304,6 +304,19 @@ def build_final_acceptance_failure_feedback(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def build_final_acceptance_retry_feedback(report: dict[str, Any]) -> dict[str, object]:
+    issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]
+    decision = str(report.get("acceptance_decision", "retryable_failure"))
+    feedback_text = build_final_acceptance_failure_feedback(report)
+    return {
+        "acceptance_decision": decision,
+        "issues": issues,
+        "issues_text": "\n".join(issues),
+        "feedback_text": feedback_text,
+        "should_stop": decision in {"blocked", "manual_patch"},
+    }
+
+
 def report_final_acceptance_failure(
     report: dict[str, Any],
     *,

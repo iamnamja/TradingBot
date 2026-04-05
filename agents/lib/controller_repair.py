@@ -1,8 +1,6 @@
 from __future__ import annotations
-
 import re
 from typing import Any, Iterable
-
 from agents.lib.controller_contract import (
     CHECKPOINT_TRUTH_FIELDS,
     CONTROLLER_FAILURE_CATEGORIES,
@@ -12,7 +10,6 @@ from agents.lib.controller_contract import (
     POLICY_BLOCKED_FAILURE_CATEGORY,
     RESUME_METADATA_FIELDS,
 )
-
 _KNOWN_DECISION_STRINGS = {
     "accepted",
     "retryable_failure",
@@ -31,7 +28,6 @@ _KNOWN_DECISION_STRINGS = {
     "resume_after_merge",
     "resume_after_manual_resolution",
 }
-
 _CONTROLLER_TAXONOMY_TOKENS = tuple(
     sorted(
         {
@@ -44,7 +40,6 @@ _CONTROLLER_TAXONOMY_TOKENS = tuple(
         }
     )
 )
-
 _PYTEST_NAME_RE = re.compile(r"(?m)^(?:_{5,}\s+)?(test_[A-Za-z0-9_]+)")
 _ASSERT_MISMATCH_RE = re.compile(r"assert\s+['\"]([^'\"]+)['\"]\s*==\s*['\"]([^'\"]+)['\"]")
 _ATTR_MISSING_RE = re.compile(r"has no attribute ['\"]([^'\"]+)['\"]")
@@ -52,12 +47,8 @@ _IMPORT_MISSING_SYMBOL_RE = re.compile(r"imports missing symbol ['\"]([^'\"]+)['
 _KEY_ERROR_RE = re.compile(r"KeyError:\s*['\"]([^'\"]+)['\"]")
 _PATH_RE = re.compile(r"([A-Za-z0-9_./\\-]+\.(?:py|md))")
 _MODULE_ATTR_RE = re.compile(r"module ['\"]([^'\"]+)['\"] has no attribute")
-
-
 def _normalize_path(path: str) -> str:
     return str(path or "").strip().replace("\\", "/")
-
-
 def _stable_unique(items: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -67,8 +58,6 @@ def _stable_unique(items: Iterable[str]) -> list[str]:
             seen.add(value)
             out.append(value)
     return out
-
-
 def controller_family_files_touched(paths: Iterable[str] | None = None, *, details: str = "") -> list[str]:
     candidates = {_normalize_path(path) for path in (paths or ()) if str(path or "").strip()}
     detail_text = str(details or "")
@@ -78,8 +67,6 @@ def controller_family_files_touched(paths: Iterable[str] | None = None, *, detai
         module_path = _normalize_path(str(module_name).replace(".", "/") + ".py")
         candidates.add(module_path)
     return [path for path in CONTROLLER_FAMILY_FILES if path in candidates]
-
-
 def _decision_mismatches(details: str) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for actual, expected in _ASSERT_MISMATCH_RE.findall(str(details or "")):
@@ -88,8 +75,6 @@ def _decision_mismatches(details: str) -> list[dict[str, str]]:
         if actual_value in _KNOWN_DECISION_STRINGS or expected_value in _KNOWN_DECISION_STRINGS:
             out.append({"actual": actual_value, "expected": expected_value})
     return out
-
-
 def _field_presence_drift(details: str) -> tuple[list[str], list[str]]:
     text = str(details or "")
     field_names = tuple(sorted({*CHECKPOINT_TRUTH_FIELDS, *RESUME_METADATA_FIELDS}))
@@ -113,7 +98,6 @@ def _field_presence_drift(details: str) -> tuple[list[str], list[str]]:
         if re.search(rf"\bmissing\b[^\n]*\b{re.escape(field)}\b", lower):
             missing.append(field)
             continue
-
         patterns_extra = (
             f"unexpected persisted truth field '{field}'",
             f'unexpected persisted truth field "{field}"',
@@ -128,14 +112,10 @@ def _field_presence_drift(details: str) -> tuple[list[str], list[str]]:
         if re.search(rf"\b(?:unexpected|extra)\b[^\n]*\b{re.escape(field)}\b", lower):
             extra.append(field)
     return _stable_unique(missing), _stable_unique(extra)
-
-
 def _missing_exports(details: str) -> list[str]:
     exports = list(_ATTR_MISSING_RE.findall(str(details or "")))
     exports.extend(_IMPORT_MISSING_SYMBOL_RE.findall(str(details or "")))
     return _stable_unique(exports)
-
-
 def _merge_posture_mismatches(details: str, decision_mismatches: list[dict[str, str]]) -> list[str]:
     out: list[str] = []
     text = str(details or "")
@@ -147,8 +127,6 @@ def _merge_posture_mismatches(details: str, decision_mismatches: list[dict[str, 
     if "merge-posture" in text.lower():
         out.append("merge-posture text drift present")
     return _stable_unique(out)
-
-
 def _taxonomy_mismatches(details: str, category: str) -> list[str]:
     text = str(details or "")
     out: list[str] = []
@@ -160,8 +138,6 @@ def _taxonomy_mismatches(details: str, category: str) -> list[str]:
     if str(category or "").strip() == POLICY_BLOCKED_FAILURE_CATEGORY and "policy" not in text.lower():
         out.append("policy_blocked category without explicit policy context")
     return _stable_unique(out)
-
-
 def build_controller_failure_digest(
     *,
     kind: str,
@@ -178,7 +154,6 @@ def build_controller_failure_digest(
     merge_posture_mismatches = _merge_posture_mismatches(text, decision_mismatches)
     taxonomy_mismatches = _taxonomy_mismatches(text, category)
     failing_tests = _stable_unique(_PYTEST_NAME_RE.findall(text))[:12]
-
     is_controller_failure = bool(
         touched
         or decision_mismatches
@@ -202,8 +177,6 @@ def build_controller_failure_digest(
         "controller_family_files_touched": touched,
     }
     return {field: digest[field] for field in CONTROLLER_FAILURE_DIGEST_FIELDS}
-
-
 def format_controller_failure_digest(digest: dict[str, Any] | None) -> str:
     payload = dict(digest or {})
     if not payload.get("is_controller_failure"):
@@ -232,8 +205,6 @@ def format_controller_failure_digest(digest: dict[str, Any] | None) -> str:
             "- controller_family_files_touched: " + ", ".join(str(item) for item in payload["controller_family_files_touched"])
         )
     return "\n".join(lines)
-
-
 def build_controller_repair_context(
     *,
     kind: str,
@@ -263,3 +234,31 @@ def build_controller_repair_context(
         "semantic_failure_digest": digest,
         "repair_prompt": "\n".join(lines),
     }
+def build_controller_test_failure_appendix(
+    *,
+    details: str,
+    semantic_hints: str = "",
+    kind: str = "tests",
+    category: str = "tests",
+    touched_files: Iterable[str] | None = None,
+    task_file: str = "",
+) -> str:
+    context = build_controller_repair_context(
+        kind=kind,
+        message=details,
+        category=category,
+        touched_files=touched_files,
+        task_file=task_file,
+    )
+    controller_repair_prompt = str(context.get("repair_prompt", "")).strip()
+    sections = [
+        "# Last run failures",
+        str(details or "").strip(),
+        "IMPORTANT: Fix the reported failures exactly. Modify implementation files to satisfy failing tests. Do not change tests unless the task explicitly requires it. Use exact expected values from pytest output as the source of truth.",
+    ]
+    semantic_hints = str(semantic_hints or "").strip()
+    if semantic_hints:
+        sections.extend(["# Failure analysis hints", semantic_hints])
+    if controller_repair_prompt:
+        sections.extend(["# Controller repair context", controller_repair_prompt])
+    return "\n".join(section for section in sections if section).strip()
