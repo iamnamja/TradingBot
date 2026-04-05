@@ -4,6 +4,12 @@ from pathlib import Path
 from typing import Any, Literal, Sequence
 
 AcceptanceDecision = Literal["accepted", "retryable_failure", "manual_patch", "blocked"]
+AcceptanceFailureClass = Literal[
+    "missing_required_in_head",
+    "required_only_in_worktree",
+    "unexpected_tracked_artifact",
+    "merge_ready_validation_failed",
+]
 CANONICAL_ROOT_DOC_FILES = {"README.md"}
 CANONICAL_NARRATIVE_DOC_PREFIXES = ("ORCHESTRATOR_", "TRADINGBOT_")
 
@@ -75,16 +81,87 @@ def committed_state_parity_issues(
         worktree_only_required = sorted(path for path in required if path in worktree and path not in head)
         if worktree_only_required:
             issues.append(
-                "Required deliverables exist only in working tree (validated but uncommitted): "
-                + ", ".join(worktree_only_required)
+                "Required deliverables exist only in working tree (validated but uncommitted): " + ", ".join(worktree_only_required)
             )
     unexpected_head = sorted(path for path in head if path not in required)
     if unexpected_head:
         issues.append(
-            "Unexpected tracked files remain in committed HEAD diff (outside exact required deliverables): "
-            + ", ".join(unexpected_head)
+            "Unexpected tracked files remain in committed HEAD diff (outside exact required deliverables): " + ", ".join(unexpected_head)
         )
     return issues
+
+
+def classify_final_acceptance_failure(report: dict[str, Any]) -> dict[str, object]:
+    issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]
+    classification = report.get("path_classification", {}) or {}
+    missing_required = [str(p) for p in classification.get("missing_required", []) or []]
+    unexpected = [str(p) for p in classification.get("unexpected", []) or []]
+    working_tree_paths = set(normalize_paths(report.get("working_tree_paths", []) or []))
+    required_paths = set(normalize_paths(report.get("required_paths", []) or []))
+    head_paths = set(normalize_paths(report.get("head_diff_paths", []) or []))
+    worktree_only_required = sorted(p for p in required_paths if p in working_tree_paths and p not in head_paths)
+
+    if any("Authoritative validation profile failed" in issue for issue in issues):
+        failure_class = "merge_ready_validation_failed"
+        retryable = True
+        stop_reason = "retryable_failure"
+    elif missing_required:
+        failure_class = "missing_required_in_head"
+        retryable = True
+        stop_reason = "retryable_failure"
+    elif worktree_only_required:
+        failure_class = "required_only_in_worktree"
+        retryable = True
+        stop_reason = "retryable_failure"
+    elif unexpected:
+        failure_class = "unexpected_tracked_artifact"
+        retryable = all(p.startswith("artifacts/") for p in unexpected)
+        stop_reason = "blocked"
+    else:
+        decision = str(report.get("acceptance_decision", "manual_patch"))
+        failure_class = "merge_ready_validation_failed"
+        retryable = decision == "retryable_failure"
+        stop_reason = decision if decision in {"blocked", "manual_patch", "retryable_failure"} else "manual_patch"
+
+    return {
+        "failure_class": failure_class,
+        "retryable": retryable,
+        "stop_reason": stop_reason,
+        "missing_required": missing_required,
+        "required_only_in_worktree": worktree_only_required,
+        "unexpected_tracked": unexpected,
+        "issues": issues,
+    }
+
+
+def build_acceptance_self_heal_context(report: dict[str, Any]) -> dict[str, object]:
+    classification = classify_final_acceptance_failure(report)
+    failure_class = str(classification["failure_class"])
+    lines = [
+        "Focused final-acceptance repair required.",
+        f"Acceptance failure class: {failure_class}",
+        f"Task file: {report.get('task_file', '')}",
+        "Repair only the files and acceptance gap named below. Do not broad-rerun unrelated changes.",
+    ]
+    if classification["missing_required"]:
+        lines.append("Required files missing from committed HEAD diff:")
+        lines.extend(f"- {p}" for p in classification["missing_required"])
+    if classification["required_only_in_worktree"]:
+        lines.append("Required files only present in working tree:")
+        lines.extend(f"- {p}" for p in classification["required_only_in_worktree"])
+    if classification["unexpected_tracked"]:
+        lines.append("Unexpected tracked files to remove from committed diff:")
+        lines.extend(f"- {p}" for p in classification["unexpected_tracked"])
+    if failure_class == "merge_ready_validation_failed":
+        details = str(((report.get("validation_profile", {}) or {}).get("details", ""))).strip()
+        lines.append("Authoritative merge-ready validation failed after nominal green pass.")
+        if details:
+            lines.append("Validation details:")
+            lines.append(details)
+    return {
+        **classification,
+        "repair_prompt": "\n".join(lines),
+    }
 
 
 def build_final_acceptance_report(
@@ -117,18 +194,36 @@ def build_final_acceptance_report(
     for finding in extra_artifacts:
         if finding not in issues:
             issues.append(finding)
-    retryable = False
-    manual_required = False
-    if extra_artifacts or any("Unexpected tracked files remain" in issue for issue in issues):
-        decision: AcceptanceDecision = "blocked"
-    elif manual_patch_required:
-        decision = "manual_patch"
-        manual_required = True
-    elif issues:
-        decision = "retryable_failure"
-        retryable = True
+    if manual_patch_required:
+        decision: AcceptanceDecision = "manual_patch"
     else:
-        decision = "accepted"
+        probe = classify_final_acceptance_failure({
+            "issues": issues,
+            "path_classification": classification,
+            "required_paths": required_paths,
+            "head_diff_paths": head_paths,
+            "working_tree_paths": working_paths,
+            "validation_profile": profile,
+            "acceptance_decision": "retryable_failure" if issues else "accepted",
+        })
+        if not issues:
+            decision = "accepted"
+        elif str(probe["stop_reason"]) == "blocked":
+            decision = "blocked"
+        elif str(probe["stop_reason"]) == "retryable_failure":
+            decision = "retryable_failure"
+        else:
+            decision = "manual_patch"
+    context = build_acceptance_self_heal_context({
+        "task_file": task_file,
+        "issues": issues,
+        "path_classification": classification,
+        "required_paths": required_paths,
+        "head_diff_paths": head_paths,
+        "working_tree_paths": working_paths,
+        "validation_profile": profile,
+        "acceptance_decision": decision,
+    })
     return {
         "task_file": task_file,
         "acceptance_decision": decision,
@@ -137,7 +232,8 @@ def build_final_acceptance_report(
         "working_tree_paths": working_paths,
         "validation_profile": profile,
         "issues": issues,
-        "retryable": retryable,
-        "manual_patch_required": manual_required,
+        "retryable": bool(context.get("retryable", False)),
+        "manual_patch_required": manual_patch_required or decision == "manual_patch",
         "path_classification": classification,
+        "self_heal_context": context,
     }
