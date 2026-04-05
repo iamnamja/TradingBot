@@ -40,11 +40,11 @@ Tests should patch these seams when they need deterministic behavior:
 
 Prefer patching the stable helper returned by the registry rather than reaching into unrelated internal modules or guessing private names.
 
-## Controller contract posture after 082
+## Controller contract posture after 083 planning
 
-The next hardening tranche should centralize controller truth into one canonical contract surface rather than leaving repeated literal sets spread across modules.
+Task 083 introduces a canonical `agents/lib/controller_contract.py` surface so controller-facing modules stop restating literal sets independently.
 
-That canonical contract should own at least:
+That contract owns at least:
 
 - acceptance decisions
 - post-task decisions
@@ -88,7 +88,7 @@ This prevents silent continuation after hard failures and ensures manual-patch p
 
 ## Batch-state persistence contract
 
-Batch state persists both:
+Batch state persists both, using the canonical controller contract field names:
 
 - `next_task_may_proceed` (boolean gate)
 - `post_task_decision` (narrow enum above)
@@ -130,3 +130,31 @@ At minimum, controller strict mode should:
 3. reject obvious low-discipline bundles before apply when deterministic heuristics can do so safely
 4. still require full `ruff check .` and `pytest -q` before proof-complete claims are accepted
 5. avoid over-blocking ordinary non-controller tasks
+
+
+## Canonical controller contract fields
+
+The controller contract now defines the canonical persisted checkpoint truth fields and resume metadata fields.
+
+Checkpoint truth fields include:
+
+- `post_task_decision`
+- `acceptance_decision`
+- `retry_count`
+- `next_task_may_proceed`
+- `accepted_task_pr_flow_completed`
+- `required_checks_passed`
+- `merged_to_main`
+- `clean_main_reset_completed`
+
+Resume metadata fields include:
+
+- `resume_reason`
+- `resume_target_task_path`
+- `resume_gate`
+
+Merge-posture failures must map through one canonical decision surface:
+
+- `failed_merge`
+- `failed_checks`
+- `failed_reset`

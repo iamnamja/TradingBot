@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
+from agents.lib.controller_contract import POLICY_BLOCKED_FAILURE_CATEGORY
+
 DEFAULT_RAW_SNIPPET_LIMIT = 400
 DEFAULT_JOURNAL_PATH = Path("artifacts/failure_journal.jsonl")
 _FAILURE_COUNTS: Dict[str, int] = {}
@@ -21,7 +23,7 @@ def classify_failure(kind: str, message: str) -> str:
     if any(token in text for token in ("failure_journal_export", "shell_router_export", "validator_runner_exports", "_validator_runner_exports", "seam manifest", "semantic contract")):
         return "seam_contract_mismatch"
     if any(token in text for token in ("protected meta", "normal bundle lane", "protected-file method mode", "meta harness")):
-        return "policy_blocked"
+        return POLICY_BLOCKED_FAILURE_CATEGORY
     if any(token in text for token in ("required file", "unexpected file", "deliverable", "task shape", "material update", "split recommendation")):
         return "task_shape_mismatch"
     if "github actions" in text or "required status check" in text or "workflow" in text or re.search(r"\bci\b", text):

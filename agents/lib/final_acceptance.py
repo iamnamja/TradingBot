@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
-AcceptanceDecision = Literal["accepted", "retryable_failure", "manual_patch", "blocked"]
+from agents.lib.controller_contract import AcceptanceDecision, coerce_acceptance_decision
+
 AcceptanceFailureClass = Literal[
     "missing_required_in_head",
     "required_only_in_worktree",
@@ -104,7 +105,7 @@ def classify_final_acceptance_failure(report: dict[str, Any]) -> dict[str, objec
     if any("Authoritative validation profile failed" in issue for issue in issues):
         failure_class = "merge_ready_validation_failed"
         retryable = True
-        stop_reason = "retryable_failure"
+        stop_reason: AcceptanceDecision = "retryable_failure"
     elif missing_required:
         failure_class = "missing_required_in_head"
         retryable = True
@@ -118,7 +119,7 @@ def classify_final_acceptance_failure(report: dict[str, Any]) -> dict[str, objec
         retryable = all(p.startswith("artifacts/") for p in unexpected)
         stop_reason = "blocked"
     else:
-        decision = str(report.get("acceptance_decision", "manual_patch"))
+        decision = coerce_acceptance_decision(report.get("acceptance_decision"), default="manual_patch")
         failure_class = "merge_ready_validation_failed"
         retryable = decision == "retryable_failure"
         stop_reason = decision if decision in {"blocked", "manual_patch", "retryable_failure"} else "manual_patch"

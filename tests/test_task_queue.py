@@ -21,6 +21,15 @@ def _batch_state_module():
     return importlib.import_module("agents.lib.batch_state")
 
 
+
+def _controller_contract_module():
+    root = Path(__file__).resolve().parents[1]
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    return importlib.import_module("agents.lib.controller_contract")
+
+
 def _batch_executor_module():
     root = Path(__file__).resolve().parents[1]
     root_str = str(root)
@@ -300,3 +309,65 @@ def test_resume_skips_previously_accepted_and_merged_tasks(tmp_path: Path) -> No
     assert resumed_state.batch_status == "completed"
     assert executed == ["tasks/002.md", "tasks/003.md"]
     assert [o["task_path"] for o in outcomes] == ["tasks/002.md", "tasks/003.md"]
+
+def test_task_queue_uses_canonical_post_task_decision_surface(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    contract = _controller_contract_module()
+
+    assert tq.BatchPostTaskDecision is contract.BatchPostTaskDecision
+    assert tq.decide_post_task_action("completed") == "continue"
+    assert tq.decide_post_task_action("manual_patch") == "manual_patch"
+    assert tq.decide_post_task_action("blocked") == "blocked"
+
+
+def test_batch_state_persists_canonical_truth_fields(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    bs = _batch_state_module()
+    contract = _controller_contract_module()
+
+    _write_task(tmp_path / "tasks" / "001.md")
+    manifest = {"tasks": ["tasks/001.md"]}
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = bs.initialize_batch_state(manifest=manifest, queue=queue, manifest_source="tasks/manifest.json", created_ts=1)
+    state = bs.apply_task_result(
+        state,
+        task_path="tasks/001.md",
+        terminal_status="completed",
+        post_task_decision="continue",
+        note="accepted",
+        updated_ts=2,
+        acceptance_decision="accepted",
+        retry_count=1,
+        next_task_may_proceed=True,
+        accepted_task_pr_flow_completed=True,
+        required_checks_passed=True,
+        merged_to_main=True,
+        clean_main_reset_completed=True,
+    )
+
+    checkpoint = state.checkpoints[-1].to_dict()
+    for field_name in contract.CHECKPOINT_TRUTH_FIELDS:
+        assert field_name in checkpoint
+    state_payload = state.to_dict()
+    for field_name in contract.RESUME_METADATA_FIELDS:
+        assert field_name in state_payload
+
+
+def test_git_workflow_reports_canonical_merge_posture_decision() -> None:
+    root = Path(__file__).resolve().parents[1]
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    git_workflow = importlib.import_module("agents.lib.git_workflow")
+
+    def failing_runner(_cmd, _check=True):
+        raise RuntimeError("checks blew up")
+
+    result = git_workflow.accepted_task_pr_merge_flow(
+        failing_runner,
+        accepted=True,
+        autonomous_merge_enabled=True,
+        pr_title="x",
+        pr_body="",
+    )
+    assert result["post_task_decision"] == "failed_merge"

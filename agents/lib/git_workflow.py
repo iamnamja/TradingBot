@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List
+from typing import Callable, Dict
 
-Runner = Callable[[List[str], bool], object]
+from agents.lib.controller_contract import merge_posture_decision_for_flow_stage
+
+Runner = Callable[[list[str], bool], object]
 
 
 @dataclass(frozen=True)
@@ -12,53 +14,45 @@ class GitWorkflowResult:
     step: str
     message: str
 
-    def to_dict(self) -> Dict[str, object]:
-        return {
-            "ok": self.ok,
-            "step": self.step,
-            "message": self.message,
-        }
 
 
 def create_pr(runner: Runner, *, title: str, body: str = "") -> GitWorkflowResult:
-    body_arg = body if body else title
     try:
-        runner(["gh", "pr", "create", "--title", title, "--body", body_arg], True)
+        runner(["gh", "pr", "create", "--fill", "--title", title, "--body", body], True)
     except Exception as exc:
-        return GitWorkflowResult(False, "create_pr", f"failed to create PR: {exc}")
+        return GitWorkflowResult(False, "create_pr", f"PR creation failed: {exc}")
     return GitWorkflowResult(True, "create_pr", "PR created")
+
 
 
 def wait_for_required_checks(runner: Runner) -> GitWorkflowResult:
     try:
         runner(["gh", "pr", "checks", "--watch"], True)
     except Exception as exc:
-        return GitWorkflowResult(False, "required_checks", f"required checks failed: {exc}")
-    return GitWorkflowResult(True, "required_checks", "required checks passed")
+        return GitWorkflowResult(False, "wait_for_required_checks", f"required checks failed: {exc}")
+    return GitWorkflowResult(True, "wait_for_required_checks", "required checks passed")
+
 
 
 def merge_pr(runner: Runner) -> GitWorkflowResult:
     try:
-        runner(["gh", "pr", "merge", "--squash", "--delete-branch"], True)
+        runner(["gh", "pr", "merge", "--merge", "--auto", "--delete-branch"], True)
     except Exception as exc:
-        return GitWorkflowResult(False, "merge_pr", f"merge failed: {exc}")
+        return GitWorkflowResult(False, "merge_pr", f"PR merge failed: {exc}")
     return GitWorkflowResult(True, "merge_pr", "PR merged")
 
 
+
 def reset_main_clean(runner: Runner) -> GitWorkflowResult:
-    commands = [
-        ["git", "switch", "main"],
-        ["git", "fetch", "origin", "main"],
-        ["git", "reset", "--hard", "origin/main"],
-        ["git", "clean", "-fd"],
-    ]
     try:
-        for cmd in commands:
-            runner(cmd, True)
-        runner(["git", "status", "--porcelain"], True)
+        runner(["git", "switch", "main"], True)
+        runner(["git", "fetch", "origin"], True)
+        runner(["git", "reset", "--hard", "origin/main"], True)
+        runner(["git", "clean", "-fd"], True)
     except Exception as exc:
         return GitWorkflowResult(False, "reset_main", f"clean main reset failed: {exc}")
     return GitWorkflowResult(True, "reset_main", "clean main reset complete")
+
 
 
 def accepted_task_pr_merge_flow(
@@ -74,6 +68,7 @@ def accepted_task_pr_merge_flow(
         "autonomous_merge_enabled": bool(autonomous_merge_enabled),
         "stopped_honestly": False,
         "stop_reason": "",
+        "post_task_decision": "continue",
         "created_pr": False,
         "required_checks_passed": False,
         "merged": False,
@@ -83,16 +78,19 @@ def accepted_task_pr_merge_flow(
 
     if not accepted:
         result["stop_reason"] = "task not accepted; PR flow skipped"
+        result["post_task_decision"] = "stop"
         return result
 
     if not autonomous_merge_enabled:
         result["stop_reason"] = "autonomous merge disabled by operator control"
+        result["post_task_decision"] = "stop"
         return result
 
     created = create_pr(runner, title=pr_title, body=pr_body)
     if not created.ok:
         result["stopped_honestly"] = True
         result["stop_reason"] = created.message
+        result["post_task_decision"] = merge_posture_decision_for_flow_stage("merge")
         return result
     result["created_pr"] = True
 
@@ -100,6 +98,7 @@ def accepted_task_pr_merge_flow(
     if not checks.ok:
         result["stopped_honestly"] = True
         result["stop_reason"] = checks.message
+        result["post_task_decision"] = merge_posture_decision_for_flow_stage("checks")
         return result
     result["required_checks_passed"] = True
 
@@ -107,6 +106,7 @@ def accepted_task_pr_merge_flow(
     if not merged.ok:
         result["stopped_honestly"] = True
         result["stop_reason"] = merged.message
+        result["post_task_decision"] = merge_posture_decision_for_flow_stage("merge")
         return result
     result["merged"] = True
 
@@ -114,10 +114,12 @@ def accepted_task_pr_merge_flow(
     if not reset.ok:
         result["stopped_honestly"] = True
         result["stop_reason"] = reset.message
+        result["post_task_decision"] = merge_posture_decision_for_flow_stage("reset")
         return result
     result["main_reset_clean"] = True
     result["next_task_may_proceed"] = True
     return result
+
 
 
 def report_branch_push_ready(branch: str, *, printer=print) -> None:

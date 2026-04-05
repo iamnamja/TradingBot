@@ -5,18 +5,16 @@ import json
 from dataclasses import dataclass, replace
 from typing import Any, Literal
 
+from agents.lib.controller_contract import (
+    AcceptanceDecision,
+    BatchPostTaskDecision,
+    BatchStatus,
+    ResumeMode,
+    batch_status_for_post_task_decision,
+    canonical_resume_metadata,
+)
 from agents.lib.task_queue import QueueStatus, TaskQueueItem, validate_queue_status_transition
 
-BatchStatus = Literal[
-    "active",
-    "completed",
-    "blocked",
-    "failed",
-    "manual_patch",
-    "failed_merge",
-    "failed_checks",
-    "failed_reset",
-]
 CheckpointTransition = Literal[
     "pending",
     "running",
@@ -43,8 +41,8 @@ class BatchTaskCheckpoint:
     transition: CheckpointTransition
     note: str
     event_seq: int
-    post_task_decision: str = "stop"
-    acceptance_decision: str = ""
+    post_task_decision: BatchPostTaskDecision | str = "stop"
+    acceptance_decision: AcceptanceDecision | str = ""
     retry_count: int = 0
     accepted_task_pr_flow_completed: bool | None = None
     required_checks_passed: bool | None = None
@@ -96,7 +94,7 @@ class BatchState:
     updated_ts: int
     batch_status: BatchStatus
     next_task_may_proceed: bool
-    post_task_decision: str = "stop"
+    post_task_decision: BatchPostTaskDecision | str = "stop"
     resume_reason: str = ""
     resume_target_task_path: str = ""
     resume_gate: str = ""
@@ -133,9 +131,11 @@ class BatchState:
         }
 
 
+
 def manifest_fingerprint(manifest: dict[str, Any]) -> str:
     canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 
 
 def last_checkpoint_for_task(state: BatchState, task_path: str) -> BatchTaskCheckpoint | None:
@@ -143,6 +143,7 @@ def last_checkpoint_for_task(state: BatchState, task_path: str) -> BatchTaskChec
         if checkpoint.task_path == task_path:
             return checkpoint
     return None
+
 
 
 def _derive_batch_status(queue: tuple[BatchTaskState, ...]) -> BatchStatus:
@@ -158,6 +159,7 @@ def _derive_batch_status(queue: tuple[BatchTaskState, ...]) -> BatchStatus:
     if statuses and all(status == "completed" for status in statuses):
         return "completed"
     return "active"
+
 
 
 def initialize_batch_state(
@@ -192,6 +194,7 @@ def initialize_batch_state(
         next_task_may_proceed=True,
         post_task_decision="continue",
     )
+
 
 
 def advance_task_status(
@@ -231,17 +234,18 @@ def advance_task_status(
     )
 
 
+
 def apply_task_result(
     state: BatchState,
     *,
     task_path: str,
     terminal_status: QueueStatus,
-    post_task_decision: str,
+    post_task_decision: BatchPostTaskDecision | str,
     note: str,
     updated_ts: int | None = None,
     context_kind: str = "branch",
     context_ref: str = "",
-    acceptance_decision: str = "",
+    acceptance_decision: AcceptanceDecision | str = "",
     retry_count: int = 0,
     next_task_may_proceed: bool | None = None,
     accepted_task_pr_flow_completed: bool | None = None,
@@ -306,11 +310,10 @@ def apply_task_result(
         clean_main_reset_completed=clean_main_reset_completed,
     )
 
-    batch_status: BatchStatus
-    if post_task_decision in {"failed_merge", "failed_checks", "failed_reset"}:
-        batch_status = post_task_decision
-    else:
-        batch_status = _derive_batch_status(state.queue)
+    batch_status = batch_status_for_post_task_decision(
+        default_status=_derive_batch_status(state.queue),
+        post_task_decision=post_task_decision,
+    )
 
     return replace(
         state,
@@ -322,24 +325,30 @@ def apply_task_result(
     )
 
 
+
 def mark_resume_plan(
     state: BatchState,
     *,
     queue: list[TaskQueueItem],
-    resume_mode: str,
+    resume_mode: ResumeMode,
     resume_target_task_path: str | None,
     explicit_resume: bool,
     updated_ts: int,
 ) -> BatchState:
     del queue  # queue is present for API symmetry / future validation.
-    gate = resume_mode if explicit_resume or resume_mode == "resume_after_merge" else ""
+    metadata = canonical_resume_metadata(
+        resume_mode=resume_mode,
+        resume_target_task_path=resume_target_task_path,
+        explicit_resume=explicit_resume,
+    )
     return replace(
         state,
-        resume_reason=resume_mode,
-        resume_target_task_path=resume_target_task_path or "",
-        resume_gate=gate,
+        resume_reason=metadata["resume_reason"],
+        resume_target_task_path=metadata["resume_target_task_path"],
+        resume_gate=metadata["resume_gate"],
         updated_ts=updated_ts,
     )
+
 
 
 def record_resume_skip(
