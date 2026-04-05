@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Sequence, TypedDict
 
+from agents.lib.controller_contract import BatchPostTaskDecision, coerce_post_task_decision, terminal_status_to_post_task_decision
+
 QueueStatus = Literal["queued", "running", "completed", "blocked", "failed", "manual_patch"]
-BatchPostTaskDecision = Literal["continue", "stop", "manual_patch", "blocked", "failed_merge", "failed_checks", "failed_reset"]
 
 
 class PostTaskSignals(TypedDict, total=False):
@@ -52,8 +53,10 @@ class TaskQueueItem:
     stop_policy: str = ""
 
 
+
 def _normalized_task_path(raw_path: str) -> str:
     return raw_path.strip().replace("\\", "/")
+
 
 
 def _coerce_manifest_task_entry(entry: Any, index: int) -> dict[str, str]:
@@ -72,14 +75,17 @@ def _coerce_manifest_task_entry(entry: Any, index: int) -> dict[str, str]:
     raise TaskQueueManifestError(f"Task entry at index {index} must be a string path or object with `path`.")
 
 
+
 def validate_queue_status_transition(from_status: QueueStatus, to_status: QueueStatus) -> None:
     allowed = ALLOWED_STATUS_TRANSITIONS.get(from_status, ())
     if to_status not in allowed:
         raise TaskQueueTransitionError(f"Invalid queue status transition: {from_status} -> {to_status}.")
 
 
+
 def queue_signature(queue: list[TaskQueueItem]) -> tuple[str, ...]:
     return tuple(item.task_path for item in queue)
+
 
 
 def decide_post_task_action(status: QueueStatus, *, signals: PostTaskSignals | None = None) -> BatchPostTaskDecision:
@@ -96,13 +102,13 @@ def decide_post_task_action(status: QueueStatus, *, signals: PostTaskSignals | N
         return "stop"
     if not s.get("validator_ok", True):
         return "stop"
-    if status == "completed":
-        return "continue"
-    return "stop"
+    return terminal_status_to_post_task_decision(status)
+
 
 
 def may_proceed_to_next_task(status: QueueStatus) -> bool:
     return status == "completed"
+
 
 
 def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Path = ".") -> list[TaskQueueItem]:
@@ -110,18 +116,19 @@ def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Pa
     if not isinstance(tasks, list):
         raise TaskQueueManifestError("Manifest must include `tasks` list before queue construction.")
     root = Path(repo_root).resolve()
-    entries=[]
-    seen={}
+    entries = []
+    seen = {}
     for idx, raw_entry in enumerate(tasks):
         entry = _coerce_manifest_task_entry(raw_entry, idx)
-        path=entry['path']
+        path = entry["path"]
         if path in seen:
-            raise TaskQueueManifestError('dup')
-        seen[path]=idx
-        if not (root/path).exists():
-            raise TaskQueueManifestError('missing')
+            raise TaskQueueManifestError("dup")
+        seen[path] = idx
+        if not (root / path).exists():
+            raise TaskQueueManifestError("missing")
         entries.append(entry)
-    return [TaskQueueItem(task_path=e['path'], ordinal=i+1) for i,e in enumerate(entries)]
+    return [TaskQueueItem(task_path=e["path"], ordinal=i + 1) for i, e in enumerate(entries)]
+
 
 
 def _normalize_batch_outcome(outcome: BatchSummaryTaskOutcome | dict[str, Any]) -> BatchSummaryTaskOutcome:
@@ -130,24 +137,33 @@ def _normalize_batch_outcome(outcome: BatchSummaryTaskOutcome | dict[str, Any]) 
     note = str(outcome.get("note", "")).strip()
     raw_decision = str(outcome.get("decision", "")).strip()
     if raw_decision:
-        decision = raw_decision
-    elif status == "completed":
-        decision = "continue"
-    elif status in {"manual_patch", "blocked"}:
-        decision = status
+        decision = coerce_post_task_decision(raw_decision)
+    elif status in {"completed", "failed", "manual_patch", "blocked"}:
+        decision = terminal_status_to_post_task_decision(status)
     else:
         decision = "stop"
     return {"task_path": task_path, "status": status, "decision": decision, "note": note}
 
 
+
 def build_batch_summary_payload(*, manifest_path: str, outcomes: Sequence[BatchSummaryTaskOutcome | dict[str, Any]], final_decision: BatchPostTaskDecision) -> dict[str, object]:
     normalized = [_normalize_batch_outcome(o) for o in outcomes]
-    completed = sum(1 for i in normalized if i['status']=='completed')
-    failed = sum(1 for i in normalized if i['status']=='failed')
-    manual_patch = sum(1 for i in normalized if i['decision']=='manual_patch')
-    blocked = sum(1 for i in normalized if i['decision']=='blocked')
-    return {"manifest_path":str(manifest_path),"total_tasks":len(normalized),"completed_tasks":completed,"failed_tasks":failed,"manual_patch_tasks":manual_patch,"blocked_tasks":blocked,"final_batch_decision":final_decision,"task_outcomes":normalized}
+    completed = sum(1 for i in normalized if i["status"] == "completed")
+    failed = sum(1 for i in normalized if i["status"] == "failed")
+    manual_patch = sum(1 for i in normalized if i["decision"] == "manual_patch")
+    blocked = sum(1 for i in normalized if i["decision"] == "blocked")
+    return {
+        "manifest_path": str(manifest_path),
+        "total_tasks": len(normalized),
+        "completed_tasks": completed,
+        "failed_tasks": failed,
+        "manual_patch_tasks": manual_patch,
+        "blocked_tasks": blocked,
+        "final_batch_decision": final_decision,
+        "task_outcomes": normalized,
+    }
+
 
 
 def render_batch_summary_text(summary: dict[str, object]) -> str:
-    return 'x'
+    return "x"

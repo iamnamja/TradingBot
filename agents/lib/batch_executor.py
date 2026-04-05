@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 from agents.lib import batch_state as bs
-from agents.lib.final_acceptance import AcceptanceDecision
+from agents.lib.controller_contract import (
+    AcceptanceDecision,
+    BatchPostTaskDecision,
+    ResumeMode,
+    acceptance_decision_to_terminal_status,
+    checkpoint_allows_resume_after_merge,
+    coerce_acceptance_decision,
+    coerce_post_task_decision,
+    should_next_task_proceed,
+    terminal_status_to_post_task_decision,
+)
 from agents.lib.task_queue import QueueStatus, TaskQueueItem
-
-ResumeMode = Literal[
-    "default",
-    "resume_same_task",
-    "resume_next",
-    "resume_after_merge",
-    "resume_after_manual_resolution",
-]
 
 
 @dataclass(frozen=True)
@@ -23,7 +25,7 @@ class BatchTaskOutcome:
     acceptance_decision: AcceptanceDecision
     retry_count: int
     next_task_may_proceed: bool
-    post_task_decision: str
+    post_task_decision: BatchPostTaskDecision
     note: str
     accepted_task_pr_flow_completed: bool | None = None
     required_checks_passed: bool | None = None
@@ -46,34 +48,15 @@ class BatchTaskOutcome:
         }
 
 
+
 def _coerce_acceptance(payload: dict[str, Any]) -> dict[str, Any]:
-    decision = str(payload.get("acceptance_decision", "retryable_failure")).strip() or "retryable_failure"
-    if decision not in {"accepted", "retryable_failure", "manual_patch", "blocked"}:
-        decision = "retryable_failure"
     out = dict(payload)
-    out["acceptance_decision"] = decision
+    out["acceptance_decision"] = coerce_acceptance_decision(payload.get("acceptance_decision"))
     out["note"] = str(payload.get("note", "")).strip()
+    if "post_task_decision" in payload:
+        out["post_task_decision"] = coerce_post_task_decision(payload.get("post_task_decision"))
     return out
 
-
-def _map_acceptance_to_terminal(decision: AcceptanceDecision) -> QueueStatus:
-    if decision == "accepted":
-        return "completed"
-    if decision == "manual_patch":
-        return "manual_patch"
-    if decision == "blocked":
-        return "blocked"
-    return "failed"
-
-
-def _map_terminal_to_post_task_decision(status: QueueStatus) -> str:
-    if status == "completed":
-        return "continue"
-    if status == "manual_patch":
-        return "manual_patch"
-    if status == "blocked":
-        return "blocked"
-    return "stop"
 
 
 def _skip_eligible_for_resume_after_merge(item: TaskQueueItem, state: bs.BatchState) -> bool:
@@ -83,12 +66,8 @@ def _skip_eligible_for_resume_after_merge(item: TaskQueueItem, state: bs.BatchSt
     if state.queue[idx].status != "completed":
         return False
     checkpoint = bs.last_checkpoint_for_task(state, item.task_path)
-    return bool(
-        checkpoint
-        and checkpoint.acceptance_decision == "accepted"
-        and checkpoint.merged_to_main
-        and checkpoint.clean_main_reset_completed
-    )
+    return checkpoint_allows_resume_after_merge(checkpoint.to_dict() if checkpoint is not None else None)
+
 
 
 def _resume_ready_state(
@@ -111,6 +90,7 @@ def _resume_ready_state(
     )
 
 
+
 def prepare_resumed_batch_state(
     *,
     state: bs.BatchState,
@@ -128,8 +108,10 @@ def prepare_resumed_batch_state(
     )
 
 
+
 def should_skip_completed_accepted_task(item: TaskQueueItem, state: bs.BatchState) -> bool:
     return _skip_eligible_for_resume_after_merge(item, state)
+
 
 
 def execute_batch_loop(
@@ -145,7 +127,7 @@ def execute_batch_loop(
     resume_mode: ResumeMode = "default",
     resume_target_task_path: str | None = None,
     explicit_resume: bool = False,
-) -> tuple[bs.BatchState, list[dict[str, object]], str]:
+) -> tuple[bs.BatchState, list[dict[str, object]], BatchPostTaskDecision]:
     state = _resume_ready_state(
         state=initial_state,
         queue=queue,
@@ -157,7 +139,7 @@ def execute_batch_loop(
         persist_state(state)
 
     outcomes: list[dict[str, object]] = []
-    final_decision = "stop"
+    final_decision: BatchPostTaskDecision = "stop"
 
     for item in queue:
         if item.ordinal - 1 < state.current_index:
@@ -208,15 +190,15 @@ def execute_batch_loop(
 
             break
 
-        terminal_status = _map_acceptance_to_terminal(acceptance_payload["acceptance_decision"])
-        post_task_decision = str(
-            acceptance_payload.get("post_task_decision")
-            or _map_terminal_to_post_task_decision(terminal_status)
+        terminal_status = acceptance_decision_to_terminal_status(acceptance_payload["acceptance_decision"])
+        post_task_decision = coerce_post_task_decision(
+            acceptance_payload.get("post_task_decision"),
+            default=terminal_status_to_post_task_decision(terminal_status),
         )
         may_proceed = bool(
             acceptance_payload.get(
                 "next_task_may_proceed",
-                terminal_status == "completed" and post_task_decision == "continue",
+                should_next_task_proceed(terminal_status=terminal_status, post_task_decision=post_task_decision),
             )
         )
         pr_flow_kwargs = {

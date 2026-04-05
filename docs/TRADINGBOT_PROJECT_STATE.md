@@ -73,7 +73,7 @@ These are the focus of the next tranche.
 
 The next planned tranche focuses on:
 
-- a new canonical `agents/lib/controller_contract.py` surface used across controller-facing modules
+- Task 083 first: a new canonical `agents/lib/controller_contract.py` surface used across controller-facing modules
 - non-reexecuting retry/self-heal with explicit execution-vs-repair truth fields
 - merge-posture truth persistence and resume contract hardening
 - semantic failure digest and controller repair-context helpers
@@ -95,7 +95,7 @@ Canonical path for sequential manifest execution is now:
 
 ## Persisted per-task outcome expectations
 
-Persisted outcomes/checkpoints now intentionally aim to include:
+Persisted outcomes/checkpoints now intentionally aim to include, through one canonical controller contract surface:
 
 - task path
 - terminal status
@@ -131,3 +131,10 @@ For all contributor and automation references, the canonical visible order is:
 1. `tasks/README.md`
 2. task markdown files under `tasks/` by exact numeric/alphanumeric filename
 3. supporting roadmap docs in `docs/`
+
+
+## 083 manual-patch posture
+
+Task 083 should still be treated as a manual patch first. It stabilizes the controller contract used by final acceptance, batch execution, batch state persistence, task-queue summaries, merge-posture reporting, and controller-focused tests.
+
+This is a hardening step, not a broader autonomy claim.

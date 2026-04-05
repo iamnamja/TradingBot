@@ -21,6 +21,7 @@ def _load_runtime_modules():
     artifact_quarantine = importlib.import_module("agents.lib.artifact_quarantine")
     batch_state = importlib.import_module("agents.lib.batch_state")
     task_queue = importlib.import_module("agents.lib.task_queue")
+    controller_contract = importlib.import_module("agents.lib.controller_contract")
     final_acceptance = importlib.import_module("agents.lib.final_acceptance")
     batch_executor = importlib.import_module("agents.lib.batch_executor")
     return (
@@ -35,13 +36,14 @@ def _load_runtime_modules():
         artifact_quarantine,
         batch_state,
         task_queue,
+        controller_contract,
         final_acceptance,
         batch_executor,
     )
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -54,7 +56,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     def fake_capture(cmd: list[str]) -> str:
@@ -80,7 +82,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_capture_result(cmd):
         if cmd == ["ruff", "check", "."]:
@@ -97,7 +99,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -122,8 +124,17 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.report_branch_push_ready)
 
 
+def test_run_task_runtime_contract_modules_share_canonical_surface() -> None:
+    (_, _, _, _, failure_journal, _, _, _, _, batch_state, task_queue, controller_contract, _, batch_executor) = _load_runtime_modules()
+    assert task_queue.BatchPostTaskDecision is controller_contract.BatchPostTaskDecision
+    assert batch_state.BatchStatus is controller_contract.BatchStatus
+    assert batch_executor.ResumeMode is controller_contract.ResumeMode
+    assert failure_journal.POLICY_BLOCKED_FAILURE_CATEGORY == controller_contract.POLICY_BLOCKED_FAILURE_CATEGORY
+
+
+
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
-    _, _, _, _, failure_journal, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    _, _, _, _, failure_journal, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert (
         failure_journal.classify_failure("tests", "SyntaxError: invalid syntax in generated test")
         == "python_syntax"
