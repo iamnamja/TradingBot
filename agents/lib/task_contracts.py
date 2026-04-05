@@ -248,12 +248,26 @@ def controller_core_required_paths(
     return [path for path in required if path in strict_set]
 
 
+def controller_core_task_context(
+    required_paths: Sequence[str] | None,
+    *,
+    controller_paths: Sequence[str] | None = None,
+) -> dict[str, object]:
+    touched = controller_core_required_paths(required_paths, controller_paths=controller_paths)
+    return {
+        "touches_controller_core": bool(touched),
+        "controller_required_paths": list(touched),
+    }
+
+
 def task_touches_controller_core(
     required_paths: Sequence[str] | None,
     *,
     controller_paths: Sequence[str] | None = None,
 ) -> bool:
-    return bool(controller_core_required_paths(required_paths, controller_paths=controller_paths))
+    return bool(controller_core_task_context(required_paths, controller_paths=controller_paths)["touches_controller_core"])
+
+
 def normalize_paths(paths: Sequence[str] | None) -> List[str]:
     out: List[str] = []
     seen: set[str] = set()

@@ -5,7 +5,7 @@ import re
 from typing import Any, Callable, Mapping, Sequence
 
 from agents.lib.controller_contract import CONTROLLER_PROOF_TEST_PATHS, CONTROLLER_STRICT_MODE_PATHS
-from agents.lib.task_contracts import normalize_paths, task_touches_controller_core
+from agents.lib.task_contracts import controller_core_task_context, normalize_paths
 
 _SEMICOLON_RE = re.compile(r";(?=(?:[^'\"]|'[^']*'|\"[^\"]*\")*$)")
 _MULTI_IMPORT_RE = re.compile(r"^\s*import\s+[^#\n]+,\s*[^#\n]+", re.MULTILINE)
@@ -19,16 +19,37 @@ def build_controller_strict_mode_context(
     task_file: str = "",
 ) -> dict[str, Any]:
     normalized_required = normalize_paths(required_paths)
-    strict_targets_touched = [
-        path for path in CONTROLLER_STRICT_MODE_PATHS if path in set(normalized_required)
-    ]
-    enabled = task_touches_controller_core(normalized_required)
+    controller_context = controller_core_task_context(normalized_required)
+    strict_targets_touched = list(controller_context.get("controller_required_paths", []) or [])
+    enabled = bool(controller_context.get("touches_controller_core", False))
     return {
         "enabled": enabled,
         "task_file": str(task_file or "").strip(),
         "required_paths": normalized_required,
         "strict_targets_touched": strict_targets_touched,
         "focused_test_paths": list(CONTROLLER_PROOF_TEST_PATHS),
+    }
+
+
+def describe_controller_strict_mode(
+    *,
+    required_paths: Sequence[str] | None = None,
+    task_file: str = "",
+) -> dict[str, Any]:
+    context = build_controller_strict_mode_context(required_paths=required_paths, task_file=task_file)
+    enabled = bool(context.get("enabled"))
+    directives = controller_strict_mode_directives(context)
+    status_lines: list[str] = []
+    if enabled:
+        touched = context.get("strict_targets_touched") or []
+        status_lines.append("🔒 Controller strict mode enabled.")
+        if touched:
+            status_lines.append("Controller strict-mode targets: " + ", ".join(str(item) for item in touched))
+    return {
+        "enabled": enabled,
+        "context": context,
+        "directives": directives,
+        "status_lines": status_lines,
     }
 
 
@@ -242,4 +263,15 @@ def run_controller_strict_checks(
         "proof_claims_deferred": False,
         "proof_claims_deferred_message": "",
         "output_text": "\n\n".join(part for part in parts if part).strip(),
+    }
+
+
+def strict_validation_profile(strict_check_result: Mapping[str, Any] | None) -> dict[str, Any]:
+    payload = dict(strict_check_result or {})
+    return {
+        "passed": bool(payload.get("focused_ok") and payload.get("lint_ok") and payload.get("test_ok")),
+        "details": str(payload.get("output_text", "") or ""),
+        "controller_strict_mode": True,
+        "controller_proof_tests_passed": bool(payload.get("controller_proof_tests_passed", False)),
+        "proof_claims_deferred": bool(payload.get("proof_claims_deferred", False)),
     }

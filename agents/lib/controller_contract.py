@@ -125,6 +125,24 @@ CONTROLLER_FAILURE_DIGEST_FIELDS: tuple[str, ...] = (
     "controller_family_files_touched",
 )
 
+CONTROLLER_RUNTIME_DELEGATE_SURFACES: tuple[str, ...] = (
+    "build_final_acceptance_report",
+    "classify_final_acceptance_failure",
+    "build_acceptance_self_heal_context",
+    "build_final_acceptance_failure_feedback",
+    "build_final_acceptance_retry_feedback",
+    "report_final_acceptance_failure",
+    "build_controller_failure_digest",
+    "build_controller_repair_context",
+    "build_controller_test_failure_appendix",
+    "build_controller_strict_mode_context",
+    "describe_controller_strict_mode",
+    "controller_strict_preapply_issues",
+    "format_controller_strict_preapply_issues",
+    "run_controller_strict_checks",
+    "strict_validation_profile",
+)
+
 _TERMINAL_FROM_ACCEPTANCE: dict[AcceptanceDecision, QueueTerminalStatus] = {
     "accepted": "completed",
     "retryable_failure": "failed",
@@ -289,4 +307,5 @@ def controller_contract_snapshot() -> dict[str, object]:
         "controller_proof_test_paths": list(CONTROLLER_PROOF_TEST_PATHS),
         "controller_family_files": list(CONTROLLER_FAMILY_FILES),
         "controller_failure_digest_fields": list(CONTROLLER_FAILURE_DIGEST_FIELDS),
+        "controller_runtime_delegate_surfaces": list(CONTROLLER_RUNTIME_DELEGATE_SURFACES),
     }

@@ -442,6 +442,12 @@ def report_final_acceptance_failure(report: Dict[str, object]) -> None:
     _impl(report)
 
 
+def build_final_acceptance_retry_feedback(report: Dict[str, object]) -> Dict[str, object]:
+    from agents.lib.final_acceptance import build_final_acceptance_retry_feedback as _impl  # type: ignore
+
+    return dict(_impl(report))
+
+
 def execute_batch_loop(**kwargs: Any) -> tuple[object, list[dict[str, object]], object]:
     from agents.lib.batch_executor import execute_batch_loop as _impl  # type: ignore
 
@@ -486,12 +492,36 @@ def build_controller_repair_context(
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
 
 
+def build_controller_test_failure_appendix(
+    *,
+    details: str,
+    semantic_hints: str = "",
+    kind: str = "tests",
+    category: str = "tests",
+    touched_files: List[str] | None = None,
+    task_file: str = "",
+) -> str:
+    from agents.lib.controller_repair import build_controller_test_failure_appendix as _impl  # type: ignore
+
+    return str(_impl(details=details, semantic_hints=semantic_hints, kind=kind, category=category, touched_files=touched_files, task_file=task_file))
+
+
 def build_controller_strict_mode_context(
     *,
     required_paths: List[str] | None = None,
     task_file: str = "",
 ) -> Dict[str, object]:
     from agents.lib.controller_strict_mode import build_controller_strict_mode_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths=required_paths, task_file=task_file))
+
+
+def describe_controller_strict_mode(
+    *,
+    required_paths: List[str] | None = None,
+    task_file: str = "",
+) -> Dict[str, object]:
+    from agents.lib.controller_strict_mode import describe_controller_strict_mode as _impl  # type: ignore
 
     return dict(_impl(required_paths=required_paths, task_file=task_file))
 
@@ -506,6 +536,12 @@ def controller_strict_preapply_issues(
     return list(_impl(bundle, touched_paths=touched_paths))
 
 
+def format_controller_strict_preapply_issues(issues: List[str] | None) -> str:
+    from agents.lib.controller_strict_mode import format_controller_strict_preapply_issues as _impl  # type: ignore
+
+    return str(_impl(issues))
+
+
 def run_controller_strict_checks(
     *,
     changed_paths: List[str] | None = None,
@@ -514,6 +550,12 @@ def run_controller_strict_checks(
     from agents.lib.controller_strict_mode import run_controller_strict_checks as _impl  # type: ignore
 
     return dict(_impl(capture_result=capture_result, changed_paths=changed_paths, focused_test_paths=focused_test_paths))
+
+
+def strict_validation_profile(strict_check_result: Dict[str, object] | None) -> Dict[str, object]:
+    from agents.lib.controller_strict_mode import strict_validation_profile as _impl  # type: ignore
+
+    return dict(_impl(strict_check_result))
 
 
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
@@ -4382,23 +4424,15 @@ def main() -> int:
     last_output_path = Path("_last_agent_model_output.txt")
     last_bundle_path = Path("_last_agent_file_bundle.txt")
 
-    strict_mode_context = build_controller_strict_mode_context(
+    strict_mode = describe_controller_strict_mode(
         required_paths=required,
         task_file=task_path.as_posix(),
     )
+    strict_mode_context = dict(strict_mode.get("context", {}) or {})
     prev_files: Dict[str, str] | None = None
-    extra_directives = ""
-    if bool(strict_mode_context.get("enabled")):
-        try:
-            from agents.lib.controller_strict_mode import controller_strict_mode_directives as _controller_strict_mode_directives  # type: ignore
-        except Exception:
-            _controller_strict_mode_directives = None  # type: ignore[assignment]
-        if callable(_controller_strict_mode_directives):
-            extra_directives = str(_controller_strict_mode_directives(strict_mode_context)).strip()
-        touched = strict_mode_context.get("strict_targets_touched") or []
-        print("🔒 Controller strict mode enabled.")
-        if touched:
-            print("Controller strict-mode targets: " + ", ".join(str(item) for item in touched))
+    extra_directives = str(strict_mode.get("directives", "") or "").strip()
+    for line in strict_mode.get("status_lines", []) or []:
+        print(str(line))
     violation_counts: Dict[str, int] = {}
 
     stable_baseline = existing_file_contents(baseline_paths)
@@ -4591,15 +4625,7 @@ def main() -> int:
         if bool(strict_mode_context.get("enabled")):
             strict_issues = controller_strict_preapply_issues(files, touched_paths=required)
             if strict_issues:
-                try:
-                    from agents.lib.controller_strict_mode import format_controller_strict_preapply_issues as _format_controller_strict_preapply_issues  # type: ignore
-                except Exception:
-                    _format_controller_strict_preapply_issues = None  # type: ignore[assignment]
-                strict_msg = (
-                    str(_format_controller_strict_preapply_issues(strict_issues))
-                    if callable(_format_controller_strict_preapply_issues)
-                    else "Controller strict mode rejected low-discipline generated patch before apply:\n" + "\n".join(f"- {issue}" for issue in strict_issues)
-                )
+                strict_msg = format_controller_strict_preapply_issues(strict_issues)
                 _report_failure("controller_patch_quality", strict_msg, touched_files=required, task_file=task_path.as_posix())
                 task_text = _append_task_feedback(task_text, strict_msg)
                 if _repeat_limit_exceeded(violation_counts, "controller_patch_quality", args.policy_block_limit):
@@ -4623,13 +4649,7 @@ def main() -> int:
                 and strict_check_result.get("lint_ok")
                 and strict_check_result.get("test_ok")
             )
-            validation_profile = {
-                "passed": ok,
-                "details": details,
-                "controller_strict_mode": True,
-                "controller_proof_tests_passed": bool(strict_check_result.get("controller_proof_tests_passed", False)),
-                "proof_claims_deferred": bool(strict_check_result.get("proof_claims_deferred", False)),
-            }
+            validation_profile = strict_validation_profile(strict_check_result)
         else:
             ok, details = run_checks()
             validation_profile = {"passed": ok, "details": details}
@@ -4654,11 +4674,11 @@ def main() -> int:
                     run(["git", "reset"], check=True)
                 restore_file_snapshot(pre_write_snapshot)
                 _report_final_acceptance_failure(acceptance_report)
-                issues_text = "\n".join(str(issue) for issue in acceptance_report.get("issues", []) or [])
-                _report_failure("final_acceptance", issues_text or str(acceptance_report.get("acceptance_decision", "retryable_failure")), touched_files=list({*required, *staged_paths, *working_tree_paths}), task_file=task_path.as_posix())
-                task_text = _append_task_feedback(task_text, _final_acceptance_failure_feedback(acceptance_report))
-                decision = str(acceptance_report.get("acceptance_decision", "retryable_failure"))
-                if decision in {"blocked", "manual_patch"}:
+                acceptance_feedback = build_final_acceptance_retry_feedback(acceptance_report)
+                issues_text = str(acceptance_feedback.get("issues_text", "")).strip()
+                _report_failure("final_acceptance", issues_text or str(acceptance_feedback.get("acceptance_decision", "retryable_failure")), touched_files=list({*required, *staged_paths, *working_tree_paths}), task_file=task_path.as_posix())
+                task_text = _append_task_feedback(task_text, str(acceptance_feedback.get("feedback_text", "")).strip())
+                if bool(acceptance_feedback.get("should_stop")):
                     print("\n❌ Stopping early: final acceptance review requires manual intervention.")
                     print("Model output saved to: _last_agent_model_output.txt")
                     print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
@@ -4688,27 +4708,19 @@ def main() -> int:
         _report_failure("tests", details, touched_files=required, task_file=task_path.as_posix())
 
         semantic_hints = parse_semantic_failures(details)
-        controller_repair_context = build_controller_repair_context(
-            kind="tests",
-            message=details,
-            category="tests",
-            touched_files=required,
-            task_file=task_path.as_posix(),
-        )
-        controller_repair_prompt = str(controller_repair_context.get("repair_prompt", "")).strip()
         task_text = (
             task_text.rstrip()
-            + "\n\n# Last run failures\n"
-            + details
-            + "\n\nIMPORTANT: Fix the reported failures exactly. "
-              "Modify implementation files to satisfy failing tests. "
-              "Do not change tests unless the task explicitly requires it. "
-              "Use exact expected values from pytest output as the source of truth.\n"
+            + "\n\n"
+            + build_controller_test_failure_appendix(
+                details=details,
+                semantic_hints=semantic_hints,
+                kind="tests",
+                category="tests",
+                touched_files=required,
+                task_file=task_path.as_posix(),
+            )
+            + "\n"
         )
-        if semantic_hints:
-            task_text += "\n# Failure analysis hints\n" + semantic_hints + "\n"
-        if controller_repair_prompt:
-            task_text += "\n# Controller repair context\n" + controller_repair_prompt + "\n"
 
         if prev_files is not None:
             sim = bundle_similarity(prev_files, files)
@@ -4730,6 +4742,8 @@ def main() -> int:
     print("Model output saved to: _last_agent_model_output.txt")
     print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
     return 1
+
+
 def _parser_policy_exports() -> Dict[str, object]:
     try:
         from agents.lib import bundle_parser as _bundle_parser  # type: ignore
