@@ -2,7 +2,7 @@
 
 ## Why this task exists
 
-The latest controller patches proved that controller-core tasks need stricter handling than ordinary tasks. In particular, low-discipline generated bundles (for example minified/compressed Python that Ruff immediately rejects) should not be applied blindly.
+The latest controller patches proved that controller-core tasks need stricter handling than ordinary tasks. In particular, low-discipline generated bundles (for example minified or compressed Python that Ruff immediately rejects) should not be applied blindly.
 
 ## Outcome
 
@@ -10,9 +10,12 @@ Add a controller-task strict mode that applies stronger validation, focused test
 
 ## Create or update these exact files
 
-- `agents/run_task.py`
+- `agents/lib/controller_contract.py`
+- `agents/lib/controller_strict_mode.py`
 - `agents/lib/task_contracts.py`
 - `agents/lib/failure_journal.py`
+- `agents/run_task.py`
+- `tests/test_controller_contract.py`
 - `tests/test_run_task_runtime_foundations.py`
 - `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
 - `docs/TRADINGBOT_PROJECT_STATE.md`
@@ -25,6 +28,7 @@ Add a controller-task strict mode that applies stronger validation, focused test
 Strict mode must activate when a task touches controller-core files such as:
 
 - `agents/run_task.py`
+- `agents/lib/controller_contract.py`
 - `agents/lib/batch_executor.py`
 - `agents/lib/batch_state.py`
 - `agents/lib/task_queue.py`
@@ -37,7 +41,7 @@ Strict mode must activate when a task touches controller-core files such as:
 In strict mode, the lane must:
 
 1. run focused controller tests first
-2. reject obvious formatting/discipline failures before apply when possible
+2. reject obvious formatting or discipline failures before apply when possible
 3. run full `ruff check .`
 4. run full `pytest -q`
 5. delay docs/README proof-complete claims until controller proof tests are green
@@ -53,7 +57,7 @@ Before apply, reject bundles with clear bad-patch signals such as:
 
 ## Tests
 
-Add/adjust tests that prove:
+Add or adjust tests that prove:
 
 1. controller-core task shapes activate strict mode
 2. obvious bad controller patch formatting is rejected before apply
@@ -64,6 +68,7 @@ Add/adjust tests that prove:
 - Do not over-block ordinary non-controller tasks
 - Keep strict mode transparent in operator messaging
 - Prefer deterministic heuristics over vague style judgments
+- Keep strict-mode logic in a helper module rather than adding a new blob to `agents/run_task.py`
 
 ## Acceptance
 

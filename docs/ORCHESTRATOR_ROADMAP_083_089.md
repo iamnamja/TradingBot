@@ -16,8 +16,8 @@ That was a real milestone, but it also showed where the next failure modes still
 
 This tranche has six linked goals:
 
-1. define one canonical controller contract
-2. make retry/self-heal explicitly non-reexecuting
+1. define one canonical controller contract module
+2. make retry/self-heal explicitly non-reexecuting with separate execution vs repair truth
 3. make merge/reset posture first-class persisted truth
 4. improve controller-task repair guidance with semantic failure digests
 5. add controller strict mode and pre-apply patch-quality gates
@@ -26,22 +26,22 @@ This tranche has six linked goals:
 ## Planned order
 
 ### 083 — Controller contract canonicalization
-Unify acceptance decisions, post-task decisions, merge-posture decisions, and persisted truth fields across controller modules.
+Create one canonical controller contract module and make controller-facing helpers import it instead of restating literal sets independently.
 
 ### 084 — Non-reexecuting retryable self-heal channel
-Make retry/self-heal semantics explicit so repaired results are re-validated without re-running raw execution attempts.
+Make retry/self-heal semantics explicit so repaired results are re-validated without re-running raw execution attempts, and persist separate execution-vs-repair truth.
 
 ### 085 — Merge-posture truth persistence and resume contract
 Treat `failed_merge`, `failed_checks`, and `failed_reset` as first-class terminal truth and make resume-after-merge depend on persisted evidence.
 
 ### 086 — Semantic failure digest and controller repair context
-Generate a structured controller-failure digest so repair prompts are driven by semantic drift, not only raw test logs.
+Generate a structured controller-failure digest in a helper module so repair prompts are driven by semantic drift, not only raw test logs.
 
 ### 087 — Controller-task strict mode and patch-quality gate
 Apply stronger validation and pre-apply patch-quality rejection for controller-core tasks, and defer docs/proof claims until controller proof tests are actually green.
 
 ### 088 — Controller decomposition fourth extraction
-Move more strict-mode/repair-context/controller glue out of `agents/run_task.py`.
+Move more strict-mode and repair-context controller glue out of `agents/run_task.py`.
 
 ### 089 — Hardened autonomous short-manifest proof
 Re-run the short ordinary-manifest autonomy proof after the above hardening and document the narrower-but-stronger claim honestly.
@@ -52,10 +52,10 @@ Re-run the short ordinary-manifest autonomy proof after the above hardening and 
   - 083
   - 084
   - 085
+  - 086
   - 087
   - 088
-- **Good autonomous candidates once those controller contracts land**
-  - 086
+- **Best autonomous candidate after those controller contracts land**
   - 089
 
 ## Success criteria for this roadmap

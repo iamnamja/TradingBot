@@ -26,8 +26,8 @@ The active sequence covered by the current proof is:
 The next planned hardening tranche is:
 
 - **083–089** — controller contract hardening and stricter controller-task discipline
-  - canonical controller contract
-  - non-reexecuting retry/self-heal channel
+  - canonical controller contract module
+  - non-reexecuting retry/self-heal channel with explicit execution-vs-repair truth
   - merge-posture truth persistence and resume contract
   - semantic failure digest and controller repair context
   - controller-task strict mode and patch-quality gate
@@ -42,7 +42,7 @@ The agent runner supports a conservative batch mode in addition to single-task m
 
 - Input: a task-list manifest (ordered task paths)
 - Behavior: sequential execution, acceptance-gated progression, deterministic retry/self-heal slice
-- Stop posture: stops honestly on blocking/manual/merge-posture failures
+- Stop posture: stops honestly on blocking, manual, or merge-posture failures
 - Goal: truthful, reviewable progression over a short ordinary manifest proof slice
 
 Single-task behavior remains available and unchanged for normal `agents/run_task.py <task.md>` usage.
@@ -60,7 +60,7 @@ For tasks that have passed final acceptance review, the orchestrator can optiona
 Conservative limits:
 
 - no auto-merge for tasks that are not accepted
-- PR/CI/merge/reset failures stop honestly and persist non-proceed state
+- PR, CI, merge, and reset failures stop honestly and persist non-proceed state
 - next task cannot proceed unless clean-main reset succeeds
 - operator-controlled mode remains available (autonomous merge is not hidden always-on)
 
@@ -82,7 +82,7 @@ It does **not** claim:
 The next tranche exists because Task 082 showed that controller-core autonomy still depends on stabilizing:
 
 - one canonical controller contract across modules
-- non-reexecuting retry/self-heal semantics
+- non-reexecuting retry/self-heal semantics with separate execution-vs-repair truth
 - persisted merge/reset truth and resume gates
 - semantic repair context for controller-task failures
 - strict controller-task patch discipline before apply
@@ -104,4 +104,4 @@ The next tranche exists because Task 082 showed that controller-core autonomy st
 
 ## Documentation placement
 
-`README.md` is the canonical root-level entrypoint for the repo. Orchestrator and TradingBot narrative documents, product specs, controls/policies docs, and relationship documents should live under `docs/` rather than being duplicated at repo root.
+`README.md` is the canonical root-level entrypoint for the repo. Orchestrator and TradingBot narrative documents, product specs, controls and policies docs, and relationship documents should live under `docs/` rather than being duplicated at repo root.

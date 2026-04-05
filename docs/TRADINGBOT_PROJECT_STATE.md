@@ -62,7 +62,7 @@ This is intentionally a bounded capability proof, not a broad scheduler claim.
 Task 082 also made the remaining hardening gaps clear:
 
 - controller modules still drift on key decision vocabulary and truth fields
-- retry/self-heal semantics need to be made explicitly non-reexecuting and canonical
+- retry/self-heal semantics need one canonical contract and explicit execution-vs-repair audit fields
 - merge/reset posture truth needs to be first-class in persisted state and resume logic
 - controller-task failures need a stronger semantic repair digest than raw failing output alone
 - controller-core tasks need stricter pre-apply patch quality gates and claim deferral
@@ -73,12 +73,12 @@ These are the focus of the next tranche.
 
 The next planned tranche focuses on:
 
-- canonical controller contract across controller-facing modules
-- non-reexecuting retry/self-heal channel
-- merge-posture truth persistence and resume contract
-- semantic failure digest and controller repair context
+- a new canonical `agents/lib/controller_contract.py` surface used across controller-facing modules
+- non-reexecuting retry/self-heal with explicit execution-vs-repair truth fields
+- merge-posture truth persistence and resume contract hardening
+- semantic failure digest and controller repair-context helpers
 - controller-task strict mode and generated-patch quality gate
-- further `agents/run_task.py` decomposition
+- further `agents/run_task.py` decomposition through dedicated helper modules
 - hardened autonomous short-manifest proof after those contracts are stabilized
 
 ## Canonical batch execution path
@@ -106,7 +106,7 @@ Persisted outcomes/checkpoints now intentionally aim to include:
 - accepted-task PR flow flags (created/checks/merged/reset where applicable)
 - resume reason/target/gate metadata
 
-The next tranche is intended to make that truth surface canonical and consistent across all controller-facing modules.
+The next tranche is intended to make that truth surface canonical and consistent across all controller-facing modules, and to separate raw execution-attempt truth from repair-attempt truth explicitly.
 
 ## Near-term posture
 

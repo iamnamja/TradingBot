@@ -2,18 +2,20 @@
 
 ## Why this task exists
 
-Accepted-task autonomous merge/reset posture now exists, but it must be made fully canonical as a persisted truth surface so resume behavior depends on actual evidence rather than inferred success.
+Accepted-task autonomous merge/reset posture now exists, but it still needs to be made fully canonical as persisted controller truth so resume behavior depends on actual evidence rather than inferred success.
 
 ## Outcome
 
-Treat merge-posture outcomes as first-class terminal truth and make resume-after-merge depend on persisted evidence.
+Treat merge-posture outcomes as first-class terminal truth and make resume-after-merge depend on persisted evidence from the canonical controller contract.
 
 ## Create or update these exact files
 
+- `agents/lib/controller_contract.py`
 - `agents/lib/batch_state.py`
 - `agents/lib/batch_executor.py`
 - `agents/lib/git_workflow.py`
 - `agents/lib/task_queue.py`
+- `tests/test_controller_contract.py`
 - `tests/test_run_task_runtime_foundations.py`
 - `tests/test_task_queue.py`
 - `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
@@ -49,11 +51,11 @@ Persisted task/checkpoint truth must include at least:
 
 ### 4) Resume-after-manual-resolution gate
 
-Manual/blocked tasks must not be skipped implicitly. Resume after manual resolution must continue to require explicit operator intent and persisted resume metadata.
+Manual/blocked tasks must not be skipped implicitly. Resume after manual resolution must still require explicit operator intent and canonical persisted resume metadata.
 
 ## Tests
 
-Add/adjust tests that prove:
+Add or adjust tests that prove:
 
 1. merge-posture failures stop honestly and persist terminal truth
 2. resume-after-merge only skips tasks with accepted+merged+reset-clean evidence
