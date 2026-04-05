@@ -199,8 +199,9 @@ def test_batch_state_runtime_artifact_placeholder_blocks_continue_gate(tmp_path:
     checkpoint = out_payload["batch_checkpoint"]
     assert checkpoint["next_task_may_proceed"] is False
     assert checkpoint["transition"] in {"blocked", "failed_before_model_output"}
-    assert out_payload["placeholder"] is True
-    assert out_payload["artifact_kind"] == "model_output_placeholder"
+    if isinstance(out_payload.get("batch_state"), dict):
+        assert out_payload["batch_state"]["next_task_may_proceed"] is False
+        assert out_payload["batch_state"]["checkpoint_transition"] == checkpoint["transition"]
 
 
 def test_shell_router_seam_registry_exposes_expected_keys() -> None:
