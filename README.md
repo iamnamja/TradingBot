@@ -10,9 +10,9 @@ This repository contains:
 
 ## Current continuation status
 
-The reliability/autonomy tranche and the first backlog-execution continuation are now complete through **Task 079**.
+The reliability/autonomy tranche and backlog-execution continuation are complete through **Task 082**.
 
-The current next-stage active sequence is:
+The active sequence covered by the current proof is:
 
 - **076–082** — autonomous backlog progression and controller-thinning continuation
   - final acceptance reviewer/report
@@ -30,9 +30,9 @@ Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PRO
 The agent runner supports a conservative batch mode in addition to single-task mode.
 
 - Input: a task-list manifest (ordered task paths)
-- Behavior: sequential execution, intentionally conservative
-- Stop posture: may stop at first blocking/manual/failure outcome
-- Goal: reviewable progression over broad autonomy
+- Behavior: sequential execution, acceptance-gated progression, deterministic retry/self-heal slice
+- Stop posture: stops honestly on blocking/manual/merge-posture failures
+- Goal: truthful, reviewable progression over a short ordinary manifest proof slice
 
 Single-task behavior remains available and unchanged for normal `agents/run_task.py <task.md>` usage.
 
@@ -53,15 +53,33 @@ Conservative limits:
 - next task cannot proceed unless clean-main reset succeeds
 - operator-controlled mode remains available (autonomous merge is not hidden always-on)
 
+## Autonomous backlog runner proof (Task 082)
+
+The repository now includes deterministic E2E-oriented tests proving that a short ordinary manifest can:
+
+1. run a task
+2. pass authoritative validation and final acceptance
+3. merge/reset cleanly
+4. continue to the next task
+
+It also proves:
+
+- retryable acceptance failure can self-heal and then continue
+- `manual_patch`, `blocked`, and failed merge posture stop conservatively
+- persisted state/outcomes reflect run truthfully
+
 ## What batch mode can honestly claim today
 
 Today the repo has:
 
 - a conservative batch runner CLI
 - machine-readable and human-readable batch summaries
-- deterministic local proofs for sequential backlog execution and accepted-task PR lifecycle gates under test
+- deterministic local proofs for short ordinary-manifest autonomous progression
 
-It does **not** claim broad unattended arbitrary-task scheduling. The 076–082 tranche is focused on closing that gap safely for short ordinary-task manifests.
+It does **not** claim:
+
+- arbitrary protected/controller task-list autonomy
+- broad unattended production scheduler autonomy across any task shape
 
 ## Documentation entry points
 
