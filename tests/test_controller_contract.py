@@ -111,3 +111,45 @@ def test_merge_posture_and_resume_helpers_are_canonical() -> None:
         resume_mode="resume_after_manual_resolution",
         explicit_resume=False,
     ) is False
+
+
+def test_controller_failure_digest_contract_is_stable_and_machine_readable() -> None:
+    contract = _load("agents.lib.controller_contract")
+    repair = _load("agents.lib.controller_repair")
+
+    snapshot = contract.controller_contract_snapshot()
+    assert snapshot["controller_failure_digest_fields"] == [
+        "failure_kind",
+        "failure_category",
+        "is_controller_failure",
+        "failing_tests",
+        "decision_mismatches",
+        "missing_truth_fields",
+        "extra_truth_fields",
+        "missing_exports",
+        "merge_posture_mismatches",
+        "taxonomy_mismatches",
+        "controller_family_files_touched",
+    ]
+
+    digest = repair.build_controller_failure_digest(
+        kind="tests",
+        category="tests",
+        task_file="tasks/086_orchestrator_semantic_failure_digest_and_controller_repair_context.md",
+        touched_files=["agents/lib/batch_executor.py", "tests/test_task_queue.py"],
+        message=(
+            "________________ test_controller_resume __________________\n"
+            "E AssertionError: assert 'failed_merge' == 'failed_reset'\n"
+            "E KeyError: 'resume_gate'\n"
+            "E AttributeError: module 'agents.run_task' has no attribute 'build_controller_repair_context'\n"
+            "tests/test_task_queue.py:42: AssertionError\n"
+        ),
+    )
+
+    assert digest["is_controller_failure"] is True
+    assert digest["failing_tests"] == ["test_controller_resume"]
+    assert digest["decision_mismatches"] == [{"actual": "failed_merge", "expected": "failed_reset"}]
+    assert digest["missing_truth_fields"] == ["resume_gate"]
+    assert digest["missing_exports"] == ["build_controller_repair_context"]
+    assert digest["merge_posture_mismatches"] == ["decision drift: actual=failed_merge expected=failed_reset"]
+    assert digest["controller_family_files_touched"] == ["agents/run_task.py", "agents/lib/batch_executor.py"]

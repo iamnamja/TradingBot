@@ -460,6 +460,32 @@ def report_branch_push_ready(branch: str) -> None:
     _impl(branch)
 
 
+def build_controller_failure_digest(
+    *,
+    kind: str,
+    message: str,
+    category: str = "",
+    touched_files: List[str] | None = None,
+    task_file: str = "",
+) -> Dict[str, object]:
+    from agents.lib.controller_repair import build_controller_failure_digest as _impl  # type: ignore
+
+    return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
+
+
+def build_controller_repair_context(
+    *,
+    kind: str,
+    message: str,
+    category: str = "",
+    touched_files: List[str] | None = None,
+    task_file: str = "",
+) -> Dict[str, object]:
+    from agents.lib.controller_repair import build_controller_repair_context as _impl  # type: ignore
+
+    return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
+
+
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
     return build_final_acceptance_failure_feedback(report)
 
@@ -3892,7 +3918,7 @@ def _cleanup_runtime_artifacts_for_commit(paths: List[Path], keep_runtime_artifa
                 path.unlink()
         except Exception:
             pass
-def _report_failure(kind: str, message: str) -> None:
+def _report_failure(kind: str, message: str, *, touched_files: List[str] | None = None, task_file: str = "") -> None:
     exports = _failure_journal_exports()
     classify = exports.get("classify_failure")
     fingerprint_fn = exports.get("failure_fingerprint")
@@ -3903,6 +3929,8 @@ def _report_failure(kind: str, message: str) -> None:
     build_plan = exports.get("build_failure_remediation_plan")
     confidence_fn = exports.get("autonomy_confidence")
     continue_fn = exports.get("continue_autonomously")
+    semantic_digest_fn = exports.get("build_semantic_failure_digest")
+    semantic_context_fn = exports.get("build_semantic_repair_context")
 
     category = str(classify(kind, message)) if callable(classify) else str(kind or "unknown")
     raw_snippet = (
@@ -4019,6 +4047,17 @@ def _report_failure(kind: str, message: str) -> None:
         or os.getenv("TRADINGBOT_TASK_IDENTIFIER", "").strip()
         or "unknown_task"
     )
+    semantic_digest = (
+        dict(semantic_digest_fn(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
+        if callable(semantic_digest_fn)
+        else {}
+    )
+    semantic_context = (
+        dict(semantic_context_fn(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
+        if callable(semantic_context_fn)
+        else {}
+    )
+
     entry = {
         "task_identifier": task_identifier,
         "task_id": task_identifier,
@@ -4031,6 +4070,8 @@ def _report_failure(kind: str, message: str) -> None:
         "autonomy_confidence": autonomy_conf,
         "continue_autonomously": continue_auto,
         "manual_lane_recommended": manual_lane_recommended,
+        "semantic_failure_digest": semantic_digest,
+        "semantic_repair_prompt": str(semantic_context.get("repair_prompt", "")),
     }
 
     if callable(append_entry):
@@ -4424,7 +4465,7 @@ def main() -> int:
                     expected_paths=required,
                 )
         except FileBundleError as e:
-            _report_failure("bundle_transport", str(e))
+            _report_failure("bundle_transport", str(e), touched_files=required if "required" in locals() else None, task_file=task_path.as_posix() if "task_path" in locals() else "")
             _emit_failure_artifact_messages(last_output_path, last_bundle_path, create_placeholders=True)
             return 1
 
@@ -4438,7 +4479,7 @@ def main() -> int:
 
         ok_syntax, syntax_msg = validate_python_syntax(files)
         if not ok_syntax:
-            _report_failure("python_syntax", syntax_msg)
+            _report_failure("python_syntax", syntax_msg, touched_files=required, task_file=task_path.as_posix())
             task_text = _append_task_feedback(task_text, syntax_msg)
             if _repeat_limit_exceeded(violation_counts, "python_syntax", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated Python syntax failures. Recommended action: manual_patch")
@@ -4456,7 +4497,7 @@ def main() -> int:
             allow_unchanged_cli=allow_unchanged_cli,
         )
         if not ok_req:
-            _report_failure("deliverables", req_msg)
+            _report_failure("deliverables", req_msg, touched_files=required, task_file=task_path.as_posix())
             task_text = _append_task_feedback(task_text, req_msg)
             if _repeat_limit_exceeded(violation_counts, "deliverables", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated deliverable violations. Recommended action: manual_patch")
@@ -4468,7 +4509,7 @@ def main() -> int:
 
         ok_policy, policy_msg = enforce_harness_file_policies(task_text, files, baseline)
         if not ok_policy:
-            _report_failure("protected_file_policy", policy_msg)
+            _report_failure("protected_file_policy", policy_msg, touched_files=required, task_file=task_path.as_posix())
             task_text = _append_task_feedback(task_text, policy_msg)
             if _repeat_limit_exceeded(violation_counts, "protected_file_policy", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated protected-file policy violations. Recommended action: manual_patch")
@@ -4480,7 +4521,7 @@ def main() -> int:
 
         ok_static, static_msg = validate_static_bundle_contracts(files, task_text)
         if not ok_static:
-            _report_failure("static_contracts", static_msg)
+            _report_failure("static_contracts", static_msg, touched_files=required, task_file=task_path.as_posix())
             task_text = _append_task_feedback(task_text, static_msg)
             if _repeat_limit_exceeded(violation_counts, "static_contracts", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated static contract violations. Recommended action: manual_patch")
@@ -4492,7 +4533,7 @@ def main() -> int:
 
         ok_imports, import_msg = validate_imports(files)
         if not ok_imports:
-            _report_failure("imports", import_msg)
+            _report_failure("imports", import_msg, touched_files=required, task_file=task_path.as_posix())
             task_text = _append_task_feedback(task_text, import_msg + "\n" + missing_module_hints(import_msg))
             if _repeat_limit_exceeded(violation_counts, "imports", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated import validation failures. Recommended action: manual_patch")
@@ -4530,7 +4571,7 @@ def main() -> int:
                 restore_file_snapshot(pre_write_snapshot)
                 _report_final_acceptance_failure(acceptance_report)
                 issues_text = "\n".join(str(issue) for issue in acceptance_report.get("issues", []) or [])
-                _report_failure("final_acceptance", issues_text or str(acceptance_report.get("acceptance_decision", "retryable_failure")))
+                _report_failure("final_acceptance", issues_text or str(acceptance_report.get("acceptance_decision", "retryable_failure")), touched_files=list({*required, *staged_paths, *working_tree_paths}), task_file=task_path.as_posix())
                 task_text = _append_task_feedback(task_text, _final_acceptance_failure_feedback(acceptance_report))
                 decision = str(acceptance_report.get("acceptance_decision", "retryable_failure"))
                 if decision in {"blocked", "manual_patch"}:
@@ -4560,8 +4601,17 @@ def main() -> int:
 
         print("❌ Checks failed after applying changes:")
         print(details)
+        _report_failure("tests", details, touched_files=required, task_file=task_path.as_posix())
 
         semantic_hints = parse_semantic_failures(details)
+        controller_repair_context = build_controller_repair_context(
+            kind="tests",
+            message=details,
+            category="tests",
+            touched_files=required,
+            task_file=task_path.as_posix(),
+        )
+        controller_repair_prompt = str(controller_repair_context.get("repair_prompt", "")).strip()
         task_text = (
             task_text.rstrip()
             + "\n\n# Last run failures\n"
@@ -4573,6 +4623,8 @@ def main() -> int:
         )
         if semantic_hints:
             task_text += "\n# Failure analysis hints\n" + semantic_hints + "\n"
+        if controller_repair_prompt:
+            task_text += "\n# Controller repair context\n" + controller_repair_prompt + "\n"
 
         if prev_files is not None:
             sim = bundle_similarity(prev_files, files)
@@ -4752,6 +4804,8 @@ def _failure_journal_exports() -> Dict[str, object]:
         "build_failure_remediation_plan": None,
         "autonomy_confidence": None,
         "continue_autonomously": None,
+        "build_semantic_failure_digest": None,
+        "build_semantic_repair_context": None,
     }
 
     if _failure_journal is not None:
@@ -4766,6 +4820,8 @@ def _failure_journal_exports() -> Dict[str, object]:
             "build_failure_remediation_plan",
             "autonomy_confidence",
             "continue_autonomously",
+            "build_semantic_failure_digest",
+            "build_semantic_repair_context",
         ):
             obj = getattr(_failure_journal, name, None)
             if callable(obj):

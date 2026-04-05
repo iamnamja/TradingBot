@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Literal, Sequence
 
 from agents.lib.controller_contract import AcceptanceDecision, coerce_acceptance_decision
+from agents.lib.controller_repair import build_controller_repair_context
 
 AcceptanceFailureClass = Literal[
     "missing_required_in_head",
@@ -154,14 +155,31 @@ def build_acceptance_self_heal_context(report: dict[str, Any]) -> dict[str, obje
     if classification["unexpected_tracked"]:
         lines.append("Unexpected tracked files to remove from committed diff:")
         lines.extend(f"- {p}" for p in classification["unexpected_tracked"])
+    semantic_context: dict[str, Any] = {}
     if failure_class == "merge_ready_validation_failed":
         details = str(((report.get("validation_profile", {}) or {}).get("details", ""))).strip()
         lines.append("Authoritative merge-ready validation failed after nominal green pass.")
         if details:
+            semantic_context = build_controller_repair_context(
+                kind="final_acceptance",
+                message=details,
+                category=str(report.get("acceptance_decision", "")),
+                touched_files=[
+                    *normalize_paths(report.get("required_paths", []) or []),
+                    *normalize_paths(report.get("head_diff_paths", []) or []),
+                    *normalize_paths(report.get("working_tree_paths", []) or []),
+                ],
+                task_file=str(report.get("task_file", "")),
+            )
             lines.append("Validation details:")
             lines.append(details)
+            repair_prompt = str(semantic_context.get("repair_prompt", "")).strip()
+            if repair_prompt:
+                lines.append("Semantic controller repair context:")
+                lines.append(repair_prompt)
     return {
         **classification,
+        **({"semantic_failure_digest": semantic_context.get("semantic_failure_digest", {})} if semantic_context else {}),
         "repair_scope": "repair_only",
         "reexecute_task": False,
         "repair_prompt": "\n".join(lines),
