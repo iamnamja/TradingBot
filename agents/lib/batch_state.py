@@ -11,7 +11,9 @@ from agents.lib.controller_contract import (
     BatchStatus,
     ResumeMode,
     batch_status_for_post_task_decision,
+    canonical_repair_audit,
     canonical_resume_metadata,
+    coerce_non_negative_int,
 )
 from agents.lib.task_queue import QueueStatus, TaskQueueItem, validate_queue_status_transition
 
@@ -43,6 +45,9 @@ class BatchTaskCheckpoint:
     event_seq: int
     post_task_decision: BatchPostTaskDecision | str = "stop"
     acceptance_decision: AcceptanceDecision | str = ""
+    execution_attempt_count: int = 0
+    repair_count: int = 0
+    accepted_after_repair: bool = False
     retry_count: int = 0
     accepted_task_pr_flow_completed: bool | None = None
     required_checks_passed: bool | None = None
@@ -63,6 +68,9 @@ class BatchTaskCheckpoint:
             "event_seq": self.event_seq,
             "post_task_decision": self.post_task_decision,
             "acceptance_decision": self.acceptance_decision,
+            "execution_attempt_count": self.execution_attempt_count,
+            "repair_count": self.repair_count,
+            "accepted_after_repair": self.accepted_after_repair,
             "retry_count": self.retry_count,
             "accepted_task_pr_flow_completed": self.accepted_task_pr_flow_completed,
             "required_checks_passed": self.required_checks_passed,
@@ -246,7 +254,10 @@ def apply_task_result(
     context_kind: str = "branch",
     context_ref: str = "",
     acceptance_decision: AcceptanceDecision | str = "",
-    retry_count: int = 0,
+    execution_attempt_count: int | None = None,
+    repair_count: int = 0,
+    accepted_after_repair: bool | None = None,
+    retry_count: int | None = None,
     next_task_may_proceed: bool | None = None,
     accepted_task_pr_flow_completed: bool | None = None,
     required_checks_passed: bool | None = None,
@@ -290,6 +301,13 @@ def apply_task_result(
     else:
         transition = "failed_requires_cleanup"
 
+    audit = canonical_repair_audit(
+        execution_attempt_count=current.attempts if execution_attempt_count is None else execution_attempt_count,
+        repair_count=repair_count if retry_count is None else retry_count,
+        acceptance_decision=acceptance_decision,
+        accepted_after_repair=accepted_after_repair,
+    )
+
     checkpoint = BatchTaskCheckpoint(
         task_path=current.task_path,
         ordinal=current.ordinal,
@@ -303,7 +321,10 @@ def apply_task_result(
         event_seq=state.event_seq,
         post_task_decision=post_task_decision,
         acceptance_decision=acceptance_decision,
-        retry_count=int(retry_count),
+        execution_attempt_count=coerce_non_negative_int(audit["execution_attempt_count"]),
+        repair_count=coerce_non_negative_int(audit["repair_count"]),
+        accepted_after_repair=bool(audit["accepted_after_repair"]),
+        retry_count=coerce_non_negative_int(audit["retry_count"]),
         accepted_task_pr_flow_completed=accepted_task_pr_flow_completed,
         required_checks_passed=required_checks_passed,
         merged_to_main=merged_to_main,

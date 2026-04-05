@@ -138,3 +138,5 @@ For all contributor and automation references, the canonical visible order is:
 Task 083 should still be treated as a manual patch first. It stabilizes the controller contract used by final acceptance, batch execution, batch state persistence, task-queue summaries, merge-posture reporting, and controller-focused tests.
 
 This is a hardening step, not a broader autonomy claim.
+
+- **084 — non-reexecuting retry/self-heal channel** keeps retryable acceptance repair in a repair-only lane: raw execution remains a single counted attempt while persisted checkpoints record separate execution and repair truth.

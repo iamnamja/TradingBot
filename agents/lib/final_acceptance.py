@@ -143,6 +143,7 @@ def build_acceptance_self_heal_context(report: dict[str, Any]) -> dict[str, obje
         f"Acceptance failure class: {failure_class}",
         f"Task file: {report.get('task_file', '')}",
         "Repair only the files and acceptance gap named below. Do not broad-rerun unrelated changes.",
+        "Do not rerun raw task execution for this attempt. Repair the current result only, then rerun validation and final acceptance.",
     ]
     if classification["missing_required"]:
         lines.append("Required files missing from committed HEAD diff:")
@@ -161,6 +162,8 @@ def build_acceptance_self_heal_context(report: dict[str, Any]) -> dict[str, obje
             lines.append(details)
     return {
         **classification,
+        "repair_scope": "repair_only",
+        "reexecute_task": False,
         "repair_prompt": "\n".join(lines),
     }
 

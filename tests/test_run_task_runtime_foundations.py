@@ -151,3 +151,20 @@ def test_failure_classifier_distinguishes_multiple_categories() -> None:
         )
         == "policy_blocked"
     )
+
+
+def test_final_acceptance_self_heal_context_is_repair_only() -> None:
+    (_, _, _, _, _, _, _, _, _, _, _, _, final_acceptance, _) = _load_runtime_modules()
+
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/084_orchestrator_non_reexecuting_retryable_self_heal_channel.md",
+        validated_required_paths=["agents/lib/batch_executor.py"],
+        head_diff_paths=[],
+        working_tree_paths=[],
+        validation_profile={"passed": True, "details": ""},
+    )
+
+    context = report["self_heal_context"]
+    assert context["repair_scope"] == "repair_only"
+    assert context["reexecute_task"] is False
+    assert "Do not rerun raw task execution for this attempt." in context["repair_prompt"]

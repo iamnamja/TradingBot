@@ -23,6 +23,9 @@ class BatchTaskOutcome:
     task_path: str
     terminal_status: QueueStatus
     acceptance_decision: AcceptanceDecision
+    execution_attempt_count: int
+    repair_count: int
+    accepted_after_repair: bool
     retry_count: int
     next_task_may_proceed: bool
     post_task_decision: BatchPostTaskDecision
@@ -37,6 +40,9 @@ class BatchTaskOutcome:
             "task_path": self.task_path,
             "terminal_status": self.terminal_status,
             "acceptance_decision": self.acceptance_decision,
+            "execution_attempt_count": self.execution_attempt_count,
+            "repair_count": self.repair_count,
+            "accepted_after_repair": self.accepted_after_repair,
             "retry_count": self.retry_count,
             "next_task_may_proceed": self.next_task_may_proceed,
             "post_task_decision": self.post_task_decision,
@@ -155,7 +161,8 @@ def execute_batch_loop(
             persist_state(state)
             continue
 
-        retry_count = 0
+        execution_attempt_count = 0
+        repair_count = 0
         accepted = False
         acceptance_payload: dict[str, Any] = {
             "acceptance_decision": "retryable_failure",
@@ -163,6 +170,7 @@ def execute_batch_loop(
         }
 
         result = execute_task(item)
+        execution_attempt_count += 1
         state = bs.advance_task_status(
             state,
             task_index=item.ordinal - 1,
@@ -183,12 +191,14 @@ def execute_batch_loop(
                 accepted = True
                 break
 
-            if decision == "retryable_failure" and retry_count < max(0, int(retry_budget)):
-                retry_count += 1
-                result = self_heal_and_retry(item, result, retry_count)
+            if decision == "retryable_failure" and repair_count < max(0, int(retry_budget)):
+                repair_count += 1
+                result = self_heal_and_retry(item, result, repair_count)
                 continue
 
             break
+
+        accepted_after_repair = bool(accepted and repair_count > 0)
 
         terminal_status = acceptance_decision_to_terminal_status(acceptance_payload["acceptance_decision"])
         post_task_decision = coerce_post_task_decision(
@@ -221,7 +231,10 @@ def execute_batch_loop(
             context_kind="branch",
             context_ref="batch-executor",
             acceptance_decision=acceptance_payload["acceptance_decision"],
-            retry_count=retry_count,
+            execution_attempt_count=execution_attempt_count,
+            repair_count=repair_count,
+            accepted_after_repair=accepted_after_repair,
+            retry_count=repair_count,
             next_task_may_proceed=may_proceed,
             **pr_flow_kwargs,
         )
@@ -231,7 +244,10 @@ def execute_batch_loop(
             task_path=item.task_path,
             terminal_status=terminal_status,
             acceptance_decision=acceptance_payload["acceptance_decision"],
-            retry_count=retry_count,
+            execution_attempt_count=execution_attempt_count,
+            repair_count=repair_count,
+            accepted_after_repair=accepted_after_repair,
+            retry_count=repair_count,
             next_task_may_proceed=may_proceed,
             post_task_decision=post_task_decision,
             note=acceptance_payload.get("note", ""),
