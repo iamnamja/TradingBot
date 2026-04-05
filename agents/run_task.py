@@ -67,11 +67,6 @@ RUNTIME_ARTIFACT_NAMES = (
     "_last_agent_file_bundle.txt",
 )
 
-MERGE_READY_VALIDATION_PROFILE: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("ruff check .", (sys.executable, "-m", "ruff", "check", ".")),
-    ("pytest -q", (sys.executable, "-m", "pytest", "-q")),
-)
-
 
 class FileBundleError(ValueError):
     pass
@@ -396,6 +391,55 @@ def validate_exact_deliverable_contract(task_text: str) -> Tuple[bool, str]:
         return True, ""
     return False, "Invalid exact deliverable contract entries detected:\n" + "\n".join(f"- {issue}" for issue in issues)
 
+
+
+def build_final_acceptance_report(
+    *,
+    task_file: str,
+    required_paths: List[str],
+    head_diff_paths: List[str],
+    working_tree_paths: List[str],
+    validation_profile: Dict[str, object],
+    unexpected_tracked_artifact_findings: List[str] | None = None,
+    manual_patch_required: bool = False,
+) -> Dict[str, object]:
+    from agents.lib.final_acceptance import build_final_acceptance_report as _impl  # type: ignore
+
+    return dict(
+        _impl(
+            task_file=task_file,
+            validated_required_paths=required_paths,
+            head_diff_paths=head_diff_paths,
+            working_tree_paths=working_tree_paths,
+            validation_profile=validation_profile,
+            unexpected_tracked_artifact_findings=unexpected_tracked_artifact_findings,
+            manual_patch_required=manual_patch_required,
+        )
+    )
+
+
+def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
+    issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]
+    decision = str(report.get("acceptance_decision", "retryable_failure"))
+    lines = [
+        "Final acceptance review rejected the current result.",
+        f"Acceptance decision: {decision}",
+        "Reconcile the exact task contract against the committed/staged diff and final validation before claiming success.",
+    ]
+    if issues:
+        lines.append("Issues:")
+        lines.extend(f"- {issue}" for issue in issues)
+    return "\n".join(lines)
+
+
+def _report_final_acceptance_failure(report: Dict[str, object]) -> None:
+    print("❌ Final acceptance review failed:")
+    issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]
+    if issues:
+        for issue in issues:
+            print(f"- {issue}")
+    else:
+        print(f"- acceptance_decision={report.get('acceptance_decision', 'retryable_failure')}")
 
 
 def _normalize_anchor_token(token: str) -> str:
@@ -3454,133 +3498,114 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
     normalized_required: List[str] = []
     seen_required: set[str] = set()
     for raw in required_paths or []:
-        if not isinstance(raw, str):
+        if not isinstance(raw, str) or not raw.strip():
             continue
-        cleaned = raw.strip()
-        if not cleaned:
-            continue
-        canonical = _canonical_docs_path_for(cleaned.replace("\\", "/"))
+        canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
         if canonical in seen_required:
             continue
         seen_required.add(canonical)
         normalized_required.append(canonical)
 
-    normalized_protected_targets: List[dict[str, object]] = []
-    seen_target_keys: set[tuple[str, str, str]] = set()
+    normalized_protected: List[dict[str, object]] = []
+    seen_protected_entries: set[tuple[str, str, str]] = set()
     for target in protected_targets or []:
         if isinstance(target, dict):
             raw_path = target.get("path")
-            if not isinstance(raw_path, str):
+            if not isinstance(raw_path, str) or not raw_path.strip():
                 continue
-            cleaned_path = raw_path.strip()
-            if not cleaned_path:
-                continue
-            canonical_path = _canonical_docs_path_for(cleaned_path.replace("\\", "/"))
+            canonical_path = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
             mode = str(target.get("mode", "") or "").strip()
             method_name = str(target.get("method_name", "") or "").strip()
-            key = (canonical_path, mode, method_name)
-            if key in seen_target_keys:
+            dedupe_key = (canonical_path, mode, method_name)
+            if dedupe_key in seen_protected_entries:
                 continue
-            seen_target_keys.add(key)
-            copied: dict[str, object] = dict(target)
-            copied["path"] = canonical_path
-            normalized_protected_targets.append(copied)
-        elif isinstance(target, str):
-            cleaned_path = target.strip()
-            if not cleaned_path:
+            seen_protected_entries.add(dedupe_key)
+            target_copy: dict[str, object] = dict(target)
+            target_copy["path"] = canonical_path
+            normalized_protected.append(target_copy)
+        elif isinstance(target, str) and target.strip():
+            canonical_path = _canonical_docs_path_for(target.strip().replace("\\", "/"))
+            dedupe_key = (canonical_path, "", "")
+            if dedupe_key in seen_protected_entries:
                 continue
-            canonical_path = _canonical_docs_path_for(cleaned_path.replace("\\", "/"))
-            key = (canonical_path, "", "")
-            if key in seen_target_keys:
-                continue
-            seen_target_keys.add(key)
-            normalized_protected_targets.append({"path": canonical_path})
+            seen_protected_entries.add(dedupe_key)
+            normalized_protected.append({"path": canonical_path})
 
-    for inferred in _infer_protected_method_targets_from_required("", normalized_required):
+    inferred_targets = _infer_protected_method_targets_from_required("", normalized_required)
+    for inferred in inferred_targets:
         raw_path = inferred.get("path")
-        if not isinstance(raw_path, str):
+        if not isinstance(raw_path, str) or not raw_path.strip():
             continue
-        cleaned_path = raw_path.strip()
-        if not cleaned_path:
-            continue
-        canonical_path = _canonical_docs_path_for(cleaned_path.replace("\\", "/"))
+        canonical_path = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
         mode = str(inferred.get("mode", "") or "").strip()
         method_name = str(inferred.get("method_name", "") or "").strip()
-        key = (canonical_path, mode, method_name)
-        if key in seen_target_keys:
+        dedupe_key = (canonical_path, mode, method_name)
+        if dedupe_key in seen_protected_entries:
             continue
-        seen_target_keys.add(key)
-        copied: dict[str, object] = dict(inferred)
-        copied["path"] = canonical_path
-        normalized_protected_targets.append(copied)
+        seen_protected_entries.add(dedupe_key)
+        inferred_copy: dict[str, object] = dict(inferred)
+        inferred_copy["path"] = canonical_path
+        normalized_protected.append(inferred_copy)
 
-    protected_meta_paths = {
+    if callable(_partition):
+        normal, protected = _partition(
+            required_paths=normalized_required,
+            protected_targets=normalized_protected,
+            protected_meta_paths=(
+                "agents/run_task.py",
+                "agents/lib/shell_router.py",
+                "agents/lib/bundle_parser.py",
+                "agents/lib/protected_file_policy.py",
+            ),
+        )
+        normalized_normal: List[str] = []
+        normalized_protected_paths: List[str] = []
+        seen_normal: set[str] = set()
+        seen_protected: set[str] = set()
+        for raw in normal or []:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+            if canonical in seen_normal:
+                continue
+            seen_normal.add(canonical)
+            normalized_normal.append(canonical)
+        for raw in protected or []:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+            if canonical in seen_protected:
+                continue
+            seen_protected.add(canonical)
+            normalized_protected_paths.append(canonical)
+        return normalized_normal, normalized_protected_paths
+
+    meta_harness_paths = {
         "agents/run_task.py",
         "agents/lib/shell_router.py",
         "agents/lib/bundle_parser.py",
         "agents/lib/protected_file_policy.py",
     }
-
-    explicit_protected_paths: set[str] = set()
-    for target in normalized_protected_targets:
-        maybe_path = target.get("path")
-        if isinstance(maybe_path, str):
-            normalized = maybe_path.strip().replace("\\", "/")
-            if normalized:
-                explicit_protected_paths.add(normalized)
+    protected_explicit: set[str] = set()
+    for target in normalized_protected:
+        maybe = target.get("path")
+        if isinstance(maybe, str) and maybe.strip():
+            protected_explicit.add(maybe.strip().replace("\\", "/"))
 
     normal: List[str] = []
     protected: List[str] = []
     seen_normal: set[str] = set()
     seen_protected: set[str] = set()
-
-    if callable(_partition):
-        partition_normal, partition_protected = _partition(
-            required_paths=normalized_required,
-            protected_targets=normalized_protected_targets,
-            protected_meta_paths=tuple(sorted(protected_meta_paths)),
-        )
-        for raw in partition_normal or []:
-            if not isinstance(raw, str):
-                continue
-            cleaned = raw.strip()
-            if not cleaned:
-                continue
-            canonical = _canonical_docs_path_for(cleaned.replace("\\", "/"))
-            if canonical in explicit_protected_paths or canonical in protected_meta_paths:
-                if canonical not in seen_protected:
-                    protected.append(canonical)
-                    seen_protected.add(canonical)
-            else:
-                if canonical not in seen_normal:
-                    normal.append(canonical)
-                    seen_normal.add(canonical)
-        for raw in partition_protected or []:
-            if not isinstance(raw, str):
-                continue
-            cleaned = raw.strip()
-            if not cleaned:
-                continue
-            canonical = _canonical_docs_path_for(cleaned.replace("\\", "/"))
-            if canonical not in seen_protected:
-                protected.append(canonical)
-                seen_protected.add(canonical)
-
-    for canonical in normalized_required:
-        if canonical in explicit_protected_paths or canonical in protected_meta_paths:
-            if canonical not in seen_protected:
-                protected.append(canonical)
-                seen_protected.add(canonical)
+    for path in normalized_required:
+        is_protected = path in protected_explicit or path in meta_harness_paths
+        if is_protected:
+            if path not in seen_protected:
+                protected.append(path)
+                seen_protected.add(path)
         else:
-            if canonical not in seen_normal:
-                normal.append(canonical)
-                seen_normal.add(canonical)
-
-    for canonical in sorted(explicit_protected_paths):
-        if canonical not in seen_protected:
-            protected.append(canonical)
-            seen_protected.add(canonical)
-
+            if path not in seen_normal:
+                normal.append(path)
+                seen_normal.add(path)
     return normal, protected
 def _local_branch_exists(branch: str) -> bool:
     try:
@@ -3646,8 +3671,6 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         checkpoint_transition = "manual_patch"
     elif category in {"blocked", "blocked_failure"}:
         checkpoint_transition = "blocked"
-    elif category in {"merge_ready_validation", "post_green_validation", "post-green-validation"}:
-        checkpoint_transition = "post_green_validation_failed"
 
     checkpoint = {
         "task_file": task_file_path,
@@ -3664,14 +3687,7 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         "mixed_task": bool(mixed_task),
         "protected_files": protected_files_list,
         "protected_targets_identified": protected_targets_list,
-        "retryable_in_iteration_loop": category in {"merge_ready_validation", "post_green_validation", "post-green-validation"},
     }
-
-    parity_enforced = category in {"merge_ready_validation", "post_green_validation", "post-green-validation", "deliverables", "blocked", "blocked_failure"}
-    artifact_gate_enforced = category in {"merge_ready_validation", "post_green_validation", "post-green-validation", "blocked", "blocked_failure"}
-    checkpoint["committed_state_parity_required"] = bool(parity_enforced)
-    checkpoint["exact_required_deliverable_parity_required"] = bool(parity_enforced)
-    checkpoint["unexpected_tracked_artifacts_rejected"] = bool(artifact_gate_enforced)
 
     if callable(_emit):
         _emit(
@@ -4085,28 +4101,6 @@ def run_checks() -> Tuple[bool, str]:
     raise TypeError(f"Unsupported run_checks() result shape: {type(result).__name__}")
 
 
-def merge_ready_validation_profile() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    return MERGE_READY_VALIDATION_PROFILE
-
-
-def run_merge_ready_validation_profile() -> Tuple[bool, str]:
-    details: List[str] = []
-    for display_name, cmd in merge_ready_validation_profile():
-        result = capture_result(list(cmd))
-        if result.returncode != 0:
-            details.append(f"=== {display_name} ===\n" + (result.stdout or "") + (result.stderr or ""))
-    if details:
-        return False, "\n\n".join(part.strip() for part in details if part.strip())
-    return True, ""
-
-
-def _merge_ready_validation_failure_feedback(details: str) -> str:
-    return (
-        "Post-green merge-ready validation failed under the authoritative validation profile. "
-        "The task is not complete until `ruff check .` and `pytest -q` both pass at the final gate.\n\n"
-        + details.strip()
-    ).strip()
-
 
 def main() -> int:
     _load_dotenv_if_available()
@@ -4452,29 +4446,47 @@ def main() -> int:
 
         ok, details = run_checks()
         if ok:
-            merge_ready_ok, merge_ready_details = run_merge_ready_validation_profile()
-            if not merge_ready_ok:
+            staged_paths: List[str] = []
+            if args.push:
+                _cleanup_runtime_artifacts_for_commit(_runtime_artifact_paths(last_output_path, last_bundle_path))
+                run(["git", "add", "-A"], check=True)
+                staged_paths = [line.strip() for line in capture(["git", "diff", "--cached", "--name-only"]).splitlines() if line.strip()]
+            else:
+                staged_paths = [line.strip() for line in capture(["git", "diff", "--name-only"]).splitlines() if line.strip()]
+            working_tree_paths = [line.strip() for line in capture(["git", "diff", "--name-only"]).splitlines() if line.strip()]
+            validation_profile = {"passed": True, "details": details}
+            acceptance_report = build_final_acceptance_report(
+                task_file=task_path.as_posix(),
+                required_paths=required,
+                head_diff_paths=staged_paths,
+                working_tree_paths=working_tree_paths,
+                validation_profile=validation_profile,
+            )
+            if str(acceptance_report.get("acceptance_decision", "retryable_failure")) != "accepted":
+                if args.push:
+                    run(["git", "reset"], check=True)
                 restore_file_snapshot(pre_write_snapshot)
-                print("❌ Post-green merge-ready validation failed:")
-                print(merge_ready_details)
-                _report_failure("merge_ready_validation", merge_ready_details)
-                task_text = _append_task_feedback(
-                    task_text,
-                    _merge_ready_validation_failure_feedback(merge_ready_details),
-                )
-                if _repeat_limit_exceeded(violation_counts, "merge_ready_validation", args.policy_block_limit):
-                    print("\n❌ Stopping early: repeated merge-ready validation failures. Recommended action: manual_patch")
+                _report_final_acceptance_failure(acceptance_report)
+                issues_text = "\n".join(str(issue) for issue in acceptance_report.get("issues", []) or [])
+                _report_failure("final_acceptance", issues_text or str(acceptance_report.get("acceptance_decision", "retryable_failure")))
+                task_text = _append_task_feedback(task_text, _final_acceptance_failure_feedback(acceptance_report))
+                decision = str(acceptance_report.get("acceptance_decision", "retryable_failure"))
+                if decision in {"blocked", "manual_patch"}:
+                    print("\n❌ Stopping early: final acceptance review requires manual intervention.")
+                    print("Model output saved to: _last_agent_model_output.txt")
+                    print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                    return 1
+                if _repeat_limit_exceeded(violation_counts, "final_acceptance", args.policy_block_limit):
+                    print("\n❌ Stopping early: repeated final acceptance failures. Recommended action: manual_patch")
                     print("Model output saved to: _last_agent_model_output.txt")
                     print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
                     return 1
                 prev_files = files
                 continue
+
             print("✅ Green.")
             if args.push:
-                _cleanup_runtime_artifacts_for_commit(_runtime_artifact_paths(last_output_path, last_bundle_path))
-                run(["git", "add", "-A"], check=True)
-                staged = capture(["git", "diff", "--cached", "--name-only"])
-                if not staged.strip():
+                if not staged_paths:
                     print("✅ Green. No changes to commit/push.")
                     return 0
                 run(["git", "commit", "-m", f"{task_path.stem}: apply agent changes"], check=True)
@@ -4763,16 +4775,5 @@ def _shell_router_exports() -> Dict[str, object]:
     return exports
 
 
-
-def backlog_execution_proof_capabilities() -> dict[str, object]:
-    """Describe the conservative short-manifest backlog proof covered by Task 075."""
-    return {
-        "short_manifest_e2e_proof": True,
-        "all_success_completion": True,
-        "manual_patch_stops_conservatively": True,
-        "blocked_stops_conservatively": True,
-        "hard_failure_continue_gate_blocks_progression": True,
-    }
 if __name__ == "__main__":
     raise SystemExit(main())
-
