@@ -430,34 +430,42 @@ def build_acceptance_self_heal_context(report: Dict[str, object]) -> Dict[str, o
     return dict(_impl(report))
 
 
+def build_final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
+    from agents.lib.final_acceptance import build_final_acceptance_failure_feedback as _impl  # type: ignore
+
+    return str(_impl(report))
+
+
+def report_final_acceptance_failure(report: Dict[str, object]) -> None:
+    from agents.lib.final_acceptance import report_final_acceptance_failure as _impl  # type: ignore
+
+    _impl(report)
+
+
+def execute_batch_loop(**kwargs: Any) -> tuple[object, list[dict[str, object]], object]:
+    from agents.lib.batch_executor import execute_batch_loop as _impl  # type: ignore
+
+    return _impl(**kwargs)
+
+
+def accepted_task_pr_merge_flow(**kwargs: Any) -> Dict[str, object]:
+    from agents.lib.git_workflow import accepted_task_pr_merge_flow as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
+def report_branch_push_ready(branch: str) -> None:
+    from agents.lib.git_workflow import report_branch_push_ready as _impl  # type: ignore
+
+    _impl(branch)
+
+
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
-    issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]
-    decision = str(report.get("acceptance_decision", "retryable_failure"))
-    lines = [
-        "Final acceptance review rejected the current result.",
-        f"Acceptance decision: {decision}",
-        "Reconcile the exact task contract against the committed/staged diff and final validation before claiming success.",
-    ]
-    try:
-        context = build_acceptance_self_heal_context(report)
-    except Exception:
-        context = {}
-    repair_prompt = str(context.get("repair_prompt", "")).strip()
-    if repair_prompt:
-        lines.append("Focused self-heal guidance:")
-        lines.append(repair_prompt)
-    elif issues:
-        lines.append("Issues:")
-        lines.extend(f"- {issue}" for issue in issues)
-    return "\n".join(lines)
+    return build_final_acceptance_failure_feedback(report)
+
+
 def _report_final_acceptance_failure(report: Dict[str, object]) -> None:
-    print("❌ Final acceptance review failed:")
-    issues = [str(issue).strip() for issue in report.get("issues", []) or [] if str(issue).strip()]
-    if issues:
-        for issue in issues:
-            print(f"- {issue}")
-    else:
-        print(f"- acceptance_decision={report.get('acceptance_decision', 'retryable_failure')}")
+    report_final_acceptance_failure(report)
 
 
 def _normalize_anchor_token(token: str) -> str:
@@ -4545,8 +4553,7 @@ def main() -> int:
                     return 0
                 run(["git", "commit", "-m", f"{task_path.stem}: apply agent changes"], check=True)
                 run(["git", "push", "-u", "origin", branch], check=True)
-                print(f"Pushed branch: {branch}")
-                print("Create a PR on GitHub for this branch (repo rules require PR).")
+                report_branch_push_ready(branch)
             return 0
 
         restore_file_snapshot(pre_write_snapshot)

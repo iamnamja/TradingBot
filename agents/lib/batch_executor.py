@@ -123,6 +123,27 @@ def _resume_ready_state(
     return state
 
 
+def prepare_resumed_batch_state(
+    *,
+    state: bs.BatchState,
+    queue: list[TaskQueueItem],
+    resume_mode: ResumeMode = "default",
+    resume_target_task_path: str | None = None,
+    explicit_resume: bool = False,
+) -> bs.BatchState:
+    return _resume_ready_state(
+        state=state,
+        queue=queue,
+        resume_mode=resume_mode,
+        resume_target_task_path=resume_target_task_path,
+        explicit_resume=explicit_resume,
+    )
+
+
+def should_skip_completed_accepted_task(item: TaskQueueItem, state: bs.BatchState) -> bool:
+    return _skip_eligible_for_resume_after_merge(item, state)
+
+
 def execute_batch_loop(
     *,
     initial_state: bs.BatchState,
