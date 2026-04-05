@@ -72,7 +72,6 @@ into unrelated internal modules or guessing private names.
 - Tests that mention bundle markers should avoid raw standalone marker lines in
   prose examples; render them inline or split the token if needed.
 
-
 ## Failure classification and remediation planning
 
 The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
@@ -136,7 +135,6 @@ Conflicting duplicates must not be silently resolved by picking one version. Ins
 
 If the conflicted paths still cannot be resolved after the focused repair attempt, the run writes `last_output_duplicate_bundle_conflict.json` in repo root and fails with a duplicate-conflict error.
 
-
 ## Final acceptance reviewer (076)
 
 The final acceptance reviewer is now the canonical place where the orchestrator reconciles:
@@ -178,3 +176,33 @@ At minimum the taxonomy includes:
 Retryable cases produce a focused repair prompt naming the acceptance failure class and the specific files to add, commit, or remove. Non-retryable or unsafe cases still stop honestly as `manual_patch` or `blocked`.
 
 This does **not** create an unbounded repair loop. The existing bounded retry budget still governs acceptance self-heal.
+
+## Accepted-task autonomous PR/merge and clean-main reset gate (079)
+
+Accepted-task completion can now be configured to include a fully explicit post-acceptance gate:
+
+1. create PR
+2. wait for required checks
+3. merge only after checks pass
+4. reset local branch context back to clean `main`
+5. only then allow next task progression
+
+### Guardrails
+
+- Tasks not in `accepted` state must never enter automated PR/merge.
+- If PR creation fails, CI checks fail, merge fails, or main reset fails:
+  - stop honestly
+  - persist failure state/checkpoint
+  - set `next_task_may_proceed=false`
+- Do not silently continue to the next queued task without successful clean-main reset.
+- Keep this mode operator-controlled and optional; single-task/manual posture remains valid.
+
+### Operator control posture
+
+Autonomous merge behavior is opt-in. Operators can run:
+
+- single-task mode without autonomous PR flow
+- batch mode with autonomous PR flow disabled
+- batch mode with autonomous PR flow enabled (conservative gate applied)
+
+This keeps automation reviewable and avoids hidden always-on side effects.
