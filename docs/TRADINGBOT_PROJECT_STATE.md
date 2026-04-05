@@ -21,11 +21,12 @@ Recent tranche highlights include:
 - conservative batch CLI and summary artifacts
 - final acceptance reviewer + targeted acceptance self-heal
 - dedicated sequential batch executor/controller loop (078) as canonical manifest execution surface
-- **accepted-task autonomous PR/check/merge + clean-main reset gate (079)**
+- accepted-task autonomous PR/check/merge + clean-main reset gate (079)
+- explicit resume semantics for post-merge continuation and manual-resolution recovery (080)
 
 ## Current state
 
-The orchestrator now has an explicit per-task sequential controller loop that:
+The orchestrator has an explicit per-task sequential controller loop that:
 
 1. runs task execution
 2. runs authoritative validation
@@ -42,6 +43,15 @@ Conservative stop behavior is explicit and tested:
 - PR/CI/merge/reset failure in autonomous merge posture stops honestly and prevents advancement
 
 Accepted tasks continue only when all enabled gates pass.
+
+## Resume semantics (080)
+
+Resume behavior is now explicit, deterministic, and persisted:
+
+- **resume-after-merge**: previously accepted+merged completed tasks are not re-run; executor skips to the next queued pending task.
+- **resume-after-manual-resolution**: tasks that previously ended `manual_patch` or `blocked` can only resume when operator provides explicit resume mode + target task.
+- blocked/manual items are **not** silently skipped in default posture.
+- resume decisions persist `resume_reason`, `resume_target_task_path`, and `resume_gate` in batch state for auditability and deterministic replay.
 
 ## Canonical batch execution path
 
@@ -62,6 +72,12 @@ Persisted outcomes/checkpoints explicitly include:
 - next-task proceed flag
 - post-task decision
 - accepted-task PR flow flags (created/checks/merged/reset where applicable)
+
+Persisted resume metadata includes:
+
+- resume reason
+- resume target task path
+- resume gate (why resume/skip was allowed)
 
 This is the intended truth surface for operator review and deterministic resume behavior.
 

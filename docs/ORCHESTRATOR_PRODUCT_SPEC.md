@@ -15,6 +15,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **071 adds persisted batch-state and deterministic resume groundwork for queue execution**
 - **074 adds first conservative batch-runner CLI mode with summary artifacts**
 - **078 adds a dedicated canonical batch executor/controller loop for sequential per-task execution + acceptance + conservative stop**
+- **080 adds explicit resume semantics for post-merge continuation and manual-resolution recovery**
 - Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package.
 
 ## Users and use cases
@@ -44,10 +45,15 @@ Build a reusable orchestration engine that can execute constrained implementatio
   - retryable self-heal (budgeted)
   - per-task outcome persistence
   - conservative advance-or-stop decision
+- Explicit resume controller posture:
+  - resume same task (explicit)
+  - resume next task (explicit)
+  - skip accepted+merged tasks on resume-after-merge
+  - resume previously manual/blocked task only with explicit operator intent
 
-## Canonical sequential batch controller loop (078)
+## Canonical sequential batch controller loop (078/080)
 
-The batch executor/controller loop is now the canonical manifest execution path for sequential task processing.
+The batch executor/controller loop is the canonical manifest execution path for sequential task processing.
 
 Per queued task, the controller performs:
 
@@ -65,9 +71,15 @@ Conservative stop posture is preserved:
 - terminal `blocked` stops the batch
 - non-accepted terminal failures stop the batch unless explicit continue conditions are met
 
+Resume posture is now explicit and persisted:
+
+- **resume-after-merge** may skip prior tasks only when checkpoint evidence is `accepted` + terminal `completed`
+- **manual/blocked recovery** requires explicit resume mode and target; never skipped implicitly
+- resume gate/reason/target are persisted for deterministic replay and operator inspection
+
 ## Per-task persisted outcome requirements
 
-Persisted state/checkpoints now explicitly capture at least:
+Persisted state/checkpoints explicitly capture at least:
 
 - `task_path`
 - terminal status
@@ -75,6 +87,12 @@ Persisted state/checkpoints now explicitly capture at least:
 - retry count used
 - whether next task may proceed
 - post-task decision (`continue|stop|manual_patch|blocked`)
+
+Resume metadata persisted in batch state:
+
+- `resume_reason`
+- `resume_target_task_path`
+- `resume_gate`
 
 This is explicit by design; implicit in-memory controller state is not the source of truth.
 
@@ -87,6 +105,7 @@ The dedicated batch executor/controller loop is intentionally:
 - conservative by default
 - acceptance-gated before advance
 - safe for resume/state replay
+- explicit about when skip/resume is allowed
 
 No concurrent scheduling is introduced in this tranche.
 
@@ -125,4 +144,5 @@ Unknown runtime artifacts:
 - Manifest/queue semantics validated under test
 - Batch state + deterministic resume validated under test
 - Canonical batch executor/controller loop with explicit per-task persisted outcomes and acceptance-gated advancement
+- Resume-after-merge and explicit manual-resolution resume semantics validated under test
 - Documentation/state surfaces synchronized and unambiguous

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from agents.lib import batch_state as bs
 from agents.lib.final_acceptance import AcceptanceDecision
 from agents.lib.task_queue import BatchPostTaskDecision, QueueStatus, TaskQueueItem
+
+
+ResumeMode = Literal["default", "resume_same_task", "resume_next", "resume_after_merge", "resume_after_manual_resolution"]
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,68 @@ def _map_terminal_to_post_task_decision(status: QueueStatus) -> BatchPostTaskDec
     return "stop"
 
 
+def _skip_eligible_for_resume_after_merge(item: TaskQueueItem, state: bs.BatchState) -> bool:
+    idx = item.ordinal - 1
+    if idx < 0 or idx >= len(state.queue):
+        return False
+    existing = state.queue[idx]
+    if existing.status != "completed":
+        return False
+    checkpoint = bs.last_checkpoint_for_task(state, item.task_path)
+    if checkpoint is None:
+        return False
+    return checkpoint.acceptance_decision == "accepted"
+
+
+def _resume_ready_state(
+    *,
+    state: bs.BatchState,
+    queue: list[TaskQueueItem],
+    resume_mode: ResumeMode,
+    resume_target_task_path: str | None,
+    explicit_resume: bool,
+) -> bs.BatchState:
+    if resume_mode == "default":
+        return state
+    if resume_mode == "resume_after_merge":
+        return bs.mark_resume_plan(
+            state,
+            queue=queue,
+            resume_mode=resume_mode,
+            resume_target_task_path=resume_target_task_path,
+            explicit_resume=True,
+            updated_ts=state.updated_ts + 1,
+        )
+    if resume_mode == "resume_same_task":
+        return bs.mark_resume_plan(
+            state,
+            queue=queue,
+            resume_mode=resume_mode,
+            resume_target_task_path=resume_target_task_path,
+            explicit_resume=explicit_resume,
+            updated_ts=state.updated_ts + 1,
+        )
+    if resume_mode == "resume_after_manual_resolution":
+        return bs.mark_resume_plan(
+            state,
+            queue=queue,
+            resume_mode=resume_mode,
+            resume_target_task_path=resume_target_task_path,
+            explicit_resume=explicit_resume,
+            updated_ts=state.updated_ts + 1,
+        )
+    if resume_mode == "resume_next":
+        return bs.mark_resume_plan(
+            state,
+            queue=queue,
+            resume_mode=resume_mode,
+            resume_target_task_path=resume_target_task_path,
+            explicit_resume=explicit_resume,
+            updated_ts=state.updated_ts + 1,
+        )
+    return state
+
+
 def execute_batch_loop(
     *,
     initial_state: bs.BatchState,
@@ -68,13 +133,35 @@ def execute_batch_loop(
     self_heal_and_retry: Callable[[TaskQueueItem, dict[str, Any], int], dict[str, Any]],
     retry_budget: int,
     persist_state: Callable[[bs.BatchState], None],
+    resume_mode: ResumeMode = "default",
+    resume_target_task_path: str | None = None,
+    explicit_resume: bool = False,
 ) -> tuple[bs.BatchState, list[dict[str, object]], BatchPostTaskDecision]:
-    state = initial_state
+    state = _resume_ready_state(
+        state=initial_state,
+        queue=queue,
+        resume_mode=resume_mode,
+        resume_target_task_path=resume_target_task_path,
+        explicit_resume=explicit_resume,
+    )
+    if state is not initial_state:
+        persist_state(state)
+
     outcomes: list[dict[str, object]] = []
     final_decision: BatchPostTaskDecision = "stop"
 
     for item in queue:
         if item.ordinal - 1 < state.current_index:
+            continue
+
+        if resume_mode == "resume_after_merge" and _skip_eligible_for_resume_after_merge(item, state):
+            state = bs.record_resume_skip(
+                state,
+                task_path=item.task_path,
+                reason="skip_accepted_merged",
+                updated_ts=state.updated_ts + 1,
+            )
+            persist_state(state)
             continue
 
         retry_count = 0

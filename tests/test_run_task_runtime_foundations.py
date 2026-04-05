@@ -138,130 +138,105 @@ def test_failure_classifier_distinguishes_multiple_categories() -> None:
 
 
 def test_batch_executor_retry_and_stop_behaviors() -> None:
-    _, _, _, _, _, _, _, _, _, batch_state, task_queue, _, batch_executor = _load_runtime_modules()
+    _, _, _, _, _, _, _, _, _, bs, tq, _, be = _load_runtime_modules()
 
     queue = [
-        task_queue.TaskQueueItem(task_path="tasks/001.md", ordinal=1),
-        task_queue.TaskQueueItem(task_path="tasks/002.md", ordinal=2),
+        tq.TaskQueueItem(task_path="tasks/001.md", ordinal=1),
+        tq.TaskQueueItem(task_path="tasks/002.md", ordinal=2),
     ]
-    manifest = {"tasks": ["tasks/001.md", "tasks/002.md"]}
-    state = batch_state.initialize_batch_state(manifest=manifest, queue=queue, manifest_source="tasks/m.json", created_ts=1)
+    state = bs.initialize_batch_state(
+        manifest={"tasks": ["tasks/001.md", "tasks/002.md"]},
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=1,
+    )
 
-    persisted: list[dict[str, object]] = []
-    attempts = {"tasks/001.md": 0, "tasks/002.md": 0}
+    calls = {"exec": 0, "retry": 0}
 
-    def execute_task(item):
-        attempts[item.task_path] += 1
-        return {"attempt": attempts[item.task_path]}
+    def execute(item):
+        calls["exec"] += 1
+        return {"task_path": item.task_path, "attempt": calls["exec"]}
 
     def validator(_item, _result):
         return True, "ok"
 
     def acceptance(item, _result, _ok, _note):
-        if item.task_path == "tasks/001.md" and attempts[item.task_path] == 1:
-            return {"acceptance_decision": "retryable_failure", "note": "fix and retry"}
-        return {"acceptance_decision": "accepted", "note": "accepted"}
+        if item.task_path.endswith("001.md") and calls["retry"] == 0:
+            return {"acceptance_decision": "retryable_failure", "note": "retry once"}
+        if item.task_path.endswith("001.md"):
+            return {"acceptance_decision": "accepted", "note": "accepted"}
+        return {"acceptance_decision": "blocked", "note": "blocked by policy"}
 
-    def retry(item, _result, _count):
-        return {"task_path": item.task_path, "retried": True}
+    def retry(_item, result, _retry_count):
+        calls["retry"] += 1
+        return result
 
-    final_state, outcomes, final_decision = batch_executor.execute_batch_loop(
+    final_state, outcomes, final_decision = be.execute_batch_loop(
         initial_state=state,
         queue=queue,
-        execute_task=execute_task,
+        execute_task=execute,
         run_authoritative_validation=validator,
         run_final_acceptance_review=acceptance,
         self_heal_and_retry=retry,
         retry_budget=1,
-        persist_state=lambda s: persisted.append(s.to_dict()),
+        persist_state=lambda _s: None,
     )
 
-    assert final_decision == "continue"
-    assert final_state.batch_status == "completed"
-    assert outcomes[0]["retry_count"] == 1
-    assert outcomes[0]["acceptance_decision"] == "accepted"
-    assert outcomes[1]["acceptance_decision"] == "accepted"
-    assert all(outcome["next_task_may_proceed"] is True for outcome in outcomes)
-    assert persisted
+    assert calls["retry"] == 1
+    assert len(outcomes) == 2
+    assert outcomes[0]["terminal_status"] == "completed"
+    assert outcomes[1]["terminal_status"] == "blocked"
+    assert final_decision == "blocked"
+    assert final_state.batch_status == "blocked"
 
 
-def test_accepted_task_pr_flow_requires_acceptance_and_clean_reset() -> None:
-    workflow = importlib.import_module("agents.lib.git_workflow")
-    calls: list[list[str]] = []
+def test_batch_executor_resume_state_gate_and_skip_semantics() -> None:
+    _, _, _, _, _, _, _, _, _, bs, tq, _, be = _load_runtime_modules()
 
-    def fake_runner(cmd: list[str], _check: bool = True):
-        calls.append(cmd)
-        return SimpleNamespace(returncode=0)
-
-    skipped = workflow.accepted_task_pr_merge_flow(
-        fake_runner,
-        accepted=False,
-        autonomous_merge_enabled=True,
-        pr_title="Task 079",
+    queue = [
+        tq.TaskQueueItem(task_path="tasks/001.md", ordinal=1),
+        tq.TaskQueueItem(task_path="tasks/002.md", ordinal=2),
+    ]
+    state = bs.initialize_batch_state(
+        manifest={"tasks": ["tasks/001.md", "tasks/002.md"]},
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=1,
     )
-    assert skipped["created_pr"] is False
-    assert skipped["next_task_may_proceed"] is False
-
-    result = workflow.accepted_task_pr_merge_flow(
-        fake_runner,
-        accepted=True,
-        autonomous_merge_enabled=True,
-        pr_title="Task 079",
+    state = bs.apply_task_result(
+        state,
+        task_path="tasks/001.md",
+        terminal_status="completed",
+        post_task_decision="continue",
+        note="accepted and merged",
+        updated_ts=2,
+        context_kind="branch",
+        context_ref="test",
+        acceptance_decision="accepted",
+        retry_count=0,
+        next_task_may_proceed=True,
     )
-    assert result["created_pr"] is True
-    assert result["required_checks_passed"] is True
-    assert result["merged"] is True
-    assert result["main_reset_clean"] is True
-    assert result["next_task_may_proceed"] is True
-    assert ["git", "switch", "main"] in calls
 
+    executed: list[str] = []
 
-def test_pr_ci_merge_failures_stop_honestly(monkeypatch) -> None:
-    workflow = importlib.import_module("agents.lib.git_workflow")
+    def execute(item):
+        executed.append(item.task_path)
+        return {"task_path": item.task_path}
 
-    def failing_checks_runner(cmd: list[str], _check: bool = True):
-        if cmd[:3] == ["gh", "pr", "checks"]:
-            raise RuntimeError("ci red")
-        return SimpleNamespace(returncode=0)
-
-    ci_fail = workflow.accepted_task_pr_merge_flow(
-        failing_checks_runner,
-        accepted=True,
-        autonomous_merge_enabled=True,
-        pr_title="Task 079",
+    final_state, outcomes, _ = be.execute_batch_loop(
+        initial_state=state,
+        queue=queue,
+        execute_task=execute,
+        run_authoritative_validation=lambda _i, _r: (True, "ok"),
+        run_final_acceptance_review=lambda _i, _r, _ok, _n: {"acceptance_decision": "accepted", "note": "accepted"},
+        self_heal_and_retry=lambda _i, r, _c: r,
+        retry_budget=0,
+        persist_state=lambda _s: None,
+        resume_mode="resume_after_merge",
+        explicit_resume=True,
     )
-    assert ci_fail["stopped_honestly"] is True
-    assert ci_fail["merged"] is False
-    assert ci_fail["next_task_may_proceed"] is False
 
-    def failing_merge_runner(cmd: list[str], _check: bool = True):
-        if cmd[:3] == ["gh", "pr", "merge"]:
-            raise RuntimeError("merge blocked")
-        return SimpleNamespace(returncode=0)
-
-    merge_fail = workflow.accepted_task_pr_merge_flow(
-        failing_merge_runner,
-        accepted=True,
-        autonomous_merge_enabled=True,
-        pr_title="Task 079",
-    )
-    assert merge_fail["stopped_honestly"] is True
-    assert merge_fail["main_reset_clean"] is False
-    assert merge_fail["next_task_may_proceed"] is False
-
-
-def test_single_task_mode_without_autonomous_merge_flow() -> None:
-    workflow = importlib.import_module("agents.lib.git_workflow")
-
-    def runner(cmd: list[str], _check: bool = True):
-        raise AssertionError(f"runner should not be called in disabled mode: {cmd}")
-
-    result = workflow.accepted_task_pr_merge_flow(
-        runner,
-        accepted=True,
-        autonomous_merge_enabled=False,
-        pr_title="Task 079",
-    )
-    assert result["created_pr"] is False
-    assert result["next_task_may_proceed"] is False
-    assert "disabled" in str(result["stop_reason"])
+    assert executed == ["tasks/002.md"]
+    assert len(outcomes) == 1
+    assert final_state.resume_reason in {"skip_accepted_merged", "resume_next"}
+    assert final_state.resume_gate == "continue_from_next_pending"

@@ -3549,19 +3549,6 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
             seen_protected_entries.add(dedupe_key)
             normalized_protected.append({"path": canonical_path})
 
-    inferred_targets = _infer_protected_method_targets_from_required("", normalized_required)
-    for inferred in inferred_targets:
-        inferred_path = str(inferred.get("path", "")).strip()
-        if not inferred_path:
-            continue
-        mode = str(inferred.get("mode", "") or "").strip()
-        method_name = str(inferred.get("method_name", "") or "").strip()
-        dedupe_key = (inferred_path, mode, method_name)
-        if dedupe_key in seen_protected_entries:
-            continue
-        seen_protected_entries.add(dedupe_key)
-        normalized_protected.append(dict(inferred))
-
     if callable(_partition):
         normal, protected = _partition(
             required_paths=normalized_required,
@@ -3725,6 +3712,9 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         "required_checks_passed": False,
         "merged_to_main": False,
         "clean_main_reset_completed": False,
+        "resume_reason": "failure",
+        "resume_target": task_file_path,
+        "resume_gate": "manual_intervention_required",
     }
 
     if callable(_emit):
@@ -3768,6 +3758,9 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 "required_checks_passed": False,
                 "merged_to_main": False,
                 "clean_main_reset_completed": False,
+                "resume_reason": "failure",
+                "resume_target": task_file_path,
+                "resume_gate": "manual_intervention_required",
             },
         }
         last_output_path.write_text(json.dumps(output_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
@@ -3799,6 +3792,9 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
                 "required_checks_passed": False,
                 "merged_to_main": False,
                 "clean_main_reset_completed": False,
+                "resume_reason": "failure",
+                "resume_target": task_file_path,
+                "resume_gate": "manual_intervention_required",
             },
         }
         last_bundle_path.write_text(json.dumps(bundle_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
@@ -3827,6 +3823,9 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
             checkpoint["required_checks_passed"] = bool(checkpoint.get("required_checks_passed", False))
             checkpoint["merged_to_main"] = bool(checkpoint.get("merged_to_main", False))
             checkpoint["clean_main_reset_completed"] = False
+            checkpoint["resume_reason"] = str(checkpoint.get("resume_reason", "failure") or "failure")
+            checkpoint["resume_target"] = str(checkpoint.get("resume_target", task_file_path) or task_file_path)
+            checkpoint["resume_gate"] = str(checkpoint.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
             payload["batch_checkpoint"] = checkpoint
 
             existing_state = payload.get("batch_state")
@@ -3838,6 +3837,9 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
             existing_state["required_checks_passed"] = bool(existing_state.get("required_checks_passed", False))
             existing_state["merged_to_main"] = bool(existing_state.get("merged_to_main", False))
             existing_state["clean_main_reset_completed"] = False
+            existing_state["resume_reason"] = str(existing_state.get("resume_reason", "failure") or "failure")
+            existing_state["resume_target"] = str(existing_state.get("resume_target", task_file_path) or task_file_path)
+            existing_state["resume_gate"] = str(existing_state.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
             payload["batch_state"] = existing_state
 
             artifact_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
