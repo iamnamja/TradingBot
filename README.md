@@ -23,6 +23,17 @@ The active sequence covered by the current proof is:
   - further `agents/run_task.py` decomposition
   - autonomous backlog-runner proof for a short ordinary-task manifest
 
+The next planned hardening tranche is:
+
+- **083–089** — controller contract hardening and stricter controller-task discipline
+  - canonical controller contract
+  - non-reexecuting retry/self-heal channel
+  - merge-posture truth persistence and resume contract
+  - semantic failure digest and controller repair context
+  - controller-task strict mode and patch-quality gate
+  - further `agents/run_task.py` decomposition
+  - hardened autonomous short-manifest proof
+
 Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for status narrative.
 
 ## Current batch posture
@@ -53,21 +64,6 @@ Conservative limits:
 - next task cannot proceed unless clean-main reset succeeds
 - operator-controlled mode remains available (autonomous merge is not hidden always-on)
 
-## Autonomous backlog runner proof (Task 082)
-
-The repository now includes deterministic E2E-oriented tests proving that a short ordinary manifest can:
-
-1. run a task
-2. pass authoritative validation and final acceptance
-3. merge/reset cleanly
-4. continue to the next task
-
-It also proves:
-
-- retryable acceptance failure can self-heal and then continue
-- `manual_patch`, `blocked`, and failed merge posture stop conservatively
-- persisted state/outcomes reflect run truthfully
-
 ## What batch mode can honestly claim today
 
 Today the repo has:
@@ -81,12 +77,23 @@ It does **not** claim:
 - arbitrary protected/controller task-list autonomy
 - broad unattended production scheduler autonomy across any task shape
 
+## What still needs hardening
+
+The next tranche exists because Task 082 showed that controller-core autonomy still depends on stabilizing:
+
+- one canonical controller contract across modules
+- non-reexecuting retry/self-heal semantics
+- persisted merge/reset truth and resume gates
+- semantic repair context for controller-task failures
+- strict controller-task patch discipline before apply
+
 ## Documentation entry points
 
 - `docs/README.md` — docs index and reading order
 - `docs/TRADINGBOT_PROJECT_STATE.md` — authoritative current state and tranche boundaries
 - `docs/ORCHESTRATOR_ROADMAP_069_075.md` — historical roadmap context for the first backlog-execution slice
-- `docs/ORCHESTRATOR_ROADMAP_076_082.md` — next autonomy-and-controller-thinning tranche
+- `docs/ORCHESTRATOR_ROADMAP_076_082.md` — autonomy-and-controller-thinning tranche through Task 082
+- `docs/ORCHESTRATOR_ROADMAP_083_089.md` — controller-contract hardening tranche after Task 082
 - `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md` — control gates and policy posture
 - `tasks/README.md` — canonical numbered task map
 

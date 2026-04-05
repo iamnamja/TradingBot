@@ -13,16 +13,17 @@ This file is the canonical visible ordering for task execution history and conti
 - 055–067 (+065a, 067a): Reliability/autonomy continuation and follow-on control-plane hardening
 - 068a–068c: stabilization extension for protected/controller execution and controller thinning
 - 068–075: backlog execution continuation, merge-readiness hardening, first conservative batch runner, and first narrow end-to-end backlog proof
+- 076–082: autonomous backlog progression and controller-thinning continuation, ending with the first narrow ordinary-manifest autonomous proof slice
 
-## Next autonomy and controller-thinning tranche
+## Next controller contract hardening tranche
 
-- **076** `orchestrator_final_acceptance_reviewer_and_report`
-- **077** `orchestrator_targeted_self_heal_for_acceptance_failures`
-- **078** `orchestrator_batch_executor_loop_and_acceptance_controller`
-- **079** `orchestrator_autonomous_pr_merge_and_main_reset_gate`
-- **080** `orchestrator_batch_resume_after_merge_and_manual_resolution`
-- **081** `orchestrator_controller_decomposition_third_extraction`
-- **082** `orchestrator_autonomous_backlog_runner_proof`
+- **083** `orchestrator_controller_contract_canonicalization`
+- **084** `orchestrator_non_reexecuting_retryable_self_heal_channel`
+- **085** `orchestrator_merge_posture_truth_persistence_and_resume_contract`
+- **086** `orchestrator_semantic_failure_digest_and_controller_repair_context`
+- **087** `orchestrator_controller_task_strict_mode_and_patch_quality_gate`
+- **088** `orchestrator_controller_decomposition_fourth_extraction`
+- **089** `orchestrator_hardened_autonomous_short_manifest_proof`
 
 ## Numbering policy
 
@@ -36,4 +37,5 @@ This file is the canonical visible ordering for task execution history and conti
 - `TASK_CLEANUP_055_068.md` tracks cleanup/planning considerations spanning the reliability/autonomy tranche through the stabilization extension.
 - `docs/ORCHESTRATOR_ROADMAP_055_068.md` covers the stabilization extension around Task 068.
 - `docs/ORCHESTRATOR_ROADMAP_069_075.md` covers the first backlog-execution continuation through the initial proof slice.
-- `docs/ORCHESTRATOR_ROADMAP_076_082.md` covers the next autonomy-and-controller-thinning tranche after Task 075.
+- `docs/ORCHESTRATOR_ROADMAP_076_082.md` covers the autonomy-and-controller-thinning tranche that culminated in Task 082.
+- `docs/ORCHESTRATOR_ROADMAP_083_089.md` covers the controller-contract hardening tranche after Task 082.
