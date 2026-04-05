@@ -13,6 +13,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **070 adds task-list manifest and queue groundwork for backlog execution**
 - **070b clarifies runtime-artifact lifecycle controls with explicit retention mode**
 - **071 adds persisted batch-state and deterministic resume groundwork for queue execution**
+- **074 adds first conservative batch-runner CLI mode with summary artifacts**
 - Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package and **not yet a full end-to-end backlog runner**
 
 ## Users and use cases
@@ -39,6 +40,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - Explicit manifest validation for missing task files and duplicate-path policy handling
 - Runtime artifact quarantine with explicit operator retention controls for known-safe scratch files
 - Persisted machine-readable batch state for task-list execution and deterministic resume
+- Conservative batch-list runner entrypoint that executes tasks sequentially and surfaces concise machine/human summaries
 
 ## Sequence summary
 
@@ -98,6 +100,33 @@ Build a reusable orchestration engine that can execute constrained implementatio
 28. Resume may enforce exact manifest source matching unless an explicit override rule is enabled
 29. Queue status transitions are deterministic and narrow (`queued -> running`, `running -> completed|failed|manual_patch|blocked`) with invalid transitions rejected
 30. Resume now also validates queue identity/ordering against the provided manifest-derived queue to prevent accidental resume on fingerprint-compatible but queue-divergent state
+
+### First conservative batch-runner CLI and summary artifacts (074)
+
+31. CLI accepts a task-list manifest path and enters a sequential batch-runner mode
+32. Execution remains intentionally conservative: batch may stop at first blocked/manual/failed stop gate
+33. Machine-readable batch summary artifact is emitted with manifest identity, counts, final decision, and per-task short outcomes
+34. Human-readable terminal summary is emitted at end of run for quick operator review without opening JSON state files
+35. Existing single-task CLI entrypoint behavior remains intact and backward compatible
+
+## Batch summary artifact model (074)
+
+The first summary artifact is intentionally narrow and reviewable. It includes at least:
+
+- `manifest_path`
+- `total_tasks`
+- `completed_tasks`
+- `failed_tasks`
+- `manual_patch_tasks`
+- `blocked_tasks`
+- `final_batch_decision`
+- `task_outcomes[]` (short per-task status entries)
+
+Design constraints:
+
+- deterministic field names suitable for automated post-processing
+- no concurrent execution assumptions
+- clear stop reason surfaced through `final_batch_decision`
 
 ## Batch state file model (071)
 
@@ -209,6 +238,7 @@ Design rules:
 - Focused seam-family hardening completed
 - Task-list manifest and queue semantics validated under test
 - Batch state / resume / isolation surfaces completed and documented
+- Batch CLI + machine/human summary artifacts available for operator-facing review
 - Documentation/state surfaces synchronized and unambiguous
 
 ## Bootstrap lane rule

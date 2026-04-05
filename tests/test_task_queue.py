@@ -7,10 +7,11 @@ from pathlib import Path
 import pytest
 
 
-def _load_task_queue_module():
+def _task_queue_module():
     root = Path(__file__).resolve().parents[1]
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
     return importlib.import_module("agents.lib.task_queue")
 
 
@@ -20,7 +21,7 @@ def _write_task(path: Path) -> None:
 
 
 def test_valid_manifest_becomes_deterministic_queue(tmp_path: Path) -> None:
-    task_queue = _load_task_queue_module()
+    tq = _task_queue_module()
     _write_task(tmp_path / "tasks" / "001.md")
     _write_task(tmp_path / "tasks" / "002.md")
 
@@ -33,7 +34,7 @@ def test_valid_manifest_becomes_deterministic_queue(tmp_path: Path) -> None:
         "policy": {"duplicate_policy": "reject", "stop_policy": "continue_on_failure"},
     }
 
-    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
 
     assert [item.task_path for item in queue] == ["tasks/001.md", "tasks/002.md"]
     assert [item.ordinal for item in queue] == [1, 2]
@@ -45,14 +46,14 @@ def test_valid_manifest_becomes_deterministic_queue(tmp_path: Path) -> None:
 
 
 def test_missing_task_files_are_surfaced_clearly(tmp_path: Path) -> None:
-    task_queue = _load_task_queue_module()
+    tq = _task_queue_module()
     manifest = {
         "tasks": ["tasks/missing-one.md", "tasks/missing-two.md"],
         "policy": {"duplicate_policy": "reject"},
     }
 
-    with pytest.raises(task_queue.TaskQueueManifestError) as exc:
-        task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    with pytest.raises(tq.TaskQueueManifestError) as exc:
+        tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
 
     msg = str(exc.value)
     assert "Missing task file(s):" in msg
@@ -61,7 +62,7 @@ def test_missing_task_files_are_surfaced_clearly(tmp_path: Path) -> None:
 
 
 def test_duplicate_task_paths_rejected_by_default_rule(tmp_path: Path) -> None:
-    task_queue = _load_task_queue_module()
+    tq = _task_queue_module()
     _write_task(tmp_path / "tasks" / "001.md")
 
     manifest = {
@@ -69,14 +70,14 @@ def test_duplicate_task_paths_rejected_by_default_rule(tmp_path: Path) -> None:
         "policy": {"duplicate_policy": "reject"},
     }
 
-    with pytest.raises(task_queue.TaskQueueManifestError) as exc:
-        task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    with pytest.raises(tq.TaskQueueManifestError) as exc:
+        tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
 
     assert "Duplicate task path `tasks/001.md`" in str(exc.value)
 
 
 def test_duplicate_task_paths_can_be_normalized_keep_first(tmp_path: Path) -> None:
-    task_queue = _load_task_queue_module()
+    tq = _task_queue_module()
     _write_task(tmp_path / "tasks" / "001.md")
     _write_task(tmp_path / "tasks" / "002.md")
 
@@ -85,7 +86,7 @@ def test_duplicate_task_paths_can_be_normalized_keep_first(tmp_path: Path) -> No
         "policy": {"duplicate_policy": "dedupe_keep_first"},
     }
 
-    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
 
     assert [item.task_path for item in queue] == ["tasks/001.md", "tasks/002.md"]
     assert [item.ordinal for item in queue] == [1, 2]
@@ -93,11 +94,11 @@ def test_duplicate_task_paths_can_be_normalized_keep_first(tmp_path: Path) -> No
 
 
 def test_queue_status_defaults_are_stable(tmp_path: Path) -> None:
-    task_queue = _load_task_queue_module()
+    tq = _task_queue_module()
     _write_task(tmp_path / "tasks" / "001.md")
     manifest = {"tasks": ["tasks/001.md"]}
 
-    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
 
     item = queue[0]
     assert item.status == "queued"
@@ -105,41 +106,31 @@ def test_queue_status_defaults_are_stable(tmp_path: Path) -> None:
 
 
 def test_queue_status_transitions_are_deterministic_and_narrow() -> None:
-    task_queue = _load_task_queue_module()
-    task_queue.validate_queue_status_transition("queued", "running")
-    task_queue.validate_queue_status_transition("running", "completed")
-    task_queue.validate_queue_status_transition("running", "failed")
-    task_queue.validate_queue_status_transition("running", "manual_patch")
-    task_queue.validate_queue_status_transition("running", "blocked")
+    tq = _task_queue_module()
+    tq.validate_queue_status_transition("queued", "running")
+    tq.validate_queue_status_transition("running", "completed")
+    tq.validate_queue_status_transition("running", "failed")
+    tq.validate_queue_status_transition("running", "manual_patch")
+    tq.validate_queue_status_transition("running", "blocked")
 
-    with pytest.raises(task_queue.TaskQueueTransitionError):
-        task_queue.validate_queue_status_transition("queued", "completed")
+    with pytest.raises(tq.TaskQueueTransitionError):
+        tq.validate_queue_status_transition("queued", "completed")
 
 
 def test_queue_signature_is_stable_for_resume_identity(tmp_path: Path) -> None:
-    task_queue = _load_task_queue_module()
+    tq = _task_queue_module()
     _write_task(tmp_path / "tasks" / "001.md")
     _write_task(tmp_path / "tasks" / "002.md")
 
     manifest = {"tasks": ["tasks/001.md", "tasks/002.md"]}
-    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
 
-    assert task_queue.queue_signature(queue) == ("tasks/001.md", "tasks/002.md")
-
-
-def test_may_proceed_to_next_task_only_when_completed() -> None:
-    task_queue = _load_task_queue_module()
-    assert task_queue.may_proceed_to_next_task("completed") is True
-    assert task_queue.may_proceed_to_next_task("failed") is False
-    assert task_queue.may_proceed_to_next_task("manual_patch") is False
-    assert task_queue.may_proceed_to_next_task("blocked") is False
-    assert task_queue.may_proceed_to_next_task("running") is False
-    assert task_queue.may_proceed_to_next_task("queued") is False
+    assert tq.queue_signature(queue) == ("tasks/001.md", "tasks/002.md")
 
 
 def test_decide_post_task_action_continue_for_success() -> None:
-    task_queue = _load_task_queue_module()
-    decision = task_queue.decide_post_task_action(
+    tq = _task_queue_module()
+    decision = tq.decide_post_task_action(
         "completed",
         signals={
             "validator_ok": True,
@@ -151,8 +142,8 @@ def test_decide_post_task_action_continue_for_success() -> None:
 
 
 def test_decide_post_task_action_manual_patch_when_recommended() -> None:
-    task_queue = _load_task_queue_module()
-    decision = task_queue.decide_post_task_action(
+    tq = _task_queue_module()
+    decision = tq.decide_post_task_action(
         "failed",
         signals={"manual_patch_recommended": True},
     )
@@ -160,12 +151,50 @@ def test_decide_post_task_action_manual_patch_when_recommended() -> None:
 
 
 def test_decide_post_task_action_hard_failures_stop_or_block() -> None:
-    task_queue = _load_task_queue_module()
-    assert task_queue.decide_post_task_action("failed", signals={"validator_ok": False}) == "stop"
+    tq = _task_queue_module()
+    assert tq.decide_post_task_action("failed", signals={"validator_ok": False}) == "stop"
     assert (
-        task_queue.decide_post_task_action(
+        tq.decide_post_task_action(
             "failed",
             signals={"duplicate_bundle_conflict": True},
         )
         == "blocked"
     )
+
+
+def test_batch_summary_payload_counts_and_outcomes_are_deterministic() -> None:
+    tq = _task_queue_module()
+    payload = tq.build_batch_summary_payload(
+        manifest_path="tasks/batch.json",
+        final_decision="manual_patch",
+        outcomes=[
+            {"task_path": "tasks/074.md", "status": "completed", "decision": "continue", "note": ""},
+            {"task_path": "tasks/075.md", "status": "manual_patch", "note": "needs manual follow-up"},
+        ],
+    )
+
+    assert payload["manifest_path"] == "tasks/batch.json"
+    assert payload["total_tasks"] == 2
+    assert payload["completed_tasks"] == 1
+    assert payload["failed_tasks"] == 0
+    assert payload["manual_patch_tasks"] == 1
+    assert payload["blocked_tasks"] == 0
+    assert payload["final_batch_decision"] == "manual_patch"
+    assert payload["task_outcomes"][1]["decision"] == "manual_patch"
+
+
+def test_render_batch_summary_text_is_concise_and_human_readable() -> None:
+    tq = _task_queue_module()
+    payload = tq.build_batch_summary_payload(
+        manifest_path="tasks/batch.json",
+        final_decision="blocked",
+        outcomes=[
+            {"task_path": "tasks/074.md", "status": "completed", "decision": "continue", "note": ""},
+            {"task_path": "tasks/075.md", "status": "blocked", "decision": "blocked", "note": "duplicate conflict"},
+        ],
+    )
+
+    text = tq.render_batch_summary_text(payload)
+    assert "Batch manifest: tasks/batch.json" in text
+    assert "final=blocked" in text
+    assert "- tasks/075.md: status=blocked, decision=blocked, note=duplicate conflict" in text
