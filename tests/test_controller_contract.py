@@ -46,15 +46,7 @@ def test_controller_contract_snapshot_is_canonical() -> None:
         "resume_after_merge",
         "resume_after_manual_resolution",
     ]
-    assert snapshot["execution_audit_fields"] == [
-        "execution_attempt_count",
-        "repair_count",
-        "accepted_after_repair",
-    ]
     assert "acceptance_decision" in snapshot["checkpoint_truth_fields"]
-    assert "execution_attempt_count" in snapshot["checkpoint_truth_fields"]
-    assert "repair_count" in snapshot["checkpoint_truth_fields"]
-    assert "accepted_after_repair" in snapshot["checkpoint_truth_fields"]
     assert "resume_target_task_path" in snapshot["resume_metadata_fields"]
 
 
@@ -91,26 +83,31 @@ def test_merge_posture_and_resume_helpers_are_canonical() -> None:
     }
     assert contract.checkpoint_allows_resume_after_merge(
         {
+            "terminal_status": "completed",
             "acceptance_decision": "accepted",
             "post_task_decision": "continue",
             "next_task_may_proceed": True,
+            "accepted_task_pr_flow_completed": True,
+            "required_checks_passed": True,
             "merged_to_main": True,
             "clean_main_reset_completed": True,
         }
     ) is True
-
-
-
-def test_canonical_repair_audit_tracks_non_reexecuting_truth() -> None:
-    contract = _load("agents.lib.controller_contract")
-
-    assert contract.canonical_repair_audit(
-        execution_attempt_count=1,
-        repair_count=2,
-        acceptance_decision="accepted",
-    ) == {
-        "execution_attempt_count": 1,
-        "repair_count": 2,
-        "accepted_after_repair": True,
-        "retry_count": 2,
-    }
+    assert contract.checkpoint_allows_resume_after_merge(
+        {
+            "terminal_status": "completed",
+            "acceptance_decision": "accepted",
+            "post_task_decision": "continue",
+            "next_task_may_proceed": True,
+            "accepted_task_pr_flow_completed": False,
+            "required_checks_passed": True,
+            "merged_to_main": True,
+            "clean_main_reset_completed": True,
+        }
+    ) is False
+    assert contract.checkpoint_requires_manual_resolution({"post_task_decision": "manual_patch"}) is True
+    assert contract.checkpoint_requires_manual_resolution({"post_task_decision": "blocked"}) is True
+    assert contract.resume_mode_allows_execution(
+        resume_mode="resume_after_manual_resolution",
+        explicit_resume=False,
+    ) is False

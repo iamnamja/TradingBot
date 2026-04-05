@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Sequence, TypedDict
 
-from agents.lib.controller_contract import BatchPostTaskDecision, coerce_post_task_decision, terminal_status_to_post_task_decision
+from agents.lib.controller_contract import (
+    BatchPostTaskDecision,
+    coerce_post_task_decision,
+    is_merge_posture_decision,
+    terminal_status_to_post_task_decision,
+)
 
 QueueStatus = Literal["queued", "running", "completed", "blocked", "failed", "manual_patch"]
 
@@ -133,9 +138,9 @@ def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Pa
 
 def _normalize_batch_outcome(outcome: BatchSummaryTaskOutcome | dict[str, Any]) -> BatchSummaryTaskOutcome:
     task_path = str(outcome.get("task_path", "")).strip()
-    status = str(outcome.get("status", "queued")).strip() or "queued"
+    status = str(outcome.get("status", outcome.get("terminal_status", "queued"))).strip() or "queued"
     note = str(outcome.get("note", "")).strip()
-    raw_decision = str(outcome.get("decision", "")).strip()
+    raw_decision = str(outcome.get("decision", outcome.get("post_task_decision", ""))).strip()
     if raw_decision:
         decision = coerce_post_task_decision(raw_decision)
     elif status in {"completed", "failed", "manual_patch", "blocked"}:
@@ -149,7 +154,7 @@ def _normalize_batch_outcome(outcome: BatchSummaryTaskOutcome | dict[str, Any]) 
 def build_batch_summary_payload(*, manifest_path: str, outcomes: Sequence[BatchSummaryTaskOutcome | dict[str, Any]], final_decision: BatchPostTaskDecision) -> dict[str, object]:
     normalized = [_normalize_batch_outcome(o) for o in outcomes]
     completed = sum(1 for i in normalized if i["status"] == "completed")
-    failed = sum(1 for i in normalized if i["status"] == "failed")
+    failed = sum(1 for i in normalized if i["status"] == "failed" or is_merge_posture_decision(i["decision"]))
     manual_patch = sum(1 for i in normalized if i["decision"] == "manual_patch")
     blocked = sum(1 for i in normalized if i["decision"] == "blocked")
     return {

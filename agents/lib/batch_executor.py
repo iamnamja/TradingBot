@@ -9,9 +9,12 @@ from agents.lib.controller_contract import (
     BatchPostTaskDecision,
     ResumeMode,
     acceptance_decision_to_terminal_status,
+    canonical_merge_posture_truth,
     checkpoint_allows_resume_after_merge,
+    checkpoint_requires_manual_resolution,
     coerce_acceptance_decision,
     coerce_post_task_decision,
+    resume_mode_allows_execution,
     should_next_task_proceed,
     terminal_status_to_post_task_decision,
 )
@@ -23,26 +26,20 @@ class BatchTaskOutcome:
     task_path: str
     terminal_status: QueueStatus
     acceptance_decision: AcceptanceDecision
-    execution_attempt_count: int
-    repair_count: int
-    accepted_after_repair: bool
     retry_count: int
     next_task_may_proceed: bool
     post_task_decision: BatchPostTaskDecision
     note: str
-    accepted_task_pr_flow_completed: bool | None = None
-    required_checks_passed: bool | None = None
-    merged_to_main: bool | None = None
-    clean_main_reset_completed: bool | None = None
+    accepted_task_pr_flow_completed: bool = False
+    required_checks_passed: bool = False
+    merged_to_main: bool = False
+    clean_main_reset_completed: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
             "task_path": self.task_path,
             "terminal_status": self.terminal_status,
             "acceptance_decision": self.acceptance_decision,
-            "execution_attempt_count": self.execution_attempt_count,
-            "repair_count": self.repair_count,
-            "accepted_after_repair": self.accepted_after_repair,
             "retry_count": self.retry_count,
             "next_task_may_proceed": self.next_task_may_proceed,
             "post_task_decision": self.post_task_decision,
@@ -61,6 +58,7 @@ def _coerce_acceptance(payload: dict[str, Any]) -> dict[str, Any]:
     out["note"] = str(payload.get("note", "")).strip()
     if "post_task_decision" in payload:
         out["post_task_decision"] = coerce_post_task_decision(payload.get("post_task_decision"))
+    out.update(canonical_merge_posture_truth(payload))
     return out
 
 
@@ -120,6 +118,13 @@ def should_skip_completed_accepted_task(item: TaskQueueItem, state: bs.BatchStat
 
 
 
+def _blocking_resume_decision(state: bs.BatchState) -> BatchPostTaskDecision:
+    for checkpoint in reversed(state.checkpoints):
+        if checkpoint_requires_manual_resolution(checkpoint.to_dict()):
+            return coerce_post_task_decision(checkpoint.post_task_decision, default="manual_patch")
+    return "manual_patch"
+
+
 def execute_batch_loop(
     *,
     initial_state: bs.BatchState,
@@ -144,6 +149,9 @@ def execute_batch_loop(
     if state is not initial_state:
         persist_state(state)
 
+    if not resume_mode_allows_execution(resume_mode=resume_mode, explicit_resume=explicit_resume):
+        return state, [], _blocking_resume_decision(state)
+
     outcomes: list[dict[str, object]] = []
     final_decision: BatchPostTaskDecision = "stop"
 
@@ -161,8 +169,7 @@ def execute_batch_loop(
             persist_state(state)
             continue
 
-        execution_attempt_count = 0
-        repair_count = 0
+        retry_count = 0
         accepted = False
         acceptance_payload: dict[str, Any] = {
             "acceptance_decision": "retryable_failure",
@@ -170,7 +177,6 @@ def execute_batch_loop(
         }
 
         result = execute_task(item)
-        execution_attempt_count += 1
         state = bs.advance_task_status(
             state,
             task_index=item.ordinal - 1,
@@ -191,14 +197,12 @@ def execute_batch_loop(
                 accepted = True
                 break
 
-            if decision == "retryable_failure" and repair_count < max(0, int(retry_budget)):
-                repair_count += 1
-                result = self_heal_and_retry(item, result, repair_count)
+            if decision == "retryable_failure" and retry_count < max(0, int(retry_budget)):
+                retry_count += 1
+                result = self_heal_and_retry(item, result, retry_count)
                 continue
 
             break
-
-        accepted_after_repair = bool(accepted and repair_count > 0)
 
         terminal_status = acceptance_decision_to_terminal_status(acceptance_payload["acceptance_decision"])
         post_task_decision = coerce_post_task_decision(
@@ -211,15 +215,7 @@ def execute_batch_loop(
                 should_next_task_proceed(terminal_status=terminal_status, post_task_decision=post_task_decision),
             )
         )
-        pr_flow_kwargs = {
-            key: acceptance_payload.get(key)
-            for key in [
-                "accepted_task_pr_flow_completed",
-                "required_checks_passed",
-                "merged_to_main",
-                "clean_main_reset_completed",
-            ]
-        }
+        pr_flow_kwargs = canonical_merge_posture_truth(acceptance_payload)
 
         state = bs.apply_task_result(
             state,
@@ -231,10 +227,7 @@ def execute_batch_loop(
             context_kind="branch",
             context_ref="batch-executor",
             acceptance_decision=acceptance_payload["acceptance_decision"],
-            execution_attempt_count=execution_attempt_count,
-            repair_count=repair_count,
-            accepted_after_repair=accepted_after_repair,
-            retry_count=repair_count,
+            retry_count=retry_count,
             next_task_may_proceed=may_proceed,
             **pr_flow_kwargs,
         )
@@ -244,10 +237,7 @@ def execute_batch_loop(
             task_path=item.task_path,
             terminal_status=terminal_status,
             acceptance_decision=acceptance_payload["acceptance_decision"],
-            execution_attempt_count=execution_attempt_count,
-            repair_count=repair_count,
-            accepted_after_repair=accepted_after_repair,
-            retry_count=repair_count,
+            retry_count=retry_count,
             next_task_may_proceed=may_proceed,
             post_task_decision=post_task_decision,
             note=acceptance_payload.get("note", ""),

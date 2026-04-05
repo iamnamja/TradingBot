@@ -121,7 +121,9 @@ The next tranche is successful when:
 - a hardened short-manifest autonomous proof is green and honestly documented
 
 
-## Post-082 controller hardening tranche (083–089)
+## Merge posture truth and resume contract
 
-- Task 084 makes retryable self-heal explicitly non-reexecuting: one raw execution attempt, bounded repair-only retries, then re-validation and final acceptance on the repaired result.
-- Persisted controller truth must separately record `execution_attempt_count`, `repair_count`, and `accepted_after_repair` so repair loops are auditable without overstating raw task execution.
+- merge-posture outcomes (`failed_merge`, `failed_checks`, `failed_reset`) are first-class terminal controller truth
+- persisted checkpoint truth carries canonical merge/reset evidence: `accepted_task_pr_flow_completed`, `required_checks_passed`, `merged_to_main`, `clean_main_reset_completed`
+- `resume_after_merge` only skips prior tasks when persisted checkpoint truth proves accepted + completed + checks passed + merged to main + clean main reset
+- `resume_after_manual_resolution` requires explicit operator intent and canonical resume metadata before execution may continue

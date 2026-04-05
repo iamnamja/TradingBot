@@ -152,19 +152,79 @@ def test_failure_classifier_distinguishes_multiple_categories() -> None:
         == "policy_blocked"
     )
 
+def test_prepare_resumed_batch_state_requires_explicit_manual_resolution_resume(tmp_path: Path) -> None:
+    (_, _, _, _, _, _, _, _, _, batch_state, task_queue, _, _, batch_executor) = _load_runtime_modules()
 
-def test_final_acceptance_self_heal_context_is_repair_only() -> None:
-    (_, _, _, _, _, _, _, _, _, _, _, _, final_acceptance, _) = _load_runtime_modules()
-
-    report = final_acceptance.build_final_acceptance_report(
-        task_file="tasks/084_orchestrator_non_reexecuting_retryable_self_heal_channel.md",
-        validated_required_paths=["agents/lib/batch_executor.py"],
-        head_diff_paths=[],
-        working_tree_paths=[],
-        validation_profile={"passed": True, "details": ""},
+    task_path = tmp_path / "tasks" / "001.md"
+    task_path.parent.mkdir(parents=True, exist_ok=True)
+    task_path.write_text("# task\n", encoding="utf-8")
+    manifest = {"tasks": ["tasks/001.md"]}
+    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = batch_state.initialize_batch_state(
+        manifest=manifest,
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=1,
+    )
+    state = batch_state.apply_task_result(
+        state,
+        task_path="tasks/001.md",
+        terminal_status="manual_patch",
+        post_task_decision="manual_patch",
+        note="needs manual work",
+        acceptance_decision="manual_patch",
+        next_task_may_proceed=False,
     )
 
-    context = report["self_heal_context"]
-    assert context["repair_scope"] == "repair_only"
-    assert context["reexecute_task"] is False
-    assert "Do not rerun raw task execution for this attempt." in context["repair_prompt"]
+    resumed = batch_executor.prepare_resumed_batch_state(
+        state=state,
+        queue=queue,
+        resume_mode="resume_after_manual_resolution",
+        explicit_resume=False,
+    )
+    assert resumed.resume_reason == "resume_after_manual_resolution"
+    assert resumed.resume_target_task_path == "tasks/001.md"
+    assert resumed.resume_gate == ""
+
+    explicit_resumed = batch_executor.prepare_resumed_batch_state(
+        state=state,
+        queue=queue,
+        resume_mode="resume_after_manual_resolution",
+        explicit_resume=True,
+    )
+    assert explicit_resumed.resume_gate == "resume_after_manual_resolution"
+    assert explicit_resumed.current_index == 0
+
+
+def test_git_workflow_success_reports_canonical_merge_reset_truth() -> None:
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    git_workflow = importlib.import_module("agents.lib.git_workflow")
+
+    calls: list[list[str]] = []
+
+    def runner(cmd: list[str], check: bool = True):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    result = git_workflow.accepted_task_pr_merge_flow(
+        runner,
+        accepted=True,
+        autonomous_merge_enabled=True,
+        pr_title="x",
+        pr_body="",
+    )
+
+    assert calls[:4] == [
+        ["gh", "pr", "create", "--fill", "--title", "x", "--body", ""],
+        ["gh", "pr", "checks", "--watch"],
+        ["gh", "pr", "merge", "--merge", "--auto", "--delete-branch"],
+        ["git", "switch", "main"],
+    ]
+    assert result["post_task_decision"] == "continue"
+    assert result["accepted_task_pr_flow_completed"] is True
+    assert result["required_checks_passed"] is True
+    assert result["merged_to_main"] is True
+    assert result["clean_main_reset_completed"] is True
+    assert result["next_task_may_proceed"] is True
