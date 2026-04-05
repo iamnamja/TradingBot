@@ -72,6 +72,7 @@ into unrelated internal modules or guessing private names.
 - Tests that mention bundle markers should avoid raw standalone marker lines in
   prose examples; render them inline or split the token if needed.
 
+
 ## Failure classification and remediation planning
 
 The orchestrator should classify failures into distinct categories (for example python syntax, seam-contract mismatch, task-shape mismatch, harness/meta regression, CI-only failure) and choose different remediation paths. The planner should expose an autonomy confidence signal so the controller can decide whether to continue alone, attempt localized repair, patch the task contract, or escalate to the manual patch lane.
@@ -135,56 +136,30 @@ Conflicting duplicates must not be silently resolved by picking one version. Ins
 
 If the conflicted paths still cannot be resolved after the focused repair attempt, the run writes `last_output_duplicate_bundle_conflict.json` in repo root and fails with a duplicate-conflict error.
 
-## Merge-ready validation profile
 
-Autonomous completion now depends on one explicit local merge-ready validation profile.
+## Final acceptance reviewer (076)
 
-The authoritative final profile is:
+The final acceptance reviewer is now the canonical place where the orchestrator reconciles:
 
-- `ruff check .`
-- `pytest -q`
+- the current task file
+- the exact required deliverables parsed from the task contract
+- the committed/staged branch diff paths that would become the final result
+- the remaining working-tree diff paths
+- the authoritative validation profile result
+- unexpected tracked artifact findings
 
-The controller may still run narrower targeted checks earlier in an iteration to improve convergence, but it must not declare success until this final profile passes after a nominal green pass.
+It produces one machine-readable acceptance report with a small explicit outcome set:
 
-If the post-green merge-ready profile fails, the run is treated as a validation-stage failure. The controller must not report success or push the branch as complete, and the failure must be surfaced explicitly in runtime output so the next iteration repairs the final merge-ready gap rather than silently treating the task as done.
+- `accepted`
+- `retryable_failure`
+- `manual_patch`
+- `blocked`
 
-### Post-green validation retry loop policy (074b)
+Conservative rules:
 
-Post-green failures are handled by the same bounded autonomous repair loop used for earlier iteration failures, with explicit conservative limits:
+- missing required deliverables at final review reject acceptance
+- validation-profile failure is surfaced distinctly from task-contract mismatch
+- unexpected tracked artifacts in the final diff block acceptance
+- optimistic acceptance is never preferred over explicit rejection
 
-- A failed authoritative profile after an in-loop green result is classified as `merge_ready_validation`.
-- If iteration budget remains, this failure is retryable and triggers another repair iteration.
-- Runtime output must visibly state that the retry reason is **post-green merge-ready validation failure**.
-- The controller must re-run the authoritative profile (`ruff check .`, then `pytest -q`) after each repair before success.
-- Success is allowed only when the authoritative profile passes at the final gate.
-
-Conservative stop rules remain mandatory:
-
-- Do not run unbounded retries.
-- Preserve the configured max-iteration cap.
-- Stop honestly when retries are exhausted.
-- Stop honestly when failure class is not safely repairable/autonomous.
-- Never claim final success while post-green validation is still red.
-
-## Committed-state parity and unexpected-artifact gate (074c)
-
-Final autonomous success now requires **committed-state parity** with the tested merge-ready state.
-
-Before final success/push, the controller must enforce all of the following:
-
-1. **Committed-state parity**  
-   The state validated as green must match committed `HEAD` for task deliverables.  
-   Required deliverables left only in working tree state are a hard failure.
-
-2. **Exact required deliverable parity at HEAD**  
-   The exact required-file contract must still be satisfied by the committed branch diff, not merely by unstaged or uncommitted edits.
-
-3. **Unexpected tracked artifact rejection**  
-   Tracked files present in the committed branch diff that are outside the exact required deliverables (for example accidental `artifacts/*.json`) must block success unless explicitly required by the task.
-
-Operational posture for this gate:
-
-- deterministic and repo-local checks only
-- prefer explicit cleanup/failure to silent acceptance
-- no broad artifact allowlist expansion beyond known-safe runtime artifact handling
-- never report completion while unexpected tracked files remain in branch diff
+`agents/run_task.py` may still invoke this reviewer, but the reusable policy/report logic should live in a dedicated helper module rather than remain spread across controller flow.

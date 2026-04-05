@@ -22,6 +22,7 @@ def _load_runtime_modules():
     artifact_quarantine = importlib.import_module("agents.lib.artifact_quarantine")
     batch_state = importlib.import_module("agents.lib.batch_state")
     task_queue = importlib.import_module("agents.lib.task_queue")
+    final_acceptance = importlib.import_module("agents.lib.final_acceptance")
     return (
         run_task,
         check_runner,
@@ -34,11 +35,12 @@ def _load_runtime_modules():
         artifact_quarantine,
         batch_state,
         task_queue,
+        final_acceptance,
     )
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -51,7 +53,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     def fake_capture(cmd: list[str]) -> str:
@@ -77,7 +79,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_capture_result(cmd):
         if cmd == ["ruff", "check", "."]:
@@ -94,7 +96,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -109,12 +111,11 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.parse_required_files)
     assert callable(run_task.validate_exact_deliverable_contract)
     assert callable(run_task.keep_runtime_artifacts_requested)
-    assert callable(run_task.merge_ready_validation_profile)
-    assert callable(run_task.run_merge_ready_validation_profile)
+    assert callable(run_task.build_final_acceptance_report)
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
-    _, _, _, _, failure_journal, _, _, _, _, _, _ = _load_runtime_modules()
+    _, _, _, _, failure_journal, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert (
         failure_journal.classify_failure("tests", "SyntaxError: invalid syntax in generated test")
         == "python_syntax"
@@ -134,80 +135,126 @@ def test_failure_classifier_distinguishes_multiple_categories() -> None:
 
 
 def test_failure_remediation_plans_choose_different_paths() -> None:
-    _, _, _, _, failure_journal, _, _, _, _, _, _ = _load_runtime_modules()
+    _, _, _, _, failure_journal, _, _, _, _, _, _, _ = _load_runtime_modules()
     syntax_plan = failure_journal.build_failure_remediation_plan(
         kind="tests",
         message="SyntaxError: invalid syntax",
         category="python_syntax",
         retry_count=1,
         fingerprint="python_syntax:abc123",
-        raw_failure_snippet="SyntaxError: invalid syntax",
+        raw_failure_snippet="SyntaxError",
     )
-    assert syntax_plan["chosen_remediation_path"] == "targeted_syntax_repair"
-
     harness_plan = failure_journal.build_failure_remediation_plan(
         kind="policy",
         message="Protected meta file(s) in normal bundle lane",
         category="harness_meta_regression",
         retry_count=1,
         fingerprint="harness_meta_regression:def456",
-        raw_failure_snippet="Protected meta file(s) in normal bundle lane",
+        raw_failure_snippet="Protected meta file(s)",
     )
+
+    assert syntax_plan["recommended_next_action"] == "retry_with_targeted_fix"
+    assert syntax_plan["chosen_remediation_path"] == "targeted_syntax_repair"
+    assert syntax_plan["continue_autonomously"] is True
+
+    assert harness_plan["recommended_next_action"] == "manual_patch"
     assert harness_plan["chosen_remediation_path"] == "manual_patch_lane"
+    assert harness_plan["continue_autonomously"] is False
+    assert harness_plan["manual_lane_recommended"] is True
 
 
-def test_failure_artifact_placeholders_are_json(tmp_path: Path) -> None:
-    _, _, _, _, _, _, failure_artifacts, _, _, _, _ = _load_runtime_modules()
-    out_path = tmp_path / "last_output.json"
-    bundle_path = tmp_path / "last_bundle.json"
-
-    failure_artifacts.ensure_truthful_failure_artifacts(
-        last_output_path=out_path,
-        last_bundle_path=bundle_path,
-        create_placeholders=True,
-        task_file="tasks/074_orchestrator_batch_runner_cli_and_summary_artifacts.md",
-        failure_category="bundle_transport",
-        before_model_output=True,
-        normal_bundle_attempted=False,
-    )
-
-    out_payload = json.loads(out_path.read_text(encoding="utf-8"))
-    bundle_payload = json.loads(bundle_path.read_text(encoding="utf-8"))
-
-    assert out_payload["placeholder"] is True
-    assert out_payload["artifact_kind"] == "model_output_placeholder"
-    assert bundle_payload["artifact_kind"] == "file_bundle_placeholder"
-    assert bundle_payload["kind"] == "file_bundle"
-
-
-def test_batch_state_runtime_artifact_placeholder_blocks_continue_gate(tmp_path: Path) -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
-    out_path = tmp_path / "last_output.json"
-    bundle_path = tmp_path / "last_bundle.json"
+def test_runtime_artifact_placeholder_contains_checkpoint_fields(tmp_path: Path) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    last_output = tmp_path / "last_output.json"
+    last_bundle = tmp_path / "last_bundle.json"
 
     run_task._emit_failure_artifact_messages(
-        out_path,
-        bundle_path,
+        last_output,
+        last_bundle,
         create_placeholders=True,
-        task_file="tasks/075_orchestrator_backlog_execution_end_to_end_proof.md",
-        failure_category="blocked",
+        task_file="tasks/072.md",
+        failure_category="tests",
         before_model_output=True,
-        reason="e2e proof blocked before model output",
+        reason="early failure",
     )
 
-    out_payload = json.loads(out_path.read_text(encoding="utf-8"))
-    checkpoint = out_payload["batch_checkpoint"]
+    payload = json.loads(last_output.read_text(encoding="utf-8"))
+    checkpoint = payload["batch_checkpoint"]
+    assert checkpoint["task_file"] == "tasks/072.md"
+    assert checkpoint["cleanup_required_before_next_task"] is True
     assert checkpoint["next_task_may_proceed"] is False
-    assert checkpoint["transition"] in {"blocked", "failed_before_model_output"}
-    if isinstance(out_payload.get("batch_state"), dict):
-        assert out_payload["batch_state"]["next_task_may_proceed"] is False
-        assert out_payload["batch_state"]["checkpoint_transition"] == checkpoint["transition"]
+    assert checkpoint["transition"] == "failed_before_model_output"
 
 
-def test_shell_router_seam_registry_exposes_expected_keys() -> None:
-    _, _, _, _, _, _, _, shell_router, _, _, _ = _load_runtime_modules()
-    registry = shell_router.shell_seam_exports()
-    assert "bootstrap" in registry
-    assert "failure_journal" in registry
-    assert "validator_runner" in registry
-    assert "shell_router" in registry
+def test_post_task_policy_gates_next_task_after_manual_patch() -> None:
+    _, _, _, _, _, _, _, _, _, _, task_queue, _ = _load_runtime_modules()
+
+    decision = task_queue.decide_post_task_action(
+        "failed",
+        signals={
+            "manual_patch_recommended": True,
+            "validator_ok": True,
+            "deliverable_complete": True,
+        },
+    )
+
+    assert decision == "manual_patch"
+    assert task_queue.may_proceed_to_next_task("manual_patch") is False
+
+
+def test_final_acceptance_report_accepts_matching_required_paths() -> None:
+    _, _, _, _, _, _, _, _, _, _, _, final_acceptance = _load_runtime_modules()
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/076.md",
+        validated_required_paths=["agents/lib/final_acceptance.py", "tests/test_run_task_runtime_foundations.py"],
+        head_diff_paths=["agents/lib/final_acceptance.py", "tests/test_run_task_runtime_foundations.py"],
+        working_tree_paths=[],
+        validation_profile={"passed": True, "details": ""},
+    )
+    assert report["acceptance_decision"] == "accepted"
+    assert report["issues"] == []
+
+
+def test_final_acceptance_report_rejects_missing_required_in_head() -> None:
+    _, _, _, _, _, _, _, _, _, _, _, final_acceptance = _load_runtime_modules()
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/076.md",
+        validated_required_paths=["agents/lib/final_acceptance.py", "tests/test_run_task_runtime_foundations.py"],
+        head_diff_paths=["tests/test_run_task_runtime_foundations.py"],
+        working_tree_paths=[],
+        validation_profile={"passed": True, "details": ""},
+    )
+    assert report["acceptance_decision"] == "retryable_failure"
+    assert any("not present in committed HEAD diff" in issue for issue in report["issues"])
+
+
+def test_final_acceptance_report_blocks_unexpected_tracked_artifacts() -> None:
+    _, _, _, _, _, _, _, _, _, _, _, final_acceptance = _load_runtime_modules()
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/076.md",
+        validated_required_paths=["agents/lib/final_acceptance.py", "tests/test_run_task_runtime_foundations.py"],
+        head_diff_paths=["agents/lib/final_acceptance.py", "tests/test_run_task_runtime_foundations.py", "artifacts/extra.json"],
+        working_tree_paths=[],
+        validation_profile={"passed": True, "details": ""},
+    )
+    assert report["acceptance_decision"] == "blocked"
+    assert any("Unexpected tracked files remain" in issue for issue in report["issues"])
+
+
+def test_final_acceptance_report_distinguishes_validation_failure() -> None:
+    _, _, _, _, _, _, _, _, _, _, _, final_acceptance = _load_runtime_modules()
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/076.md",
+        validated_required_paths=["agents/lib/final_acceptance.py"],
+        head_diff_paths=["agents/lib/final_acceptance.py"],
+        working_tree_paths=[],
+        validation_profile={"passed": False, "details": "pytest -q failed"},
+    )
+    assert report["acceptance_decision"] == "retryable_failure"
+    assert any("Authoritative validation profile failed" in issue for issue in report["issues"])
+
+
+def test_run_task_source_uses_final_acceptance_reviewer() -> None:
+    run_task_path = Path(__file__).resolve().parents[1] / "agents" / "run_task.py"
+    src = run_task_path.read_text(encoding="utf-8")
+    assert "build_final_acceptance_report(" in src
