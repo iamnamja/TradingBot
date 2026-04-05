@@ -24,6 +24,7 @@ def _load_runtime_modules():
     controller_contract = importlib.import_module("agents.lib.controller_contract")
     final_acceptance = importlib.import_module("agents.lib.final_acceptance")
     batch_executor = importlib.import_module("agents.lib.batch_executor")
+    controller_strict_mode = importlib.import_module("agents.lib.controller_strict_mode")
     return (
         run_task,
         check_runner,
@@ -39,11 +40,12 @@ def _load_runtime_modules():
         controller_contract,
         final_acceptance,
         batch_executor,
+        controller_strict_mode,
     )
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -56,7 +58,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     def fake_capture(cmd: list[str]) -> str:
@@ -82,7 +84,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_capture_result(cmd):
         if cmd == ["ruff", "check", "."]:
@@ -99,7 +101,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -124,10 +126,13 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.execute_batch_loop)
     assert callable(run_task.accepted_task_pr_merge_flow)
     assert callable(run_task.report_branch_push_ready)
+    assert callable(run_task.build_controller_strict_mode_context)
+    assert callable(run_task.controller_strict_preapply_issues)
+    assert callable(run_task.run_controller_strict_checks)
 
 
 def test_run_task_runtime_contract_modules_share_canonical_surface() -> None:
-    (_, _, _, _, failure_journal, _, _, _, _, batch_state, task_queue, controller_contract, _, batch_executor) = _load_runtime_modules()
+    (_, _, _, _, failure_journal, _, _, _, _, batch_state, task_queue, controller_contract, _, batch_executor, _) = _load_runtime_modules()
     assert task_queue.BatchPostTaskDecision is controller_contract.BatchPostTaskDecision
     assert batch_state.BatchStatus is controller_contract.BatchStatus
     assert batch_executor.ResumeMode is controller_contract.ResumeMode
@@ -136,7 +141,7 @@ def test_run_task_runtime_contract_modules_share_canonical_surface() -> None:
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
-    _, _, _, _, failure_journal, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    _, _, _, _, failure_journal, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert (
         failure_journal.classify_failure("tests", "SyntaxError: invalid syntax in generated test")
         == "python_syntax"
@@ -155,7 +160,7 @@ def test_failure_classifier_distinguishes_multiple_categories() -> None:
     )
 
 def test_prepare_resumed_batch_state_requires_explicit_manual_resolution_resume(tmp_path: Path) -> None:
-    (_, _, _, _, _, _, _, _, _, batch_state, task_queue, _, _, batch_executor) = _load_runtime_modules()
+    (_, _, _, _, _, _, _, _, _, batch_state, task_queue, _, _, batch_executor, _) = _load_runtime_modules()
 
     task_path = tmp_path / "tasks" / "001.md"
     task_path.parent.mkdir(parents=True, exist_ok=True)
@@ -233,7 +238,7 @@ def test_git_workflow_success_reports_canonical_merge_reset_truth() -> None:
 
 
 def test_controller_repair_context_names_semantic_drift_surfaces() -> None:
-    run_task, _, _, _, failure_journal, _, _, _, _, _, _, _, final_acceptance, _ = _load_runtime_modules()
+    run_task, _, _, _, failure_journal, _, _, _, _, _, _, _, final_acceptance, _, controller_strict_mode = _load_runtime_modules()
 
     details = (
         "________________ test_controller_contract_guard __________________\n"
@@ -285,3 +290,62 @@ def test_controller_repair_context_names_semantic_drift_surfaces() -> None:
     self_heal = final_acceptance.build_acceptance_self_heal_context(report)
     assert self_heal["semantic_failure_digest"]["decision_mismatches"] == [{"actual": "continue", "expected": "failed_checks"}]
     assert "Semantic controller repair context:" in str(self_heal["repair_prompt"])
+
+
+def test_controller_task_shape_activates_strict_mode() -> None:
+    run_task, _, _, _, _, task_contracts, _, _, _, _, _, controller_contract, _, _, controller_strict_mode = _load_runtime_modules()
+
+    assert task_contracts.task_touches_controller_core(["agents/run_task.py", "docs/TRADINGBOT_PROJECT_STATE.md"]) is True
+    context = run_task.build_controller_strict_mode_context(
+        required_paths=["agents/run_task.py", "docs/TRADINGBOT_PROJECT_STATE.md"],
+        task_file="tasks/087_orchestrator_controller_task_strict_mode_and_patch_quality_gate.md",
+    )
+    assert context["enabled"] is True
+    assert context["strict_targets_touched"] == ["agents/run_task.py"]
+    assert context["focused_test_paths"] == list(controller_contract.CONTROLLER_PROOF_TEST_PATHS)
+    assert controller_strict_mode.controller_strict_mode_directives(context)
+
+
+def test_controller_patch_quality_gate_rejects_obvious_minified_bundle() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    issues = run_task.controller_strict_preapply_issues(
+        {
+            "agents/run_task.py": (
+                "import os, sys\n"
+                "import json, re\n"
+                "def bad(): a=1; b=2; c=3; print(a+b+c)\n"
+                "def worse(): x=1; y=2; z=3; print(x+y+z)\n"
+                "def noisy(): foo=1; bar=2; baz=3; return foo+bar+baz\n"
+            )
+        },
+        touched_paths=["agents/run_task.py"],
+    )
+    assert issues
+    assert any("controller strict mode rejected" in issue for issue in issues)
+
+
+def test_controller_strict_checks_defer_docs_claims_until_proof_tests_are_green(monkeypatch) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, controller_strict_mode = _load_runtime_modules()
+
+    commands: list[list[str]] = []
+
+    def fake_capture_result(cmd: list[str]):
+        commands.append(cmd)
+        if cmd[:2] == ["pytest", "-q"] and "tests/test_controller_contract.py" in cmd:
+            return SimpleNamespace(returncode=1, stdout="focused fail\n", stderr="")
+        raise AssertionError(cmd)
+
+    result = controller_strict_mode.run_controller_strict_checks(
+        capture_result=fake_capture_result,
+        changed_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+    )
+
+    assert commands == [["pytest", "-q", "tests/test_controller_contract.py", "tests/test_run_task_runtime_foundations.py", "tests/test_task_queue.py"]]
+    assert result["controller_proof_tests_passed"] is False
+    assert result["proof_claims_deferred"] is True
+    assert "deferred until focused controller proof tests are green" in result["output_text"]
+
+    monkeypatch.setattr(run_task, "capture_result", fake_capture_result)
+    wrapped = run_task.run_controller_strict_checks(changed_paths=["README.md"])
+    assert wrapped["proof_claims_deferred"] is True

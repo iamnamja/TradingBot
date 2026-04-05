@@ -486,6 +486,36 @@ def build_controller_repair_context(
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
 
 
+def build_controller_strict_mode_context(
+    *,
+    required_paths: List[str] | None = None,
+    task_file: str = "",
+) -> Dict[str, object]:
+    from agents.lib.controller_strict_mode import build_controller_strict_mode_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths=required_paths, task_file=task_file))
+
+
+def controller_strict_preapply_issues(
+    bundle: Dict[str, str] | None,
+    *,
+    touched_paths: List[str] | None = None,
+) -> List[str]:
+    from agents.lib.controller_strict_mode import controller_strict_preapply_issues as _impl  # type: ignore
+
+    return list(_impl(bundle, touched_paths=touched_paths))
+
+
+def run_controller_strict_checks(
+    *,
+    changed_paths: List[str] | None = None,
+    focused_test_paths: List[str] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.controller_strict_mode import run_controller_strict_checks as _impl  # type: ignore
+
+    return dict(_impl(capture_result=capture_result, changed_paths=changed_paths, focused_test_paths=focused_test_paths))
+
+
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
     return build_final_acceptance_failure_feedback(report)
 
@@ -4352,8 +4382,23 @@ def main() -> int:
     last_output_path = Path("_last_agent_model_output.txt")
     last_bundle_path = Path("_last_agent_file_bundle.txt")
 
+    strict_mode_context = build_controller_strict_mode_context(
+        required_paths=required,
+        task_file=task_path.as_posix(),
+    )
     prev_files: Dict[str, str] | None = None
     extra_directives = ""
+    if bool(strict_mode_context.get("enabled")):
+        try:
+            from agents.lib.controller_strict_mode import controller_strict_mode_directives as _controller_strict_mode_directives  # type: ignore
+        except Exception:
+            _controller_strict_mode_directives = None  # type: ignore[assignment]
+        if callable(_controller_strict_mode_directives):
+            extra_directives = str(_controller_strict_mode_directives(strict_mode_context)).strip()
+        touched = strict_mode_context.get("strict_targets_touched") or []
+        print("🔒 Controller strict mode enabled.")
+        if touched:
+            print("Controller strict-mode targets: " + ", ".join(str(item) for item in touched))
     violation_counts: Dict[str, int] = {}
 
     stable_baseline = existing_file_contents(baseline_paths)
@@ -4543,11 +4588,51 @@ def main() -> int:
             prev_files = files
             continue
 
+        if bool(strict_mode_context.get("enabled")):
+            strict_issues = controller_strict_preapply_issues(files, touched_paths=required)
+            if strict_issues:
+                try:
+                    from agents.lib.controller_strict_mode import format_controller_strict_preapply_issues as _format_controller_strict_preapply_issues  # type: ignore
+                except Exception:
+                    _format_controller_strict_preapply_issues = None  # type: ignore[assignment]
+                strict_msg = (
+                    str(_format_controller_strict_preapply_issues(strict_issues))
+                    if callable(_format_controller_strict_preapply_issues)
+                    else "Controller strict mode rejected low-discipline generated patch before apply:\n" + "\n".join(f"- {issue}" for issue in strict_issues)
+                )
+                _report_failure("controller_patch_quality", strict_msg, touched_files=required, task_file=task_path.as_posix())
+                task_text = _append_task_feedback(task_text, strict_msg)
+                if _repeat_limit_exceeded(violation_counts, "controller_patch_quality", args.policy_block_limit):
+                    print("\n❌ Stopping early: repeated controller patch-quality gate failures. Recommended action: manual_patch")
+                    print("Model output saved to: _last_agent_model_output.txt")
+                    print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                    return 1
+                prev_files = files
+                continue
+
         pre_write_snapshot = snapshot_file_contents(list(files.keys()))
         write_files(files)
         violation_counts.clear()
 
-        ok, details = run_checks()
+        validation_profile: Dict[str, object]
+        if bool(strict_mode_context.get("enabled")):
+            strict_check_result = run_controller_strict_checks(changed_paths=list(files.keys()))
+            details = str(strict_check_result.get("output_text", "") or "")
+            ok = bool(
+                strict_check_result.get("focused_ok")
+                and strict_check_result.get("lint_ok")
+                and strict_check_result.get("test_ok")
+            )
+            validation_profile = {
+                "passed": ok,
+                "details": details,
+                "controller_strict_mode": True,
+                "controller_proof_tests_passed": bool(strict_check_result.get("controller_proof_tests_passed", False)),
+                "proof_claims_deferred": bool(strict_check_result.get("proof_claims_deferred", False)),
+            }
+        else:
+            ok, details = run_checks()
+            validation_profile = {"passed": ok, "details": details}
         if ok:
             staged_paths: List[str] = []
             if args.push:
@@ -4557,7 +4642,6 @@ def main() -> int:
             else:
                 staged_paths = [line.strip() for line in capture(["git", "diff", "--name-only"]).splitlines() if line.strip()]
             working_tree_paths = [line.strip() for line in capture(["git", "diff", "--name-only"]).splitlines() if line.strip()]
-            validation_profile = {"passed": True, "details": details}
             acceptance_report = build_final_acceptance_report(
                 task_file=task_path.as_posix(),
                 required_paths=required,
