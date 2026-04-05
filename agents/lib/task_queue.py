@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, Sequence, TypedDict
 
 QueueStatus = Literal["queued", "running", "completed", "blocked", "failed", "manual_patch"]
 BatchPostTaskDecision = Literal["continue", "stop", "manual_patch", "blocked"]
@@ -14,6 +14,13 @@ class PostTaskSignals(TypedDict, total=False):
     protected_lane_ok: bool
     duplicate_bundle_conflict: bool
     manual_patch_recommended: bool
+
+
+class BatchSummaryTaskOutcome(TypedDict, total=False):
+    task_path: str
+    status: QueueStatus
+    decision: BatchPostTaskDecision
+    note: str
 
 
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
@@ -166,3 +173,87 @@ def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Pa
         )
 
     return queue
+
+
+def _normalize_batch_outcome(
+    outcome: BatchSummaryTaskOutcome | dict[str, Any],
+) -> BatchSummaryTaskOutcome:
+    task_path = str(outcome.get("task_path", "")).strip()
+    status = str(outcome.get("status", "queued")).strip() or "queued"
+    note = str(outcome.get("note", "")).strip()
+    raw_decision = str(outcome.get("decision", "")).strip()
+
+    if raw_decision:
+        decision = raw_decision
+    elif status == "completed":
+        decision = "continue"
+    elif status in {"manual_patch", "blocked"}:
+        decision = status
+    else:
+        decision = "stop"
+
+    return {
+        "task_path": task_path,
+        "status": status,
+        "decision": decision,
+        "note": note,
+    }
+
+
+def build_batch_summary_payload(
+    *,
+    manifest_path: str,
+    outcomes: Sequence[BatchSummaryTaskOutcome | dict[str, Any]],
+    final_decision: BatchPostTaskDecision,
+) -> dict[str, object]:
+    normalized = [_normalize_batch_outcome(outcome) for outcome in outcomes]
+    completed = sum(1 for item in normalized if item["status"] == "completed")
+    failed = sum(1 for item in normalized if item["status"] == "failed")
+    manual_patch = sum(1 for item in normalized if item["decision"] == "manual_patch")
+    blocked = sum(1 for item in normalized if item["decision"] == "blocked")
+
+    return {
+        "manifest_path": str(manifest_path),
+        "total_tasks": len(normalized),
+        "completed_tasks": completed,
+        "failed_tasks": failed,
+        "manual_patch_tasks": manual_patch,
+        "blocked_tasks": blocked,
+        "final_batch_decision": final_decision,
+        "task_outcomes": normalized,
+    }
+
+
+def render_batch_summary_text(summary: dict[str, object]) -> str:
+    manifest_path = str(summary.get("manifest_path", ""))
+    total = int(summary.get("total_tasks", 0))
+    completed = int(summary.get("completed_tasks", 0))
+    failed = int(summary.get("failed_tasks", 0))
+    manual_patch = int(summary.get("manual_patch_tasks", 0))
+    blocked = int(summary.get("blocked_tasks", 0))
+    final_decision = str(summary.get("final_batch_decision", ""))
+
+    lines = [
+        f"Batch manifest: {manifest_path}",
+        (
+            "Batch summary: "
+            f"total={total}, completed={completed}, failed={failed}, "
+            f"manual_patch={manual_patch}, blocked={blocked}, final={final_decision}"
+        ),
+    ]
+
+    outcomes = summary.get("task_outcomes", [])
+    if isinstance(outcomes, list):
+        for item in outcomes:
+            if not isinstance(item, dict):
+                continue
+            task_path = str(item.get("task_path", "")).strip()
+            status = str(item.get("status", "")).strip()
+            decision = str(item.get("decision", "")).strip()
+            note = str(item.get("note", "")).strip()
+            detail = f"- {task_path}: status={status}, decision={decision}"
+            if note:
+                detail += f", note={note}"
+            lines.append(detail)
+
+    return "\n".join(lines)
