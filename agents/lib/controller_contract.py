@@ -85,6 +85,30 @@ RESUME_METADATA_FIELDS: tuple[str, ...] = (
 )
 POLICY_BLOCKED_FAILURE_CATEGORY = "policy_blocked"
 CONTROLLER_FAILURE_CATEGORIES: tuple[str, ...] = (POLICY_BLOCKED_FAILURE_CATEGORY,)
+CONTROLLER_FAMILY_FILES: tuple[str, ...] = (
+    "agents/run_task.py",
+    "agents/lib/controller_contract.py",
+    "agents/lib/controller_repair.py",
+    "agents/lib/final_acceptance.py",
+    "agents/lib/batch_executor.py",
+    "agents/lib/batch_state.py",
+    "agents/lib/task_queue.py",
+    "agents/lib/git_workflow.py",
+    "agents/lib/failure_journal.py",
+)
+CONTROLLER_FAILURE_DIGEST_FIELDS: tuple[str, ...] = (
+    "failure_kind",
+    "failure_category",
+    "is_controller_failure",
+    "failing_tests",
+    "decision_mismatches",
+    "missing_truth_fields",
+    "extra_truth_fields",
+    "missing_exports",
+    "merge_posture_mismatches",
+    "taxonomy_mismatches",
+    "controller_family_files_touched",
+)
 
 _TERMINAL_FROM_ACCEPTANCE: dict[AcceptanceDecision, QueueTerminalStatus] = {
     "accepted": "completed",
@@ -246,4 +270,6 @@ def controller_contract_snapshot() -> dict[str, object]:
         "checkpoint_truth_fields": list(CHECKPOINT_TRUTH_FIELDS),
         "resume_metadata_fields": list(RESUME_METADATA_FIELDS),
         "controller_failure_categories": list(CONTROLLER_FAILURE_CATEGORIES),
+        "controller_family_files": list(CONTROLLER_FAMILY_FILES),
+        "controller_failure_digest_fields": list(CONTROLLER_FAILURE_DIGEST_FIELDS),
     }

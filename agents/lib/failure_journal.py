@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from agents.lib.controller_contract import POLICY_BLOCKED_FAILURE_CATEGORY
+from agents.lib.controller_repair import build_controller_failure_digest, build_controller_repair_context
 
 DEFAULT_RAW_SNIPPET_LIMIT = 400
 DEFAULT_JOURNAL_PATH = Path("artifacts/failure_journal.jsonl")
@@ -104,6 +105,31 @@ def retry_count_for_fingerprint(fingerprint: str) -> int:
     _FAILURE_COUNTS[fingerprint] = count
     return count
 
+
+
+
+def build_semantic_failure_digest(*, kind: str, message: str, category: str = "", touched_files: list[str] | None = None, task_file: str = "") -> Dict[str, Any]:
+    return dict(
+        build_controller_failure_digest(
+            kind=kind,
+            message=message,
+            category=category,
+            touched_files=touched_files,
+            task_file=task_file,
+        )
+    )
+
+
+def build_semantic_repair_context(*, kind: str, message: str, category: str = "", touched_files: list[str] | None = None, task_file: str = "") -> Dict[str, Any]:
+    return dict(
+        build_controller_repair_context(
+            kind=kind,
+            message=message,
+            category=category,
+            touched_files=touched_files,
+            task_file=task_file,
+        )
+    )
 
 def failure_journal_path() -> Path:
     raw = os.getenv("TRADINGBOT_FAILURE_JOURNAL_PATH", "").strip()

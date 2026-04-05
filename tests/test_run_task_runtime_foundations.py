@@ -119,6 +119,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.build_acceptance_self_heal_context)
     assert callable(run_task.build_final_acceptance_failure_feedback)
     assert callable(run_task.report_final_acceptance_failure)
+    assert callable(run_task.build_controller_failure_digest)
+    assert callable(run_task.build_controller_repair_context)
     assert callable(run_task.execute_batch_loop)
     assert callable(run_task.accepted_task_pr_merge_flow)
     assert callable(run_task.report_branch_push_ready)
@@ -228,3 +230,58 @@ def test_git_workflow_success_reports_canonical_merge_reset_truth() -> None:
     assert result["merged_to_main"] is True
     assert result["clean_main_reset_completed"] is True
     assert result["next_task_may_proceed"] is True
+
+
+def test_controller_repair_context_names_semantic_drift_surfaces() -> None:
+    run_task, _, _, _, failure_journal, _, _, _, _, _, _, _, final_acceptance, _ = _load_runtime_modules()
+
+    details = (
+        "________________ test_controller_contract_guard __________________\n"
+        "E AssertionError: assert 'continue' == 'failed_checks'\n"
+        "E KeyError: 'resume_gate'\n"
+        "E AttributeError: module 'agents.run_task' has no attribute 'build_controller_failure_digest'\n"
+        "tests/test_run_task_runtime_foundations.py:200: AssertionError\n"
+    )
+    digest = run_task.build_controller_failure_digest(
+        kind="tests",
+        message=details,
+        category="tests",
+        touched_files=["agents/run_task.py", "agents/lib/controller_contract.py"],
+        task_file="tasks/086_orchestrator_semantic_failure_digest_and_controller_repair_context.md",
+    )
+    assert digest["decision_mismatches"] == [{"actual": "continue", "expected": "failed_checks"}]
+    assert digest["missing_truth_fields"] == ["resume_gate"]
+    assert digest["missing_exports"] == ["build_controller_failure_digest"]
+
+    context = run_task.build_controller_repair_context(
+        kind="tests",
+        message=details,
+        category="tests",
+        touched_files=["agents/run_task.py", "agents/lib/controller_contract.py"],
+        task_file="tasks/086_orchestrator_semantic_failure_digest_and_controller_repair_context.md",
+    )
+    prompt = str(context["repair_prompt"])
+    assert "Controller semantic failure digest" in prompt
+    assert "decision_mismatches" in prompt
+    assert "missing_truth_fields" in prompt
+    assert "missing_exports" in prompt
+
+    journal_digest = failure_journal.build_semantic_failure_digest(
+        kind="tests",
+        message=details,
+        category="tests",
+        touched_files=["agents/run_task.py"],
+        task_file="tasks/086_orchestrator_semantic_failure_digest_and_controller_repair_context.md",
+    )
+    assert journal_digest["is_controller_failure"] is True
+
+    report = final_acceptance.build_final_acceptance_report(
+        task_file="tasks/086_orchestrator_semantic_failure_digest_and_controller_repair_context.md",
+        validated_required_paths=["agents/run_task.py", "agents/lib/controller_contract.py"],
+        head_diff_paths=["agents/run_task.py", "agents/lib/controller_contract.py"],
+        working_tree_paths=["agents/run_task.py", "agents/lib/controller_contract.py"],
+        validation_profile={"passed": False, "details": details},
+    )
+    self_heal = final_acceptance.build_acceptance_self_heal_context(report)
+    assert self_heal["semantic_failure_digest"]["decision_mismatches"] == [{"actual": "continue", "expected": "failed_checks"}]
+    assert "Semantic controller repair context:" in str(self_heal["repair_prompt"])
