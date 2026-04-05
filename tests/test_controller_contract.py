@@ -169,3 +169,29 @@ def test_controller_failure_digest_contract_is_stable_and_machine_readable() -> 
     assert digest["missing_exports"] == ["build_controller_repair_context"]
     assert digest["merge_posture_mismatches"] == ["decision drift: actual=failed_merge expected=failed_reset"]
     assert digest["controller_family_files_touched"] == ["agents/run_task.py", "agents/lib/batch_executor.py"]
+
+
+def test_resume_after_merge_requires_all_merge_reset_truth_fields() -> None:
+    contract = _load("agents.lib.controller_contract")
+
+    base = {
+        "terminal_status": "completed",
+        "acceptance_decision": "accepted",
+        "post_task_decision": "continue",
+        "next_task_may_proceed": True,
+        "accepted_task_pr_flow_completed": True,
+        "required_checks_passed": True,
+        "merged_to_main": True,
+        "clean_main_reset_completed": True,
+    }
+    assert contract.checkpoint_allows_resume_after_merge(base) is True
+
+    for field_name in (
+        "accepted_task_pr_flow_completed",
+        "required_checks_passed",
+        "merged_to_main",
+        "clean_main_reset_completed",
+    ):
+        payload = dict(base)
+        payload[field_name] = False
+        assert contract.checkpoint_allows_resume_after_merge(payload) is False

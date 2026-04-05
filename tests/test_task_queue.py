@@ -546,3 +546,155 @@ def test_git_workflow_reports_canonical_merge_posture_decision() -> None:
     assert result["accepted_task_pr_flow_completed"] is False
     assert result["merged_to_main"] is False
     assert result["clean_main_reset_completed"] is False
+
+
+def test_hardened_short_manifest_proof_completes_after_non_reexecuting_self_heal(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    bs = _batch_state_module()
+    be = _batch_executor_module()
+
+    _write_task(tmp_path / "tasks" / "001.md")
+    _write_task(tmp_path / "tasks" / "002.md")
+    _write_task(tmp_path / "tasks" / "003.md")
+    manifest = {"tasks": ["tasks/001.md", "tasks/002.md", "tasks/003.md"]}
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = bs.initialize_batch_state(manifest=manifest, queue=queue, manifest_source="tasks/manifest.json", created_ts=1)
+
+    execution_attempts: dict[str, int] = {}
+    repaired: list[str] = []
+
+    def execute_task(item):
+        execution_attempts[item.task_path] = execution_attempts.get(item.task_path, 0) + 1
+        return {"task_path": item.task_path, "execution_attempt": execution_attempts[item.task_path], "repaired": False}
+
+    def validator(_item, _result):
+        return True, "ok"
+
+    def acceptance(item, result, _ok, _note):
+        if item.task_path.endswith("001.md") and not result.get("repaired"):
+            return {"acceptance_decision": "retryable_failure", "note": "repair controller drift"}
+        return {"acceptance_decision": "accepted", "note": "accepted"}
+
+    def retry(item, result, retry_count):
+        repaired.append(f"{item.task_path}:{retry_count}")
+        return {**result, "repaired": True, "repair_count": retry_count}
+
+    final_state, outcomes, final_decision = be.execute_batch_loop(
+        initial_state=state,
+        queue=queue,
+        execute_task=execute_task,
+        run_authoritative_validation=validator,
+        run_final_acceptance_review=acceptance,
+        self_heal_and_retry=retry,
+        retry_budget=1,
+        persist_state=lambda _s: None,
+    )
+
+    assert final_decision == "continue"
+    assert final_state.batch_status == "completed"
+    assert execution_attempts == {
+        "tasks/001.md": 1,
+        "tasks/002.md": 1,
+        "tasks/003.md": 1,
+    }
+    assert repaired == ["tasks/001.md:1"]
+    assert [outcome["task_path"] for outcome in outcomes] == ["tasks/001.md", "tasks/002.md", "tasks/003.md"]
+    assert outcomes[0]["acceptance_decision"] == "accepted"
+    assert outcomes[0]["retry_count"] == 1
+    assert outcomes[0]["next_task_may_proceed"] is True
+    assert all(outcome["post_task_decision"] == "continue" for outcome in outcomes)
+
+
+def test_hardened_short_manifest_proof_stops_on_failed_merge_then_resumes_honestly(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    bs = _batch_state_module()
+    be = _batch_executor_module()
+
+    _write_task(tmp_path / "tasks" / "001.md")
+    _write_task(tmp_path / "tasks" / "002.md")
+    _write_task(tmp_path / "tasks" / "003.md")
+    manifest = {"tasks": ["tasks/001.md", "tasks/002.md", "tasks/003.md"]}
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = bs.initialize_batch_state(manifest=manifest, queue=queue, manifest_source="tasks/manifest.json", created_ts=1)
+
+    executed: list[str] = []
+    persisted: list[dict[str, object]] = []
+
+    def execute_task(item):
+        executed.append(item.task_path)
+        return {"task_path": item.task_path}
+
+    def validator(_item, _result):
+        return True, "ok"
+
+    def acceptance(item, _result, _ok, _note):
+        if item.task_path.endswith("001.md"):
+            return {
+                "acceptance_decision": "accepted",
+                "note": "accepted and merged",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+                "accepted_task_pr_flow_completed": True,
+                "required_checks_passed": True,
+                "merged_to_main": True,
+                "clean_main_reset_completed": True,
+            }
+        if item.task_path.endswith("002.md"):
+            return {
+                "acceptance_decision": "accepted",
+                "note": "accepted but merge failed",
+                "post_task_decision": "failed_merge",
+                "next_task_may_proceed": False,
+                "accepted_task_pr_flow_completed": False,
+                "required_checks_passed": False,
+                "merged_to_main": False,
+                "clean_main_reset_completed": False,
+            }
+        return {"acceptance_decision": "accepted", "note": "accepted"}
+
+    def retry(_item, result, _retry_count):
+        return result
+
+    stopped_state, outcomes, final_decision = be.execute_batch_loop(
+        initial_state=state,
+        queue=queue,
+        execute_task=execute_task,
+        run_authoritative_validation=validator,
+        run_final_acceptance_review=acceptance,
+        self_heal_and_retry=retry,
+        retry_budget=1,
+        persist_state=lambda s: persisted.append(s.to_dict()),
+    )
+
+    assert final_decision == "failed_merge"
+    assert stopped_state.batch_status == "failed_merge"
+    assert executed == ["tasks/001.md", "tasks/002.md"]
+    assert [outcome["task_path"] for outcome in outcomes] == ["tasks/001.md", "tasks/002.md"]
+    assert persisted[-1]["checkpoints"][0]["clean_main_reset_completed"] is True
+    assert persisted[-1]["checkpoints"][1]["clean_main_reset_completed"] is False
+
+    resumed_state, resumed_outcomes, resumed_decision = be.execute_batch_loop(
+        initial_state=stopped_state,
+        queue=queue,
+        execute_task=execute_task,
+        run_authoritative_validation=validator,
+        run_final_acceptance_review=lambda item, _result, _ok, _note: {
+            "acceptance_decision": "accepted",
+            "note": "accepted after operator retry",
+            "post_task_decision": "continue",
+            "next_task_may_proceed": True,
+            "accepted_task_pr_flow_completed": True,
+            "required_checks_passed": True,
+            "merged_to_main": True,
+            "clean_main_reset_completed": True,
+        },
+        self_heal_and_retry=retry,
+        retry_budget=1,
+        resume_mode="resume_after_merge",
+        persist_state=lambda _s: None,
+    )
+
+    assert resumed_decision == "continue"
+    assert resumed_state.batch_status == "completed"
+    assert executed == ["tasks/001.md", "tasks/002.md", "tasks/002.md", "tasks/003.md"]
+    assert [outcome["task_path"] for outcome in resumed_outcomes] == ["tasks/002.md", "tasks/003.md"]

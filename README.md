@@ -10,46 +10,66 @@ This repository contains:
 
 ## Current continuation status
 
-The reliability/autonomy tranche and backlog-execution continuation are complete through **Task 087**.
+The reliability/autonomy continuation, backlog-execution hardening, and controller-contract hardening tranche are now complete through **Task 089**.
 
-The active sequence covered by the current proof is:
+The proof-backed controller continuation covered by the current repo state is:
 
-- **076–082** — autonomous backlog progression and controller-thinning continuation
+- **076–089** — autonomous backlog progression, controller hardening, and proof synchronization
   - final acceptance reviewer/report
   - targeted self-heal for acceptance failures
   - explicit batch executor/controller loop
   - accepted-task PR/check/merge/reset flow
   - resume-after-merge and manual-resolution behavior
-  - further `agents/run_task.py` decomposition
-  - autonomous backlog-runner proof for a short ordinary-task manifest
-
-The active controller-hardening tranche is now:
-
-- **083–087 complete**
   - canonical controller contract
-  - non-reexecuting retry/self-heal channel
+  - non-reexecuting retry/self-heal semantics
   - merge-posture truth persistence and resume contract
-  - semantic failure digest and controller repair context
-  - controller-task strict mode and patch-quality gate
-
-The remaining near-term continuation tasks are:
-
-- **088–089**
+  - semantic controller repair digest/context
+  - controller strict mode and patch-quality gate
   - further `agents/run_task.py` decomposition
   - hardened autonomous short-manifest proof
 
-Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for status narrative.
+Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for the authoritative status narrative.
 
 ## Current batch posture
 
 The agent runner supports a conservative batch mode in addition to single-task mode.
 
 - Input: a task-list manifest (ordered task paths)
-- Behavior: sequential execution, acceptance-gated progression, deterministic retry/self-heal slice
+- Behavior: sequential execution, authoritative validation, final acceptance review, deterministic repair-without-raw-reexecution, and per-task persisted truth
 - Stop posture: stops honestly on blocking/manual/merge-posture failures
 - Goal: truthful, reviewable progression over a short ordinary manifest proof slice
 
 Single-task behavior remains available and unchanged for normal `agents/run_task.py <task.md>` usage.
+
+## What the repo can honestly claim today
+
+Today the repo has:
+
+- a conservative batch runner CLI
+- machine-readable and human-readable batch summaries
+- one canonical controller contract across controller-facing modules
+- non-reexecuting retry/self-heal semantics with separate raw-execution vs repair proof in tests
+- first-class merge-posture truth persistence and resume gates
+- controller-core semantic repair digest/context
+- controller strict mode with focused controller proof tests before full validation
+- deterministic local proof of a hardened short ordinary-manifest autonomous progression slice
+
+That proof currently covers:
+
+1. task execution
+2. authoritative validation
+3. final acceptance review
+4. retryable self-heal without raw re-execution
+5. accepted-task PR/check/merge/reset gate
+6. truthful stop on failed merge/check/reset posture
+7. truthful resume-after-merge skip behavior based on persisted truth
+8. proof-claim deferral for docs/README until focused controller proof tests are green
+
+It does **not** claim:
+
+- arbitrary protected/controller task-list autonomy
+- broad unattended production scheduler autonomy across any task shape
+- hidden always-on autonomy for protected/controller/meta tasks
 
 ## Accepted-task autonomous PR/merge posture (optional)
 
@@ -68,37 +88,25 @@ Conservative limits:
 - next task cannot proceed unless clean-main reset succeeds
 - operator-controlled mode remains available (autonomous merge is not hidden always-on)
 
-## What batch mode can honestly claim today
+## Scope boundary for the autonomy proof
 
-Today the repo has:
+The current proof is intentionally narrow:
 
-- a conservative batch runner CLI
-- machine-readable and human-readable batch summaries
-- deterministic local proofs for short ordinary-manifest autonomous progression
+- short ordinary/non-protected manifests
+- deterministic local tests and stubs
+- conservative stop-on-risk posture
+- controller-core discipline enforced by strict-mode proof gates
 
-It does **not** claim:
-
-- arbitrary protected/controller task-list autonomy
-- broad unattended production scheduler autonomy across any task shape
-
-## What still needs hardening
-
-The next tranche exists because Task 082 showed that controller-core autonomy still depends on stabilizing:
-
-- one canonical controller contract across modules
-- non-reexecuting retry/self-heal semantics
-- persisted merge/reset truth and resume gates
-- semantic repair context for controller-task failures
-- strict controller-task patch discipline before apply (now implemented through controller strict mode heuristics + focused proof-test ordering)
+It remains an intentionally bounded proof slice rather than a claim of broad scheduler autonomy.
 
 ## Documentation entry points
 
 - `docs/README.md` — docs index and reading order
 - `docs/TRADINGBOT_PROJECT_STATE.md` — authoritative current state and tranche boundaries
-- `docs/ORCHESTRATOR_ROADMAP_069_075.md` — historical roadmap context for the first backlog-execution slice
-- `docs/ORCHESTRATOR_ROADMAP_076_082.md` — autonomy-and-controller-thinning tranche through Task 082
-- `docs/ORCHESTRATOR_ROADMAP_083_089.md` — controller-contract hardening tranche after Task 082
+- `docs/ORCHESTRATOR_ROADMAP_076_082.md` — pre-hardening autonomous backlog proof tranche
+- `docs/ORCHESTRATOR_ROADMAP_083_089.md` — controller-contract hardening tranche through the hardened short-manifest proof
 - `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md` — control gates and policy posture
+- `docs/orchestrator_extraction_plan.md` — current `agents/run_task.py` decomposition map
 - `tasks/README.md` — canonical numbered task map
 
 ## Development
