@@ -14,7 +14,8 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **070b clarifies runtime-artifact lifecycle controls with explicit retention mode**
 - **071 adds persisted batch-state and deterministic resume groundwork for queue execution**
 - **074 adds first conservative batch-runner CLI mode with summary artifacts**
-- Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package and **not yet a full end-to-end backlog runner**
+- **078 adds a dedicated canonical batch executor/controller loop for sequential per-task execution + acceptance + conservative stop**
+- Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package.
 
 ## Users and use cases
 
@@ -34,145 +35,60 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - Optional dry-run/simulation and safe parallelism
 - Multi-project adapter support
 - Stable seam registry for orchestrator integration testing
-- Seam-aware preflight checks for task shape and generated bundles
-- Lightweight task-scope / split heuristics for broad multi-seam tasks
 - Deterministic task-list manifest parsing and queue construction
-- Explicit manifest validation for missing task files and duplicate-path policy handling
-- Runtime artifact quarantine with explicit operator retention controls for known-safe scratch files
 - Persisted machine-readable batch state for task-list execution and deterministic resume
-- Conservative batch-list runner entrypoint that executes tasks sequentially and surfaces concise machine/human summaries
+- Canonical sequential batch executor loop:
+  - execute task
+  - authoritative validation
+  - final acceptance review
+  - retryable self-heal (budgeted)
+  - per-task outcome persistence
+  - conservative advance-or-stop decision
 
-## Sequence summary
+## Canonical sequential batch controller loop (078)
 
-### Completed baseline (042–048)
+The batch executor/controller loop is now the canonical manifest execution path for sequential task processing.
 
-- Harness modularization umbrella and extracted foundations
-- Parser/policy and semantic preflight extraction
-- Thin run-task shell parity
-- Runtime artifact quarantine
-- Two-phase spec execution and frozen-task mode
-- Failure journal and retry context
-- Project bootstrap adapter
-- Verification plugins
-- Safe parallelism
+Per queued task, the controller performs:
 
-### Completed stabilization (049–052)
+1. transition task to running
+2. execute task attempt
+3. run authoritative validation
+4. run final acceptance review
+5. if acceptance is retryable and retry budget remains, run self-heal + retry
+6. persist terminal task outcome + checkpoint/state updates
+7. continue to next task only when terminal decision is safe (`continue`)
 
-1. Shell convergence umbrella and dedupe
-2. Public interface freeze hardening
-3. Documentation/status normalization
-4. Portability proof on a second project
+Conservative stop posture is preserved:
 
-### Completed continuation and stabilization follow-ons (053–069)
+- terminal `manual_patch` stops the batch
+- terminal `blocked` stops the batch
+- non-accepted terminal failures stop the batch unless explicit continue conditions are met
 
-5. Stable seam registry
-6. Task / seam preflight linter
-7. One seam-aligned integrated capability E2E flow
-8. Failure-journal live seam stabilization
-9. Safe-parallelism / review integration stabilization
-10. Runtime artifact quarantine integration stabilization
-11. Extraction prep for future package/repo split
-12. Canonical docs path policy
-13. Reliability/autonomy continuation through 067 (plus 065a and 067a)
-14. Task scope / split heuristics (068)
-15. Protected/controller stabilization follow-ons (068a–068c)
-16. Controller decomposition second extraction (069)
+## Per-task persisted outcome requirements
 
-### Current backlog-execution groundwork (070)
+Persisted state/checkpoints now explicitly capture at least:
 
-17. Task-list manifest and deterministic queue model
-18. Missing-file validation and duplicate-path policy handling for manifest inputs
-19. Runtime wiring to support queue-oriented continuation work in later tasks
+- `task_path`
+- terminal status
+- final acceptance decision
+- retry count used
+- whether next task may proceed
+- post-task decision (`continue|stop|manual_patch|blocked`)
 
-### Runtime artifact lifecycle clarity extension (070b)
+This is explicit by design; implicit in-memory controller state is not the source of truth.
 
-20. Successful `--push` runs keep default safety: known-safe runtime scratch artifacts are quarantined/removed before staging
-21. Operators can explicitly retain known-safe runtime artifacts (flag/env controlled) for debugging
-22. Retained known-safe artifacts are still unstaged (`git rm --cached --ignore-unmatch`) to prevent accidental auto-commit
-23. Unknown runtime artifacts remain protective blockers and are surfaced distinctly from known-safe retained/quarantined states
-24. Lifecycle messaging is explicit across retained, quarantined-removed, and blocked-unknown outcomes
+## Documentation and implementation intent
 
-### Batch state persistence and resume groundwork (071)
+The dedicated batch executor/controller loop is intentionally:
 
-25. Batch execution state is persisted as a narrow machine-readable JSON artifact containing manifest identity, ordered queue items, per-task status, current index, sequence counters, and timestamps
-26. New batch state can be initialized directly from a validated manifest queue without replacing the single-task flow
-27. Resume path validates manifest fingerprint identity; mismatched state/manifest combinations are rejected with explicit errors
-28. Resume may enforce exact manifest source matching unless an explicit override rule is enabled
-29. Queue status transitions are deterministic and narrow (`queued -> running`, `running -> completed|failed|manual_patch|blocked`) with invalid transitions rejected
-30. Resume now also validates queue identity/ordering against the provided manifest-derived queue to prevent accidental resume on fingerprint-compatible but queue-divergent state
+- sequential
+- deterministic
+- conservative by default
+- acceptance-gated before advance
+- safe for resume/state replay
 
-### First conservative batch-runner CLI and summary artifacts (074)
-
-31. CLI accepts a task-list manifest path and enters a sequential batch-runner mode
-32. Execution remains intentionally conservative: batch may stop at first blocked/manual/failed stop gate
-33. Machine-readable batch summary artifact is emitted with manifest identity, counts, final decision, and per-task short outcomes
-34. Human-readable terminal summary is emitted at end of run for quick operator review without opening JSON state files
-35. Existing single-task CLI entrypoint behavior remains intact and backward compatible
-
-## Batch summary artifact model (074)
-
-The first summary artifact is intentionally narrow and reviewable. It includes at least:
-
-- `manifest_path`
-- `total_tasks`
-- `completed_tasks`
-- `failed_tasks`
-- `manual_patch_tasks`
-- `blocked_tasks`
-- `final_batch_decision`
-- `task_outcomes[]` (short per-task status entries)
-
-Design constraints:
-
-- deterministic field names suitable for automated post-processing
-- no concurrent execution assumptions
-- clear stop reason surfaced through `final_batch_decision`
-
-## Batch state file model (071)
-
-The persisted batch state file is intentionally narrow and reusable:
-
-- `state_version`: schema version for forward compatibility
-- `manifest.source`: identity/path string used to initialize the batch
-- `manifest.fingerprint`: deterministic digest over canonical manifest JSON
-- `queue[]` ordered entries:
-  - `task_path`
-  - `ordinal`
-  - `status`
-  - `status_note`
-  - `attempts`
-  - `updated_seq`
-- `current_index`: next queue position to process
-- `event_seq`: monotonic transition counter
-- `created_ts` / `updated_ts`: deterministic integer timestamps/counters supplied by caller
-- `batch_status`: derived aggregate (`active|completed|blocked|failed|manual_patch`)
-
-Design constraints:
-
-- no speculative parallel semantics in the state shape
-- no git-history coupling and no external-service dependency
-- deterministic counters/ordering suitable for replay and later orchestration layers
-
-## Resume behavior rules (071)
-
-- **Start new batch**: initialize from manifest + constructed queue, all task statuses begin as `queued`
-- **Resume existing batch**: load persisted state and require manifest fingerprint match
-- **Mismatched manifest**: fail fast with explicit mismatch error
-- **Manifest source mismatch**: fail by default; optional override can allow path/source mismatch when operator intends it
-- **Queue mismatch on resume**: fail fast when persisted state queue paths/order do not match the supplied manifest-derived queue
-- **Current index advancement**: advances only after terminal transition on the currently running item, preserving deterministic ordering
-
-## Safe transition policy (071)
-
-Allowed transitions are intentionally narrow:
-
-- `queued -> running`
-- `running -> completed`
-- `running -> failed`
-- `running -> manual_patch`
-- `running -> blocked`
-
-All other transitions are invalid and rejected. This keeps resume stable, prevents silent rewinds/skips, and gives later backlog runners explicit control points.
+No concurrent scheduling is introduced in this tranche.
 
 ## Runtime artifact lifecycle policy
 
@@ -200,60 +116,13 @@ Unknown runtime artifacts:
 - continue to trigger protective blocking behavior until resolved
 - are messaged as blocked unknowns, distinct from known-safe retention/removal
 
-## Packaging and repo strategy
-
-- **Now**: continue in the current repo through the backlog-execution tranche so queue/state/resume/isolation behavior is proven before extraction
-- **Later**: execute extraction once the continuation and backlog-execution surfaces are stable, documented, and validated under test
-
-## Intended package-level public surface (`builder.orchestrator`)
-
-The package root should provide a deliberate, orchestrator-only import surface for external callers and future extraction consumers.
-
-Current intentional re-exports at package level:
-
-- `ProjectConfig`
-- `GenericProjectConfig`
-- `load_project_config`
-- `bootstrap_project_config_scaffold`
-- `ProjectAdapter`
-- `load_project_adapter`
-- `bootstrap_project_adapter_scaffold`
-- `build_bootstrap_starter_docs_text`
-- `build_bootstrap_task_template_text`
-
-Design rules:
-
-- Re-export orchestrator-facing configuration and adapter contracts only.
-- Keep module-level import paths stable and available (for compatibility and migration safety).
-- Do **not** re-export TradingBot runtime modules from `builder.orchestrator`.
-- Avoid catch-all or wildcard export patterns that obscure the supported API.
-
 ## Success criteria for extraction readiness
 
 - Stable public interfaces with tested compatibility
 - Stable seam registry for orchestrator integration tests
 - Preflight can catch common seam/task-shape mistakes early
 - Demonstrated portability beyond the primary project
-- One integrated E2E flow validated under current live contracts
-- Focused seam-family hardening completed
-- Task-list manifest and queue semantics validated under test
-- Batch state / resume / isolation surfaces completed and documented
-- Batch CLI + machine/human summary artifacts available for operator-facing review
+- Manifest/queue semantics validated under test
+- Batch state + deterministic resume validated under test
+- Canonical batch executor/controller loop with explicit per-task persisted outcomes and acceptance-gated advancement
 - Documentation/state surfaces synchronized and unambiguous
-
-## Bootstrap lane rule
-
-The orchestrator should support both an autonomous task lane and a manual patch lane. The first harness-bootstrap tasks in the reliability/recovery/autonomy tranche use the manual patch lane to avoid self-modification regressions while the stable contract is being frozen.
-
-## Canonical docs placement
-
-This product spec lives under `docs/` because orchestrator/tradingbot narrative documents are canonical there. `README.md` remains the only canonical root-level README; do not create duplicate root-level `ORCHESTRATOR_*.md` or `TRADINGBOT_*.md` narrative docs when the `docs/` path is the intended source of truth.
-
-## Task 075 end-to-end proof note
-
-The Task 075 proof is intentionally narrow and local:
-
-- short manifest only
-- deterministic local state and summary checks
-- conservative stop behavior for manual-patch and blocked outcomes
-- no claim of broad autonomous scheduling beyond the tested proof slice
