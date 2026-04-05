@@ -1,8 +1,8 @@
-# Orchestrator Product Spec (In-Repo Productizing Engine)
+# Orchestrator Product Spec
 
-## Product intent
+## Product goal
 
-Build a reusable orchestration engine that can execute constrained implementation tasks safely across projects, with explicit policy controls, auditability, resumability, deterministic result handling, and seam-aware testability.
+Build a reusable orchestration engine that can execute constrained implementation tasks safely across projects, with explicit policy controls, auditability, resumability, deterministic result handling, seam-aware testability, and role-separated execution.
 
 ## Current product stage
 
@@ -52,6 +52,18 @@ It does **not** honestly claim:
 - arbitrary protected/controller task-list autonomy
 - broad unattended production scheduling across any task shape
 - broad autonomy for protected/controller/meta task families
+
+## Next product target after 089
+
+The next product step should evolve the orchestrator from a stronger single-controller task runner into a more explicit multi-agent project runner.
+
+The intended first multi-agent architecture is intentionally conservative:
+
+- **controller/orchestrator** decides what should happen next
+- **builder/coder** proposes implementation patches or task outputs
+- **verifier/tester** runs focused and full validation and summarizes evidence
+
+This should remain sequential before any future concurrency or true parallel role scheduling is considered.
 
 ## Hardened proof boundary
 
@@ -107,6 +119,19 @@ Conservative stop posture is preserved:
 - non-accepted terminal failures stop the batch unless explicit continue conditions are met
 - accepted tasks with failed PR/CI/merge/reset posture stop with truthful failed decision
 
+## Next capabilities the product still needs
+
+Before any stronger “give it a whole project and let it build” claim would be honest, the product still needs:
+
+- canonical builder/verifier/controller role contracts and persisted handoff truth
+- stronger CI-backed verification authority
+- role-aware remediation routing
+- reusable project/workspace bootstrap contracts beyond the current repo shape
+- dependency-aware manifest planning
+- task-family routing and next-role selection
+- a second-project portability proof
+- a clearer standalone package boundary while the repo still remains a monorepo consumer setup
+
 ## Merge posture truth and resume contract
 
 - merge-posture outcomes (`failed_merge`, `failed_checks`, `failed_reset`) are first-class terminal controller truth
@@ -121,3 +146,4 @@ The product still needs future work before any broader autonomy claim would be h
 - broader protected/controller/meta task-family coverage
 - larger manifests and more diverse task shapes
 - wider unattended operational environments beyond the deterministic local proof harness
+- portability beyond Python-first project shapes

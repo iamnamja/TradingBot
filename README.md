@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The reliability/autonomy continuation, backlog-execution hardening, and controller-contract hardening tranche are now complete through **Task 089**.
+The reliability/autonomy continuation, backlog-execution hardening, controller-contract hardening, and proof synchronization tranche are now complete through **Task 089**.
 
 The proof-backed controller continuation covered by the current repo state is:
 
@@ -71,6 +71,21 @@ It does **not** claim:
 - broad unattended production scheduler autonomy across any task shape
 - hidden always-on autonomy for protected/controller/meta tasks
 
+## Next planned tranche
+
+The next planned tranche is **090–099** — multi-agent portability and productization.
+
+Planned areas:
+
+- canonical builder/verifier/controller role contract and handoff truth
+- explicit sequential builder/verifier/controller loop
+- CI-required checks as first-class verification authority
+- repair-strategy routing rather than one generic remediation lane
+- reusable project/workspace bootstrap and validation contracts
+- dependency-aware manifests and task-family routing
+- a second-project Python portability proof
+- a clearer standalone product boundary while remaining in the monorepo for this tranche
+
 ## Accepted-task autonomous PR/merge posture (optional)
 
 For tasks that have passed final acceptance review, the orchestrator can optionally run:
@@ -105,6 +120,7 @@ It remains an intentionally bounded proof slice rather than a claim of broad sch
 - `docs/TRADINGBOT_PROJECT_STATE.md` — authoritative current state and tranche boundaries
 - `docs/ORCHESTRATOR_ROADMAP_076_082.md` — pre-hardening autonomous backlog proof tranche
 - `docs/ORCHESTRATOR_ROADMAP_083_089.md` — controller-contract hardening tranche through the hardened short-manifest proof
+- `docs/ORCHESTRATOR_ROADMAP_090_099.md` — multi-agent portability and productization tranche after Task 089
 - `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md` — control gates and policy posture
 - `docs/orchestrator_extraction_plan.md` — current `agents/run_task.py` decomposition map
 - `tasks/README.md` — canonical numbered task map

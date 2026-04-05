@@ -14,16 +14,20 @@ This file is the canonical visible ordering for task execution history and conti
 - 068a–068c: stabilization extension for protected/controller execution and controller thinning
 - 068–075: backlog execution continuation, merge-readiness hardening, first conservative batch runner, and first narrow end-to-end backlog proof
 - 076–082: autonomous backlog progression and controller-thinning continuation, ending with the first narrow ordinary-manifest autonomous proof slice
+- 083–089: controller-contract hardening, stricter controller-task discipline, and the hardened short-manifest proof synchronization
 
-## Next controller contract hardening tranche
+## Next multi-agent portability and productization tranche
 
-- **083** `orchestrator_controller_contract_canonicalization`
-- **084** `orchestrator_non_reexecuting_retryable_self_heal_channel`
-- **085** `orchestrator_merge_posture_truth_persistence_and_resume_contract`
-- **086** `orchestrator_semantic_failure_digest_and_controller_repair_context`
-- **087** `orchestrator_controller_task_strict_mode_and_patch_quality_gate`
-- **088** `orchestrator_controller_decomposition_fourth_extraction`
-- **089** `orchestrator_hardened_autonomous_short_manifest_proof`
+- **090** `orchestrator_multi_agent_role_contract_and_handoff_state`
+- **091** `orchestrator_builder_verifier_controller_loop`
+- **092** `orchestrator_verification_authority_and_ci_required_checks`
+- **093** `orchestrator_repair_strategy_router_and_failure_lane_selection`
+- **094** `orchestrator_project_workspace_adapter_and_bootstrap_contract_v2`
+- **095** `orchestrator_dependency_aware_manifest_planner`
+- **096** `orchestrator_task_family_router_and_agent_selection`
+- **097** `orchestrator_second_project_multi_agent_portability_proof`
+- **098** `orchestrator_standalone_package_boundary_and_consumer_bridge`
+- **099** `orchestrator_multi_agent_portability_proof_sync`
 
 ## Numbering policy
 
@@ -39,3 +43,4 @@ This file is the canonical visible ordering for task execution history and conti
 - `docs/ORCHESTRATOR_ROADMAP_069_075.md` covers the first backlog-execution continuation through the initial proof slice.
 - `docs/ORCHESTRATOR_ROADMAP_076_082.md` covers the autonomy-and-controller-thinning tranche that culminated in Task 082.
 - `docs/ORCHESTRATOR_ROADMAP_083_089.md` covers the controller-contract hardening tranche after Task 082.
+- `docs/ORCHESTRATOR_ROADMAP_090_099.md` covers the next multi-agent portability and productization tranche after Task 089.
