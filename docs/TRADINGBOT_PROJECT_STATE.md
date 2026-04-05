@@ -23,6 +23,7 @@ Recent tranche highlights include:
 - dedicated sequential batch executor/controller loop (078) as canonical manifest execution surface
 - accepted-task autonomous PR/check/merge + clean-main reset gate (079)
 - explicit resume semantics for post-merge continuation and manual-resolution recovery (080)
+- first autonomous backlog progression proof over a short ordinary-task manifest (082)
 
 ## Current state
 
@@ -43,6 +44,17 @@ Conservative stop behavior is explicit and tested:
 - PR/CI/merge/reset failure in autonomous merge posture stops honestly and prevents advancement
 
 Accepted tasks continue only when all enabled gates pass.
+
+## Autonomous backlog proof slice (082)
+
+A narrow, deterministic proof slice is now covered by tests:
+
+- short ordinary manifest progresses task -> acceptance -> merge/reset gate -> next task
+- retryable acceptance failure can be self-healed within budget and then accepted without re-running raw execution attempts
+- runner stops honestly for non-autonomous outcomes (`manual_patch`, `blocked`, failed merge posture)
+- persisted state and summary/outcome artifacts reflect actual run truthfully (no silent continue)
+
+This is intentionally a bounded capability proof, not a broad scheduler claim.
 
 ## Resume semantics (080)
 
@@ -86,6 +98,16 @@ This is the intended truth surface for operator review and deterministic resume 
 Execution remains intentionally sequential and deterministic.
 No concurrent scheduling is introduced.
 Acceptance before advance is part of the canonical controller contract, and when autonomous merge posture is enabled, clean-main reset before next-task progression is required.
+
+## Scope honesty
+
+Current proof scope is explicitly limited to:
+
+- ordinary/non-protected task manifests
+- deterministic local tests and stubs
+- conservative stop-on-risk posture
+
+It does **not** claim autonomy for arbitrary protected/controller/meta task lists or unattended broad production scheduling.
 
 ## Canonical ordering source
 

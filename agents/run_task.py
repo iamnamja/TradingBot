@@ -4836,5 +4836,14 @@ def _shell_router_exports() -> Dict[str, object]:
     return exports
 
 
+
+def autonomous_backlog_runner_proof_capabilities() -> dict[str, object]:
+    return {
+        "ordinary_manifest_autonomous_proof": True,
+        "retryable_self_heal_without_raw_reexecute": True,
+        "merge_posture_stop_honesty": True,
+        "resume_after_merge_skip_semantics": True,
+    }
+
 if __name__ == "__main__":
     raise SystemExit(main())

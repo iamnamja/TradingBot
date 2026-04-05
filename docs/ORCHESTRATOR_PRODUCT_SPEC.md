@@ -16,6 +16,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **074 adds first conservative batch-runner CLI mode with summary artifacts**
 - **078 adds a dedicated canonical batch executor/controller loop for sequential per-task execution + acceptance + conservative stop**
 - **080 adds explicit resume semantics for post-merge continuation and manual-resolution recovery**
+- **082 adds a narrow autonomous backlog-runner proof for short ordinary manifests (acceptance + self-heal + merge/reset + honest stop)**
 - Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package.
 
 ## Users and use cases
@@ -51,7 +52,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
   - skip accepted+merged tasks on resume-after-merge
   - resume previously manual/blocked task only with explicit operator intent
 
-## Canonical sequential batch controller loop (078/080)
+## Canonical sequential batch controller loop (078/080/082)
 
 The batch executor/controller loop is the canonical manifest execution path for sequential task processing.
 
@@ -70,6 +71,13 @@ Conservative stop posture is preserved:
 - terminal `manual_patch` stops the batch
 - terminal `blocked` stops the batch
 - non-accepted terminal failures stop the batch unless explicit continue conditions are met
+- accepted tasks with failed PR/CI/merge/reset posture stop with truthful failed decision (for example `failed_merge`)
+
+Retry/self-heal proof behavior is explicit:
+
+- retryable acceptance failure can be repaired via self-heal callback
+- acceptance can be re-evaluated on repaired output
+- controller need not re-run raw execute callback for that same attempt (deterministic and auditable)
 
 Resume posture is now explicit and persisted:
 
@@ -86,7 +94,14 @@ Persisted state/checkpoints explicitly capture at least:
 - final acceptance decision
 - retry count used
 - whether next task may proceed
-- post-task decision (`continue|stop|manual_patch|blocked`)
+- post-task decision (`continue|stop|manual_patch|blocked|failed_merge|failed_checks|failed_reset`)
+
+Merge posture truth fields (when provided by acceptance/post-task flow) include:
+
+- `accepted_task_pr_flow_completed`
+- `required_checks_passed`
+- `merged_to_main`
+- `clean_main_reset_completed`
 
 Resume metadata persisted in batch state:
 
@@ -108,6 +123,16 @@ The dedicated batch executor/controller loop is intentionally:
 - explicit about when skip/resume is allowed
 
 No concurrent scheduling is introduced in this tranche.
+
+## Scope boundary for autonomy proof
+
+The current autonomy proof is intentionally narrow:
+
+- short ordinary/non-protected manifests
+- deterministic local E2E test harness
+- conservative stop on non-autonomous signals
+
+It is **not** a claim of broad arbitrary-task scheduler autonomy, and it does not override protected/controller lane controls.
 
 ## Runtime artifact lifecycle policy
 
@@ -145,4 +170,5 @@ Unknown runtime artifacts:
 - Batch state + deterministic resume validated under test
 - Canonical batch executor/controller loop with explicit per-task persisted outcomes and acceptance-gated advancement
 - Resume-after-merge and explicit manual-resolution resume semantics validated under test
+- Initial autonomous ordinary-manifest progression proof (accept + retry/self-heal + merge posture stop honesty) validated under test
 - Documentation/state surfaces synchronized and unambiguous
