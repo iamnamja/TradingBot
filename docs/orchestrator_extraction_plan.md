@@ -78,48 +78,37 @@ If any precondition is unmet, extraction is deferred.
 - Monorepo callers migrated or bridged during approved transition.
 - Canonical documentation updated to reflect post-split ownership and usage.
 
-## Post-069 controller extraction status
+## Post-075 controller extraction status
 
-A second controller extraction has now landed.
-
-The orchestrator controller still lives in `agents/run_task.py`, but pure helper logic is no longer concentrated only there. The extracted modules are now:
+The orchestrator controller still lives in `agents/run_task.py`, but pure helper logic is no longer concentrated only there. The extracted modules now include:
 
 - `agents/lib/task_contracts.py`
 - `agents/lib/failure_artifacts.py`
 - `agents/lib/protected_lane.py`
 - `agents/lib/bundle_repair.py`
+- `agents/lib/task_queue.py`
+- `agents/lib/batch_state.py`
 
-This further reduces direct responsibility in `agents/run_task.py` while preserving the current helper/public surface expected by the runtime and tests.
+This is materially better than earlier in the project, but `agents/run_task.py` still owns too much end-to-end orchestration.
 
-### What is now extracted
+### What remains inline
 
-- explicit deliverable and task-contract policy helpers
-- canonical docs path policy helpers
-- protected/non-protected required-path partitioning helpers
-- truthful placeholder and durable failure-artifact helpers
-- protected-lane coordination helpers
-- protected target profile and request-argument coordination helpers
-- duplicate/conflicted bundle recovery helpers
-- focused conflicted-file repair preparation helpers
+Higher-risk orchestration flow still concentrated in `agents/run_task.py` includes:
 
-### What remains to be decomposed
-
-`agents/run_task.py` is still not fully decomposed. Higher-risk orchestration flow remains there, including:
-
-- top-level shell execution coordination
-- accepted-file reconciliation across multiple lanes
-- controller sequencing across iterative task execution
-- batch-oriented task queue, state, and resume orchestration
-- user-facing policy decisions for continue/stop/manual escalation
+- final acceptance review reconciliation
+- retryable acceptance-failure self-heal orchestration
+- accepted-task PR/check/merge/reset lifecycle
+- cross-task batch executor sequencing
+- resume-after-merge and resume-after-manual-resolution decisions
 
 ### Next extraction priorities
 
 The next controller-decomposition priorities should be:
 
-1. task-list manifest and queue model
-2. batch state persistence and resume
-3. per-task checkpoint and branch-isolation coordination
-4. explicit continue/stop/manual policy surfaces
-5. user-facing batch runner CLI and summary artifacts
+1. final acceptance reviewer/report surface
+2. batch executor/controller loop
+3. accepted-task git workflow / merge-reset helpers
+4. resume-after-merge and manual-resolution helpers
+5. remaining outer shell routing/orchestration compatibility wrappers
 
-This keeps the decomposition incremental while preserving current runtime behavior and aligns the next tranche to 070–075.
+This keeps the decomposition incremental while preserving current runtime behavior and aligns the next tranche to 076–082.
