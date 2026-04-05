@@ -180,6 +180,29 @@ def test_failure_artifact_placeholders_are_json(tmp_path: Path) -> None:
     assert bundle_payload["kind"] == "file_bundle"
 
 
+def test_batch_state_runtime_artifact_placeholder_blocks_continue_gate(tmp_path: Path) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    out_path = tmp_path / "last_output.json"
+    bundle_path = tmp_path / "last_bundle.json"
+
+    run_task._emit_failure_artifact_messages(
+        out_path,
+        bundle_path,
+        create_placeholders=True,
+        task_file="tasks/075_orchestrator_backlog_execution_end_to_end_proof.md",
+        failure_category="blocked",
+        before_model_output=True,
+        reason="e2e proof blocked before model output",
+    )
+
+    out_payload = json.loads(out_path.read_text(encoding="utf-8"))
+    checkpoint = out_payload["batch_checkpoint"]
+    assert checkpoint["next_task_may_proceed"] is False
+    assert checkpoint["transition"] in {"blocked", "failed_before_model_output"}
+    assert out_payload["placeholder"] is True
+    assert out_payload["artifact_kind"] == "model_output_placeholder"
+
+
 def test_shell_router_seam_registry_exposes_expected_keys() -> None:
     _, _, _, _, _, _, _, shell_router, _, _, _ = _load_runtime_modules()
     registry = shell_router.shell_seam_exports()
