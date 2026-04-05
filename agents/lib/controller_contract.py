@@ -68,6 +68,11 @@ MERGE_POSTURE_BATCH_STATUSES: tuple[BatchStatus, ...] = cast(
     tuple[BatchStatus, ...], MERGE_POSTURE_POST_TASK_DECISIONS
 )
 
+EXECUTION_AUDIT_FIELDS: tuple[str, ...] = (
+    "execution_attempt_count",
+    "repair_count",
+    "accepted_after_repair",
+)
 CHECKPOINT_TRUTH_FIELDS: tuple[str, ...] = (
     "task_path",
     "ordinal",
@@ -81,6 +86,9 @@ CHECKPOINT_TRUTH_FIELDS: tuple[str, ...] = (
     "event_seq",
     "post_task_decision",
     "acceptance_decision",
+    "execution_attempt_count",
+    "repair_count",
+    "accepted_after_repair",
     "retry_count",
     "accepted_task_pr_flow_completed",
     "required_checks_passed",
@@ -194,6 +202,36 @@ def canonical_resume_metadata(*, resume_mode: ResumeMode, resume_target_task_pat
 
 
 
+def coerce_non_negative_int(value: Any, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return max(0, int(default))
+    return max(0, parsed)
+
+
+def canonical_repair_audit(
+    *,
+    execution_attempt_count: Any,
+    repair_count: Any,
+    acceptance_decision: Any,
+    accepted_after_repair: Any | None = None,
+) -> dict[str, int | bool]:
+    execution_count = coerce_non_negative_int(execution_attempt_count)
+    repair_total = coerce_non_negative_int(repair_count)
+    accepted = coerce_acceptance_decision(acceptance_decision) == "accepted"
+    if accepted_after_repair is None:
+        repaired_accept = repair_total > 0 and accepted
+    else:
+        repaired_accept = bool(accepted_after_repair)
+    return {
+        "execution_attempt_count": execution_count,
+        "repair_count": repair_total,
+        "accepted_after_repair": repaired_accept,
+        "retry_count": repair_total,
+    }
+
+
 def checkpoint_allows_resume_after_merge(checkpoint: Mapping[str, Any] | None) -> bool:
     if not checkpoint:
         return False
@@ -212,6 +250,7 @@ def controller_contract_snapshot() -> dict[str, object]:
         "acceptance_decisions": list(ACCEPTANCE_DECISIONS),
         "post_task_decisions": list(POST_TASK_DECISIONS),
         "resume_modes": list(RESUME_MODES),
+        "execution_audit_fields": list(EXECUTION_AUDIT_FIELDS),
         "checkpoint_truth_fields": list(CHECKPOINT_TRUTH_FIELDS),
         "resume_metadata_fields": list(RESUME_METADATA_FIELDS),
         "controller_failure_categories": list(CONTROLLER_FAILURE_CATEGORIES),

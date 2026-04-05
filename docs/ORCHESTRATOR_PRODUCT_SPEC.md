@@ -119,3 +119,9 @@ The next tranche is successful when:
 - controller-core tasks run under stricter patch-quality and claim-deferral rules
 - `agents/run_task.py` is materially thinner again
 - a hardened short-manifest autonomous proof is green and honestly documented
+
+
+## Post-082 controller hardening tranche (083–089)
+
+- Task 084 makes retryable self-heal explicitly non-reexecuting: one raw execution attempt, bounded repair-only retries, then re-validation and final acceptance on the repaired result.
+- Persisted controller truth must separately record `execution_attempt_count`, `repair_count`, and `accepted_after_repair` so repair loops are auditable without overstating raw task execution.

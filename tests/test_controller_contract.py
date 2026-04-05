@@ -46,7 +46,15 @@ def test_controller_contract_snapshot_is_canonical() -> None:
         "resume_after_merge",
         "resume_after_manual_resolution",
     ]
+    assert snapshot["execution_audit_fields"] == [
+        "execution_attempt_count",
+        "repair_count",
+        "accepted_after_repair",
+    ]
     assert "acceptance_decision" in snapshot["checkpoint_truth_fields"]
+    assert "execution_attempt_count" in snapshot["checkpoint_truth_fields"]
+    assert "repair_count" in snapshot["checkpoint_truth_fields"]
+    assert "accepted_after_repair" in snapshot["checkpoint_truth_fields"]
     assert "resume_target_task_path" in snapshot["resume_metadata_fields"]
 
 
@@ -90,3 +98,19 @@ def test_merge_posture_and_resume_helpers_are_canonical() -> None:
             "clean_main_reset_completed": True,
         }
     ) is True
+
+
+
+def test_canonical_repair_audit_tracks_non_reexecuting_truth() -> None:
+    contract = _load("agents.lib.controller_contract")
+
+    assert contract.canonical_repair_audit(
+        execution_attempt_count=1,
+        repair_count=2,
+        acceptance_decision="accepted",
+    ) == {
+        "execution_attempt_count": 1,
+        "repair_count": 2,
+        "accepted_after_repair": True,
+        "retry_count": 2,
+    }

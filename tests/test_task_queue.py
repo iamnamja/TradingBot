@@ -151,19 +151,28 @@ def test_retryable_self_heal_then_accept_and_continue(tmp_path: Path) -> None:
 
     def execute_task(item):
         attempts[item.task_path] = attempts.get(item.task_path, 0) + 1
-        return {"task_path": item.task_path, "attempt": attempts[item.task_path]}
+        return {
+            "task_path": item.task_path,
+            "execution_attempt": attempts[item.task_path],
+            "repaired": False,
+            "repair_count": 0,
+        }
 
     def validator(_item, _result):
         return True, "ok"
 
     def acceptance(item, result, _ok, _note):
-        if item.task_path.endswith("001.md") and result["attempt"] == 1:
-            return {"acceptance_decision": "retryable_failure", "note": "fix lint and retry"}
+        if item.task_path.endswith("001.md") and not result.get("repaired", False):
+            return {"acceptance_decision": "retryable_failure", "note": "fix lint and repair"}
         return {"acceptance_decision": "accepted", "note": "accepted"}
 
     def retry(item, result, retry_count):
         repaired.append(f"{item.task_path}:{retry_count}")
-        return {"task_path": item.task_path, "attempt": result["attempt"] + 1}
+        return {
+            **result,
+            "repaired": True,
+            "repair_count": retry_count,
+        }
 
     final_state, outcomes, final_decision = be.execute_batch_loop(
         initial_state=state,
@@ -183,10 +192,73 @@ def test_retryable_self_heal_then_accept_and_continue(tmp_path: Path) -> None:
     assert repaired == ["tasks/001.md:1"]
     assert [o["task_path"] for o in outcomes] == ["tasks/001.md", "tasks/002.md"]
     assert outcomes[0]["acceptance_decision"] == "accepted"
+    assert outcomes[0]["execution_attempt_count"] == 1
+    assert outcomes[0]["repair_count"] == 1
+    assert outcomes[0]["accepted_after_repair"] is True
     assert outcomes[0]["retry_count"] == 1
     assert outcomes[0]["next_task_may_proceed"] is True
     assert outcomes[1]["acceptance_decision"] == "accepted"
+    assert outcomes[1]["execution_attempt_count"] == 1
+    assert outcomes[1]["repair_count"] == 0
+    assert outcomes[1]["accepted_after_repair"] is False
+    assert final_state.checkpoints[0].execution_attempt_count == 1
+    assert final_state.checkpoints[0].repair_count == 1
+    assert final_state.checkpoints[0].accepted_after_repair is True
     assert persisted[-1]["batch_status"] == "completed"
+
+
+
+def test_retryable_self_heal_stays_bounded_by_repair_budget(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    bs = _batch_state_module()
+    be = _batch_executor_module()
+
+    _write_task(tmp_path / "tasks" / "001.md")
+    manifest = {"tasks": ["tasks/001.md"]}
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = bs.initialize_batch_state(
+        manifest=manifest,
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=1,
+    )
+
+    attempts: dict[str, int] = {}
+    repairs: list[int] = []
+
+    def execute_task(item):
+        attempts[item.task_path] = attempts.get(item.task_path, 0) + 1
+        return {"task_path": item.task_path, "repaired": False}
+
+    def validator(_item, _result):
+        return True, "ok"
+
+    def acceptance(_item, _result, _ok, _note):
+        return {"acceptance_decision": "retryable_failure", "note": "still retryable"}
+
+    def retry(_item, result, retry_count):
+        repairs.append(retry_count)
+        return {**result, "repaired": True, "repair_count": retry_count}
+
+    final_state, outcomes, final_decision = be.execute_batch_loop(
+        initial_state=state,
+        queue=queue,
+        execute_task=execute_task,
+        run_authoritative_validation=validator,
+        run_final_acceptance_review=acceptance,
+        self_heal_and_retry=retry,
+        retry_budget=1,
+        persist_state=lambda _s: None,
+    )
+
+    assert final_decision == "stop"
+    assert final_state.batch_status == "failed"
+    assert attempts["tasks/001.md"] == 1
+    assert repairs == [1]
+    assert outcomes[0]["execution_attempt_count"] == 1
+    assert outcomes[0]["repair_count"] == 1
+    assert outcomes[0]["accepted_after_repair"] is False
+    assert outcomes[0]["acceptance_decision"] == "retryable_failure"
 
 
 def test_conservative_stop_on_merge_posture_failure_and_persisted_truth(tmp_path: Path) -> None:
@@ -337,6 +409,9 @@ def test_batch_state_persists_canonical_truth_fields(tmp_path: Path) -> None:
         note="accepted",
         updated_ts=2,
         acceptance_decision="accepted",
+        execution_attempt_count=1,
+        repair_count=1,
+        accepted_after_repair=True,
         retry_count=1,
         next_task_may_proceed=True,
         accepted_task_pr_flow_completed=True,
