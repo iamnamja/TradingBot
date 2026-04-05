@@ -15,7 +15,9 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **074 adds first conservative batch-runner CLI mode with summary artifacts**
 - **076–081 add final acceptance review, targeted self-heal, batch executor loop, accepted-task PR/merge/reset gate, resume semantics, and further controller decomposition**
 - **082 adds the first narrow autonomous backlog-runner proof for a short ordinary manifest**
-- Product is reusable and increasingly standardized, but **not yet extracted** as a standalone repo/package.
+- **083–088 harden the controller contract, retry/self-heal truth, merge/resume truth, controller repair context, strict mode, and further `run_task.py` decomposition**
+- **089 synchronizes the hardened short-manifest proof surface and docs**
+- Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
 
@@ -27,34 +29,40 @@ The repo now has:
 - final acceptance review before advance
 - accepted-task PR/check/merge/reset posture
 - explicit resume-after-merge and manual-resolution semantics
-- deterministic local proof of a short ordinary-manifest autonomous progression slice
+- one canonical controller contract across controller-facing modules
+- explicit non-reexecuting retry/self-heal semantics for the proof slice
+- first-class merge/reset posture truth persisted consistently
+- controller-core semantic repair digest/context
+- controller strict mode with focused proof tests before full validation
+- deterministic local proof of a hardened short ordinary-manifest autonomous progression slice
 
-It does **not** yet honestly claim:
+That proof is intentionally narrow and currently demonstrates:
+
+1. task execution
+2. authoritative validation
+3. final acceptance review
+4. retryable self-heal without raw re-execution
+5. accepted-task PR/check/merge/reset gate
+6. truthful stop on failed merge/check/reset posture
+7. truthful resume-after-merge skip semantics based on persisted checkpoint truth
+8. no premature proof-complete claims for docs/README before focused controller proof tests are green
+
+It does **not** honestly claim:
 
 - arbitrary protected/controller task-list autonomy
 - broad unattended production scheduling across any task shape
+- broad autonomy for protected/controller/meta task families
 
-## Current product gaps after 082
+## Hardened proof boundary
 
-Task 082 exposed the next set of hardening priorities:
+The hardened autonomy proof remains intentionally bounded to:
 
-- controller modules still need one canonical contract for decisions and truth fields
-- retryable self-heal must be explicitly non-reexecuting everywhere with separate execution-vs-repair truth
-- merge/reset posture truth must be first-class and persisted consistently
-- controller-task failures need a semantic repair digest, not just raw logs
-- controller-core tasks need stricter patch-quality gates and proof-claim deferral
+- short ordinary/non-protected manifests
+- deterministic local test harnesses and stubs
+- conservative stop on non-autonomous signals
+- controller-core tasks running under strict-mode proof gates
 
-These are the basis of the next tranche.
-
-## Next planned tranche (083–089)
-
-- **083** — controller contract canonicalization
-- **084** — non-reexecuting retryable self-heal channel
-- **085** — merge-posture truth persistence and resume contract
-- **086** — semantic failure digest and controller repair context
-- **087** — controller-task strict mode and patch-quality gate
-- **088** — controller decomposition fourth extraction
-- **089** — hardened autonomous short-manifest proof
+It is not a claim of broad arbitrary-task scheduler autonomy, and it does not override protected/controller lane controls.
 
 ## Core capabilities
 
@@ -71,11 +79,12 @@ These are the basis of the next tranche.
   - execute task
   - authoritative validation
   - final acceptance review
-  - retryable self-heal (budgeted)
+  - retryable self-heal (budgeted, without raw re-execution for the same attempt)
   - per-task outcome persistence
   - conservative advance-or-stop decision
 - Accepted-task PR/check/merge/reset posture
 - Explicit resume semantics after merge and after manual resolution
+- Controller strict-mode proof gates for controller-core tasks
 
 ## Canonical sequential batch controller loop
 
@@ -98,32 +107,17 @@ Conservative stop posture is preserved:
 - non-accepted terminal failures stop the batch unless explicit continue conditions are met
 - accepted tasks with failed PR/CI/merge/reset posture stop with truthful failed decision
 
-## Scope boundary for autonomy proof
-
-The current autonomy proof is intentionally narrow:
-
-- short ordinary/non-protected manifests
-- deterministic local E2E test harness
-- conservative stop on non-autonomous signals
-
-It is **not** a claim of broad arbitrary-task scheduler autonomy, and it does not override protected/controller lane controls.
-
-## Success criteria for the next tranche
-
-The next tranche is successful when:
-
-- controller-facing modules share one canonical contract module
-- retryable self-heal is explicitly non-reexecuting and auditably persisted
-- merge/reset posture truth is first-class and persisted consistently
-- controller-task repair uses a semantic failure digest
-- controller-core tasks run under stricter patch-quality and claim-deferral rules
-- `agents/run_task.py` is materially thinner again
-- a hardened short-manifest autonomous proof is green and honestly documented
-
-
 ## Merge posture truth and resume contract
 
 - merge-posture outcomes (`failed_merge`, `failed_checks`, `failed_reset`) are first-class terminal controller truth
 - persisted checkpoint truth carries canonical merge/reset evidence: `accepted_task_pr_flow_completed`, `required_checks_passed`, `merged_to_main`, `clean_main_reset_completed`
 - `resume_after_merge` only skips prior tasks when persisted checkpoint truth proves accepted + completed + checks passed + merged to main + clean main reset
 - `resume_after_manual_resolution` requires explicit operator intent and canonical resume metadata before execution may continue
+
+## Remaining boundary conditions
+
+The product still needs future work before any broader autonomy claim would be honest, especially around:
+
+- broader protected/controller/meta task-family coverage
+- larger manifests and more diverse task shapes
+- wider unattended operational environments beyond the deterministic local proof harness

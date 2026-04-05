@@ -408,3 +408,43 @@ def test_controller_strict_checks_defer_docs_claims_until_proof_tests_are_green(
     monkeypatch.setattr(run_task, "capture_result", fake_capture_result)
     wrapped = run_task.run_controller_strict_checks(changed_paths=["README.md"])
     assert wrapped["proof_claims_deferred"] is True
+
+
+def test_controller_strict_checks_allow_proof_claims_once_focused_surface_is_green(monkeypatch) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, controller_strict_mode = _load_runtime_modules()
+
+    commands: list[list[str]] = []
+
+    def fake_capture_result(cmd: list[str]):
+        commands.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
+
+    result = controller_strict_mode.run_controller_strict_checks(
+        capture_result=fake_capture_result,
+        changed_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+    )
+
+    assert commands == [
+        ["pytest", "-q", "tests/test_controller_contract.py", "tests/test_run_task_runtime_foundations.py", "tests/test_task_queue.py"],
+        ["ruff", "check", "."],
+        ["pytest", "-q"],
+    ]
+    assert result["controller_proof_tests_passed"] is True
+    assert result["proof_claims_deferred"] is False
+    assert result["proof_claims_deferred_message"] == ""
+
+    monkeypatch.setattr(run_task, "capture_result", fake_capture_result)
+    wrapped = run_task.run_controller_strict_checks(changed_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"])
+    assert wrapped["controller_proof_tests_passed"] is True
+    assert wrapped["proof_claims_deferred"] is False
+
+
+def test_autonomous_backlog_runner_proof_capabilities_remain_narrow_and_hardened() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    assert run_task.autonomous_backlog_runner_proof_capabilities() == {
+        "ordinary_manifest_autonomous_proof": True,
+        "retryable_self_heal_without_raw_reexecute": True,
+        "merge_posture_stop_honesty": True,
+        "resume_after_merge_skip_semantics": True,
+    }

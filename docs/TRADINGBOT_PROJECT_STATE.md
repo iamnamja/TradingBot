@@ -12,7 +12,7 @@ The repository combines:
 
 ## Implemented baseline
 
-The orchestrator buildout has progressed through reliability/autonomy continuation and conservative batch execution hardening.
+The orchestrator buildout has progressed through reliability/autonomy continuation, conservative batch execution hardening, controller-contract hardening, and proof synchronization.
 
 Recent tranche highlights include:
 
@@ -25,6 +25,8 @@ Recent tranche highlights include:
 - explicit resume semantics for post-merge continuation and manual-resolution recovery (080)
 - further controller decomposition from `agents/run_task.py` (081)
 - first autonomous backlog progression proof over a short ordinary-task manifest (082)
+- canonical controller contract, non-reexecuting retry/self-heal truth, merge-posture truth persistence, controller semantic repair context, strict-mode gating, and a fourth controller extraction (083–088)
+- hardened short-manifest proof synchronization (089)
 
 ## Current state
 
@@ -33,8 +35,8 @@ The orchestrator now has an explicit per-task sequential controller loop that:
 1. runs task execution
 2. runs authoritative validation
 3. runs final acceptance review
-4. retries self-heal only when acceptance is retryable and budget remains
-5. persists explicit terminal task outcome details
+4. retries self-heal only when acceptance is retryable and budget remains, without raw re-execution for the same attempt
+5. persists explicit terminal task outcome details and merge/reset truth
 6. for accepted tasks, can optionally run PR/create/check/merge and enforce clean-main reset before next task
 7. advances or stops conservatively
 
@@ -46,42 +48,31 @@ Conservative stop behavior is explicit and tested:
 
 Accepted tasks continue only when all enabled gates pass.
 
-## Autonomous backlog proof slice (082)
+## Hardened autonomous short-manifest proof (089)
 
-A narrow, deterministic proof slice is now covered by tests:
+A narrow, deterministic proof slice is now covered and synchronized across tests/docs.
 
-- short ordinary manifest progresses task -> acceptance -> merge/reset gate -> next task
+The current proof demonstrates:
+
+- short ordinary manifest progresses through task execution, authoritative validation, and final acceptance review
 - retryable acceptance failure can be self-healed within budget and then accepted without re-running raw execution attempts
-- runner stops honestly for non-autonomous outcomes (`manual_patch`, `blocked`, failed merge posture)
-- persisted state and summary/outcome artifacts reflect actual run truthfully (no silent continue)
+- accepted tasks can pass the PR/check/merge/reset gate before the next task proceeds
+- runner stops honestly for failed merge/check/reset posture
+- resume-after-merge only skips prior tasks when persisted checkpoint truth proves accepted + checks passed + merged + clean reset
+- controller-core proof-shaping tasks defer docs/README proof-complete claims until focused controller proof tests are green
 
-This is intentionally a bounded capability proof, not a broad scheduler claim.
+This remains an intentionally bounded capability proof, not a broad scheduler claim.
 
-## What 082 still exposed
+## What 083–089 hardened
 
-Task 082 also made the remaining hardening gaps clear:
+The controller-contract hardening tranche stabilized:
 
-- controller modules still drift on key decision vocabulary and truth fields
-- retry/self-heal semantics need one canonical contract and explicit execution-vs-repair audit fields
-- merge/reset posture truth needs to be first-class in persisted state and resume logic
-- controller-task failures need a stronger semantic repair digest than raw failing output alone
-- controller-core tasks need stricter pre-apply patch quality gates and claim deferral
-
-Task 087 addresses that gap by adding controller strict mode: controller-core tasks now activate a stricter lane, run focused controller proof tests before full repo validation, reject obvious low-discipline generated controller bundles before apply, and defer docs/README proof claims until the focused controller proof surface is green.
-
-These are the focus of the next tranche.
-
-## Next controller-contract hardening tranche (083–089)
-
-The next planned tranche focuses on:
-
-- Task 083 first: a new canonical `agents/lib/controller_contract.py` surface used across controller-facing modules
-- non-reexecuting retry/self-heal with explicit execution-vs-repair truth fields
-- merge-posture truth persistence and resume contract hardening
-- semantic failure digest and controller repair-context helpers
-- controller-task strict mode and generated-patch quality gate (**087 landed**)
-- further `agents/run_task.py` decomposition through dedicated helper modules (088)
-- hardened autonomous short-manifest proof after those contracts are stabilized (089)
+- one canonical controller contract across controller-facing modules
+- non-reexecuting retry/self-heal semantics with explicit repair-vs-execution audit truth in the proof surface
+- first-class merge/reset posture truth in persisted state and resume logic
+- controller-task semantic repair digest/context rather than raw failing logs alone
+- controller strict mode, focused proof tests, and proof-claim deferral for docs/README
+- further `agents/run_task.py` decomposition through dedicated helper modules
 
 ## Canonical batch execution path
 
@@ -97,7 +88,7 @@ Canonical path for sequential manifest execution is now:
 
 ## Persisted per-task outcome expectations
 
-Persisted outcomes/checkpoints now intentionally aim to include, through one canonical controller contract surface:
+Persisted outcomes/checkpoints now intentionally include, through one canonical controller contract surface:
 
 - task path
 - terminal status
@@ -107,8 +98,6 @@ Persisted outcomes/checkpoints now intentionally aim to include, through one can
 - post-task decision
 - accepted-task PR flow flags (created/checks/merged/reset where applicable)
 - resume reason/target/gate metadata
-
-The next tranche is intended to make that truth surface canonical and consistent across all controller-facing modules, and to separate raw execution-attempt truth from repair-attempt truth explicitly.
 
 ## Near-term posture
 
@@ -123,6 +112,7 @@ Current proof scope is explicitly limited to:
 - ordinary/non-protected task manifests
 - deterministic local tests and stubs
 - conservative stop-on-risk posture
+- controller-core proof-shaping tasks governed by strict-mode proof gates
 
 It does **not** claim autonomy for arbitrary protected/controller/meta task lists or unattended broad production scheduling.
 
@@ -133,13 +123,3 @@ For all contributor and automation references, the canonical visible order is:
 1. `tasks/README.md`
 2. task markdown files under `tasks/` by exact numeric/alphanumeric filename
 3. supporting roadmap docs in `docs/`
-
-
-## 083 manual-patch posture
-
-Task 083 should still be treated as a manual patch first. It stabilizes the controller contract used by final acceptance, batch execution, batch state persistence, task-queue summaries, merge-posture reporting, and controller-focused tests.
-
-This is a hardening step, not a broader autonomy claim.
-
-
-- **085** made merge-posture truth first-class persisted checkpoint state and tightened resume contracts to require explicit merged/reset evidence or explicit manual-resolution intent.
