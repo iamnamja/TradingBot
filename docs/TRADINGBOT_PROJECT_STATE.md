@@ -23,11 +23,12 @@ Recent tranche highlights include:
 - dedicated sequential batch executor/controller loop (078) as canonical manifest execution surface
 - accepted-task autonomous PR/check/merge + clean-main reset gate (079)
 - explicit resume semantics for post-merge continuation and manual-resolution recovery (080)
+- further controller decomposition from `agents/run_task.py` (081)
 - first autonomous backlog progression proof over a short ordinary-task manifest (082)
 
 ## Current state
 
-The orchestrator has an explicit per-task sequential controller loop that:
+The orchestrator now has an explicit per-task sequential controller loop that:
 
 1. runs task execution
 2. runs authoritative validation
@@ -56,26 +57,45 @@ A narrow, deterministic proof slice is now covered by tests:
 
 This is intentionally a bounded capability proof, not a broad scheduler claim.
 
-## Resume semantics (080)
+## What 082 still exposed
 
-Resume behavior is now explicit, deterministic, and persisted:
+Task 082 also made the remaining hardening gaps clear:
 
-- **resume-after-merge**: previously accepted+merged completed tasks are not re-run; executor skips to the next queued pending task.
-- **resume-after-manual-resolution**: tasks that previously ended `manual_patch` or `blocked` can only resume when operator provides explicit resume mode + target task.
-- blocked/manual items are **not** silently skipped in default posture.
-- resume decisions persist `resume_reason`, `resume_target_task_path`, and `resume_gate` in batch state for auditability and deterministic replay.
+- controller modules still drift on key decision vocabulary and truth fields
+- retry/self-heal semantics need to be made explicitly non-reexecuting and canonical
+- merge/reset posture truth needs to be first-class in persisted state and resume logic
+- controller-task failures need a stronger semantic repair digest than raw failing output alone
+- controller-core tasks need stricter pre-apply patch quality gates and claim deferral
+
+These are the focus of the next tranche.
+
+## Next controller-contract hardening tranche (083–089)
+
+The next planned tranche focuses on:
+
+- canonical controller contract across controller-facing modules
+- non-reexecuting retry/self-heal channel
+- merge-posture truth persistence and resume contract
+- semantic failure digest and controller repair context
+- controller-task strict mode and generated-patch quality gate
+- further `agents/run_task.py` decomposition
+- hardened autonomous short-manifest proof after those contracts are stabilized
 
 ## Canonical batch execution path
 
 Canonical path for sequential manifest execution is now:
 
-- `agents/lib/batch_executor.py` loop + `agents/lib/batch_state.py` persisted state/checkpoints + `agents/lib/task_queue.py` queue model/decisions + `agents/lib/git_workflow.py` accepted-task PR/merge/reset gate helpers
+- `agents/lib/batch_executor.py`
+- `agents/lib/batch_state.py`
+- `agents/lib/task_queue.py`
+- `agents/lib/final_acceptance.py`
+- `agents/lib/git_workflow.py`
 
-This replaces ad-hoc scattered proof behavior with a first-class controller surface.
+`agents/run_task.py` remains the execution shell, but it is no longer the sole home of controller behavior.
 
 ## Persisted per-task outcome expectations
 
-Persisted outcomes/checkpoints explicitly include:
+Persisted outcomes/checkpoints now intentionally aim to include:
 
 - task path
 - terminal status
@@ -84,14 +104,9 @@ Persisted outcomes/checkpoints explicitly include:
 - next-task proceed flag
 - post-task decision
 - accepted-task PR flow flags (created/checks/merged/reset where applicable)
+- resume reason/target/gate metadata
 
-Persisted resume metadata includes:
-
-- resume reason
-- resume target task path
-- resume gate (why resume/skip was allowed)
-
-This is the intended truth surface for operator review and deterministic resume behavior.
+The next tranche is intended to make that truth surface canonical and consistent across all controller-facing modules.
 
 ## Near-term posture
 
