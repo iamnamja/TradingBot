@@ -65,6 +65,21 @@ The intended first multi-agent architecture is intentionally conservative:
 
 This should remain sequential before any future concurrency or true parallel role scheduling is considered.
 
+
+## Project/workspace adapter v2 foundation
+
+The portability surface now needs a canonical workspace contract that can describe, at minimum:
+
+- workspace root
+- bootstrap/setup commands
+- validation commands
+- acceptance evidence commands
+- protected paths
+- artifact/output paths
+- merge-policy constraints
+
+The first portability scope remains Python-first. TradingBot should remain a supported consumer, but not a hardcoded assumption.
+
 ## Hardened proof boundary
 
 The hardened autonomy proof remains intentionally bounded to:

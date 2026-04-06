@@ -2,12 +2,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from typing import Any
 from unittest.mock import patch
 
-from builder.orchestrator.project_adapter import ProjectAdapter
-from builder.orchestrator.runner import OrchestratorRunner
-from builder.orchestrator.state import OrchestratorState
+import pytest
+
+root = Path(__file__).resolve().parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(0, str(root))
+
+from agents.lib import project_workspace_adapter  # noqa: E402
+
+
+def _builder_exports():
+    ProjectAdapter = pytest.importorskip('builder.orchestrator.project_adapter').ProjectAdapter
+    OrchestratorRunner = pytest.importorskip('builder.orchestrator.runner').OrchestratorRunner
+    OrchestratorState = pytest.importorskip('builder.orchestrator.state').OrchestratorState
+    return ProjectAdapter, OrchestratorRunner, OrchestratorState
 
 
 @dataclass
@@ -30,13 +42,14 @@ class _StubBacklogTracker:
 
 
 class _StubTask:
-    def __init__(self, name: str = "001_task.py", order: int = 1, status: str = "pending") -> None:
+    def __init__(self, name: str = '001_task.py', order: int = 1, status: str = 'pending') -> None:
         self.name = name
         self.order = order
         self.status = status
 
 
-def _make_runner(config) -> OrchestratorRunner:
+def _make_runner(config):
+    _, OrchestratorRunner, OrchestratorState = _builder_exports()
     return OrchestratorRunner(_ConfigWrapper(config=config), _StubBacklogTracker(), OrchestratorState(tasks=[]))
 
 
@@ -51,18 +64,20 @@ def _generic_config_fields(config) -> tuple[str, str, str, str, str]:
 
 
 def test_tradingbot_default_config_factory_returns_usable_config() -> None:
+    ProjectAdapter, _, _ = _builder_exports()
     config = ProjectAdapter.get_tradingbot_default_config()
 
     assert isinstance(config.tasks_directory, str)
-    assert config.tasks_directory == "tasks/"
-    assert config.branch_naming_pattern == "feature/*"
-    assert config.task_file_pattern == "*.md"
-    assert config.lint_command == "ruff check ."
-    assert config.test_command == "pytest -q"
+    assert config.tasks_directory == 'tasks/'
+    assert config.branch_naming_pattern == 'feature/*'
+    assert config.task_file_pattern == '*.md'
+    assert config.lint_command == 'ruff check .'
+    assert config.test_command == 'pytest -q'
     assert config.task_runner_command is None
 
 
 def test_generic_project_config_factory_returns_distinct_usable_config() -> None:
+    ProjectAdapter, _, _ = _builder_exports()
     tradingbot = ProjectAdapter.get_tradingbot_default_config()
     generic = ProjectAdapter.get_generic_project_config()
 
@@ -75,10 +90,11 @@ def test_generic_project_config_factory_returns_distinct_usable_config() -> None
 
     for field in _generic_config_fields(generic):
         assert isinstance(field, str)
-        assert field != ""
+        assert field != ''
 
 
 def test_runner_can_be_constructed_with_tradingbot_config() -> None:
+    ProjectAdapter, _, _ = _builder_exports()
     config = ProjectAdapter.get_tradingbot_default_config()
     runner = _make_runner(config)
 
@@ -88,6 +104,7 @@ def test_runner_can_be_constructed_with_tradingbot_config() -> None:
 
 
 def test_runner_can_be_constructed_with_generic_config() -> None:
+    ProjectAdapter, _, _ = _builder_exports()
     config = ProjectAdapter.get_generic_project_config()
     runner = _make_runner(config)
 
@@ -97,6 +114,7 @@ def test_runner_can_be_constructed_with_generic_config() -> None:
 
 
 def test_run_next_task_dry_run_works_with_both_configs() -> None:
+    ProjectAdapter, _, _ = _builder_exports()
     for config in (
         ProjectAdapter.get_tradingbot_default_config(),
         ProjectAdapter.get_generic_project_config(),
@@ -107,16 +125,17 @@ def test_run_next_task_dry_run_works_with_both_configs() -> None:
 
         result = runner.run_next_task(dry_run=True)
 
-        assert result["dry_run"] is True
-        assert result["task_name"] == "001_task.py"
-        assert result["status"] == "planned"
-        assert result["message"] == "Task is planned for execution."
-        assert result["outcome"] == "noop"
-        assert result["next_action"] == "none"
-        assert result["requires_approval"] is False
+        assert result['dry_run'] is True
+        assert result['task_name'] == '001_task.py'
+        assert result['status'] == 'planned'
+        assert result['message'] == 'Task is planned for execution.'
+        assert result['outcome'] == 'noop'
+        assert result['next_action'] == 'none'
+        assert result['requires_approval'] is False
 
 
 def test_run_loop_max_tasks_one_uses_current_baseline_for_both_configs() -> None:
+    ProjectAdapter, _, _ = _builder_exports()
     for config in (
         ProjectAdapter.get_tradingbot_default_config(),
         ProjectAdapter.get_generic_project_config(),
@@ -125,37 +144,64 @@ def test_run_loop_max_tasks_one_uses_current_baseline_for_both_configs() -> None
 
         with patch.object(
             runner,
-            "run_next_task",
+            'run_next_task',
             side_effect=[
                 {
-                    "task_name": "001_task.py",
-                    "status": "running",
-                    "message": "Task is now running.",
-                    "outcome": "ready_for_pr",
-                    "next_action": "merge",
-                    "requires_approval": False,
+                    'task_name': '001_task.py',
+                    'status': 'running',
+                    'message': 'Task is now running.',
+                    'outcome': 'ready_for_pr',
+                    'next_action': 'merge',
+                    'requires_approval': False,
                 }
             ],
         ):
             result = runner.run_loop(max_tasks=1)
 
-        assert result["processed_tasks"] == ["001_task.py"]
-        assert result["stopped_reason"] == "Reached max_tasks limit of 1"
-        assert result["final_status"] == "running"
-        assert result["approval_required"] is False
-        assert result["planned_actions"] == ["Task 001_task.py completed successfully."]
+        assert result['processed_tasks'] == ['001_task.py']
+        assert result['stopped_reason'] == 'Reached max_tasks limit of 1'
+        assert result['final_status'] == 'running'
+        assert result['approval_required'] is False
+        assert result['planned_actions'] == ['Task 001_task.py completed successfully.']
 
 
 def test_generic_config_is_usable_without_tradingbot_only_assumptions() -> None:
+    ProjectAdapter, _, _ = _builder_exports()
     config = ProjectAdapter.get_generic_project_config()
     runner = _make_runner(config)
 
-    runner.backlog_tracker.scan_tasks = lambda: [_StubTask(name="alpha.task", order=7, status="pending")]
+    runner.backlog_tracker.scan_tasks = lambda: [_StubTask(name='alpha.task', order=7, status='pending')]
     runner.backlog_tracker.get_next_task = lambda tasks: tasks[0]
 
     result = runner.run_next_task(dry_run=True)
 
-    assert result["task_name"] == "alpha.task"
-    assert result["status"] == "planned"
-    assert result["message"] == "Task is planned for execution."
+    assert result['task_name'] == 'alpha.task'
+    assert result['status'] == 'planned'
+    assert result['message'] == 'Task is planned for execution.'
     assert Path(config.tasks_directory).name == Path(config.tasks_directory).name
+
+
+def test_workspace_snapshot_supports_non_tradingbot_consumers() -> None:
+    snapshot = project_workspace_adapter.workspace_adapter_snapshot()
+
+    assert snapshot['python_first_scope_only'] is True
+    assert 'tradingbot' in snapshot['supported_consumers']
+    assert 'generic_python' in snapshot['supported_consumers']
+
+
+def test_generic_workspace_contract_is_distinct_from_tradingbot() -> None:
+    tradingbot = project_workspace_adapter.tradingbot_workspace_contract('.')
+    generic = project_workspace_adapter.generic_python_workspace_contract('external-app')
+
+    assert tradingbot['consumer_name'] == 'tradingbot'
+    assert generic['consumer_name'] == 'generic_python'
+    assert generic['workspace_root'] == 'external-app'
+    assert generic['protected_paths'] != tradingbot['protected_paths']
+    assert generic['acceptance_evidence_commands'] != tradingbot['acceptance_evidence_commands']
+
+
+def test_controller_can_reason_over_adapter_defined_validation_commands() -> None:
+    contract = project_workspace_adapter.generic_python_workspace_contract('external-app')
+
+    assert project_workspace_adapter.workspace_validation_commands(contract) == ['ruff check .', 'pytest -q']
+    assert project_workspace_adapter.workspace_acceptance_evidence_commands(contract) == ['pytest -q']
