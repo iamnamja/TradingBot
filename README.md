@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The reliability/autonomy continuation, backlog-execution hardening, controller-contract hardening, and proof synchronization tranche are now complete through **Task 089**.
+The reliability/autonomy continuation, backlog-execution hardening, controller-contract hardening, and proof synchronization tranche are now complete through **Task 097**.
 
 The proof-backed controller continuation covered by the current repo state is:
 
@@ -27,6 +27,12 @@ The proof-backed controller continuation covered by the current repo state is:
   - controller strict mode and patch-quality gate
   - further `agents/run_task.py` decomposition
   - hardened autonomous short-manifest proof
+- **090–097** — multi-agent foundations and second-project Python portability proof
+  - role-separated builder/verifier/controller contract and handoff truth
+  - dependency-aware short-manifest progression
+  - workspace adapter selection for TradingBot and generic Python consumers
+  - explicit bootstrap/setup truth for external Python workspace shape
+  - controller-owned truthful continue/stop decisions based on verification authority
 
 Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for the authoritative status narrative.
 
@@ -53,6 +59,8 @@ Today the repo has:
 - controller-core semantic repair digest/context
 - controller strict mode with focused controller proof tests before full validation
 - deterministic local proof of a hardened short ordinary-manifest autonomous progression slice
+- deterministic local proof of a second Python project/workspace shape via adapter contracts
+- deterministic local proof of sequential builder/verifier/controller loop behavior over a short dependency-aware manifest
 
 That proof currently covers:
 
@@ -64,12 +72,15 @@ That proof currently covers:
 6. truthful stop on failed merge/check/reset posture
 7. truthful resume-after-merge skip behavior based on persisted truth
 8. proof-claim deferral for docs/README until focused controller proof tests are green
+9. workspace adapter selection and bootstrap truth for a simple external Python project
+10. truthful continue/stop controller behavior sourced from verifier authority
 
 It does **not** claim:
 
 - arbitrary protected/controller task-list autonomy
 - broad unattended production scheduler autonomy across any task shape
 - hidden always-on autonomy for protected/controller/meta tasks
+- arbitrary multi-language portability
 
 ## Next planned tranche
 
@@ -111,6 +122,7 @@ The current proof is intentionally narrow:
 - deterministic local tests and stubs
 - conservative stop-on-risk posture
 - controller-core discipline enforced by strict-mode proof gates
+- simple Python-first second-project shapes through workspace adapter contracts
 
 It remains an intentionally bounded proof slice rather than a claim of broad scheduler autonomy.
 

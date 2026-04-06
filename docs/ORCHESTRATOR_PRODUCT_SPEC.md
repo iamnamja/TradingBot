@@ -17,6 +17,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **082 adds the first narrow autonomous backlog-runner proof for a short ordinary manifest**
 - **083–088 harden the controller contract, retry/self-heal truth, merge/resume truth, controller repair context, strict mode, and further `run_task.py` decomposition**
 - **089 synchronizes the hardened short-manifest proof surface and docs**
+- **090–097 establish multi-agent contracts and second-project Python portability proof coverage**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
@@ -36,6 +37,8 @@ The repo now has:
 - controller strict mode with focused proof tests before full validation
 - deterministic local proof of a hardened short ordinary-manifest autonomous progression slice
 - dependency-aware manifest planning with explicit blocked/deferred/skipped/rerun-required truth
+- deterministic local second-project portability proof for a simple generic Python workspace using adapter-selected bootstrap and validation contracts
+- deterministic local proof of sequential builder/verifier/controller role loop behavior with controller-owned continue/stop authority
 
 That proof is intentionally narrow and currently demonstrates:
 
@@ -47,14 +50,18 @@ That proof is intentionally narrow and currently demonstrates:
 6. truthful stop on failed merge/check/reset posture
 7. truthful resume-after-merge skip semantics based on persisted checkpoint truth
 8. no premature proof-complete claims for docs/README before focused controller proof tests are green
+9. second-project Python-first adapter portability over a short dependency-aware manifest
+10. truthful controller stop/continue outcomes sourced from verifier authority and explicit controller decision
 
 It does **not** honestly claim:
 
 - arbitrary protected/controller task-list autonomy
 - broad unattended production scheduling across any task shape
 - broad autonomy for protected/controller/meta task families
+- broad arbitrary multi-language portability
+- unattended end-to-end autonomy without verification authority constraints
 
-## Next product target after 089
+## Next product target after 097
 
 The next product step should evolve the orchestrator from a stronger single-controller task runner into a more explicit multi-agent project runner.
 
@@ -69,7 +76,7 @@ This should remain sequential before any future concurrency or true parallel rol
 
 ## Project/workspace adapter v2 foundation
 
-The portability surface now needs a canonical workspace contract that can describe, at minimum:
+The portability surface now has a canonical workspace contract that can describe, at minimum:
 
 - workspace root
 - bootstrap/setup commands
@@ -79,7 +86,7 @@ The portability surface now needs a canonical workspace contract that can descri
 - artifact/output paths
 - merge-policy constraints
 
-The first portability scope remains Python-first. TradingBot should remain a supported consumer, but not a hardcoded assumption.
+The current portability scope remains Python-first. TradingBot is one supported consumer, not a hardcoded assumption.
 
 ## Hardened proof boundary
 
@@ -89,6 +96,7 @@ The hardened autonomy proof remains intentionally bounded to:
 - deterministic local test harnesses and stubs
 - conservative stop on non-autonomous signals
 - controller-core tasks running under strict-mode proof gates
+- simple second-project Python workspace shapes through adapter contracts
 
 It is not a claim of broad arbitrary-task scheduler autonomy, and it does not override protected/controller lane controls.
 
@@ -113,6 +121,8 @@ It is not a claim of broad arbitrary-task scheduler autonomy, and it does not ov
 - Accepted-task PR/check/merge/reset posture
 - Explicit resume semantics after merge and after manual resolution
 - Controller strict-mode proof gates for controller-core tasks
+- Python-first second-project workspace adapter selection and bootstrap truth tracking
+- Sequential multi-agent builder/verifier/controller proof loop over short dependency-aware manifests
 
 ## Canonical sequential batch controller loop
 
@@ -139,14 +149,10 @@ Conservative stop posture is preserved:
 
 Before any stronger “give it a whole project and let it build” claim would be honest, the product still needs:
 
-- canonical builder/verifier/controller role contracts and persisted handoff truth
-- explicit verification-authority profiles (`local_only`, `local_plus_required_ci`, `required_ci_only`)
-- stronger CI-backed verification authority
-- role-aware remediation routing
-- reusable project/workspace bootstrap contracts beyond the current repo shape
-- dependency-aware manifest planning
-- task-family routing and next-role selection
-- a second-project portability proof
+- broader verification-authority profile coverage in real integrated environments
+- stronger CI-backed verification authority in external repos beyond local proofs
+- role-aware remediation routing depth for larger manifests
+- broader task-family routing coverage
 - a clearer standalone package boundary while the repo still remains a monorepo consumer setup
 
 ## Merge posture truth and resume contract

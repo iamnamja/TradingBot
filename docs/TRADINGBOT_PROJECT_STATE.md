@@ -31,7 +31,7 @@ Recent tranche highlights include:
 ## Current state
 
 
-- **Tasks 090–094 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, explicit verification-authority truth for GitHub-required CI checks, and a reusable Python-first project/workspace adapter contract for bootstrap and validation outside the current repo shape.
+- **Tasks 090–097 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, explicit verification-authority truth for GitHub-required CI checks, a reusable Python-first project/workspace adapter contract for bootstrap and validation outside the current repo shape, and a deterministic second-project portability proof over a simple external Python project shape.
 
 The orchestrator now has an explicit per-task sequential controller loop that:
 
@@ -51,7 +51,19 @@ Conservative stop behavior is explicit and tested:
 
 Accepted tasks continue only when all enabled gates pass.
 
-The new workspace adapter contract keeps TradingBot as one consumer rather than the only implied consumer, and gives the controller explicit bootstrap truth (`not_started`, `succeeded`, `blocked`) so resume behavior can remain honest after setup failures in external Python workspaces.
+The workspace adapter contract keeps TradingBot as one consumer rather than the only implied consumer, and gives the controller explicit bootstrap truth (`not_started`, `succeeded`, `blocked`) so resume behavior can remain honest after setup failures in external Python workspaces.
+
+## Second-project portability proof (097)
+
+A narrow deterministic proof now covers a simple external Python project shape and demonstrates:
+
+- workspace adapter selection between TradingBot and generic Python consumers
+- explicit bootstrap/setup truth and resumable failure signaling
+- builder/verifier/controller role separation in a sequential controller-owned loop
+- dependency-aware short-manifest progression over two ordered tasks
+- truthful continue/stop posture based on verifier authority and controller final decision
+
+Scope remains intentionally Python-first and local-test deterministic.
 
 ## Hardened autonomous short-manifest proof (089)
 
@@ -140,8 +152,10 @@ Current proof scope is explicitly limited to:
 - deterministic local tests and stubs
 - conservative stop-on-risk posture
 - controller-core proof-shaping tasks governed by strict-mode proof gates
+- simple external Python project/workspace shapes through the adapter contract
 
 It does **not** claim autonomy for arbitrary protected/controller/meta task lists or unattended broad production scheduling.
+It does **not** claim broad multi-language portability.
 
 ## Canonical ordering source
 
@@ -152,3 +166,4 @@ For all contributor and automation references, the canonical visible order is:
 3. supporting roadmap docs in `docs/`
 
 - task-family router and controller-owned agent selection are complete through **Task 096**
+- second-project multi-agent portability proof is added in **Task 097**
