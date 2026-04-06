@@ -184,3 +184,5 @@ Guardrails:
 - passing verifier evidence does not auto-advance by itself
 - controller decision remains explicit and machine-readable
 - acceptance and merge/reset truth rules from earlier controller tranches remain in force
+
+- task-family routing remains controller-owned; the router may recommend builder, verifier, proof/docs, bootstrap, or constrained/manual lanes, but it may not bypass controller authority

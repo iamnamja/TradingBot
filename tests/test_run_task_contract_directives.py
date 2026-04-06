@@ -177,3 +177,30 @@ No machine-readable directives are present here.
     assert directives == {}
     assert ok is True
     assert message == ""
+
+
+def test_task_family_router_preserves_contract_directives_surface():
+    task_text = """
+## Machine-readable contract directives
+
+- RESULT_KEYS: run_loop processed_tasks stopped_reason final_status approval_required planned_actions
+""".strip()
+
+    directives = run_task.parse_task_contract_directives(task_text)
+    context = run_task.task_family_task_context(["tests/test_merge_manager_integration.py"], task_file="tasks/096_orchestrator_task_family_router_and_agent_selection.md")
+    route = run_task.recommend_task_family_route(task_context=context, current_role="controller")
+
+    assert directives["RESULT_KEYS"] == [
+        "run_loop processed_tasks stopped_reason final_status approval_required planned_actions"
+    ]
+    assert context["task_family"] == "verifier_first"
+    assert route["recommended_next_role"] == "verifier"
+
+
+def test_task_family_router_routes_controller_core_into_constrained_manual_lane():
+    context = run_task.task_family_task_context(["agents/run_task.py"], task_file="tasks/096_orchestrator_task_family_router_and_agent_selection.md")
+    route = run_task.recommend_task_family_route(task_context=context, current_role="controller")
+
+    assert context["task_family"] == "strict_manual_controller_core"
+    assert route["recommended_lane"] == "constrained_manual"
+    assert route["recommended_next_role"] == "manual_patch"
