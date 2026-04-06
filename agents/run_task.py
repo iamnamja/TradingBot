@@ -592,6 +592,55 @@ def multi_agent_task_context(required_paths: Sequence[str] | None) -> Dict[str, 
     return dict(_impl(required_paths))
 
 
+def build_builder_patch_attempt(*, task_path: str, attempt_count: int, result: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import build_builder_patch_attempt as _impl  # type: ignore
+
+    return dict(_impl(task_path=task_path, attempt_count=attempt_count, result=result))
+
+
+def build_verifier_evidence_bundle(
+    *,
+    task_path: str,
+    builder_artifact: Mapping[str, object],
+    verification: Mapping[str, object] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import build_verifier_evidence_bundle as _impl  # type: ignore
+
+    return dict(_impl(task_path=task_path, builder_artifact=builder_artifact, verification=verification))
+
+
+def build_multi_agent_controller_decision(
+    *,
+    verifier_artifact: Mapping[str, object],
+    builder_artifact: Mapping[str, object] | None = None,
+    role_state: Mapping[str, object] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.final_acceptance import build_multi_agent_controller_decision as _impl  # type: ignore
+
+    return dict(_impl(verifier_artifact=verifier_artifact, builder_artifact=builder_artifact, role_state=role_state))
+
+
+def execute_multi_agent_loop(
+    *,
+    task_path: str,
+    builder_step,
+    verifier_step,
+    controller_decide=None,
+    initial_role_state: Mapping[str, object] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import execute_multi_agent_loop as _impl  # type: ignore
+
+    return dict(
+        _impl(
+            task_path=task_path,
+            builder_step=builder_step,
+            verifier_step=verifier_step,
+            controller_decide=controller_decide,
+            initial_role_state=initial_role_state,
+        )
+    )
+
+
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
     return build_final_acceptance_failure_feedback(report)
 

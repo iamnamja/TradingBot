@@ -26,6 +26,7 @@ def _load_runtime_modules():
     final_acceptance = importlib.import_module("agents.lib.final_acceptance")
     batch_executor = importlib.import_module("agents.lib.batch_executor")
     controller_strict_mode = importlib.import_module("agents.lib.controller_strict_mode")
+    multi_agent_loop = importlib.import_module("agents.lib.multi_agent_loop")
     return (
         run_task,
         check_runner,
@@ -43,11 +44,12 @@ def _load_runtime_modules():
         final_acceptance,
         batch_executor,
         controller_strict_mode,
+        multi_agent_loop,
     )
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -60,7 +62,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     def fake_capture(cmd: list[str]) -> str:
@@ -86,7 +88,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_capture_result(cmd):
         if cmd == ["ruff", "check", "."]:
@@ -103,7 +105,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -141,10 +143,14 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.resume_role_handoff_state)
     assert callable(run_task.controller_decides_next_role)
     assert callable(run_task.multi_agent_task_context)
+    assert callable(run_task.build_builder_patch_attempt)
+    assert callable(run_task.build_verifier_evidence_bundle)
+    assert callable(run_task.build_multi_agent_controller_decision)
+    assert callable(run_task.execute_multi_agent_loop)
 
 
 def test_run_task_runtime_contract_modules_share_canonical_surface() -> None:
-    (_, _, _, _, failure_journal, _, _, _, _, batch_state, task_queue, controller_contract, _, _, batch_executor, _) = _load_runtime_modules()
+    (_, _, _, _, failure_journal, _, _, _, _, batch_state, task_queue, controller_contract, _, _, batch_executor, _, _) = _load_runtime_modules()
     assert task_queue.BatchPostTaskDecision is controller_contract.BatchPostTaskDecision
     assert batch_state.BatchStatus is controller_contract.BatchStatus
     assert batch_executor.ResumeMode is controller_contract.ResumeMode
@@ -156,7 +162,7 @@ def test_run_task_runtime_contract_modules_share_canonical_surface() -> None:
 
 
 def test_failure_classifier_distinguishes_multiple_categories() -> None:
-    _, _, _, _, failure_journal, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    _, _, _, _, failure_journal, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert (
         failure_journal.classify_failure("tests", "SyntaxError: invalid syntax in generated test")
         == "python_syntax"
@@ -175,7 +181,7 @@ def test_failure_classifier_distinguishes_multiple_categories() -> None:
     )
 
 def test_prepare_resumed_batch_state_requires_explicit_manual_resolution_resume(tmp_path: Path) -> None:
-    (_, _, _, _, _, _, _, _, _, batch_state, task_queue, _, _, _, batch_executor, _) = _load_runtime_modules()
+    (_, _, _, _, _, _, _, _, _, batch_state, task_queue, _, _, _, batch_executor, _, _) = _load_runtime_modules()
 
     task_path = tmp_path / "tasks" / "001.md"
     task_path.parent.mkdir(parents=True, exist_ok=True)
@@ -253,7 +259,7 @@ def test_git_workflow_success_reports_canonical_merge_reset_truth() -> None:
 
 
 def test_run_task_delegates_new_controller_repair_appendix_wrapper(monkeypatch) -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     controller_repair = importlib.import_module("agents.lib.controller_repair")
 
     def fake_appendix(**kwargs):
@@ -266,7 +272,7 @@ def test_run_task_delegates_new_controller_repair_appendix_wrapper(monkeypatch) 
 
 
 def test_run_task_delegates_new_final_acceptance_retry_feedback_wrapper(monkeypatch) -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, final_acceptance, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, final_acceptance, _, _, _ = _load_runtime_modules()
 
     def fake_feedback(report):
         assert report == {"acceptance_decision": "retryable_failure"}
@@ -277,7 +283,7 @@ def test_run_task_delegates_new_final_acceptance_retry_feedback_wrapper(monkeypa
 
 
 def test_run_task_delegates_new_controller_strict_mode_wrappers(monkeypatch) -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, controller_strict_mode = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, controller_strict_mode, _ = _load_runtime_modules()
 
     def fake_describe(*, required_paths=None, task_file=""):
         assert required_paths == ["agents/run_task.py"]
@@ -306,7 +312,7 @@ def test_run_task_delegates_new_controller_strict_mode_wrappers(monkeypatch) -> 
 
 
 def test_controller_repair_context_names_semantic_drift_surfaces() -> None:
-    run_task, _, _, _, failure_journal, _, _, _, _, _, _, _, _, final_acceptance, _, controller_strict_mode = _load_runtime_modules()
+    run_task, _, _, _, failure_journal, _, _, _, _, _, _, _, _, final_acceptance, _, controller_strict_mode, _ = _load_runtime_modules()
 
     details = (
         "________________ test_controller_contract_guard __________________\n"
@@ -361,7 +367,7 @@ def test_controller_repair_context_names_semantic_drift_surfaces() -> None:
 
 
 def test_controller_task_shape_activates_strict_mode() -> None:
-    run_task, _, _, _, _, task_contracts, _, _, _, _, _, controller_contract, _, _, _, controller_strict_mode = _load_runtime_modules()
+    run_task, _, _, _, _, task_contracts, _, _, _, _, _, controller_contract, _, _, _, controller_strict_mode, _ = _load_runtime_modules()
 
     assert task_contracts.task_touches_controller_core(["agents/run_task.py", "docs/TRADINGBOT_PROJECT_STATE.md"]) is True
     context = run_task.build_controller_strict_mode_context(
@@ -375,7 +381,7 @@ def test_controller_task_shape_activates_strict_mode() -> None:
 
 
 def test_controller_patch_quality_gate_rejects_obvious_minified_bundle() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     issues = run_task.controller_strict_preapply_issues(
         {
@@ -394,7 +400,7 @@ def test_controller_patch_quality_gate_rejects_obvious_minified_bundle() -> None
 
 
 def test_controller_strict_checks_defer_docs_claims_until_proof_tests_are_green(monkeypatch) -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, controller_strict_mode = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, controller_strict_mode, _ = _load_runtime_modules()
 
     commands: list[list[str]] = []
 
@@ -420,7 +426,7 @@ def test_controller_strict_checks_defer_docs_claims_until_proof_tests_are_green(
 
 
 def test_controller_strict_checks_allow_proof_claims_once_focused_surface_is_green(monkeypatch) -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, controller_strict_mode = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, controller_strict_mode, _ = _load_runtime_modules()
 
     commands: list[list[str]] = []
 
@@ -449,7 +455,7 @@ def test_controller_strict_checks_allow_proof_claims_once_focused_surface_is_gre
 
 
 def test_autonomous_backlog_runner_proof_capabilities_remain_narrow_and_hardened() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     assert run_task.autonomous_backlog_runner_proof_capabilities() == {
         "ordinary_manifest_autonomous_proof": True,
@@ -461,7 +467,7 @@ def test_autonomous_backlog_runner_proof_capabilities_remain_narrow_and_hardened
 
 
 def test_run_task_exposes_multi_agent_role_contract_and_task_context() -> None:
-    run_task, _, _, _, _, task_contracts, _, _, _, _, _, _, multi_agent_contract, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, task_contracts, _, _, _, _, _, _, multi_agent_contract, _, _, _, multi_agent_loop = _load_runtime_modules()
 
     assert run_task.multi_agent_contract_snapshot() == multi_agent_contract.multi_agent_contract_snapshot()
     role_state = run_task.canonical_role_handoff_state(
@@ -484,3 +490,80 @@ def test_run_task_exposes_multi_agent_role_contract_and_task_context() -> None:
     assert context == task_contracts.multi_agent_task_context(["agents/run_task.py"])
     assert context["controller_authority_over_next_role"] is True
     assert context["sequential_role_execution_only"] is True
+
+
+def test_run_task_exposes_canonical_multi_agent_loop_with_distinct_role_artifacts() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, multi_agent_loop = _load_runtime_modules()
+
+    def builder_step(role_state):
+        assert role_state["active_role"] == "builder"
+        return {"changed_files": ["agents/run_task.py"], "summary": "builder patch ready"}
+
+    def verifier_step(builder_artifact, role_state):
+        assert builder_artifact["role"] == "builder"
+        assert role_state["active_role"] == "verifier"
+        return {
+            "validator_ok": True,
+            "validator_note": "focused/full validation passed",
+            "focused_results": ["tests/test_run_task_runtime_foundations.py"],
+            "full_results": ["pytest -q"],
+            "acceptance_report": {
+                "acceptance_decision": "accepted",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+                "note": "accepted",
+            },
+        }
+
+    result = run_task.execute_multi_agent_loop(
+        task_path="tasks/091_orchestrator_builder_verifier_controller_loop.md",
+        builder_step=builder_step,
+        verifier_step=verifier_step,
+    )
+
+    assert result == multi_agent_loop.execute_multi_agent_loop(
+        task_path="tasks/091_orchestrator_builder_verifier_controller_loop.md",
+        builder_step=builder_step,
+        verifier_step=verifier_step,
+    )
+    assert result["role_trace"] == ["controller", "builder", "controller", "verifier", "controller"]
+    assert result["builder_artifact"]["artifact_kind"] == "builder_patch_attempt"
+    assert result["verifier_artifact"]["artifact_kind"] == "verifier_evidence_bundle"
+    assert result["builder_artifact"]["role"] == "builder"
+    assert result["verifier_artifact"]["role"] == "verifier"
+    assert result["controller_decision"]["role"] == "controller"
+    assert result["controller_decision"]["action"] == "advance"
+    assert result["controller_decision"]["final_authority_role"] == "controller"
+    assert result["failure_journal_context"]["controller_action"] == "advance"
+
+
+def test_multi_agent_loop_failed_verifier_result_requests_repair_without_blurring_roles() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    def builder_step(_role_state):
+        return {"changed_files": ["agents/lib/final_acceptance.py"], "summary": "builder patch ready"}
+
+    def verifier_step(_builder_artifact, _role_state):
+        return {
+            "validator_ok": False,
+            "validator_note": "focused validation failed",
+            "focused_results": ["tests/test_task_queue.py::test_x"],
+            "acceptance_report": {
+                "acceptance_decision": "retryable_failure",
+                "post_task_decision": "stop",
+                "next_task_may_proceed": False,
+                "note": "repair and retry",
+            },
+        }
+
+    result = run_task.execute_multi_agent_loop(
+        task_path="tasks/091_orchestrator_builder_verifier_controller_loop.md",
+        builder_step=builder_step,
+        verifier_step=verifier_step,
+    )
+
+    assert result["builder_artifact"]["summary"] == "builder patch ready"
+    assert result["verifier_artifact"]["summary"] != result["builder_artifact"]["summary"]
+    assert result["verifier_artifact"]["verdict"] == "fail"
+    assert result["controller_decision"]["action"] == "repair"
+    assert result["controller_decision"]["next_task_may_proceed"] is False
