@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
-from agents.lib.controller_contract import AcceptanceDecision, coerce_acceptance_decision
+from agents.lib.controller_contract import AcceptanceDecision, coerce_acceptance_decision, coerce_post_task_decision
 from agents.lib.controller_repair import build_controller_repair_context
 
 AcceptanceFailureClass = Literal[
@@ -329,3 +329,56 @@ def report_final_acceptance_failure(
             printer(f"- {issue}")
     else:
         printer(f"- acceptance_decision={report.get('acceptance_decision', 'retryable_failure')}")
+
+
+
+def build_multi_agent_controller_decision(
+    *,
+    verifier_artifact: Mapping[str, Any],
+    builder_artifact: Mapping[str, Any] | None = None,
+    role_state: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    acceptance_report = dict(verifier_artifact.get("acceptance_report", {}) or {})
+    acceptance_decision = coerce_acceptance_decision(acceptance_report.get("acceptance_decision"), default="retryable_failure")
+    post_task_decision = coerce_post_task_decision(
+        acceptance_report.get("post_task_decision"),
+        default=("continue" if acceptance_decision == "accepted" else ("blocked" if acceptance_decision == "blocked" else ("manual_patch" if acceptance_decision == "manual_patch" else "stop"))),
+    )
+    if acceptance_decision == "accepted" and post_task_decision == "continue":
+        action = "advance"
+    elif acceptance_decision == "accepted":
+        action = "accept"
+    elif acceptance_decision == "retryable_failure":
+        action = "repair"
+    else:
+        action = "stop"
+    next_task_may_proceed = bool(acceptance_report.get("next_task_may_proceed", action == "advance"))
+    builder_summary = str((builder_artifact or {}).get("summary") or "").strip()
+    verifier_summary = str(verifier_artifact.get("summary") or verifier_artifact.get("validator_note") or "").strip()
+    summary = str(acceptance_report.get("note") or "").strip()
+    if not summary:
+        if action == "advance":
+            summary = "Controller accepted verifier evidence and allowed task advancement."
+        elif action == "accept":
+            summary = "Controller accepted verifier evidence but did not allow automatic advancement."
+        elif action == "repair":
+            summary = "Controller requested repair based on verifier evidence."
+        else:
+            summary = "Controller stopped based on verifier evidence."
+    return {
+        "role": "controller",
+        "artifact_kind": "controller_decision",
+        "task_path": str(verifier_artifact.get("task_path") or ""),
+        "action": action,
+        "acceptance_decision": acceptance_decision,
+        "post_task_decision": post_task_decision,
+        "next_task_may_proceed": next_task_may_proceed,
+        "verifier_verdict": str(verifier_artifact.get("verdict") or "not_run"),
+        "builder_summary": builder_summary,
+        "verifier_summary": verifier_summary,
+        "summary": summary,
+        "final_authority_role": "controller",
+        "handoff_reason": "controller_final_decision",
+        "instructions": "Persist controller decision and continue only when the controller explicitly allows advancement.",
+        "next_role_decision": "controller" if action != "advance" else "controller",
+    }

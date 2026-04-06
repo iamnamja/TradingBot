@@ -161,3 +161,24 @@ Merge-posture failures must map through one canonical decision surface:
 - `failed_merge`
 - `failed_checks`
 - `failed_reset`
+
+
+## Sequential multi-agent loop posture
+
+Task 091 adds the first canonical builder/verifier/controller loop on top of the existing controller surfaces.
+
+Current conservative posture:
+
+1. controller chooses builder
+2. builder produces a machine-readable patch/result bundle
+3. controller chooses verifier
+4. verifier produces a distinct machine-readable evidence bundle
+5. controller remains the only authority that may accept, repair, stop, or advance
+
+Guardrails:
+
+- role execution remains strictly sequential
+- verifier evidence must stay distinct from builder output
+- passing verifier evidence does not auto-advance by itself
+- controller decision remains explicit and machine-readable
+- acceptance and merge/reset truth rules from earlier controller tranches remain in force

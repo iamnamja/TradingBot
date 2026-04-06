@@ -31,7 +31,7 @@ Recent tranche highlights include:
 ## Current state
 
 
-- **Task 090 foundation in progress:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`) and persisted role handoff truth, but it still does not claim a broad multi-agent execution loop until Tasks 091+ land.
+- **Tasks 090–091 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, and a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority.
 
 The orchestrator now has an explicit per-task sequential controller loop that:
 
@@ -84,7 +84,7 @@ The next tranche should shift from controller-contract hardening to multi-agent 
 Planned focus areas are:
 
 - canonical builder/verifier/controller role contract and handoff truth
-- sequential multi-agent execution loop with controller-owned role selection
+- sequential multi-agent execution loop with controller-owned role selection and distinct builder/verifier/controller evidence bundles
 - CI-required checks as first-class verification authority
 - repair-strategy routing instead of one generic remediation surface
 - reusable project/workspace bootstrap and validation contracts

@@ -160,3 +160,24 @@ def read_failure_journal(journal_path: Path | str | None = None) -> List[Dict[st
             continue
         rows.append(json.loads(line))
     return rows
+
+
+
+def build_multi_agent_failure_context(
+    *,
+    task_path: str,
+    role_trace: list[str] | tuple[str, ...],
+    builder_artifact: Dict[str, Any] | dict[str, Any],
+    verifier_artifact: Dict[str, Any] | dict[str, Any],
+    controller_decision: Dict[str, Any] | dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "task_path": str(task_path),
+        "role_trace": list(role_trace),
+        "builder_summary": str((builder_artifact or {}).get("summary") or ""),
+        "verifier_summary": str((verifier_artifact or {}).get("summary") or ""),
+        "controller_summary": str((controller_decision or {}).get("summary") or ""),
+        "verifier_verdict": str((verifier_artifact or {}).get("verdict") or "not_run"),
+        "controller_action": str((controller_decision or {}).get("action") or ""),
+        "final_authority_role": str((controller_decision or {}).get("final_authority_role") or "controller"),
+    }

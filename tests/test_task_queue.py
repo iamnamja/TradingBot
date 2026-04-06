@@ -30,6 +30,15 @@ def _controller_contract_module():
     return importlib.import_module("agents.lib.controller_contract")
 
 
+
+
+def _multi_agent_loop_module():
+    root = Path(__file__).resolve().parents[1]
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    return importlib.import_module("agents.lib.multi_agent_loop")
+
 def _batch_executor_module():
     root = Path(__file__).resolve().parents[1]
     root_str = str(root)
@@ -698,3 +707,36 @@ def test_hardened_short_manifest_proof_stops_on_failed_merge_then_resumes_honest
     assert resumed_state.batch_status == "completed"
     assert executed == ["tasks/001.md", "tasks/002.md", "tasks/002.md", "tasks/003.md"]
     assert [outcome["task_path"] for outcome in resumed_outcomes] == ["tasks/002.md", "tasks/003.md"]
+
+
+def test_multi_agent_loop_role_trace_and_controller_authority_are_canonical() -> None:
+    loop = _multi_agent_loop_module()
+
+    def builder_step(_role_state):
+        return {"changed_files": ["agents/run_task.py"], "summary": "builder patch ready"}
+
+    def verifier_step(_builder_artifact, _role_state):
+        return {
+            "validator_ok": True,
+            "validator_note": "validation passed",
+            "focused_results": ["tests/test_run_task_runtime_foundations.py"],
+            "full_results": ["pytest -q"],
+            "acceptance_report": {
+                "acceptance_decision": "accepted",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+                "note": "accepted",
+            },
+        }
+
+    loop_result = loop.execute_multi_agent_loop(
+        task_path="tasks/091_orchestrator_builder_verifier_controller_loop.md",
+        builder_step=builder_step,
+        verifier_step=verifier_step,
+    )
+
+    assert loop_result["role_trace"] == ["controller", "builder", "controller", "verifier", "controller"]
+    assert loop_result["builder_artifact"]["artifact_kind"] == "builder_patch_attempt"
+    assert loop_result["verifier_artifact"]["artifact_kind"] == "verifier_evidence_bundle"
+    assert loop_result["controller_decision"]["final_authority_role"] == "controller"
+    assert loop_result["controller_decision"]["action"] == "advance"
