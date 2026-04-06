@@ -30,6 +30,9 @@ Recent tranche highlights include:
 
 ## Current state
 
+
+- **Task 090 foundation in progress:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`) and persisted role handoff truth, but it still does not claim a broad multi-agent execution loop until Tasks 091+ land.
+
 The orchestrator now has an explicit per-task sequential controller loop that:
 
 1. runs task execution

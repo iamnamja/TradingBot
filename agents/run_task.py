@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Mapping, Sequence
 
 FILE_BUNDLE_BEGIN = "BEGIN_FILE_BUNDLE"
 FILE_BUNDLE_END = "END_FILE_BUNDLE"
@@ -556,6 +556,40 @@ def strict_validation_profile(strict_check_result: Dict[str, object] | None) -> 
     from agents.lib.controller_strict_mode import strict_validation_profile as _impl  # type: ignore
 
     return dict(_impl(strict_check_result))
+
+
+
+def multi_agent_contract_snapshot() -> Dict[str, object]:
+    from agents.lib.multi_agent_contract import multi_agent_contract_snapshot as _impl  # type: ignore
+
+    return dict(_impl())
+
+
+def canonical_role_handoff_state(
+    payload: Mapping[str, object] | None = None,
+    **overrides: object,
+) -> Dict[str, object]:
+    from agents.lib.multi_agent_contract import canonical_role_handoff_state as _impl  # type: ignore
+
+    return dict(_impl(payload, **overrides))
+
+
+def resume_role_handoff_state(payload: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.lib.multi_agent_contract import resume_role_handoff_state as _impl  # type: ignore
+
+    return dict(_impl(payload))
+
+
+def controller_decides_next_role(*, current_role: str, proposed_next_role: str, proposed_by_role: str) -> str:
+    from agents.lib.multi_agent_contract import controller_decides_next_role as _impl  # type: ignore
+
+    return str(_impl(current_role=current_role, proposed_next_role=proposed_next_role, proposed_by_role=proposed_by_role))
+
+
+def multi_agent_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
+    from agents.lib.task_contracts import multi_agent_task_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths))
 
 
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:

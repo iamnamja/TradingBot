@@ -77,6 +77,16 @@ CHECKPOINT_TRUTH_FIELDS: tuple[str, ...] = (
     "required_checks_passed",
     "merged_to_main",
     "clean_main_reset_completed",
+    "active_role",
+    "prior_role",
+    "role_attempt_count",
+    "handoff_reason",
+    "handoff_summary",
+    "handoff_instructions",
+    "role_output_summary",
+    "verifier_verdict",
+    "controller_next_role_decision",
+    "role_outcome",
 )
 RESUME_METADATA_FIELDS: tuple[str, ...] = (
     "resume_reason",
@@ -94,6 +104,7 @@ CONTROLLER_STRICT_MODE_PATHS: tuple[str, ...] = (
     "agents/lib/final_acceptance.py",
     "agents/lib/failure_journal.py",
     "agents/lib/git_workflow.py",
+    "agents/lib/multi_agent_contract.py",
 )
 CONTROLLER_PROOF_TEST_PATHS: tuple[str, ...] = (
     "tests/test_controller_contract.py",
@@ -110,6 +121,7 @@ CONTROLLER_FAMILY_FILES: tuple[str, ...] = (
     "agents/lib/task_queue.py",
     "agents/lib/git_workflow.py",
     "agents/lib/failure_journal.py",
+    "agents/lib/multi_agent_contract.py",
 )
 CONTROLLER_FAILURE_DIGEST_FIELDS: tuple[str, ...] = (
     "failure_kind",
@@ -141,6 +153,11 @@ CONTROLLER_RUNTIME_DELEGATE_SURFACES: tuple[str, ...] = (
     "format_controller_strict_preapply_issues",
     "run_controller_strict_checks",
     "strict_validation_profile",
+    "multi_agent_contract_snapshot",
+    "canonical_role_handoff_state",
+    "resume_role_handoff_state",
+    "controller_decides_next_role",
+    "multi_agent_task_context",
 )
 
 _TERMINAL_FROM_ACCEPTANCE: dict[AcceptanceDecision, QueueTerminalStatus] = {

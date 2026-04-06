@@ -16,6 +16,7 @@ from agents.lib.controller_contract import (
     checkpoint_allows_resume_after_merge,
     checkpoint_requires_manual_resolution,
 )
+from agents.lib.multi_agent_contract import canonical_role_handoff_state, resume_role_handoff_state
 from agents.lib.task_queue import QueueStatus, TaskQueueItem, validate_queue_status_transition
 
 CheckpointTransition = Literal[
@@ -52,6 +53,16 @@ class BatchTaskCheckpoint:
     required_checks_passed: bool = False
     merged_to_main: bool = False
     clean_main_reset_completed: bool = False
+    active_role: str = "controller"
+    prior_role: str = ""
+    role_attempt_count: int = 0
+    handoff_reason: str = ""
+    handoff_summary: str = ""
+    handoff_instructions: str = ""
+    role_output_summary: str = ""
+    verifier_verdict: str = "not_run"
+    controller_next_role_decision: str = "builder"
+    role_outcome: str = "not_run"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -73,6 +84,16 @@ class BatchTaskCheckpoint:
             "required_checks_passed": self.required_checks_passed,
             "merged_to_main": self.merged_to_main,
             "clean_main_reset_completed": self.clean_main_reset_completed,
+            "active_role": self.active_role,
+            "prior_role": self.prior_role,
+            "role_attempt_count": self.role_attempt_count,
+            "handoff_reason": self.handoff_reason,
+            "handoff_summary": self.handoff_summary,
+            "handoff_instructions": self.handoff_instructions,
+            "role_output_summary": self.role_output_summary,
+            "verifier_verdict": self.verifier_verdict,
+            "controller_next_role_decision": self.controller_next_role_decision,
+            "role_outcome": self.role_outcome,
         }
 
 
@@ -103,6 +124,16 @@ class BatchState:
     resume_reason: str = ""
     resume_target_task_path: str = ""
     resume_gate: str = ""
+    active_role: str = "controller"
+    prior_role: str = ""
+    role_attempt_count: int = 0
+    handoff_reason: str = ""
+    handoff_summary: str = ""
+    handoff_instructions: str = ""
+    role_output_summary: str = ""
+    verifier_verdict: str = "not_run"
+    controller_next_role_decision: str = "builder"
+    role_outcome: str = "not_run"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -133,6 +164,16 @@ class BatchState:
             "resume_reason": self.resume_reason,
             "resume_target_task_path": self.resume_target_task_path,
             "resume_gate": self.resume_gate,
+            "active_role": self.active_role,
+            "prior_role": self.prior_role,
+            "role_attempt_count": self.role_attempt_count,
+            "handoff_reason": self.handoff_reason,
+            "handoff_summary": self.handoff_summary,
+            "handoff_instructions": self.handoff_instructions,
+            "role_output_summary": self.role_output_summary,
+            "verifier_verdict": self.verifier_verdict,
+            "controller_next_role_decision": self.controller_next_role_decision,
+            "role_outcome": self.role_outcome,
         }
 
 
@@ -185,6 +226,13 @@ def initialize_batch_state(
         )
         for item in queue
     )
+    handoff = canonical_role_handoff_state(
+        active_role="controller",
+        handoff_reason="initial_controller_entry",
+        handoff_summary="Controller owns the next-role decision until a specialized role is chosen.",
+        controller_next_role_decision="builder",
+        role_outcome="controller_routed",
+    )
     return BatchState(
         manifest_source=manifest_source,
         manifest_fingerprint=manifest_fingerprint(manifest),
@@ -198,6 +246,16 @@ def initialize_batch_state(
         batch_status="active",
         next_task_may_proceed=True,
         post_task_decision="continue",
+        active_role=str(handoff["active_role"]),
+        prior_role=str(handoff["prior_role"]),
+        role_attempt_count=int(handoff["role_attempt_count"]),
+        handoff_reason=str(handoff["handoff_reason"]),
+        handoff_summary=str(handoff["handoff_summary"]),
+        handoff_instructions=str(handoff["handoff_instructions"]),
+        role_output_summary=str(handoff["role_output_summary"]),
+        verifier_verdict=str(handoff["verifier_verdict"]),
+        controller_next_role_decision=str(handoff["controller_next_role_decision"]),
+        role_outcome=str(handoff["role_outcome"]),
     )
 
 
@@ -257,6 +315,16 @@ def apply_task_result(
     required_checks_passed: bool | None = None,
     merged_to_main: bool | None = None,
     clean_main_reset_completed: bool | None = None,
+    active_role: str | None = None,
+    prior_role: str | None = None,
+    role_attempt_count: int | None = None,
+    handoff_reason: str | None = None,
+    handoff_summary: str | None = None,
+    handoff_instructions: str | None = None,
+    role_output_summary: str | None = None,
+    verifier_verdict: str | None = None,
+    controller_next_role_decision: str | None = None,
+    role_outcome: str | None = None,
 ) -> BatchState:
     if updated_ts is None:
         updated_ts = state.updated_ts + 1
@@ -302,6 +370,21 @@ def apply_task_result(
         clean_main_reset_completed=clean_main_reset_completed,
     )
 
+    role_state = canonical_role_handoff_state(
+        active_role=active_role if active_role is not None else state.active_role,
+        prior_role=prior_role if prior_role is not None else state.prior_role,
+        role_attempt_count=role_attempt_count if role_attempt_count is not None else state.role_attempt_count,
+        handoff_reason=handoff_reason if handoff_reason is not None else state.handoff_reason,
+        handoff_summary=handoff_summary if handoff_summary is not None else state.handoff_summary,
+        handoff_instructions=handoff_instructions if handoff_instructions is not None else state.handoff_instructions,
+        role_output_summary=role_output_summary if role_output_summary is not None else state.role_output_summary,
+        verifier_verdict=verifier_verdict if verifier_verdict is not None else state.verifier_verdict,
+        controller_next_role_decision=(
+            controller_next_role_decision if controller_next_role_decision is not None else state.controller_next_role_decision
+        ),
+        role_outcome=role_outcome if role_outcome is not None else state.role_outcome,
+    )
+
     checkpoint = BatchTaskCheckpoint(
         task_path=current.task_path,
         ordinal=current.ordinal,
@@ -321,6 +404,16 @@ def apply_task_result(
         required_checks_passed=merge_truth["required_checks_passed"],
         merged_to_main=merge_truth["merged_to_main"],
         clean_main_reset_completed=merge_truth["clean_main_reset_completed"],
+        active_role=str(role_state["active_role"]),
+        prior_role=str(role_state["prior_role"]),
+        role_attempt_count=int(role_state["role_attempt_count"]),
+        handoff_reason=str(role_state["handoff_reason"]),
+        handoff_summary=str(role_state["handoff_summary"]),
+        handoff_instructions=str(role_state["handoff_instructions"]),
+        role_output_summary=str(role_state["role_output_summary"]),
+        verifier_verdict=str(role_state["verifier_verdict"]),
+        controller_next_role_decision=str(role_state["controller_next_role_decision"]),
+        role_outcome=str(role_state["role_outcome"]),
     )
 
     batch_status = batch_status_for_post_task_decision(
@@ -335,6 +428,16 @@ def apply_task_result(
         post_task_decision=post_task_decision,
         batch_status=batch_status,
         updated_ts=updated_ts,
+        active_role=str(role_state["active_role"]),
+        prior_role=str(role_state["prior_role"]),
+        role_attempt_count=int(role_state["role_attempt_count"]),
+        handoff_reason=str(role_state["handoff_reason"]),
+        handoff_summary=str(role_state["handoff_summary"]),
+        handoff_instructions=str(role_state["handoff_instructions"]),
+        role_output_summary=str(role_state["role_output_summary"]),
+        verifier_verdict=str(role_state["verifier_verdict"]),
+        controller_next_role_decision=str(role_state["controller_next_role_decision"]),
+        role_outcome=str(role_state["role_outcome"]),
     )
 
 
@@ -379,6 +482,31 @@ def _resume_after_merge_rewind_index(state: BatchState) -> int | None:
 
 
 
+def current_role_handoff_state(state: BatchState) -> dict[str, object]:
+    return canonical_role_handoff_state(
+        active_role=state.active_role,
+        prior_role=state.prior_role,
+        role_attempt_count=state.role_attempt_count,
+        handoff_reason=state.handoff_reason,
+        handoff_summary=state.handoff_summary,
+        handoff_instructions=state.handoff_instructions,
+        role_output_summary=state.role_output_summary,
+        verifier_verdict=state.verifier_verdict,
+        controller_next_role_decision=state.controller_next_role_decision,
+        role_outcome=state.role_outcome,
+    )
+
+
+def resume_role_handoff_state_for_batch(state: BatchState, *, task_path: str | None = None) -> dict[str, object]:
+    payload: dict[str, object] = current_role_handoff_state(state)
+    target = str(task_path or state.resume_target_task_path or "")
+    if target:
+        checkpoint = last_checkpoint_for_task(state, target)
+        if checkpoint is not None:
+            payload = checkpoint.to_dict()
+    return resume_role_handoff_state(payload)
+
+
 def mark_resume_plan(
     state: BatchState,
     *,
@@ -408,6 +536,7 @@ def mark_resume_plan(
         if resolved_index is not None:
             next_index = resolved_index
             queue_state = _reset_queue_for_resume(queue_state, from_index=resolved_index, status_note="resume_after_manual_resolution")
+    resumed_role = resume_role_handoff_state_for_batch(state, task_path=metadata["resume_target_task_path"] or None)
     return replace(
         state,
         queue=queue_state,
@@ -416,6 +545,16 @@ def mark_resume_plan(
         resume_target_task_path=metadata["resume_target_task_path"],
         resume_gate=metadata["resume_gate"],
         updated_ts=updated_ts,
+        active_role=str(resumed_role["active_role"]),
+        prior_role=str(resumed_role["prior_role"]),
+        role_attempt_count=int(resumed_role["role_attempt_count"]),
+        handoff_reason=str(resumed_role["handoff_reason"]),
+        handoff_summary=str(resumed_role["handoff_summary"]),
+        handoff_instructions=str(resumed_role["handoff_instructions"]),
+        role_output_summary=str(resumed_role["role_output_summary"]),
+        verifier_verdict=str(resumed_role["verifier_verdict"]),
+        controller_next_role_decision=str(resumed_role["controller_next_role_decision"]),
+        role_outcome=str(resumed_role["role_outcome"]),
     )
 
 

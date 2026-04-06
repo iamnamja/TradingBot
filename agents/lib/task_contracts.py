@@ -342,3 +342,25 @@ def committed_state_parity_issues(
         )
 
     return issues
+
+
+
+def multi_agent_task_context(
+    required_paths: Sequence[str] | None,
+    *,
+    controller_paths: Sequence[str] | None = None,
+) -> dict[str, object]:
+    from agents.lib.multi_agent_contract import ALLOWED_ROLE_HANDOFFS, AGENT_ROLES, SPECIALIST_ROLES
+
+    controller_context = controller_core_task_context(required_paths, controller_paths=controller_paths)
+    return {
+        **controller_context,
+        "multi_agent_enabled": True,
+        "sequential_role_execution_only": True,
+        "controller_authority_over_next_role": True,
+        "roles": list(AGENT_ROLES),
+        "specialist_roles": list(SPECIALIST_ROLES),
+        "allowed_handoffs": {role: list(targets) for role, targets in ALLOWED_ROLE_HANDOFFS.items()},
+        "active_role": "controller",
+        "suggested_first_specialist_role": "builder",
+    }
