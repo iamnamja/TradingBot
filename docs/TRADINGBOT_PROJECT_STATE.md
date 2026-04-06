@@ -31,7 +31,7 @@ Recent tranche highlights include:
 ## Current state
 
 
-- **Tasks 090–094 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, explicit verification-authority truth for GitHub-required CI checks, and a reusable Python-first project/workspace adapter contract for bootstrap and validation outside the current repo shape.
+- **Tasks 090–095 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, explicit verification-authority truth for GitHub-required CI checks, a reusable Python-first project/workspace adapter contract for bootstrap and validation outside the current repo shape, and a dependency-aware manifest planner that can distinguish ready, blocked, deferred, skipped-by-policy, and rerun-required work.
 
 The orchestrator now has an explicit per-task sequential controller loop that:
 
@@ -150,3 +150,6 @@ For all contributor and automation references, the canonical visible order is:
 1. `tasks/README.md`
 2. task markdown files under `tasks/` by exact numeric/alphanumeric filename
 3. supporting roadmap docs in `docs/`
+
+
+The manifest planner remains conservative: it may select a later safe-ready task only when earlier blockers are explicitly marked deferrable, and it persists planner truth (ready, blocked, deferred, skipped, rerun-required, blocking reasons, and selected task) so resume behavior stays deterministic rather than recomputing hidden scheduling guesses.

@@ -35,6 +35,7 @@ The repo now has:
 - controller-core semantic repair digest/context
 - controller strict mode with focused proof tests before full validation
 - deterministic local proof of a hardened short ordinary-manifest autonomous progression slice
+- dependency-aware manifest planning with explicit blocked/deferred/skipped/rerun-required truth
 
 That proof is intentionally narrow and currently demonstrates:
 
@@ -164,3 +165,16 @@ The product still needs future work before any broader autonomy claim would be h
 - larger manifests and more diverse task shapes
 - wider unattended operational environments beyond the deterministic local proof harness
 - portability beyond Python-first project shapes
+
+
+## Dependency-aware manifest planner
+
+The queue surface now needs to express dependency truth explicitly rather than treating every manifest as a fixed total order. The planner remains intentionally conservative:
+
+- `depends_on` expresses prerequisites that must be completed before a task becomes ready
+- `blocks` expresses tasks that are held back until the current task is completed
+- `deferrable` allows the planner to choose a later ready task without violating dependency truth
+- `skipped_by_policy` marks tasks that should remain visible but not scheduled
+- `rerun_required` marks tasks whose prerequisite changes require a fresh pass
+
+Planner decisions must be explicit and persisted. Resume should reconstruct the same planner truth instead of silently inventing a different order.

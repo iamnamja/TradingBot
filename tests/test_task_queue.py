@@ -740,3 +740,120 @@ def test_multi_agent_loop_role_trace_and_controller_authority_are_canonical() ->
     assert loop_result["verifier_artifact"]["artifact_kind"] == "verifier_evidence_bundle"
     assert loop_result["controller_decision"]["final_authority_role"] == "controller"
     assert loop_result["controller_decision"]["action"] == "advance"
+
+
+def test_dependency_aware_manifest_identifies_ready_vs_blocked_tasks(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+
+    _write_task(tmp_path / 'tasks' / '001.md')
+    _write_task(tmp_path / 'tasks' / '002.md')
+    _write_task(tmp_path / 'tasks' / '003.md')
+    manifest = {
+        'tasks': [
+            {'path': 'tasks/001.md', 'depends_on': ['tasks/002.md'], 'deferrable': True},
+            'tasks/002.md',
+            {'path': 'tasks/003.md', 'skipped_by_policy': True},
+        ]
+    }
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    truth = tq.plan_manifest_progress(queue)
+
+    assert truth['ready_task_paths'] == ['tasks/002.md']
+    assert truth['blocked_task_paths'] == ['tasks/001.md']
+    assert truth['deferred_task_paths'] == ['tasks/001.md']
+    assert truth['skipped_task_paths'] == ['tasks/003.md']
+    assert truth['selected_task_path'] == 'tasks/002.md'
+    assert truth['reordered'] is True
+    assert truth['blocking_reasons']['tasks/001.md'].startswith('missing_prerequisites:')
+
+
+
+def test_non_deferrable_blocker_prevents_reordering(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+
+    _write_task(tmp_path / 'tasks' / '001.md')
+    _write_task(tmp_path / 'tasks' / '002.md')
+    manifest = {
+        'tasks': [
+            {'path': 'tasks/001.md', 'depends_on': ['tasks/002.md']},
+            'tasks/002.md',
+        ]
+    }
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    truth = tq.plan_manifest_progress(queue)
+
+    assert truth['blocked_task_paths'] == ['tasks/001.md']
+    assert truth['selected_task_path'] == ''
+    assert truth['reordered'] is False
+
+
+
+def test_completed_prerequisite_unblocks_deferred_task_without_corrupting_queue_truth(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    bs = _batch_state_module()
+
+    _write_task(tmp_path / 'tasks' / '001.md')
+    _write_task(tmp_path / 'tasks' / '002.md')
+    manifest = {
+        'tasks': [
+            {'path': 'tasks/001.md', 'depends_on': ['tasks/002.md'], 'deferrable': True},
+            'tasks/002.md',
+        ]
+    }
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = bs.initialize_batch_state(manifest=manifest, queue=queue, manifest_source='tasks/manifest.json', created_ts=1)
+
+    assert state.planner_selected_task_path == 'tasks/002.md'
+    assert state.planner_blocked_task_paths == ('tasks/001.md',)
+
+    state = bs.apply_task_result(
+        state,
+        task_path='tasks/002.md',
+        terminal_status='completed',
+        post_task_decision='continue',
+        note='done',
+        next_task_may_proceed=True,
+    )
+
+    assert state.planner_selected_task_path == 'tasks/001.md'
+    assert state.planner_blocked_task_paths == ()
+    assert state.queue[0].task_path == 'tasks/001.md'
+    assert state.queue[1].status == 'completed'
+
+
+
+def test_resume_reconstructs_dependency_planner_truth_deterministically(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    bs = _batch_state_module()
+
+    _write_task(tmp_path / 'tasks' / '001.md')
+    _write_task(tmp_path / 'tasks' / '002.md')
+    manifest = {
+        'tasks': [
+            {'path': 'tasks/001.md', 'depends_on': ['tasks/002.md'], 'deferrable': True},
+            'tasks/002.md',
+        ]
+    }
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = bs.initialize_batch_state(manifest=manifest, queue=queue, manifest_source='tasks/manifest.json', created_ts=1)
+    state = bs.apply_task_result(
+        state,
+        task_path='tasks/002.md',
+        terminal_status='completed',
+        post_task_decision='continue',
+        note='done',
+        next_task_may_proceed=True,
+    )
+
+    resumed = bs.mark_resume_plan(
+        state,
+        queue=queue,
+        resume_mode='resume_after_merge',
+        resume_target_task_path='tasks/001.md',
+        explicit_resume=False,
+        updated_ts=2,
+    )
+
+    assert resumed.planner_selected_task_path == state.planner_selected_task_path
+    assert resumed.planner_ready_task_paths == state.planner_ready_task_paths
+    assert resumed.planner_blocking_reasons == state.planner_blocking_reasons

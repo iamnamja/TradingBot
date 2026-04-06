@@ -18,6 +18,7 @@ from agents.lib.controller_contract import (
 )
 from agents.lib.git_workflow import canonical_required_check_truth
 from agents.lib.multi_agent_contract import canonical_role_handoff_state, resume_role_handoff_state
+from agents.lib.manifest_planner import plan_manifest_progress
 from agents.lib.task_queue import QueueStatus, TaskQueueItem, validate_queue_status_transition
 
 CheckpointTransition = Literal[
@@ -73,6 +74,14 @@ class BatchTaskCheckpoint:
     verifier_verdict: str = "not_run"
     controller_next_role_decision: str = "builder"
     role_outcome: str = "not_run"
+    planner_selected_task_path: str = ""
+    planner_reordered: bool = False
+    planner_ready_task_paths: tuple[str, ...] = ()
+    planner_blocked_task_paths: tuple[str, ...] = ()
+    planner_deferred_task_paths: tuple[str, ...] = ()
+    planner_skipped_task_paths: tuple[str, ...] = ()
+    planner_rerun_required_task_paths: tuple[str, ...] = ()
+    planner_blocking_reasons: tuple[tuple[str, str], ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -113,6 +122,14 @@ class BatchTaskCheckpoint:
             "verifier_verdict": self.verifier_verdict,
             "controller_next_role_decision": self.controller_next_role_decision,
             "role_outcome": self.role_outcome,
+            "planner_selected_task_path": self.planner_selected_task_path,
+            "planner_reordered": self.planner_reordered,
+            "planner_ready_task_paths": list(self.planner_ready_task_paths),
+            "planner_blocked_task_paths": list(self.planner_blocked_task_paths),
+            "planner_deferred_task_paths": list(self.planner_deferred_task_paths),
+            "planner_skipped_task_paths": list(self.planner_skipped_task_paths),
+            "planner_rerun_required_task_paths": list(self.planner_rerun_required_task_paths),
+            "planner_blocking_reasons": {task_path: reason for task_path, reason in self.planner_blocking_reasons},
         }
 
 
@@ -124,6 +141,11 @@ class BatchTaskState:
     status_note: str
     attempts: int
     updated_seq: int
+    depends_on: tuple[str, ...] = ()
+    blocks: tuple[str, ...] = ()
+    deferrable: bool = False
+    skipped_by_policy: bool = False
+    rerun_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -162,6 +184,14 @@ class BatchState:
     verifier_verdict: str = "not_run"
     controller_next_role_decision: str = "builder"
     role_outcome: str = "not_run"
+    planner_selected_task_path: str = ""
+    planner_reordered: bool = False
+    planner_ready_task_paths: tuple[str, ...] = ()
+    planner_blocked_task_paths: tuple[str, ...] = ()
+    planner_deferred_task_paths: tuple[str, ...] = ()
+    planner_skipped_task_paths: tuple[str, ...] = ()
+    planner_rerun_required_task_paths: tuple[str, ...] = ()
+    planner_blocking_reasons: tuple[tuple[str, str], ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -178,6 +208,11 @@ class BatchState:
                     "status_note": item.status_note,
                     "attempts": item.attempts,
                     "updated_seq": item.updated_seq,
+                    "depends_on": list(item.depends_on),
+                    "blocks": list(item.blocks),
+                    "deferrable": item.deferrable,
+                    "skipped_by_policy": item.skipped_by_policy,
+                    "rerun_required": item.rerun_required,
                 }
                 for item in self.queue
             ],
@@ -211,6 +246,14 @@ class BatchState:
             "verifier_verdict": self.verifier_verdict,
             "controller_next_role_decision": self.controller_next_role_decision,
             "role_outcome": self.role_outcome,
+            "planner_selected_task_path": self.planner_selected_task_path,
+            "planner_reordered": self.planner_reordered,
+            "planner_ready_task_paths": list(self.planner_ready_task_paths),
+            "planner_blocked_task_paths": list(self.planner_blocked_task_paths),
+            "planner_deferred_task_paths": list(self.planner_deferred_task_paths),
+            "planner_skipped_task_paths": list(self.planner_skipped_task_paths),
+            "planner_rerun_required_task_paths": list(self.planner_rerun_required_task_paths),
+            "planner_blocking_reasons": {task_path: reason for task_path, reason in self.planner_blocking_reasons},
         }
 
 
@@ -227,6 +270,27 @@ def last_checkpoint_for_task(state: BatchState, task_path: str) -> BatchTaskChec
             return checkpoint
     return None
 
+
+
+def _queue_items_for_planner(queue_state: tuple[BatchTaskState, ...]) -> list[TaskQueueItem]:
+    return [
+        TaskQueueItem(
+            task_path=item.task_path,
+            ordinal=item.ordinal,
+            status=item.status,
+            status_note=item.status_note,
+            depends_on=item.depends_on,
+            blocks=item.blocks,
+            deferrable=item.deferrable,
+            skipped_by_policy=item.skipped_by_policy,
+            rerun_required=item.rerun_required,
+        )
+        for item in queue_state
+    ]
+
+
+def _planner_truth_from_queue(queue_state: tuple[BatchTaskState, ...]) -> dict[str, object]:
+    return dict(plan_manifest_progress(_queue_items_for_planner(queue_state)))
 
 
 def _derive_batch_status(queue: tuple[BatchTaskState, ...]) -> BatchStatus:
@@ -260,6 +324,11 @@ def initialize_batch_state(
             status_note="",
             attempts=0,
             updated_seq=0,
+            depends_on=item.depends_on,
+            blocks=item.blocks,
+            deferrable=item.deferrable,
+            skipped_by_policy=item.skipped_by_policy,
+            rerun_required=item.rerun_required,
         )
         for item in queue
     )
@@ -270,6 +339,7 @@ def initialize_batch_state(
         controller_next_role_decision="builder",
         role_outcome="controller_routed",
     )
+    planner = _planner_truth_from_queue(queue_state)
     return BatchState(
         manifest_source=manifest_source,
         manifest_fingerprint=manifest_fingerprint(manifest),
@@ -302,6 +372,14 @@ def initialize_batch_state(
         verifier_verdict=str(handoff["verifier_verdict"]),
         controller_next_role_decision=str(handoff["controller_next_role_decision"]),
         role_outcome=str(handoff["role_outcome"]),
+        planner_selected_task_path=str(planner["selected_task_path"]),
+        planner_reordered=bool(planner["reordered"]),
+        planner_ready_task_paths=tuple(str(p) for p in planner["ready_task_paths"]),
+        planner_blocked_task_paths=tuple(str(p) for p in planner["blocked_task_paths"]),
+        planner_deferred_task_paths=tuple(str(p) for p in planner["deferred_task_paths"]),
+        planner_skipped_task_paths=tuple(str(p) for p in planner["skipped_task_paths"]),
+        planner_rerun_required_task_paths=tuple(str(p) for p in planner["rerun_required_task_paths"]),
+        planner_blocking_reasons=tuple(sorted((str(k), str(v)) for k, v in dict(planner["blocking_reasons"]).items())),
     )
 
 
@@ -333,6 +411,7 @@ def advance_task_status(
     if to_status in {"completed", "failed", "manual_patch", "blocked"} and task_index >= next_index:
         next_index = task_index + 1
 
+    planner = _planner_truth_from_queue(queue_state)
     return replace(
         state,
         queue=queue_state,
@@ -340,6 +419,14 @@ def advance_task_status(
         event_seq=new_seq,
         updated_ts=event_ts or state.updated_ts,
         batch_status=_derive_batch_status(queue_state),
+        planner_selected_task_path=str(planner["selected_task_path"]),
+        planner_reordered=bool(planner["reordered"]),
+        planner_ready_task_paths=tuple(str(p) for p in planner["ready_task_paths"]),
+        planner_blocked_task_paths=tuple(str(p) for p in planner["blocked_task_paths"]),
+        planner_deferred_task_paths=tuple(str(p) for p in planner["deferred_task_paths"]),
+        planner_skipped_task_paths=tuple(str(p) for p in planner["skipped_task_paths"]),
+        planner_rerun_required_task_paths=tuple(str(p) for p in planner["rerun_required_task_paths"]),
+        planner_blocking_reasons=tuple(sorted((str(k), str(v)) for k, v in dict(planner["blocking_reasons"]).items())),
     )
 
 
@@ -448,6 +535,8 @@ def apply_task_result(
         role_outcome=role_outcome if role_outcome is not None else state.role_outcome,
     )
 
+    planner = _planner_truth_from_queue(state.queue)
+
     checkpoint = BatchTaskCheckpoint(
         task_path=current.task_path,
         ordinal=current.ordinal,
@@ -486,6 +575,14 @@ def apply_task_result(
         verifier_verdict=str(role_state["verifier_verdict"]),
         controller_next_role_decision=str(role_state["controller_next_role_decision"]),
         role_outcome=str(role_state["role_outcome"]),
+        planner_selected_task_path=str(planner["selected_task_path"]),
+        planner_reordered=bool(planner["reordered"]),
+        planner_ready_task_paths=tuple(str(p) for p in planner["ready_task_paths"]),
+        planner_blocked_task_paths=tuple(str(p) for p in planner["blocked_task_paths"]),
+        planner_deferred_task_paths=tuple(str(p) for p in planner["deferred_task_paths"]),
+        planner_skipped_task_paths=tuple(str(p) for p in planner["skipped_task_paths"]),
+        planner_rerun_required_task_paths=tuple(str(p) for p in planner["rerun_required_task_paths"]),
+        planner_blocking_reasons=tuple(sorted((str(k), str(v)) for k, v in dict(planner["blocking_reasons"]).items())),
     )
 
     batch_status = batch_status_for_post_task_decision(
@@ -519,6 +616,14 @@ def apply_task_result(
         verifier_verdict=str(role_state["verifier_verdict"]),
         controller_next_role_decision=str(role_state["controller_next_role_decision"]),
         role_outcome=str(role_state["role_outcome"]),
+        planner_selected_task_path=str(planner["selected_task_path"]),
+        planner_reordered=bool(planner["reordered"]),
+        planner_ready_task_paths=tuple(str(p) for p in planner["ready_task_paths"]),
+        planner_blocked_task_paths=tuple(str(p) for p in planner["blocked_task_paths"]),
+        planner_deferred_task_paths=tuple(str(p) for p in planner["deferred_task_paths"]),
+        planner_skipped_task_paths=tuple(str(p) for p in planner["skipped_task_paths"]),
+        planner_rerun_required_task_paths=tuple(str(p) for p in planner["rerun_required_task_paths"]),
+        planner_blocking_reasons=tuple(sorted((str(k), str(v)) for k, v in dict(planner["blocking_reasons"]).items())),
     )
 
 
@@ -635,6 +740,14 @@ def mark_resume_plan(
         required_checks_failed=state.required_checks_failed,
         missing_required_checks_blocks_merge=state.missing_required_checks_blocks_merge,
         verification_authority_satisfied=state.verification_authority_satisfied,
+        planner_selected_task_path=state.planner_selected_task_path,
+        planner_reordered=state.planner_reordered,
+        planner_ready_task_paths=state.planner_ready_task_paths,
+        planner_blocked_task_paths=state.planner_blocked_task_paths,
+        planner_deferred_task_paths=state.planner_deferred_task_paths,
+        planner_skipped_task_paths=state.planner_skipped_task_paths,
+        planner_rerun_required_task_paths=state.planner_rerun_required_task_paths,
+        planner_blocking_reasons=state.planner_blocking_reasons,
         active_role=str(resumed_role["active_role"]),
         prior_role=str(resumed_role["prior_role"]),
         role_attempt_count=int(resumed_role["role_attempt_count"]),
