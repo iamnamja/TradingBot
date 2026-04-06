@@ -31,7 +31,7 @@ Recent tranche highlights include:
 ## Current state
 
 
-- **Tasks 090–092 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, and explicit verification-authority truth for GitHub-required CI checks.
+- **Tasks 090–094 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, explicit verification-authority truth for GitHub-required CI checks, and a reusable Python-first project/workspace adapter contract for bootstrap and validation outside the current repo shape.
 
 The orchestrator now has an explicit per-task sequential controller loop that:
 
@@ -50,6 +50,8 @@ Conservative stop behavior is explicit and tested:
 - PR/CI/merge/reset failure in autonomous merge posture stops honestly and prevents advancement
 
 Accepted tasks continue only when all enabled gates pass.
+
+The new workspace adapter contract keeps TradingBot as one consumer rather than the only implied consumer, and gives the controller explicit bootstrap truth (`not_started`, `succeeded`, `blocked`) so resume behavior can remain honest after setup failures in external Python workspaces.
 
 ## Hardened autonomous short-manifest proof (089)
 

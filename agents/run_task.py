@@ -672,6 +672,47 @@ def execute_multi_agent_loop(
     )
 
 
+def workspace_adapter_snapshot() -> Dict[str, object]:
+    from agents.lib.project_workspace_adapter import workspace_adapter_snapshot as _impl  # type: ignore
+
+    return dict(_impl())
+
+
+def canonical_workspace_contract(
+    payload: Mapping[str, object] | None = None,
+    **overrides: object,
+) -> Dict[str, object]:
+    from agents.lib.project_workspace_adapter import canonical_workspace_contract as _impl  # type: ignore
+
+    return dict(_impl(payload, **overrides))
+
+
+def canonical_workspace_bootstrap_truth(
+    payload: Mapping[str, object] | None = None,
+    **overrides: object,
+) -> Dict[str, object]:
+    from agents.lib.project_workspace_adapter import canonical_workspace_bootstrap_truth as _impl  # type: ignore
+
+    return dict(_impl(payload, **overrides))
+
+
+def evaluate_workspace_bootstrap_result(
+    contract: Mapping[str, object] | None,
+    *,
+    bootstrap_ok: bool,
+    bootstrap_error: str = '',
+) -> Dict[str, object]:
+    from agents.lib.project_workspace_adapter import evaluate_workspace_bootstrap_result as _impl  # type: ignore
+
+    return dict(_impl(contract, bootstrap_ok=bootstrap_ok, bootstrap_error=bootstrap_error))
+
+
+def project_workspace_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
+    from agents.lib.task_contracts import project_workspace_task_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths))
+
+
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
     return build_final_acceptance_failure_feedback(report)
 

@@ -345,6 +345,28 @@ def committed_state_parity_issues(
 
 
 
+
+
+def project_workspace_task_context(
+    required_paths: Sequence[str] | None,
+) -> dict[str, object]:
+    from agents.lib.project_workspace_adapter import workspace_adapter_snapshot
+
+    required = normalize_paths(required_paths)
+    workspace_paths = {
+        'agents/lib/project_workspace_adapter.py',
+        'tests/test_multi_project_adapters.py',
+        'tests/test_project_bootstrap_adapter.py',
+    }
+    touched = [path for path in required if path in workspace_paths]
+    snapshot = workspace_adapter_snapshot()
+    return {
+        'touches_project_workspace_contract': bool(touched),
+        'project_workspace_required_paths': list(touched),
+        'python_first_scope_only': bool(snapshot['python_first_scope_only']),
+        'supported_workspace_consumers': list(snapshot['supported_consumers']),
+    }
+
 def multi_agent_task_context(
     required_paths: Sequence[str] | None,
     *,
