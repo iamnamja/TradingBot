@@ -180,3 +180,44 @@ def multi_agent_contract_snapshot() -> dict[str, object]:
         "controller_authority_over_next_role": True,
         "sequential_role_execution_only": True,
     }
+
+
+CONSUMER_BRIDGE_REQUIRED_FIELDS: tuple[str, ...] = (
+    "workspace_root",
+    "consumer_name",
+    "validation_commands",
+    "acceptance_evidence_commands",
+    "protected_paths",
+)
+CONSUMER_BRIDGE_OPTIONAL_FIELDS: tuple[str, ...] = (
+    "bootstrap_commands",
+    "artifact_output_paths",
+    "merge_policy_constraints",
+    "optional_consumer_policies",
+)
+
+
+def consumer_bridge_requirements() -> dict[str, object]:
+    return {
+        "required_fields": list(CONSUMER_BRIDGE_REQUIRED_FIELDS),
+        "optional_fields": list(CONSUMER_BRIDGE_OPTIONAL_FIELDS),
+        "supported_consumers": ["tradingbot", "generic_python"],
+        "consumer_bridge_is_stable": True,
+        "full_standalone_extraction_completed": False,
+    }
+
+
+def orchestrator_package_boundary_snapshot() -> dict[str, object]:
+    return {
+        "product_name": "orchestrator",
+        "operates_inside_monorepo": True,
+        "full_standalone_extraction_completed": False,
+        "supported_consumers": ["tradingbot", "generic_python"],
+        "public_contract_modules": [
+            "agents.lib.multi_agent_contract",
+            "agents.lib.project_workspace_adapter",
+            "agents.run_task",
+        ],
+        "consumer_bridge": consumer_bridge_requirements(),
+        "role_contract": multi_agent_contract_snapshot(),
+    }
