@@ -367,6 +367,68 @@ def project_workspace_task_context(
         'supported_workspace_consumers': list(snapshot['supported_consumers']),
     }
 
+def task_family_task_context(
+    required_paths: Sequence[str] | None,
+    *,
+    task_file: str = "",
+    controller_paths: Sequence[str] | None = None,
+) -> dict[str, object]:
+    required = normalize_paths(required_paths)
+    controller_context = controller_core_task_context(required, controller_paths=controller_paths)
+    workspace_context = project_workspace_task_context(required)
+    task_file_text = str(task_file or "").lower()
+    doc_like = [path for path in required if path == "README.md" or path.startswith("docs/")]
+    test_like = [path for path in required if path.startswith("tests/")]
+    bootstrap_like = bool(workspace_context["touches_project_workspace_contract"]) or "bootstrap" in task_file_text or "workspace" in task_file_text
+    proof_like = (bool(required) and len(doc_like) == len(required)) or "proof" in task_file_text or "sync" in task_file_text
+    verifier_only = bool(required) and len(test_like) == len(required)
+
+    if bool(controller_context["touches_controller_core"]):
+        family = "strict_manual_controller_core"
+        suggested_role = "manual_patch"
+        lane = "constrained_manual"
+        strict_required = True
+        rationale = "Task touches controller-core surfaces and must remain constrained/manual."
+    elif bootstrap_like:
+        family = "bootstrap_setup"
+        suggested_role = "builder"
+        lane = "bootstrap_setup"
+        strict_required = False
+        rationale = "Task touches project workspace/bootstrap surfaces."
+    elif verifier_only:
+        family = "verifier_first"
+        suggested_role = "verifier"
+        lane = "verifier"
+        strict_required = False
+        rationale = "Task touches verification/test surfaces only."
+    elif proof_like:
+        family = "proof_docs"
+        suggested_role = "builder"
+        lane = "proof_docs"
+        strict_required = True
+        rationale = "Task is documentation/proof shaping work and should stay under proof guardrails."
+    else:
+        family = "builder_first"
+        suggested_role = "builder"
+        lane = "builder"
+        strict_required = False
+        rationale = "Task defaults to builder-first routing."
+
+    return {
+        **controller_context,
+        **workspace_context,
+        "task_family": family,
+        "task_family_rationale": rationale,
+        "suggested_first_specialist_role": suggested_role,
+        "suggested_initial_lane": lane,
+        "strict_mode_required": strict_required,
+        "proof_docs_task": family == "proof_docs",
+        "bootstrap_setup_task": family == "bootstrap_setup",
+        "verifier_first_task": family == "verifier_first",
+        "builder_first_task": family == "builder_first",
+    }
+
+
 def multi_agent_task_context(
     required_paths: Sequence[str] | None,
     *,
@@ -374,9 +436,9 @@ def multi_agent_task_context(
 ) -> dict[str, object]:
     from agents.lib.multi_agent_contract import ALLOWED_ROLE_HANDOFFS, AGENT_ROLES, SPECIALIST_ROLES
 
-    controller_context = controller_core_task_context(required_paths, controller_paths=controller_paths)
+    family_context = task_family_task_context(required_paths, task_file="", controller_paths=controller_paths)
     return {
-        **controller_context,
+        **family_context,
         "multi_agent_enabled": True,
         "sequential_role_execution_only": True,
         "controller_authority_over_next_role": True,

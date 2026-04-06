@@ -617,6 +617,41 @@ def controller_decides_next_role(*, current_role: str, proposed_next_role: str, 
     return str(_impl(current_role=current_role, proposed_next_role=proposed_next_role, proposed_by_role=proposed_by_role))
 
 
+
+def task_family_task_context(required_paths: Sequence[str] | None, *, task_file: str = "") -> Dict[str, object]:
+    from agents.lib.task_contracts import task_family_task_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths, task_file=task_file))
+
+
+def recommend_task_family_route(
+    *,
+    task_context: Mapping[str, object] | None = None,
+    current_role: str = "controller",
+) -> Dict[str, object]:
+    from agents.lib.agent_router import recommend_task_family_route as _impl  # type: ignore
+
+    return dict(_impl(task_context=task_context, current_role=current_role))
+
+
+def controller_selects_route(
+    route: Mapping[str, object] | None,
+    *,
+    current_role: str = "controller",
+    selected_next_role: str | None = None,
+    selected_lane: str | None = None,
+) -> Dict[str, object]:
+    from agents.lib.agent_router import controller_selects_route as _impl  # type: ignore
+
+    return dict(_impl(route, current_role=current_role, selected_next_role=selected_next_role, selected_lane=selected_lane))
+
+
+def format_task_family_route(route: Mapping[str, object] | None) -> str:
+    from agents.lib.agent_router import format_task_family_route as _impl  # type: ignore
+
+    return str(_impl(route))
+
+
 def multi_agent_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
     from agents.lib.task_contracts import multi_agent_task_context as _impl  # type: ignore
 
@@ -658,6 +693,8 @@ def execute_multi_agent_loop(
     verifier_step,
     controller_decide=None,
     initial_role_state: Mapping[str, object] | None = None,
+    required_paths: List[str] | None = None,
+    controller_route_decide=None,
 ) -> Dict[str, object]:
     from agents.lib.multi_agent_loop import execute_multi_agent_loop as _impl  # type: ignore
 
@@ -668,6 +705,8 @@ def execute_multi_agent_loop(
             verifier_step=verifier_step,
             controller_decide=controller_decide,
             initial_role_state=initial_role_state,
+            required_paths=required_paths,
+            controller_route_decide=controller_route_decide,
         )
     )
 
@@ -712,24 +751,6 @@ def project_workspace_task_context(required_paths: Sequence[str] | None) -> Dict
 
     return dict(_impl(required_paths))
 
-
-
-def manifest_planner_snapshot() -> Dict[str, object]:
-    from agents.lib.manifest_planner import manifest_planner_snapshot as _impl  # type: ignore
-
-    return dict(_impl())
-
-
-def plan_manifest_progress(queue: Sequence[object]) -> Dict[str, object]:
-    from agents.lib.task_queue import plan_manifest_progress as _impl  # type: ignore
-
-    return dict(_impl(queue))
-
-
-def choose_next_manifest_task(queue: Sequence[object]) -> str:
-    from agents.lib.task_queue import choose_next_manifest_task as _impl  # type: ignore
-
-    return str(_impl(queue))
 
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
     return build_final_acceptance_failure_feedback(report)
