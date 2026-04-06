@@ -45,6 +45,7 @@ def test_failure_journal_live_seam_exports_are_stable_and_do_not_require_module_
         "build_failure_remediation_plan",
         "autonomy_confidence",
         "continue_autonomously",
+        "choose_repair_strategy",
     }
 
     assert expected_keys.issubset(exports.keys())
@@ -155,3 +156,46 @@ def test_report_failure_appends_journal_rows_with_recommended_and_chosen_paths(m
     assert rows[0]["failure_fingerprint"] == rows[1]["failure_fingerprint"]
     assert rows[0]["retry_count"] == 1
     assert rows[1]["retry_count"] == 2
+
+
+def test_failure_remediation_plan_uses_same_strategy_vocabulary_as_router() -> None:
+    fj = _load_failure_journal_module()
+    router = fj.choose_repair_strategy(kind="tests", message="pytest failure in test_example", category="tests")
+    plan = fj.build_failure_remediation_plan(
+        kind="tests",
+        message="pytest failure in test_example",
+        category="tests",
+        retry_count=1,
+        fingerprint="fp-1",
+        raw_failure_snippet="pytest failure in test_example",
+    )
+
+    assert plan["repair_strategy"] == router["repair_strategy"]
+    assert plan["remediation_lane"] == router["remediation_lane"]
+    assert plan["continue_autonomously"] == router["continue_autonomously"]
+
+
+def test_failure_router_sends_ci_only_failures_to_verifier_lane() -> None:
+    fj = _load_failure_journal_module()
+    route = fj.choose_repair_strategy(
+        kind="ci",
+        message="GitHub Actions required check failed",
+        category="ci_only_failure",
+    )
+
+    assert route["repair_strategy"] == "ci_verification_recheck"
+    assert route["remediation_lane"] == "verifier"
+    assert route["stop_after_failure"] is False
+
+
+def test_failure_router_keeps_environment_failures_manual() -> None:
+    fj = _load_failure_journal_module()
+    route = fj.choose_repair_strategy(
+        kind="environment",
+        message="pip install failed because the toolchain is missing",
+        category="environment_setup_failure",
+    )
+
+    assert route["repair_strategy"] == "environment_setup_triage"
+    assert route["remediation_lane"] == "operator"
+    assert route["stop_after_failure"] is True

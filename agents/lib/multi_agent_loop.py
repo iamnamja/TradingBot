@@ -87,6 +87,8 @@ def build_verifier_evidence_bundle(
     if str(acceptance_report.get("acceptance_decision") or "retryable_failure") == "accepted" and not bool(authority["verification_authority_satisfied"]):
         acceptance_report = dict(authority["controller_report"])
     validator_note = str(payload.get("validator_note") or acceptance_report.get("note") or "").strip()
+    failure_category = str(payload.get("failure_category") or acceptance_report.get("failure_category") or ("ci_only_failure" if not bool(authority["verification_authority_satisfied"]) else "")).strip()
+    failure_message = str(payload.get("failure_message") or payload.get("validator_note") or acceptance_report.get("note") or str(authority.get("summary") or "")).strip()
     acceptance_decision = str(acceptance_report.get("acceptance_decision") or "retryable_failure")
     if acceptance_decision == "accepted" and bool(authority["verification_authority_satisfied"]):
         verdict = "pass"
@@ -118,6 +120,8 @@ def build_verifier_evidence_bundle(
         "verification_authority_profile": profile,
         "verification_authority_satisfied": bool(authority["verification_authority_satisfied"]),
         "required_check_truth": required_check_truth,
+        "failure_category": failure_category,
+        "failure_message": failure_message,
         "verdict": verdict,
         "summary": summary,
         "proposed_next_role": "controller",

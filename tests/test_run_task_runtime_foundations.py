@@ -128,6 +128,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.report_final_acceptance_failure)
     assert callable(run_task.build_controller_failure_digest)
     assert callable(run_task.build_controller_repair_context)
+    assert callable(run_task.choose_repair_strategy)
+    assert callable(run_task.format_repair_strategy)
     assert callable(run_task.build_controller_test_failure_appendix)
     assert callable(run_task.execute_batch_loop)
     assert callable(run_task.accepted_task_pr_merge_flow)
@@ -666,3 +668,79 @@ def test_multi_agent_loop_local_green_is_not_sufficient_when_required_ci_is_conf
     assert result["verifier_artifact"]["required_check_truth"]["required_checks_missing"] is True
     assert result["controller_decision"]["acceptance_decision"] == "blocked"
     assert result["controller_decision"]["next_task_may_proceed"] is False
+
+
+def test_run_task_exposes_repair_strategy_router_helpers() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    route = run_task.choose_repair_strategy(
+        kind="tests",
+        message="pytest failed in test_example",
+        category="tests",
+    )
+
+    assert route["repair_strategy"] == "behavioral_test_repair"
+    assert route["remediation_lane"] == "builder"
+    assert "Repair strategy router:" in run_task.format_repair_strategy(route)
+
+
+def test_multi_agent_loop_routes_ci_only_failures_to_verifier_lane() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    def builder_step(_role_state):
+        return {"changed_files": ["agents/lib/git_workflow.py"], "summary": "builder patch ready"}
+
+    def verifier_step(_builder_artifact, _role_state):
+        return {
+            "validator_ok": True,
+            "validator_note": "local validation passed but GitHub checks are still pending",
+            "failure_category": "ci_only_failure",
+            "acceptance_report": {
+                "acceptance_decision": "retryable_failure",
+                "post_task_decision": "stop",
+                "next_task_may_proceed": False,
+                "note": "required checks still pending",
+            },
+        }
+
+    result = run_task.execute_multi_agent_loop(
+        task_path="tasks/093_orchestrator_repair_strategy_router_and_failure_lane_selection.md",
+        builder_step=builder_step,
+        verifier_step=verifier_step,
+    )
+
+    assert result["controller_decision"]["action"] == "repair"
+    assert result["controller_decision"]["repair_strategy"] == "ci_verification_recheck"
+    assert result["controller_decision"]["remediation_lane"] == "verifier"
+    assert result["controller_decision"]["next_role_decision"] == "verifier"
+
+
+def test_multi_agent_loop_stops_honestly_on_environment_failure_lane() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    def builder_step(_role_state):
+        return {"changed_files": ["docs/README.md"], "summary": "builder patch ready"}
+
+    def verifier_step(_builder_artifact, _role_state):
+        return {
+            "validator_ok": False,
+            "validator_note": "pip install failed because the toolchain is missing",
+            "failure_category": "environment_setup_failure",
+            "acceptance_report": {
+                "acceptance_decision": "retryable_failure",
+                "post_task_decision": "stop",
+                "next_task_may_proceed": False,
+                "note": "environment bootstrap failed",
+            },
+        }
+
+    result = run_task.execute_multi_agent_loop(
+        task_path="tasks/093_orchestrator_repair_strategy_router_and_failure_lane_selection.md",
+        builder_step=builder_step,
+        verifier_step=verifier_step,
+    )
+
+    assert result["controller_decision"]["action"] == "stop"
+    assert result["controller_decision"]["repair_strategy"] == "environment_setup_triage"
+    assert result["controller_decision"]["remediation_lane"] == "operator"
+    assert result["controller_decision"]["next_role_decision"] == "operator"

@@ -504,6 +504,25 @@ def build_controller_repair_context(
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
 
 
+def choose_repair_strategy(
+    *,
+    kind: str,
+    message: str,
+    category: str = "",
+    touched_files: List[str] | None = None,
+    task_file: str = "",
+) -> Dict[str, object]:
+    from agents.lib.controller_repair import choose_repair_strategy as _impl  # type: ignore
+
+    return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
+
+
+def format_repair_strategy(route: Mapping[str, object] | None) -> str:
+    from agents.lib.controller_repair import format_repair_strategy as _impl  # type: ignore
+
+    return str(_impl(route))
+
+
 def build_controller_test_failure_appendix(
     *,
     details: str,
@@ -4999,6 +5018,7 @@ def _failure_journal_exports() -> Dict[str, object]:
         "continue_autonomously": None,
         "build_semantic_failure_digest": None,
         "build_semantic_repair_context": None,
+        "choose_repair_strategy": None,
     }
 
     if _failure_journal is not None:
@@ -5015,6 +5035,7 @@ def _failure_journal_exports() -> Dict[str, object]:
             "continue_autonomously",
             "build_semantic_failure_digest",
             "build_semantic_repair_context",
+            "choose_repair_strategy",
         ):
             obj = getattr(_failure_journal, name, None)
             if callable(obj):

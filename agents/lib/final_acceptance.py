@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
 from agents.lib.controller_contract import AcceptanceDecision, coerce_acceptance_decision, coerce_post_task_decision
-from agents.lib.controller_repair import build_controller_repair_context
+from agents.lib.controller_repair import build_controller_repair_context, choose_repair_strategy
 
 AcceptanceFailureClass = Literal[
     "missing_required_in_head",
@@ -344,17 +344,36 @@ def build_multi_agent_controller_decision(
         acceptance_report.get("post_task_decision"),
         default=("continue" if acceptance_decision == "accepted" else ("blocked" if acceptance_decision == "blocked" else ("manual_patch" if acceptance_decision == "manual_patch" else "stop"))),
     )
-    if acceptance_decision == "accepted" and post_task_decision == "continue":
-        action = "advance"
-    elif acceptance_decision == "accepted":
-        action = "accept"
-    elif acceptance_decision == "retryable_failure":
-        action = "repair"
-    else:
-        action = "stop"
-    next_task_may_proceed = bool(acceptance_report.get("next_task_may_proceed", action == "advance"))
     builder_summary = str((builder_artifact or {}).get("summary") or "").strip()
     verifier_summary = str(verifier_artifact.get("summary") or verifier_artifact.get("validator_note") or "").strip()
+    failure_category = str(verifier_artifact.get("failure_category") or acceptance_report.get("failure_category") or "").strip()
+    failure_message = str(verifier_artifact.get("failure_message") or verifier_summary or acceptance_report.get("note") or "").strip()
+    touched_files = list((builder_artifact or {}).get("changed_files", []) or [])
+    repair_route = choose_repair_strategy(
+        kind="verifier",
+        message=failure_message,
+        category=failure_category,
+        touched_files=touched_files,
+        task_file=str(verifier_artifact.get("task_path") or ""),
+    )
+
+    if acceptance_decision == "accepted" and post_task_decision == "continue":
+        action = "advance"
+        next_task_may_proceed = True
+        next_role_decision = "controller"
+    elif acceptance_decision == "accepted":
+        action = "accept"
+        next_task_may_proceed = bool(acceptance_report.get("next_task_may_proceed", False))
+        next_role_decision = "controller"
+    elif acceptance_decision == "retryable_failure" and not bool(repair_route.get("stop_after_failure", False)):
+        action = "repair"
+        next_task_may_proceed = False
+        next_role_decision = str(repair_route.get("next_role") or "builder")
+    else:
+        action = "stop"
+        next_task_may_proceed = False
+        next_role_decision = str(repair_route.get("next_role") or "operator")
+
     summary = str(acceptance_report.get("note") or "").strip()
     if not summary:
         if action == "advance":
@@ -362,9 +381,14 @@ def build_multi_agent_controller_decision(
         elif action == "accept":
             summary = "Controller accepted verifier evidence but did not allow automatic advancement."
         elif action == "repair":
-            summary = "Controller requested repair based on verifier evidence."
+            summary = f"Controller routed remediation to the {repair_route.get('remediation_lane', 'builder')} lane."
         else:
-            summary = "Controller stopped based on verifier evidence."
+            summary = f"Controller stopped and routed the failure to the {repair_route.get('remediation_lane', 'operator')} lane."
+    instructions = "Persist controller decision and continue only when the controller explicitly allows advancement."
+    if action == "repair":
+        instructions = f"Route the next remediation step to the {next_role_decision} role using the explicit repair strategy."
+    elif action == "stop" and next_role_decision == "operator":
+        instructions = "Stop honestly and wait for operator/manual intervention before continuing."
     return {
         "role": "controller",
         "artifact_kind": "controller_decision",
@@ -377,8 +401,11 @@ def build_multi_agent_controller_decision(
         "builder_summary": builder_summary,
         "verifier_summary": verifier_summary,
         "summary": summary,
+        "repair_strategy": str(repair_route.get("repair_strategy") or ""),
+        "remediation_lane": str(repair_route.get("remediation_lane") or ""),
+        "route_rationale": str(repair_route.get("rationale") or ""),
         "final_authority_role": "controller",
         "handoff_reason": "controller_final_decision",
-        "instructions": "Persist controller decision and continue only when the controller explicitly allows advancement.",
-        "next_role_decision": "controller" if action != "advance" else "controller",
+        "instructions": instructions,
+        "next_role_decision": next_role_decision,
     }
