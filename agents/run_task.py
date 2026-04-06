@@ -713,6 +713,24 @@ def project_workspace_task_context(required_paths: Sequence[str] | None) -> Dict
     return dict(_impl(required_paths))
 
 
+
+def manifest_planner_snapshot() -> Dict[str, object]:
+    from agents.lib.manifest_planner import manifest_planner_snapshot as _impl  # type: ignore
+
+    return dict(_impl())
+
+
+def plan_manifest_progress(queue: Sequence[object]) -> Dict[str, object]:
+    from agents.lib.task_queue import plan_manifest_progress as _impl  # type: ignore
+
+    return dict(_impl(queue))
+
+
+def choose_next_manifest_task(queue: Sequence[object]) -> str:
+    from agents.lib.task_queue import choose_next_manifest_task as _impl  # type: ignore
+
+    return str(_impl(queue))
+
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
     return build_final_acceptance_failure_feedback(report)
 
