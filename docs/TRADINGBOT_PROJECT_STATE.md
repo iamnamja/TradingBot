@@ -31,7 +31,7 @@ Recent tranche highlights include:
 ## Current state
 
 
-- **Tasks 090–091 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, and a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority.
+- **Tasks 090–092 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, and explicit verification-authority truth for GitHub-required CI checks.
 
 The orchestrator now has an explicit per-task sequential controller loop that:
 
@@ -85,7 +85,7 @@ Planned focus areas are:
 
 - canonical builder/verifier/controller role contract and handoff truth
 - sequential multi-agent execution loop with controller-owned role selection and distinct builder/verifier/controller evidence bundles
-- CI-required checks as first-class verification authority
+- CI-required checks as first-class verification authority with explicit missing/pending/timed-out/failed/pass truth
 - repair-strategy routing instead of one generic remediation surface
 - reusable project/workspace bootstrap and validation contracts
 - dependency-aware manifests and task-family routing

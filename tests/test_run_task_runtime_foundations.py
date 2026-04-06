@@ -131,6 +131,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.build_controller_test_failure_appendix)
     assert callable(run_task.execute_batch_loop)
     assert callable(run_task.accepted_task_pr_merge_flow)
+    assert callable(run_task.canonical_required_check_truth)
+    assert callable(run_task.evaluate_verification_authority)
     assert callable(run_task.report_branch_push_ready)
     assert callable(run_task.build_controller_strict_mode_context)
     assert callable(run_task.describe_controller_strict_mode)
@@ -224,7 +226,7 @@ def test_prepare_resumed_batch_state_requires_explicit_manual_resolution_resume(
     assert explicit_resumed.current_index == 0
 
 
-def test_git_workflow_success_reports_canonical_merge_reset_truth() -> None:
+def test_git_workflow_success_reports_required_ci_authority_and_merge_truth() -> None:
     root = Path(__file__).resolve().parents[1]
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
@@ -234,6 +236,8 @@ def test_git_workflow_success_reports_canonical_merge_reset_truth() -> None:
 
     def runner(cmd: list[str], check: bool = True):
         calls.append(cmd)
+        if cmd[:3] == ["gh", "pr", "checks"]:
+            return SimpleNamespace(returncode=0, stdout="all checks passed", stderr="")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     result = git_workflow.accepted_task_pr_merge_flow(
@@ -242,6 +246,7 @@ def test_git_workflow_success_reports_canonical_merge_reset_truth() -> None:
         autonomous_merge_enabled=True,
         pr_title="x",
         pr_body="",
+        verification_authority_profile="local_plus_required_ci",
     )
 
     assert calls[:4] == [
@@ -250,9 +255,12 @@ def test_git_workflow_success_reports_canonical_merge_reset_truth() -> None:
         ["gh", "pr", "merge", "--merge", "--auto", "--delete-branch"],
         ["git", "switch", "main"],
     ]
-    assert result["post_task_decision"] == "continue"
-    assert result["accepted_task_pr_flow_completed"] is True
+    assert result["verification_authority_profile"] == "local_plus_required_ci"
+    assert result["required_checks_configured"] is True
+    assert result["required_checks_discovered"] is True
     assert result["required_checks_passed"] is True
+    assert result["verification_authority_satisfied"] is True
+    assert result["accepted_task_pr_flow_completed"] is True
     assert result["merged_to_main"] is True
     assert result["clean_main_reset_completed"] is True
     assert result["next_task_may_proceed"] is True
@@ -566,4 +574,95 @@ def test_multi_agent_loop_failed_verifier_result_requests_repair_without_blurrin
     assert result["verifier_artifact"]["summary"] != result["builder_artifact"]["summary"]
     assert result["verifier_artifact"]["verdict"] == "fail"
     assert result["controller_decision"]["action"] == "repair"
+    assert result["controller_decision"]["next_task_may_proceed"] is False
+
+
+def test_run_task_exposes_verification_authority_helpers() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    truth = run_task.canonical_required_check_truth(
+        verification_authority_profile="local_plus_required_ci",
+        required_checks_discovered=False,
+    )
+    authority = run_task.evaluate_verification_authority(
+        verification_authority_profile="local_plus_required_ci",
+        local_validation_passed=True,
+        required_check_truth=truth,
+    )
+
+    assert truth["required_checks_missing"] is True
+    assert authority["verification_authority_satisfied"] is False
+    assert authority["controller_report"]["acceptance_decision"] == "blocked"
+
+
+def test_batch_state_persists_required_check_truth_explicitly(tmp_path: Path) -> None:
+    (_, _, _, _, _, _, _, _, _, batch_state, task_queue, _, _, _, _, _, _) = _load_runtime_modules()
+
+    task_file = tmp_path / "tasks" / "092.md"
+    task_file.parent.mkdir(parents=True, exist_ok=True)
+    task_file.write_text("# task\n", encoding="utf-8")
+    queue = task_queue.build_task_queue_from_manifest({"tasks": ["tasks/092.md"]}, repo_root=tmp_path)
+    state = batch_state.initialize_batch_state(
+        manifest={"tasks": ["tasks/092.md"]},
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=1,
+    )
+    state = batch_state.apply_task_result(
+        state,
+        task_path="tasks/092.md",
+        terminal_status="blocked",
+        post_task_decision="stop",
+        note="required CI checks missing",
+        acceptance_decision="blocked",
+        next_task_may_proceed=False,
+        verification_authority_profile="local_plus_required_ci",
+        required_checks_discovered=False,
+        required_checks_missing=True,
+        required_checks_pending=False,
+        required_checks_timed_out=False,
+        required_checks_failed=False,
+        required_checks_passed=False,
+        missing_required_checks_blocks_merge=True,
+    )
+
+    checkpoint = state.checkpoints[-1].to_dict()
+    assert checkpoint["verification_authority_profile"] == "local_plus_required_ci"
+    assert checkpoint["required_checks_configured"] is True
+    assert checkpoint["required_checks_discovered"] is False
+    assert checkpoint["required_checks_missing"] is True
+    assert checkpoint["missing_required_checks_blocks_merge"] is True
+    assert checkpoint["verification_authority_satisfied"] is False
+
+
+def test_multi_agent_loop_local_green_is_not_sufficient_when_required_ci_is_configured() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    def builder_step(_role_state):
+        return {"changed_files": ["agents/run_task.py"], "summary": "builder patch"}
+
+    def verifier_step(_builder_artifact, _role_state):
+        return {
+            "validator_ok": True,
+            "acceptance_report": {
+                "acceptance_decision": "accepted",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+                "note": "local validation green",
+            },
+            "verification_authority_profile": "local_plus_required_ci",
+            "required_checks_discovered": False,
+            "required_checks_missing": True,
+            "required_checks_passed": False,
+        }
+
+    result = run_task.execute_multi_agent_loop(
+        task_path="tasks/092_orchestrator_verification_authority_and_ci_required_checks.md",
+        builder_step=builder_step,
+        verifier_step=verifier_step,
+    )
+
+    assert result["verifier_artifact"]["verification_authority_profile"] == "local_plus_required_ci"
+    assert result["verifier_artifact"]["required_check_truth"]["required_checks_missing"] is True
+    assert result["controller_decision"]["acceptance_decision"] == "blocked"
     assert result["controller_decision"]["next_task_may_proceed"] is False

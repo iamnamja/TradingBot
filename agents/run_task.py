@@ -460,6 +460,18 @@ def accepted_task_pr_merge_flow(**kwargs: Any) -> Dict[str, object]:
     return dict(_impl(**kwargs))
 
 
+def canonical_required_check_truth(**kwargs: Any) -> Dict[str, object]:
+    from agents.lib.git_workflow import canonical_required_check_truth as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
+def evaluate_verification_authority(**kwargs: Any) -> Dict[str, object]:
+    from agents.lib.git_workflow import evaluate_verification_authority as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
 def report_branch_push_ready(branch: str) -> None:
     from agents.lib.git_workflow import report_branch_push_ready as _impl  # type: ignore
 
