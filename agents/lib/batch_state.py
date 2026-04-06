@@ -16,6 +16,7 @@ from agents.lib.controller_contract import (
     checkpoint_allows_resume_after_merge,
     checkpoint_requires_manual_resolution,
 )
+from agents.lib.git_workflow import canonical_required_check_truth
 from agents.lib.multi_agent_contract import canonical_role_handoff_state, resume_role_handoff_state
 from agents.lib.task_queue import QueueStatus, TaskQueueItem, validate_queue_status_transition
 
@@ -53,6 +54,15 @@ class BatchTaskCheckpoint:
     required_checks_passed: bool = False
     merged_to_main: bool = False
     clean_main_reset_completed: bool = False
+    verification_authority_profile: str = "local_only"
+    required_checks_configured: bool = False
+    required_checks_discovered: bool = False
+    required_checks_missing: bool = False
+    required_checks_pending: bool = False
+    required_checks_timed_out: bool = False
+    required_checks_failed: bool = False
+    missing_required_checks_blocks_merge: bool = False
+    verification_authority_satisfied: bool = True
     active_role: str = "controller"
     prior_role: str = ""
     role_attempt_count: int = 0
@@ -84,6 +94,15 @@ class BatchTaskCheckpoint:
             "required_checks_passed": self.required_checks_passed,
             "merged_to_main": self.merged_to_main,
             "clean_main_reset_completed": self.clean_main_reset_completed,
+            "verification_authority_profile": self.verification_authority_profile,
+            "required_checks_configured": self.required_checks_configured,
+            "required_checks_discovered": self.required_checks_discovered,
+            "required_checks_missing": self.required_checks_missing,
+            "required_checks_pending": self.required_checks_pending,
+            "required_checks_timed_out": self.required_checks_timed_out,
+            "required_checks_failed": self.required_checks_failed,
+            "missing_required_checks_blocks_merge": self.missing_required_checks_blocks_merge,
+            "verification_authority_satisfied": self.verification_authority_satisfied,
             "active_role": self.active_role,
             "prior_role": self.prior_role,
             "role_attempt_count": self.role_attempt_count,
@@ -124,6 +143,15 @@ class BatchState:
     resume_reason: str = ""
     resume_target_task_path: str = ""
     resume_gate: str = ""
+    verification_authority_profile: str = "local_only"
+    required_checks_configured: bool = False
+    required_checks_discovered: bool = False
+    required_checks_missing: bool = False
+    required_checks_pending: bool = False
+    required_checks_timed_out: bool = False
+    required_checks_failed: bool = False
+    missing_required_checks_blocks_merge: bool = False
+    verification_authority_satisfied: bool = True
     active_role: str = "controller"
     prior_role: str = ""
     role_attempt_count: int = 0
@@ -164,6 +192,15 @@ class BatchState:
             "resume_reason": self.resume_reason,
             "resume_target_task_path": self.resume_target_task_path,
             "resume_gate": self.resume_gate,
+            "verification_authority_profile": self.verification_authority_profile,
+            "required_checks_configured": self.required_checks_configured,
+            "required_checks_discovered": self.required_checks_discovered,
+            "required_checks_missing": self.required_checks_missing,
+            "required_checks_pending": self.required_checks_pending,
+            "required_checks_timed_out": self.required_checks_timed_out,
+            "required_checks_failed": self.required_checks_failed,
+            "missing_required_checks_blocks_merge": self.missing_required_checks_blocks_merge,
+            "verification_authority_satisfied": self.verification_authority_satisfied,
             "active_role": self.active_role,
             "prior_role": self.prior_role,
             "role_attempt_count": self.role_attempt_count,
@@ -246,6 +283,15 @@ def initialize_batch_state(
         batch_status="active",
         next_task_may_proceed=True,
         post_task_decision="continue",
+        verification_authority_profile="local_only",
+        required_checks_configured=False,
+        required_checks_discovered=False,
+        required_checks_missing=False,
+        required_checks_pending=False,
+        required_checks_timed_out=False,
+        required_checks_failed=False,
+        missing_required_checks_blocks_merge=False,
+        verification_authority_satisfied=True,
         active_role=str(handoff["active_role"]),
         prior_role=str(handoff["prior_role"]),
         role_attempt_count=int(handoff["role_attempt_count"]),
@@ -315,6 +361,13 @@ def apply_task_result(
     required_checks_passed: bool | None = None,
     merged_to_main: bool | None = None,
     clean_main_reset_completed: bool | None = None,
+    verification_authority_profile: str | None = None,
+    required_checks_discovered: bool | None = None,
+    required_checks_missing: bool | None = None,
+    required_checks_pending: bool | None = None,
+    required_checks_timed_out: bool | None = None,
+    required_checks_failed: bool | None = None,
+    missing_required_checks_blocks_merge: bool | None = None,
     active_role: str | None = None,
     prior_role: str | None = None,
     role_attempt_count: int | None = None,
@@ -369,6 +422,16 @@ def apply_task_result(
         merged_to_main=merged_to_main,
         clean_main_reset_completed=clean_main_reset_completed,
     )
+    authority_truth = canonical_required_check_truth(
+        verification_authority_profile=(verification_authority_profile if verification_authority_profile is not None else state.verification_authority_profile),
+        required_checks_discovered=required_checks_discovered if required_checks_discovered is not None else state.required_checks_discovered,
+        required_checks_missing=required_checks_missing if required_checks_missing is not None else state.required_checks_missing,
+        required_checks_pending=required_checks_pending if required_checks_pending is not None else state.required_checks_pending,
+        required_checks_timed_out=required_checks_timed_out if required_checks_timed_out is not None else state.required_checks_timed_out,
+        required_checks_failed=required_checks_failed if required_checks_failed is not None else state.required_checks_failed,
+        required_checks_passed=merge_truth["required_checks_passed"],
+        missing_required_checks_blocks_merge=(missing_required_checks_blocks_merge if missing_required_checks_blocks_merge is not None else state.missing_required_checks_blocks_merge),
+    )
 
     role_state = canonical_role_handoff_state(
         active_role=active_role if active_role is not None else state.active_role,
@@ -404,6 +467,15 @@ def apply_task_result(
         required_checks_passed=merge_truth["required_checks_passed"],
         merged_to_main=merge_truth["merged_to_main"],
         clean_main_reset_completed=merge_truth["clean_main_reset_completed"],
+        verification_authority_profile=str(authority_truth["verification_authority_profile"]),
+        required_checks_configured=bool(authority_truth["required_checks_configured"]),
+        required_checks_discovered=bool(authority_truth["required_checks_discovered"]),
+        required_checks_missing=bool(authority_truth["required_checks_missing"]),
+        required_checks_pending=bool(authority_truth["required_checks_pending"]),
+        required_checks_timed_out=bool(authority_truth["required_checks_timed_out"]),
+        required_checks_failed=bool(authority_truth["required_checks_failed"]),
+        missing_required_checks_blocks_merge=bool(authority_truth["missing_required_checks_blocks_merge"]),
+        verification_authority_satisfied=bool(authority_truth["verification_authority_satisfied"]),
         active_role=str(role_state["active_role"]),
         prior_role=str(role_state["prior_role"]),
         role_attempt_count=int(role_state["role_attempt_count"]),
@@ -428,6 +500,15 @@ def apply_task_result(
         post_task_decision=post_task_decision,
         batch_status=batch_status,
         updated_ts=updated_ts,
+        verification_authority_profile=str(authority_truth["verification_authority_profile"]),
+        required_checks_configured=bool(authority_truth["required_checks_configured"]),
+        required_checks_discovered=bool(authority_truth["required_checks_discovered"]),
+        required_checks_missing=bool(authority_truth["required_checks_missing"]),
+        required_checks_pending=bool(authority_truth["required_checks_pending"]),
+        required_checks_timed_out=bool(authority_truth["required_checks_timed_out"]),
+        required_checks_failed=bool(authority_truth["required_checks_failed"]),
+        missing_required_checks_blocks_merge=bool(authority_truth["missing_required_checks_blocks_merge"]),
+        verification_authority_satisfied=bool(authority_truth["verification_authority_satisfied"]),
         active_role=str(role_state["active_role"]),
         prior_role=str(role_state["prior_role"]),
         role_attempt_count=int(role_state["role_attempt_count"]),
@@ -545,6 +626,15 @@ def mark_resume_plan(
         resume_target_task_path=metadata["resume_target_task_path"],
         resume_gate=metadata["resume_gate"],
         updated_ts=updated_ts,
+        verification_authority_profile=state.verification_authority_profile,
+        required_checks_configured=state.required_checks_configured,
+        required_checks_discovered=state.required_checks_discovered,
+        required_checks_missing=state.required_checks_missing,
+        required_checks_pending=state.required_checks_pending,
+        required_checks_timed_out=state.required_checks_timed_out,
+        required_checks_failed=state.required_checks_failed,
+        missing_required_checks_blocks_merge=state.missing_required_checks_blocks_merge,
+        verification_authority_satisfied=state.verification_authority_satisfied,
         active_role=str(resumed_role["active_role"]),
         prior_role=str(resumed_role["prior_role"]),
         role_attempt_count=int(resumed_role["role_attempt_count"]),

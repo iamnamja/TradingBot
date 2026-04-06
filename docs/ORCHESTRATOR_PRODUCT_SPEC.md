@@ -124,6 +124,7 @@ Conservative stop posture is preserved:
 Before any stronger “give it a whole project and let it build” claim would be honest, the product still needs:
 
 - canonical builder/verifier/controller role contracts and persisted handoff truth
+- explicit verification-authority profiles (`local_only`, `local_plus_required_ci`, `required_ci_only`)
 - stronger CI-backed verification authority
 - role-aware remediation routing
 - reusable project/workspace bootstrap contracts beyond the current repo shape
@@ -136,6 +137,7 @@ Before any stronger “give it a whole project and let it build” claim would b
 
 - merge-posture outcomes (`failed_merge`, `failed_checks`, `failed_reset`) are first-class terminal controller truth
 - persisted checkpoint truth carries canonical merge/reset evidence: `accepted_task_pr_flow_completed`, `required_checks_passed`, `merged_to_main`, `clean_main_reset_completed`
+- persisted controller state also records required-check discovery, missing/pending/timed-out/failed/pass truth, whether missing checks block merge, and whether the configured verification authority is satisfied
 - `resume_after_merge` only skips prior tasks when persisted checkpoint truth proves accepted + completed + checks passed + merged to main + clean main reset
 - `resume_after_manual_resolution` requires explicit operator intent and canonical resume metadata before execution may continue
 

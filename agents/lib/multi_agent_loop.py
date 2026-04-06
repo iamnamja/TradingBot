@@ -4,6 +4,7 @@ from typing import Any, Callable, Mapping
 
 from agents.lib.failure_journal import build_multi_agent_failure_context
 from agents.lib.final_acceptance import build_multi_agent_controller_decision
+from agents.lib.git_workflow import canonical_required_check_truth, coerce_verification_authority_profile, evaluate_verification_authority
 from agents.lib.multi_agent_contract import (
     canonical_role_handoff_state,
     controller_decides_next_role,
@@ -66,9 +67,28 @@ def build_verifier_evidence_bundle(
             "note": str(payload.get("note") or payload.get("validator_note") or ""),
         }
     validator_ok = bool(payload.get("validator_ok", False))
+    profile = coerce_verification_authority_profile(payload.get("verification_authority_profile"), default="local_only")
+    required_check_truth = canonical_required_check_truth(
+        payload.get("required_check_truth") if isinstance(payload.get("required_check_truth"), Mapping) else None,
+        verification_authority_profile=profile,
+        required_checks_discovered=payload.get("required_checks_discovered"),
+        required_checks_missing=payload.get("required_checks_missing"),
+        required_checks_pending=payload.get("required_checks_pending"),
+        required_checks_timed_out=payload.get("required_checks_timed_out"),
+        required_checks_failed=payload.get("required_checks_failed"),
+        required_checks_passed=payload.get("required_checks_passed"),
+        missing_required_checks_blocks_merge=payload.get("missing_required_checks_blocks_merge"),
+    )
+    authority = evaluate_verification_authority(
+        verification_authority_profile=profile,
+        local_validation_passed=validator_ok,
+        required_check_truth=required_check_truth,
+    )
+    if str(acceptance_report.get("acceptance_decision") or "retryable_failure") == "accepted" and not bool(authority["verification_authority_satisfied"]):
+        acceptance_report = dict(authority["controller_report"])
     validator_note = str(payload.get("validator_note") or acceptance_report.get("note") or "").strip()
     acceptance_decision = str(acceptance_report.get("acceptance_decision") or "retryable_failure")
-    if acceptance_decision == "accepted" and validator_ok:
+    if acceptance_decision == "accepted" and bool(authority["verification_authority_satisfied"]):
         verdict = "pass"
         role_outcome = "verification_passed"
     elif acceptance_decision == "blocked":
@@ -80,9 +100,9 @@ def build_verifier_evidence_bundle(
     summary = str(payload.get("summary") or "").strip()
     if not summary:
         if verdict == "pass":
-            summary = "Verifier ran focused/full validation and produced passing evidence."
+            summary = "Verifier ran focused/full validation and produced authority-satisfying evidence."
         elif verdict == "blocked":
-            summary = "Verifier produced blocked evidence requiring controller stop."
+            summary = str(authority["summary"] or "Verifier produced blocked evidence requiring controller stop.")
         else:
             summary = "Verifier produced failing evidence for controller review."
     return {
@@ -95,6 +115,9 @@ def build_verifier_evidence_bundle(
         "focused_results": list(payload.get("focused_results", []) or []),
         "full_results": list(payload.get("full_results", []) or []),
         "acceptance_report": acceptance_report,
+        "verification_authority_profile": profile,
+        "verification_authority_satisfied": bool(authority["verification_authority_satisfied"]),
+        "required_check_truth": required_check_truth,
         "verdict": verdict,
         "summary": summary,
         "proposed_next_role": "controller",

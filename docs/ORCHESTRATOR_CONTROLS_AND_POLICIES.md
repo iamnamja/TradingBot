@@ -167,6 +167,8 @@ Merge-posture failures must map through one canonical decision surface:
 
 Task 091 adds the first canonical builder/verifier/controller loop on top of the existing controller surfaces.
 
+Task 092 makes verification authority explicit: local green is not sufficient when the configured profile requires GitHub-required CI checks.
+
 Current conservative posture:
 
 1. controller chooses builder
