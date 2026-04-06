@@ -717,6 +717,19 @@ def workspace_adapter_snapshot() -> Dict[str, object]:
     return dict(_impl())
 
 
+
+def consumer_bridge_requirements() -> Dict[str, object]:
+    from agents.lib.multi_agent_contract import consumer_bridge_requirements as _impl  # type: ignore
+
+    return dict(_impl())
+
+
+def orchestrator_package_boundary_snapshot() -> Dict[str, object]:
+    from agents.lib.multi_agent_contract import orchestrator_package_boundary_snapshot as _impl  # type: ignore
+
+    return dict(_impl())
+
+
 def canonical_workspace_contract(
     payload: Mapping[str, object] | None = None,
     **overrides: object,
@@ -745,6 +758,20 @@ def evaluate_workspace_bootstrap_result(
 
     return dict(_impl(contract, bootstrap_ok=bootstrap_ok, bootstrap_error=bootstrap_error))
 
+
+
+
+
+def consumer_bridge_contract(contract: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.lib.project_workspace_adapter import consumer_bridge_contract as _impl  # type: ignore
+
+    return dict(_impl(contract))
+
+
+def consumer_bridge_snapshot() -> Dict[str, object]:
+    from agents.lib.project_workspace_adapter import consumer_bridge_snapshot as _impl  # type: ignore
+
+    return dict(_impl())
 
 def project_workspace_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
     from agents.lib.task_contracts import project_workspace_task_context as _impl  # type: ignore

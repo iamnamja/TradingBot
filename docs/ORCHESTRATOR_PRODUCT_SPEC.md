@@ -17,7 +17,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **082 adds the first narrow autonomous backlog-runner proof for a short ordinary manifest**
 - **083–088 harden the controller contract, retry/self-heal truth, merge/resume truth, controller repair context, strict mode, and further `run_task.py` decomposition**
 - **089 synchronizes the hardened short-manifest proof surface and docs**
-- **090–097 establish multi-agent contracts and second-project Python portability proof coverage**
+- **090–098 establish multi-agent contracts, second-project Python portability proof coverage, and a clearer standalone package boundary**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
@@ -73,6 +73,22 @@ The intended first multi-agent architecture is intentionally conservative:
 
 This should remain sequential before any future concurrency or true parallel role scheduling is considered.
 
+
+
+
+## Standalone package boundary and consumer bridge
+
+The orchestrator now has a clearer standalone package boundary without claiming that full extraction is already complete.
+
+The current consumer bridge is intentionally minimal and includes:
+
+- workspace adapter/config
+- validation commands
+- acceptance evidence hooks
+- protected path declarations
+- optional consumer-specific policies
+
+TradingBot remains a supported consumer, while generic Python is now an explicit second consumer shape.
 
 ## Project/workspace adapter v2 foundation
 

@@ -30,8 +30,7 @@ Recent tranche highlights include:
 
 ## Current state
 
-
-- **Tasks 090–097 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, explicit verification-authority truth for GitHub-required CI checks, a reusable Python-first project/workspace adapter contract for bootstrap and validation outside the current repo shape, and a deterministic second-project portability proof over a simple external Python project shape.
+- **Tasks 090–098 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, explicit verification-authority truth for GitHub-required CI checks, a reusable Python-first project/workspace adapter contract for bootstrap and validation outside the current repo shape, and a deterministic second-project portability proof over a simple external Python project shape.
 
 The orchestrator now has an explicit per-task sequential controller loop that:
 
@@ -52,6 +51,20 @@ Conservative stop behavior is explicit and tested:
 Accepted tasks continue only when all enabled gates pass.
 
 The workspace adapter contract keeps TradingBot as one consumer rather than the only implied consumer, and gives the controller explicit bootstrap truth (`not_started`, `succeeded`, `blocked`) so resume behavior can remain honest after setup failures in external Python workspaces.
+
+
+
+## Standalone package boundary and consumer bridge (098)
+
+The orchestrator now has a clearer standalone product boundary without claiming that a full extraction is already complete.
+
+This boundary is expressed through:
+
+- explicit reusable contract surfaces for multi-agent role and workspace consumer bridges
+- a documented minimal consumer bridge for workspace adapters, validation commands, acceptance evidence hooks, protected paths, and optional consumer policies
+- TradingBot remaining a supported in-repo consumer while generic Python remains a second consumer shape
+
+The repo still operates as a monorepo, but the orchestrator product boundary is now clearer and more testable.
 
 ## Second-project portability proof (097)
 
@@ -167,3 +180,4 @@ For all contributor and automation references, the canonical visible order is:
 
 - task-family router and controller-owned agent selection are complete through **Task 096**
 - second-project multi-agent portability proof is added in **Task 097**
+- standalone package boundary and consumer bridge prep are added in **Task 098**

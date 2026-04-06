@@ -1,42 +1,57 @@
+
 # TradingBot and Orchestrator Relationship
 
 ## Summary
 
 TradingBot and the orchestrator are related but distinct:
 
-- **TradingBot** is the domain system (strategy, risk, execution, paper cycle)
-- **Orchestrator** is the engineering execution/governance system used to implement and harden work safely
+- **TradingBot** is a consumer project with domain-specific runtime, strategies, and tests
+- **Orchestrator** is the reusable engineering execution/governance product being prepared for a clearer standalone package boundary
 
 ## Current state alignment
 
-- TradingBot remains at **manual paper-trading readiness**
-- Orchestrator has completed 042–048 and 049–052
-- Orchestrator is currently in the 053–061 hardening / integration continuation
-- Orchestrator is reusable and productizing, but still in-repo
+- TradingBot remains a supported in-repo consumer
+- Orchestrator is productizing inside the monorepo through the multi-agent portability tranche
+- The repo is **not** claiming that full standalone extraction is already complete
 
 ## Why they remain together now
 
-Keeping both in one repo currently supports:
+Keeping both in one repo still supports:
 
 - fast integration feedback
 - unified test/harness coverage
-- seam stabilization while interfaces converge
-- portability hardening while extraction preconditions are still being proven
+- portability hardening while the standalone boundary is being made explicit
+- consumer-bridge validation while TradingBot remains the primary in-repo consumer
+
+## Standalone package boundary posture
+
+The orchestrator is being prepared as its own product boundary, but not extracted yet.
+
+Today that boundary is represented by:
+
+- canonical role/contract surfaces under `agents/lib/`
+- reusable project/workspace adapter contracts
+- consumer bridge requirements for validation commands, acceptance evidence hooks, protected paths, and optional consumer-specific policies
+- `agents/run_task.py` as the current shell/entry surface
+
+## Consumer bridge contract
+
+A consumer project must be able to provide, at minimum:
+
+- workspace adapter/config
+- validation commands
+- acceptance evidence hooks
+- protected path declarations
+- optional consumer-specific policies
+
+TradingBot satisfies that bridge today, and generic Python workspaces are now a second supported consumer shape.
 
 ## Planned evolution
 
-- Continue through 053–061
-- Progress through deferred continuation tasks 062–068, including extraction preparation work
-- Stabilize package boundaries and package-level orchestrator surface before any repository split
-- After continuation criteria are met, execute a planned extraction sequence (documented under `docs/orchestrator_extraction_plan.md`)
-- Do not treat extraction as already done
-
-## Boundary and import contract
-
-- `builder.orchestrator` is the orchestrator package namespace.
-- TradingBot code remains under `tradingbot.*` and is not part of the orchestrator package API.
-- Package-level re-exports from `builder.orchestrator` should remain orchestrator-focused (config + adapter contracts), not TradingBot-facing.
-- Existing module-level orchestrator imports remain valid for compatibility during prep and migration sequencing.
+- keep the orchestrator operating correctly inside the monorepo
+- continue proving the consumer bridge and portability surfaces
+- strengthen the standalone package boundary before any repo split
+- treat extraction as future work, not as already complete
 
 ## Documentation authority
 

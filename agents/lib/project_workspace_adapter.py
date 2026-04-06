@@ -7,6 +7,19 @@ WORKSPACE_BOOTSTRAP_STATUSES = (
     'succeeded',
     'blocked',
 )
+CONSUMER_BRIDGE_REQUIRED_FIELDS = (
+    'workspace_root',
+    'consumer_name',
+    'validation_commands',
+    'acceptance_evidence_commands',
+    'protected_paths',
+)
+CONSUMER_BRIDGE_OPTIONAL_FIELDS = (
+    'bootstrap_commands',
+    'artifact_output_paths',
+    'merge_policy_constraints',
+    'optional_consumer_policies',
+)
 
 
 def _normalize_str_list(values: Sequence[object] | None) -> list[str]:
@@ -32,20 +45,16 @@ def _normalize_path_list(values: Sequence[object] | None) -> list[str]:
 
 def _normalize_merge_policy_constraints(value: Mapping[str, object] | None) -> dict[str, object]:
     payload = dict(value or {})
-    constraints = {
+    return {
         'allow_autonomous_merge': bool(payload.get('allow_autonomous_merge', False)),
         'require_clean_main_reset': bool(payload.get('require_clean_main_reset', True)),
         'verification_authority_profile': str(payload.get('verification_authority_profile', 'local_plus_required_ci') or 'local_plus_required_ci'),
         'block_merge_on_missing_required_checks': bool(payload.get('block_merge_on_missing_required_checks', True)),
         'protected_merge_requires_manual_review': bool(payload.get('protected_merge_requires_manual_review', True)),
     }
-    return constraints
 
 
-def canonical_workspace_contract(
-    payload: Mapping[str, object] | None = None,
-    **overrides: object,
-) -> dict[str, object]:
+def canonical_workspace_contract(payload: Mapping[str, object] | None = None, **overrides: object) -> dict[str, object]:
     src = dict(payload or {})
     src.update(overrides)
 
@@ -57,6 +66,7 @@ def canonical_workspace_contract(
     acceptance_evidence_commands = _normalize_str_list(src.get('acceptance_evidence_commands'))
     protected_paths = _normalize_path_list(src.get('protected_paths'))
     artifact_output_paths = _normalize_path_list(src.get('artifact_output_paths'))
+    optional_consumer_policies = _normalize_str_list(src.get('optional_consumer_policies'))
     merge_policy_constraints = _normalize_merge_policy_constraints(src.get('merge_policy_constraints'))
 
     return {
@@ -69,9 +79,9 @@ def canonical_workspace_contract(
         'acceptance_evidence_commands': acceptance_evidence_commands,
         'protected_paths': protected_paths,
         'artifact_output_paths': artifact_output_paths,
+        'optional_consumer_policies': optional_consumer_policies,
         'merge_policy_constraints': merge_policy_constraints,
     }
-
 
 
 def generic_python_workspace_contract(workspace_root: str = '.') -> dict[str, object]:
@@ -84,6 +94,7 @@ def generic_python_workspace_contract(workspace_root: str = '.') -> dict[str, ob
         acceptance_evidence_commands=['pytest -q'],
         protected_paths=['.github/workflows', 'docs', 'tasks'],
         artifact_output_paths=['artifacts', 'dist', 'build'],
+        optional_consumer_policies=[],
         merge_policy_constraints={
             'allow_autonomous_merge': True,
             'require_clean_main_reset': True,
@@ -92,7 +103,6 @@ def generic_python_workspace_contract(workspace_root: str = '.') -> dict[str, ob
             'protected_merge_requires_manual_review': True,
         },
     )
-
 
 
 def tradingbot_workspace_contract(workspace_root: str = '.') -> dict[str, object]:
@@ -105,6 +115,7 @@ def tradingbot_workspace_contract(workspace_root: str = '.') -> dict[str, object
         acceptance_evidence_commands=['pytest -q tests/test_run_task_runtime_foundations.py'],
         protected_paths=['agents', 'docs', 'tasks', 'src/tradingbot', 'src/builder/orchestrator'],
         artifact_output_paths=['artifacts', 'tasks/state.json', '_last_agent_model_output.txt', '_last_agent_file_bundle.txt'],
+        optional_consumer_policies=['tradingbot_domain_runtime', 'tradingbot_consumer_policy'],
         merge_policy_constraints={
             'allow_autonomous_merge': True,
             'require_clean_main_reset': True,
@@ -115,11 +126,7 @@ def tradingbot_workspace_contract(workspace_root: str = '.') -> dict[str, object
     )
 
 
-
-def canonical_workspace_bootstrap_truth(
-    payload: Mapping[str, object] | None = None,
-    **overrides: object,
-) -> dict[str, object]:
+def canonical_workspace_bootstrap_truth(payload: Mapping[str, object] | None = None, **overrides: object) -> dict[str, object]:
     src = dict(payload or {})
     src.update(overrides)
     contract = canonical_workspace_contract(src)
@@ -158,13 +165,7 @@ def canonical_workspace_bootstrap_truth(
     }
 
 
-
-def evaluate_workspace_bootstrap_result(
-    contract: Mapping[str, object] | None,
-    *,
-    bootstrap_ok: bool,
-    bootstrap_error: str = '',
-) -> dict[str, object]:
+def evaluate_workspace_bootstrap_result(contract: Mapping[str, object] | None, *, bootstrap_ok: bool, bootstrap_error: str = '') -> dict[str, object]:
     return canonical_workspace_bootstrap_truth(
         contract,
         bootstrap_attempted=True,
@@ -174,15 +175,12 @@ def evaluate_workspace_bootstrap_result(
     )
 
 
-
 def workspace_validation_commands(contract: Mapping[str, object] | None) -> list[str]:
     return canonical_workspace_contract(contract).get('validation_commands', [])  # type: ignore[return-value]
 
 
-
 def workspace_acceptance_evidence_commands(contract: Mapping[str, object] | None) -> list[str]:
     return canonical_workspace_contract(contract).get('acceptance_evidence_commands', [])  # type: ignore[return-value]
-
 
 
 def workspace_can_resume_after_bootstrap_failure(truth: Mapping[str, object] | None) -> bool:
@@ -190,15 +188,41 @@ def workspace_can_resume_after_bootstrap_failure(truth: Mapping[str, object] | N
     return bool(payload['resume_safe_after_bootstrap_failure'])
 
 
-
 def workspace_adapter_snapshot() -> dict[str, object]:
-    tradingbot = tradingbot_workspace_contract('.')
-    generic = generic_python_workspace_contract('.')
     return {
         'python_first_scope_only': True,
         'supported_consumers': ['tradingbot', 'generic_python'],
         'workspace_contracts': {
-            'tradingbot': tradingbot,
-            'generic_python': generic,
+            'tradingbot': tradingbot_workspace_contract('.'),
+            'generic_python': generic_python_workspace_contract('.'),
         },
+    }
+
+
+def consumer_bridge_contract(contract: Mapping[str, object] | None = None) -> dict[str, object]:
+    payload = canonical_workspace_contract(contract)
+    return {
+        'workspace_root': str(payload['workspace_root']),
+        'consumer_name': str(payload['consumer_name']),
+        'validation_commands': list(payload['validation_commands']),
+        'acceptance_evidence_commands': list(payload['acceptance_evidence_commands']),
+        'protected_paths': list(payload['protected_paths']),
+        'bootstrap_commands': list(payload['bootstrap_commands']),
+        'artifact_output_paths': list(payload['artifact_output_paths']),
+        'merge_policy_constraints': dict(payload['merge_policy_constraints']),
+        'optional_consumer_policies': list(payload.get('optional_consumer_policies', [])),
+        'required_bridge_fields': list(CONSUMER_BRIDGE_REQUIRED_FIELDS),
+        'optional_bridge_fields': list(CONSUMER_BRIDGE_OPTIONAL_FIELDS),
+        'full_standalone_extraction_completed': False,
+    }
+
+
+def consumer_bridge_snapshot() -> dict[str, object]:
+    return {
+        'supported_consumers': ['tradingbot', 'generic_python'],
+        'required_bridge_fields': list(CONSUMER_BRIDGE_REQUIRED_FIELDS),
+        'optional_bridge_fields': list(CONSUMER_BRIDGE_OPTIONAL_FIELDS),
+        'full_standalone_extraction_completed': False,
+        'tradingbot': consumer_bridge_contract(tradingbot_workspace_contract('.')),
+        'generic_python': consumer_bridge_contract(generic_python_workspace_contract('.')),
     }
