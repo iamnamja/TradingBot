@@ -58,6 +58,7 @@ def test_controller_contract_snapshot_is_canonical() -> None:
         "agents/lib/final_acceptance.py",
         "agents/lib/failure_journal.py",
         "agents/lib/git_workflow.py",
+        "agents/lib/multi_agent_contract.py",
     ]
     assert snapshot["controller_proof_test_paths"] == [
         "tests/test_controller_contract.py",
@@ -78,6 +79,8 @@ def test_controller_modules_share_contract_symbols() -> None:
     assert task_queue.BatchPostTaskDecision is contract.BatchPostTaskDecision
     assert batch_state.BatchStatus is contract.BatchStatus
     assert failure_journal.POLICY_BLOCKED_FAILURE_CATEGORY == contract.POLICY_BLOCKED_FAILURE_CATEGORY
+    assert "active_role" in contract.CHECKPOINT_TRUTH_FIELDS
+    assert "controller_next_role_decision" in contract.CHECKPOINT_TRUTH_FIELDS
 
 
 
@@ -195,3 +198,121 @@ def test_resume_after_merge_requires_all_merge_reset_truth_fields() -> None:
         payload = dict(base)
         payload[field_name] = False
         assert contract.checkpoint_allows_resume_after_merge(payload) is False
+
+
+
+def test_multi_agent_contract_snapshot_and_controller_composition_are_canonical() -> None:
+    contract = _load("agents.lib.controller_contract")
+    multi_agent = _load("agents.lib.multi_agent_contract")
+
+    snapshot = multi_agent.multi_agent_contract_snapshot()
+    assert snapshot["roles"] == ["controller", "builder", "verifier"]
+    assert snapshot["specialist_roles"] == ["builder", "verifier"]
+    assert snapshot["controller_next_role_decisions"] == [
+        "controller",
+        "builder",
+        "verifier",
+        "stop",
+        "manual_patch",
+        "blocked",
+    ]
+    assert snapshot["handoff_fields"] == [
+        "active_role",
+        "prior_role",
+        "role_attempt_count",
+        "handoff_reason",
+        "handoff_summary",
+        "handoff_instructions",
+        "role_output_summary",
+        "verifier_verdict",
+        "controller_next_role_decision",
+        "role_outcome",
+    ]
+    assert snapshot["allowed_handoffs"] == {
+        "controller": ["builder", "verifier"],
+        "builder": ["controller", "verifier"],
+        "verifier": ["controller", "builder"],
+    }
+    assert snapshot["controller_authority_over_next_role"] is True
+    assert snapshot["sequential_role_execution_only"] is True
+
+    controller_snapshot = contract.controller_contract_snapshot()
+    assert "active_role" in controller_snapshot["checkpoint_truth_fields"]
+    assert "controller_next_role_decision" in controller_snapshot["checkpoint_truth_fields"]
+    assert "agents/lib/multi_agent_contract.py" in controller_snapshot["controller_family_files"]
+    assert "multi_agent_contract_snapshot" in controller_snapshot["controller_runtime_delegate_surfaces"]
+
+
+
+def test_only_controller_may_choose_next_role() -> None:
+    multi_agent = _load("agents.lib.multi_agent_contract")
+
+    assert multi_agent.allowed_role_handoff("controller", "builder") is True
+    assert multi_agent.allowed_role_handoff("builder", "verifier") is True
+    assert multi_agent.allowed_role_handoff("verifier", "verifier") is False
+
+    assert multi_agent.controller_decides_next_role(
+        current_role="controller",
+        proposed_next_role="builder",
+        proposed_by_role="controller",
+    ) == "builder"
+    assert multi_agent.controller_decides_next_role(
+        current_role="builder",
+        proposed_next_role="verifier",
+        proposed_by_role="builder",
+    ) == "controller"
+
+
+
+def test_role_handoff_truth_is_persisted_and_resume_can_reconstruct_pending_role(tmp_path: Path) -> None:
+    batch_state = _load("agents.lib.batch_state")
+    task_queue = _load("agents.lib.task_queue")
+
+    task_path = tmp_path / "tasks" / "001.md"
+    task_path.parent.mkdir(parents=True, exist_ok=True)
+    task_path.write_text("# task\n", encoding="utf-8")
+
+    manifest = {"tasks": ["tasks/001.md"]}
+    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = batch_state.initialize_batch_state(
+        manifest=manifest,
+        queue=queue,
+        manifest_source="tasks/manifest.json",
+        created_ts=1,
+    )
+    assert state.active_role == "controller"
+    assert state.controller_next_role_decision == "builder"
+
+    state = batch_state.apply_task_result(
+        state,
+        task_path="tasks/001.md",
+        terminal_status="completed",
+        post_task_decision="continue",
+        note="builder handed work to verifier",
+        acceptance_decision="accepted",
+        next_task_may_proceed=True,
+        active_role="verifier",
+        prior_role="builder",
+        role_attempt_count=2,
+        handoff_reason="builder_patch_ready_for_verification",
+        handoff_summary="Verifier should run focused checks and summarize verdict.",
+        handoff_instructions="Run focused controller proof tests first.",
+        role_output_summary="Builder updated controller wrappers and persisted handoff state.",
+        verifier_verdict="fail",
+        controller_next_role_decision="verifier",
+        role_outcome="verification_failed",
+    )
+
+    checkpoint = batch_state.last_checkpoint_for_task(state, "tasks/001.md")
+    assert checkpoint is not None
+    assert checkpoint.active_role == "verifier"
+    assert checkpoint.prior_role == "builder"
+    assert checkpoint.role_attempt_count == 2
+    assert checkpoint.handoff_reason == "builder_patch_ready_for_verification"
+    assert checkpoint.verifier_verdict == "fail"
+    assert checkpoint.controller_next_role_decision == "verifier"
+
+    resumed = batch_state.resume_role_handoff_state_for_batch(state, task_path="tasks/001.md")
+    assert resumed["active_role"] == "verifier"
+    assert resumed["pending_role"] == "verifier"
+    assert resumed["controller_must_choose_next_role"] is False
