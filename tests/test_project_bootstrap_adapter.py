@@ -122,3 +122,18 @@ def test_bootstrap_failures_are_explicit_state_not_hidden_exceptions() -> None:
     assert truth['bootstrap_error'] == 'missing virtualenv'
     assert truth['workspace_ready_for_validation'] is False
     assert project_workspace_adapter.workspace_can_resume_after_bootstrap_failure(truth) is True
+
+
+def test_bootstrap_success_is_explicit_and_ready_for_validation() -> None:
+    contract = project_workspace_adapter.generic_python_workspace_contract('external-app')
+    truth = project_workspace_adapter.evaluate_workspace_bootstrap_result(
+        contract,
+        bootstrap_ok=True,
+        bootstrap_error='',
+    )
+
+    assert truth['bootstrap_attempted'] is True
+    assert truth['bootstrap_blocked'] is False
+    assert truth['bootstrap_status'] == 'succeeded'
+    assert truth['bootstrap_error'] == ''
+    assert truth['workspace_ready_for_validation'] is True

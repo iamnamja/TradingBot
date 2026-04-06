@@ -13,6 +13,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from agents.lib import project_workspace_adapter  # noqa: E402
+from agents.lib.multi_agent_loop import execute_multi_agent_loop  # noqa: E402
 
 
 def _builder_exports():
@@ -205,3 +206,56 @@ def test_controller_can_reason_over_adapter_defined_validation_commands() -> Non
 
     assert project_workspace_adapter.workspace_validation_commands(contract) == ['ruff check .', 'pytest -q']
     assert project_workspace_adapter.workspace_acceptance_evidence_commands(contract) == ['pytest -q']
+
+
+def test_multi_agent_controller_cycle_is_portable_for_generic_python_project() -> None:
+    decision_log: list[str] = []
+
+    def _builder(role_state: dict[str, object]) -> dict[str, object]:
+        task_id = str(role_state["task_path"]).split('/')[-1].split('.')[0]
+        decision_log.append(f"builder:{task_id}")
+        return {"changed_files": ["src/app.py"], "summary": f"builder:{task_id}"}
+
+    def _verifier(builder_artifact: dict[str, object], _role_state: dict[str, object]) -> dict[str, object]:
+        decision_log.append("verifier")
+        assert builder_artifact["artifact_kind"] == "builder_patch_attempt"
+        return {
+            "validator_ok": True,
+            "validator_note": "local validation passed",
+            "focused_results": ["tests/test_multi_project_adapters.py"],
+            "full_results": ["pytest -q"],
+            "acceptance_report": {
+                "acceptance_decision": "accepted",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+                "note": "accepted",
+            },
+        }
+
+    def _controller(verifier_artifact: dict[str, object], _builder_artifact: dict[str, object], role_state: dict[str, object]) -> dict[str, object]:
+        decision_log.append("controller")
+        return {
+            "task_path": role_state.get("task_path", "external-app/tasks/alpha.md"),
+            "post_task_decision": "continue" if verifier_artifact["verdict"] == "pass" else "stop",
+            "next_task_may_proceed": verifier_artifact["verdict"] == "pass",
+            "summary": "verification accepted",
+            "action": "advance" if verifier_artifact["verdict"] == "pass" else "stop",
+        }
+
+    manifest = [
+        {"task_id": "alpha", "task_path": "external-app/tasks/alpha.md", "depends_on": []},
+        {"task_id": "beta", "task_path": "external-app/tasks/beta.md", "depends_on": ["alpha"]},
+    ]
+
+    processed_task_ids: list[str] = []
+    for item in manifest:
+        result = execute_multi_agent_loop(
+            task_path=str(item["task_path"]),
+            builder_step=lambda role_state, _item=item: (processed_task_ids.append(str(_item["task_id"])) or _builder({**role_state, "task_path": str(_item["task_path"])})),
+            verifier_step=_verifier,
+            controller_decide=_controller,
+        )
+        assert result["controller_decision"]["post_task_decision"] == "continue"
+
+    assert processed_task_ids == ["alpha", "beta"]
+    assert decision_log == ["builder:alpha", "verifier", "controller", "builder:beta", "verifier", "controller"]
