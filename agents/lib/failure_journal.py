@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from agents.lib.controller_contract import POLICY_BLOCKED_FAILURE_CATEGORY
-from agents.lib.controller_repair import build_controller_failure_digest, build_controller_repair_context
+from agents.lib.controller_repair import (
+    build_controller_failure_digest,
+    build_controller_repair_context,
+    choose_repair_strategy,
+)
 
 DEFAULT_RAW_SNIPPET_LIMIT = 400
 DEFAULT_JOURNAL_PATH = Path("artifacts/failure_journal.jsonl")
@@ -27,12 +31,16 @@ def classify_failure(kind: str, message: str) -> str:
         return POLICY_BLOCKED_FAILURE_CATEGORY
     if any(token in text for token in ("required file", "unexpected file", "deliverable", "task shape", "material update", "split recommendation")):
         return "task_shape_mismatch"
+    if any(token in text for token in ("bootstrap", "environment", "venv", "pip install", "missing executable", "toolchain", "no such file or directory")):
+        return "environment_setup_failure"
     if "github actions" in text or "required status check" in text or "workflow" in text or re.search(r"\bci\b", text):
         return "ci_only_failure"
     if any(token in text for token in ("controller strict mode", "patch-quality gate", "low-discipline generated patch", "compressed multi-import", "semicolon density")):
         return "controller_patch_quality"
     if any(token in text for token in ("semantic", "unknown export key", "non-live failure-journal", "file-local semantic")):
         return "file_local_semantic_failure"
+    if any(token in text for token in ("proof-claim", "proof claim", "docs/", "readme", "documentation claim", "status narrative")):
+        return "docs_proof_claim_drift"
     if "ruff" in text or "lint" in text:
         return "lint"
     if "bundle" in text or "end_file" in text or "begin_file_bundle" in text:
@@ -47,7 +55,7 @@ def classify_failure(kind: str, message: str) -> str:
 def _normalize_failure_message(message: str) -> str:
     value = str(message or "")
     value = re.sub(r"'[^']*'", "'<value>'", value)
-    value = re.sub(r'"[^"]*"', "\"<value>\"", value)
+    value = re.sub(r'"[^"]*"', '"<value>"', value)
     value = re.sub(r"\b\d+\b", "<num>", value)
     value = re.sub(r"\s+", " ", value).strip().lower()
     return value
@@ -70,20 +78,41 @@ def bounded_failure_snippet(message: str, max_chars: int = DEFAULT_RAW_SNIPPET_L
 
 
 def build_failure_remediation_plan(*, kind: str, message: str, category: str, retry_count: int, fingerprint: str, raw_failure_snippet: str) -> Dict[str, Any]:
-    plans: Dict[str, Dict[str, Any]] = {
-        "python_syntax": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="targeted_syntax_repair", autonomy_confidence=0.95, continue_autonomously=True, manual_lane_recommended=False),
-        "file_local_semantic_failure": dict(recommended_next_action="localized_repair", chosen_remediation_path="file_local_semantic_repair", autonomy_confidence=0.82, continue_autonomously=True, manual_lane_recommended=False),
-        "controller_patch_quality": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="controller_patch_quality_repair", autonomy_confidence=0.40, continue_autonomously=True, manual_lane_recommended=False),
-        "task_shape_mismatch": dict(recommended_next_action="patch_task_contract", chosen_remediation_path="task_shape_patch", autonomy_confidence=0.38, continue_autonomously=False, manual_lane_recommended=False),
-        "seam_contract_mismatch": dict(recommended_next_action="patch_runner_or_task_contract", chosen_remediation_path="semantic_contract_repair", autonomy_confidence=0.30, continue_autonomously=False, manual_lane_recommended=False),
-        "harness_meta_regression": dict(recommended_next_action="manual_patch", chosen_remediation_path="manual_patch_lane", autonomy_confidence=0.10, continue_autonomously=False, manual_lane_recommended=True),
-        "policy_blocked": dict(recommended_next_action="manual_patch", chosen_remediation_path="manual_patch_lane", autonomy_confidence=0.10, continue_autonomously=False, manual_lane_recommended=True),
-        "ci_only_failure": dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="ci_only_repair", autonomy_confidence=0.55, continue_autonomously=False, manual_lane_recommended=False),
+    route = choose_repair_strategy(kind=kind, message=message, category=category)
+    recommended = "manual_patch"
+    if route["remediation_lane"] == "builder":
+        recommended = "retry_with_targeted_fix"
+    elif route["remediation_lane"] == "verifier":
+        recommended = "rerun_verifier_lane"
+    plan = {
+        "recommended_next_action": recommended,
+        "chosen_remediation_path": str(route["repair_strategy"]),
+        "repair_strategy": str(route["repair_strategy"]),
+        "remediation_lane": str(route["remediation_lane"]),
+        "autonomy_confidence": 0.0,
+        "continue_autonomously": bool(route["continue_autonomously"]),
+        "manual_lane_recommended": bool(route["manual_lane_recommended"]),
+        "failure_category": category,
+        "retry_count": retry_count,
+        "failure_fingerprint": fingerprint,
+        "raw_failure_snippet": raw_failure_snippet,
+        "route_rationale": str(route["rationale"]),
     }
-    plan = dict(plans.get(category, dict(recommended_next_action="retry_with_targeted_fix", chosen_remediation_path="targeted_retry", autonomy_confidence=0.50, continue_autonomously=False, manual_lane_recommended=False)))
-    if retry_count >= 3:
-        plan.update(dict(recommended_next_action="manual_patch", chosen_remediation_path="manual_patch_lane", autonomy_confidence=0.0, continue_autonomously=False, manual_lane_recommended=True))
-    plan.update(dict(failure_category=category, retry_count=retry_count, failure_fingerprint=fingerprint, raw_failure_snippet=raw_failure_snippet))
+    if plan["remediation_lane"] == "builder":
+        plan["autonomy_confidence"] = 0.8 if retry_count <= 2 else 0.35
+    elif plan["remediation_lane"] == "verifier":
+        plan["autonomy_confidence"] = 0.7 if retry_count <= 2 else 0.25
+    if retry_count >= 3 and plan["remediation_lane"] != "verifier":
+        plan.update(
+            recommended_next_action="manual_patch",
+            chosen_remediation_path="manual_stop",
+            repair_strategy="manual_stop",
+            remediation_lane="operator",
+            autonomy_confidence=0.0,
+            continue_autonomously=False,
+            manual_lane_recommended=True,
+            route_rationale="Repeated failures exhausted the conservative autonomous repair budget.",
+        )
     return plan
 
 
@@ -109,8 +138,6 @@ def retry_count_for_fingerprint(fingerprint: str) -> int:
     return count
 
 
-
-
 def build_semantic_failure_digest(*, kind: str, message: str, category: str = "", touched_files: list[str] | None = None, task_file: str = "") -> Dict[str, Any]:
     return dict(
         build_controller_failure_digest(
@@ -133,6 +160,7 @@ def build_semantic_repair_context(*, kind: str, message: str, category: str = ""
             task_file=task_file,
         )
     )
+
 
 def failure_journal_path() -> Path:
     raw = os.getenv("TRADINGBOT_FAILURE_JOURNAL_PATH", "").strip()
@@ -162,7 +190,6 @@ def read_failure_journal(journal_path: Path | str | None = None) -> List[Dict[st
     return rows
 
 
-
 def build_multi_agent_failure_context(
     *,
     task_path: str,
@@ -179,5 +206,7 @@ def build_multi_agent_failure_context(
         "controller_summary": str((controller_decision or {}).get("summary") or ""),
         "verifier_verdict": str((verifier_artifact or {}).get("verdict") or "not_run"),
         "controller_action": str((controller_decision or {}).get("action") or ""),
+        "repair_strategy": str((controller_decision or {}).get("repair_strategy") or ""),
+        "remediation_lane": str((controller_decision or {}).get("remediation_lane") or ""),
         "final_authority_role": str((controller_decision or {}).get("final_authority_role") or "controller"),
     }
