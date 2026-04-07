@@ -38,6 +38,8 @@ class BatchTaskOutcome:
     repair_memory_signal: str = ""
     duplicate_attempt_suppressed: bool = False
     no_progress_detected: bool = False
+    carry_forward_summary: str = ""
+    repo_memory_entries: tuple[dict[str, object], ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -55,6 +57,8 @@ class BatchTaskOutcome:
             "repair_memory_signal": self.repair_memory_signal,
             "duplicate_attempt_suppressed": self.duplicate_attempt_suppressed,
             "no_progress_detected": self.no_progress_detected,
+            "carry_forward_summary": self.carry_forward_summary,
+            "repo_memory_entries": [dict(item) for item in self.repo_memory_entries],
         }
 
 
@@ -204,6 +208,7 @@ def execute_batch_loop(
             "note": "",
         }
 
+        carry_forward_context = bs.carry_forward_context_for_task(state, task_path=item.task_path)
         result = execute_task(item)
         state = bs.advance_task_status(
             state,
@@ -313,6 +318,8 @@ def execute_batch_loop(
             repair_memory_signal=repair_memory_signal,
             duplicate_attempt_suppressed=duplicate_attempt_suppressed,
             no_progress_detected=no_progress_detected,
+            carry_forward_summary=str(carry_forward_context.get("carry_forward_summary") or state.carry_forward_summary),
+            repo_memory_entries=tuple(dict(item) for item in carry_forward_context.get("repo_memory_entries") or state.repo_memory_entries),
         )
         outcomes.append(outcome.to_dict())
 

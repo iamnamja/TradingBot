@@ -91,8 +91,10 @@ The highest-value next hardenings are:
 - task admission, family classification, and decomposition gates for larger task shapes
 - repo-scoped hosted-check contract and truthful environment probe behavior
 - a real multi-role ordinary-task execution loop instead of only proof-facing role surfaces
-- cross-task context carry-forward and bounded repo memory
+- bounded cross-task context carry-forward and repo memory
 - a fresh end-to-end ordinary-manifest autonomy re-proof after those land
+
+Task 114 adds bounded cross-task repo memory. Accepted change summaries, unresolved blockers, deferred issues, and a compact carry-forward summary now persist across tasks so later manifest steps can see truthful prior context without depending on raw unbounded logs.
 
 ## Boundary and claim discipline
 

@@ -264,4 +264,30 @@ def build_multi_agent_failure_context(
 __all__ = [
     "evaluate_repair_attempt_memory",
     "repair_attempt_fingerprint",
+    "summarize_cross_task_repo_memory",
+    "build_cross_task_failure_context",
 ]
+
+
+def summarize_cross_task_repo_memory(repo_memory: Dict[str, Any] | dict[str, Any] | None) -> Dict[str, Any]:
+    payload = dict(repo_memory or {})
+    accepted = [dict(item) for item in payload.get("accepted_change_summaries") or []]
+    blockers = [dict(item) for item in payload.get("unresolved_blockers") or []]
+    deferred = [dict(item) for item in payload.get("deferred_issue_summaries") or []]
+    entries = [dict(item) for item in payload.get("repo_memory_entries") or []]
+    return {
+        "accepted_change_count": len(accepted),
+        "unresolved_blocker_count": len(blockers),
+        "deferred_issue_count": len(deferred),
+        "carry_forward_summary": str(payload.get("carry_forward_summary") or ""),
+        "accepted_change_summaries": accepted,
+        "unresolved_blockers": blockers,
+        "deferred_issue_summaries": deferred,
+        "repo_memory_entries": entries,
+    }
+
+
+def build_cross_task_failure_context(*, task_path: str, repo_memory: Dict[str, Any] | dict[str, Any] | None) -> Dict[str, Any]:
+    summary = summarize_cross_task_repo_memory(repo_memory)
+    summary["task_path"] = str(task_path or "")
+    return summary

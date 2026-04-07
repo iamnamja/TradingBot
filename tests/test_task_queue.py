@@ -1030,3 +1030,81 @@ def test_multi_agent_loop_marks_ordinary_execution_surface_for_autonomous_task()
     assert result["task_context"]["task_admission_lane"] == "autonomous_ordinary"
     assert result["verifier_artifact"]["tester_execution_plan"]["validation_mode"] == "focused_then_broad"
     assert result["controller_decision"]["ordinary_task_execution_surface"] == "multi_role_ordinary_task"
+
+
+def test_cross_task_repo_memory_persists_accepted_changes_and_unresolved_blockers(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    bs = _batch_state_module()
+
+    _write_task(tmp_path / "tasks" / "001_foundation.md")
+    _write_task(tmp_path / "tasks" / "002_followup.md")
+    _write_task(tmp_path / "tasks" / "003_optional.md")
+    manifest = {
+        "tasks": [
+            {"path": "tasks/001_foundation.md"},
+            {"path": "tasks/002_followup.md", "depends_on": ["tasks/001_foundation.md"]},
+            {"path": "tasks/003_optional.md", "depends_on": ["tasks/002_followup.md"], "deferrable": True},
+        ]
+    }
+
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = bs.initialize_batch_state(manifest=manifest, queue=queue, manifest_source="tasks/manifest.json", created_ts=1)
+    state = bs.apply_task_result(
+        state,
+        task_path="tasks/001_foundation.md",
+        terminal_status="completed",
+        post_task_decision="continue",
+        note="accepted foundation",
+        acceptance_decision="accepted",
+        next_task_may_proceed=True,
+        coder_artifact_envelope={
+            "summary": "Builder landed the foundation seam.",
+            "changed_files": ["agents/lib/batch_state.py", "agents/run_task.py"],
+        },
+    )
+
+    state = bs.apply_task_result(
+        state,
+        task_path="tasks/002_followup.md",
+        terminal_status="blocked",
+        post_task_decision="manual_patch",
+        note="blocked on verifier follow-up",
+        acceptance_decision="manual_patch",
+        next_task_may_proceed=False,
+        controller_artifact_envelope={"summary": "Controller deferred the remaining follow-up."},
+    )
+
+    carry = bs.carry_forward_context_for_task(state, task_path="tasks/003_optional.md")
+
+    assert state.accepted_change_summaries[0]["task_path"] == "tasks/001_foundation.md"
+    assert state.unresolved_blockers[0]["task_path"] == "tasks/002_followup.md"
+    assert state.deferred_issue_summaries[0]["task_path"] == "tasks/003_optional.md"
+    assert any(entry["memory_kind"] == "accepted_change" for entry in state.repo_memory_entries)
+    assert any(entry["memory_kind"] == "unresolved_blocker" for entry in state.repo_memory_entries)
+    assert carry["task_path"] == "tasks/003_optional.md"
+    assert "Carry forward 1 accepted change(s), 1 unresolved blocker(s), and 1 deferred issue(s)." == carry["carry_forward_summary"]
+
+
+def test_checkpoint_snapshots_repo_memory_deterministically(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    bs = _batch_state_module()
+
+    _write_task(tmp_path / "tasks" / "001.md")
+    manifest = {"tasks": ["tasks/001.md"]}
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = bs.initialize_batch_state(manifest=manifest, queue=queue, manifest_source="tasks/manifest.json", created_ts=1)
+    state = bs.apply_task_result(
+        state,
+        task_path="tasks/001.md",
+        terminal_status="completed",
+        post_task_decision="continue",
+        note="accepted",
+        acceptance_decision="accepted",
+        next_task_may_proceed=True,
+        coder_artifact_envelope={"summary": "Builder changed one file.", "changed_files": ["agents/lib/check_runner.py"]},
+    )
+
+    checkpoint = bs.last_checkpoint_for_task(state, "tasks/001.md")
+    assert checkpoint is not None
+    assert checkpoint.accepted_change_summaries[0]["changed_files"] == ["agents/lib/check_runner.py"]
+    assert checkpoint.carry_forward_summary == state.carry_forward_summary

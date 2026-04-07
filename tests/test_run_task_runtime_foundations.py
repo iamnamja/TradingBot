@@ -329,3 +329,40 @@ def test_run_task_route_keeps_manual_only_shapes_conservatively_manual() -> None
     assert context["task_admission_lane"] == "manual_only"
     assert route["recommended_next_role"] == "manual_patch"
     assert route["manual_lane_required"] is True
+
+
+def test_cross_task_repo_memory_surfaces_through_runtime_modules(tmp_path: Path) -> None:
+    _, _, _, _, failure_journal, _, _, _, _, batch_state, task_queue, _, _, _, _, _, _ = _load_runtime_modules()
+
+    task_file = tmp_path / "tasks" / "001.md"
+    task_file.parent.mkdir(parents=True, exist_ok=True)
+    task_file.write_text("# Task\n", encoding="utf-8")
+
+    manifest = {"tasks": ["tasks/001.md"]}
+    queue = task_queue.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = batch_state.initialize_batch_state(manifest=manifest, queue=queue, manifest_source="tasks/manifest.json", created_ts=1)
+    state = batch_state.apply_task_result(
+        state,
+        task_path="tasks/001.md",
+        terminal_status="completed",
+        post_task_decision="continue",
+        note="accepted",
+        acceptance_decision="accepted",
+        next_task_may_proceed=True,
+        coder_artifact_envelope={"summary": "Builder landed repo memory plumbing.", "changed_files": ["agents/lib/batch_state.py"]},
+    )
+
+    snapshot = batch_state.current_repo_memory_snapshot(state)
+    context = failure_journal.build_cross_task_failure_context(task_path="tasks/next.md", repo_memory=snapshot)
+
+    assert snapshot["accepted_change_summaries"][0]["task_path"] == "tasks/001.md"
+    assert context["accepted_change_count"] == 1
+    assert context["carry_forward_summary"].startswith("Carry forward 1 accepted change")
+
+
+def test_failure_journal_live_exports_include_cross_task_repo_memory_helpers() -> None:
+    run_task, *_ = _load_runtime_modules()
+    exports = run_task._failure_journal_exports()
+
+    assert callable(exports["summarize_cross_task_repo_memory"])
+    assert callable(exports["build_cross_task_failure_context"])

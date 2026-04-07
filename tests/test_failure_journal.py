@@ -410,3 +410,40 @@ def test_failure_remediation_plan_persists_repair_attempt_surface_metadata() -> 
     assert plan["repair_attempt_fingerprint"].startswith("repair:")
     assert plan["repair_target_surface"] == plan["targeted_patch_surface"]
     assert plan["repair_target_files"] == plan["target_files"]
+
+
+def test_cross_task_repo_memory_summary_preserves_truthful_counts() -> None:
+    fj = _load_failure_journal_module()
+    summary = fj.summarize_cross_task_repo_memory(
+        {
+            "accepted_change_summaries": [{"task_path": "tasks/113.md", "summary": "accepted"}],
+            "unresolved_blockers": [{"task_path": "tasks/114.md", "summary": "blocked"}],
+            "deferred_issue_summaries": [{"task_path": "tasks/115.md", "reason": "deferred"}],
+            "repo_memory_entries": [{"memory_kind": "accepted_change", "task_path": "tasks/113.md", "summary": "accepted"}],
+            "carry_forward_summary": "Carry forward 1 accepted change(s), 1 unresolved blocker(s), and 1 deferred issue(s).",
+        }
+    )
+
+    assert summary["accepted_change_count"] == 1
+    assert summary["unresolved_blocker_count"] == 1
+    assert summary["deferred_issue_count"] == 1
+    assert summary["carry_forward_summary"].startswith("Carry forward 1 accepted")
+
+
+def test_cross_task_failure_context_embeds_repo_memory_snapshot() -> None:
+    fj = _load_failure_journal_module()
+    context = fj.build_cross_task_failure_context(
+        task_path="tasks/114_orchestrator_cross_task_context_carry_forward_and_repo_memory.md",
+        repo_memory={
+            "accepted_change_summaries": [{"task_path": "tasks/113.md", "summary": "ordinary loop landed"}],
+            "unresolved_blockers": [{"task_path": "tasks/114.md", "summary": "blocked pending follow-up"}],
+            "deferred_issue_summaries": [],
+            "repo_memory_entries": [{"memory_kind": "unresolved_blocker", "task_path": "tasks/114.md", "summary": "blocked pending follow-up"}],
+            "carry_forward_summary": "Carry forward 1 accepted change(s), 1 unresolved blocker(s), and 0 deferred issue(s).",
+        },
+    )
+
+    assert context["task_path"].endswith("114_orchestrator_cross_task_context_carry_forward_and_repo_memory.md")
+    assert context["accepted_change_count"] == 1
+    assert context["unresolved_blocker_count"] == 1
+    assert context["repo_memory_entries"][0]["memory_kind"] == "unresolved_blocker"
