@@ -504,6 +504,18 @@ def build_controller_repair_context(
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
 
 
+def classify_collection_failure(*, kind: str, message: str, category: str = "") -> str:
+    from agents.lib.controller_repair import classify_collection_failure as _impl  # type: ignore
+
+    return str(_impl(kind=kind, message=message, category=category))
+
+
+def is_collection_failure(*, kind: str, message: str, category: str = "") -> bool:
+    from agents.lib.controller_repair import is_collection_failure as _impl  # type: ignore
+
+    return bool(_impl(kind=kind, message=message, category=category))
+
+
 def choose_repair_strategy(
     *,
     kind: str,
@@ -688,17 +700,13 @@ def build_multi_agent_controller_decision(
 
 def execute_multi_agent_loop(
     *,
-    task_path: str | None = None,
-    builder_step=None,
-    verifier_step=None,
+    task_path: str,
+    builder_step,
+    verifier_step,
     controller_decide=None,
     initial_role_state: Mapping[str, object] | None = None,
     required_paths: List[str] | None = None,
     controller_route_decide=None,
-    task_manifest: Mapping[str, object] | List[Mapping[str, object]] | None = None,
-    manifest: Mapping[str, object] | List[Mapping[str, object]] | None = None,
-    choose_next_role=None,
-    run_role=None,
 ) -> Dict[str, object]:
     from agents.lib.multi_agent_loop import execute_multi_agent_loop as _impl  # type: ignore
 
@@ -711,38 +719,9 @@ def execute_multi_agent_loop(
             initial_role_state=initial_role_state,
             required_paths=required_paths,
             controller_route_decide=controller_route_decide,
-            task_manifest=task_manifest,
-            manifest=manifest,
-            choose_next_role=choose_next_role,
-            run_role=run_role,
         )
     )
 
-
-
-
-def run_multi_agent_controller_cycle(
-    *,
-    manifest: Mapping[str, object] | List[Mapping[str, object]],
-    builder,
-    verifier,
-    controller,
-) -> Dict[str, object]:
-    from agents.lib.multi_agent_loop import run_multi_agent_controller_cycle as _impl  # type: ignore
-
-    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
-
-
-def run_multi_agent_task_cycle(
-    *,
-    manifest: Mapping[str, object] | List[Mapping[str, object]],
-    builder,
-    verifier,
-    controller,
-) -> Dict[str, object]:
-    from agents.lib.multi_agent_loop import run_multi_agent_task_cycle as _impl  # type: ignore
-
-    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
 
 def workspace_adapter_snapshot() -> Dict[str, object]:
     from agents.lib.project_workspace_adapter import workspace_adapter_snapshot as _impl  # type: ignore
@@ -4393,6 +4372,9 @@ def _report_failure(kind: str, message: str, *, touched_files: List[str] | None 
         "raw_failure_snippet": raw_snippet,
         "recommended_next_action": recommended_action,
         "chosen_remediation_path": remediation_path,
+        "repair_strategy": str(plan.get("repair_strategy") or remediation_path),
+        "remediation_lane": str(plan.get("remediation_lane") or "operator"),
+        "route_rationale": str(plan.get("route_rationale") or ""),
         "autonomy_confidence": autonomy_conf,
         "continue_autonomously": continue_auto,
         "manual_lane_recommended": manual_lane_recommended,
@@ -5159,6 +5141,7 @@ def _failure_journal_exports() -> Dict[str, object]:
         "build_semantic_failure_digest": None,
         "build_semantic_repair_context": None,
         "choose_repair_strategy": None,
+        "collection_failure_category": None,
     }
 
     if _failure_journal is not None:
@@ -5176,6 +5159,7 @@ def _failure_journal_exports() -> Dict[str, object]:
             "build_semantic_failure_digest",
             "build_semantic_repair_context",
             "choose_repair_strategy",
+            "collection_failure_category",
         ):
             obj = getattr(_failure_journal, name, None)
             if callable(obj):

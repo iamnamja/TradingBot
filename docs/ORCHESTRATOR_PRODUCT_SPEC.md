@@ -13,6 +13,8 @@ Build a reusable orchestration engine that can execute constrained implementatio
 
 The repo now has deterministic proof for:
 
+- collection/import failures classified separately from ordinary failing tests in the controller repair surface
+
 - role separation across `controller`, `builder`, and `verifier`
 - sequential multi-agent loop with controller-owned final decision authority
 - dependency-aware short-manifest planning/routing
@@ -58,8 +60,3 @@ This tranche should focus on:
 ## Boundary and claim discipline
 
 Public claims in docs/README must remain narrower than or equal to deterministic proof tests. This remains in force for the post-099 resilience tranche.
-
-
-## Public surface stability
-
-The bounded proof-facing public surface is now explicitly frozen. Current canonical symbols remain preferred, but thin compatibility aliases are allowed where needed for proof-facing helpers so collection-time name drift does not break bounded proof tasks.

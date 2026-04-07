@@ -199,3 +199,52 @@ def test_failure_router_keeps_environment_failures_manual() -> None:
     assert route["repair_strategy"] == "environment_setup_triage"
     assert route["remediation_lane"] == "operator"
     assert route["stop_after_failure"] is True
+
+
+def test_collection_failures_are_classified_explicitly_before_generic_imports() -> None:
+    fj = _load_failure_journal_module()
+    category = fj.classify_failure(
+        "tests",
+        "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle'",
+    )
+
+    assert category == "collection_import_failure"
+
+
+def test_collection_failures_route_to_narrow_builder_repair_lane() -> None:
+    fj = _load_failure_journal_module()
+    plan = fj.build_failure_remediation_plan(
+        kind="tests",
+        message="ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle'",
+        category="collection_import_failure",
+        retry_count=1,
+        fingerprint="fp-collection",
+        raw_failure_snippet="ERROR collecting tests/test_multi_project_adapters.py",
+    )
+
+    assert plan["repair_strategy"] == "collection_import_contract_repair"
+    assert plan["remediation_lane"] == "builder"
+    assert plan["continue_autonomously"] is True
+
+
+def test_report_failure_journals_collection_failure_category_explicitly(monkeypatch, tmp_path: Path) -> None:
+    journal_path = tmp_path / "failure_journal.jsonl"
+    monkeypatch.setenv("TRADINGBOT_FAILURE_JOURNAL_PATH", str(journal_path))
+
+    run_task = _load_run_task_module()
+    monkeypatch.setattr(run_task, "_FAILURE_JOURNAL_STATE", {}, raising=False)
+    cache = getattr(run_task._failure_journal_exports, "_cache", None)
+    if isinstance(cache, dict):
+        cache.clear()
+        delattr(run_task._failure_journal_exports, "_cache")
+
+    run_task._report_failure(
+        "tests",
+        "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle'",
+    )
+
+    fj = _load_failure_journal_module()
+    rows = fj.read_failure_journal(journal_path)
+    assert rows[-1]["failure_category"] == "collection_import_failure"
+    assert rows[-1]["repair_strategy"] == "collection_import_contract_repair"
+    assert rows[-1]["remediation_lane"] == "builder"

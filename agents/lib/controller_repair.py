@@ -49,6 +49,7 @@ _CONTROLLER_TAXONOMY_TOKENS = tuple(
 
 REPAIR_LANES = ("builder", "verifier", "operator")
 REPAIR_STRATEGIES = (
+    "collection_import_contract_repair",
     "syntax_import_lint_repair",
     "behavioral_test_repair",
     "controller_contract_repair",
@@ -248,6 +249,44 @@ def _coerce_failure_text(kind: str, message: str, category: str) -> str:
     return f"{kind}\n{category}\n{message}".lower()
 
 
+
+COLLECTION_IMPORT_FAILURE_CATEGORY = "collection_import_failure"
+_COLLECTION_FAILURE_TOKENS = (
+    "error collecting",
+    "while importing test module",
+    "during collection",
+    "pytestcollectionwarning",
+)
+_COLLECTION_IMPORT_DETAIL_TOKENS = (
+    "cannot import name",
+    "has no attribute",
+    "unexpected keyword argument",
+    "importerror",
+    "modulenotfounderror",
+    "attributeerror",
+    "keyerror",
+)
+
+
+def classify_collection_failure(*, kind: str, message: str, category: str = "") -> str:
+    normalized_category = str(category or "").strip()
+    if normalized_category == COLLECTION_IMPORT_FAILURE_CATEGORY:
+        return COLLECTION_IMPORT_FAILURE_CATEGORY
+    text = _coerce_failure_text(kind, message, normalized_category)
+    if any(token in text for token in _COLLECTION_FAILURE_TOKENS):
+        return COLLECTION_IMPORT_FAILURE_CATEGORY
+    if (
+        any(token in text for token in _COLLECTION_IMPORT_DETAIL_TOKENS)
+        and any(token in text for token in ("tests/", "test_", "importing test module", "collection"))
+    ):
+        return COLLECTION_IMPORT_FAILURE_CATEGORY
+    return ""
+
+
+def is_collection_failure(*, kind: str, message: str, category: str = "") -> bool:
+    return bool(classify_collection_failure(kind=kind, message=message, category=category))
+
+
 def choose_repair_strategy(
     *,
     kind: str,
@@ -281,6 +320,20 @@ def choose_repair_strategy(
 
     if normalized_category == POLICY_BLOCKED_FAILURE_CATEGORY:
         route["rationale"] = "Policy-blocked failures must remain manual stop signals."
+        return route
+
+    collection_category = classify_collection_failure(kind=kind, message=message, category=normalized_category)
+    if collection_category:
+        route.update(
+            failure_category=collection_category,
+            repair_strategy="collection_import_contract_repair",
+            remediation_lane="builder",
+            next_role="builder",
+            continue_autonomously=True,
+            stop_after_failure=False,
+            manual_lane_recommended=False,
+            rationale="Collection-time import, symbol, and public-surface failures should route to the builder for narrow compatibility repair before broader test retries.",
+        )
         return route
 
     if any(token in text for token in ("bootstrap", "venv", "pip install", "missing executable", "no such file or directory", "environment", "setup.py", "pyproject", "toolchain")) or normalized_category == "environment_setup_failure":
