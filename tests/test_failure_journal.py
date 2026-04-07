@@ -46,6 +46,9 @@ def test_failure_journal_live_seam_exports_are_stable_and_do_not_require_module_
         "autonomy_confidence",
         "continue_autonomously",
         "choose_repair_strategy",
+        "build_repair_attempt_record",
+        "repair_attempt_fingerprint",
+        "evaluate_repair_attempt_memory",
     }
 
     assert expected_keys.issubset(exports.keys())
@@ -365,3 +368,45 @@ def test_multi_agent_failure_context_includes_tester_critique_summary() -> None:
     assert context["tester_critique_summary"]["likely_failure_family"] == "import_contract"
     assert context["focused_replay_commands"] == ["pytest -q tests/test_multi_project_adapters.py"]
     assert context["likely_touched_files"] == ["agents/lib/multi_agent_loop.py"]
+
+
+def test_repair_attempt_memory_detects_duplicate_no_progress_plan() -> None:
+    fj = _load_failure_journal_module()
+    attempt1 = fj.build_repair_attempt_record(
+        task_path="tasks/110.md",
+        repair_strategy="behavioral_test_repair",
+        targeted_patch_surface="result_shape_adapter",
+        target_files=["agents/lib/multi_agent_loop.py"],
+        failure_fingerprint="fp-1",
+        retry_count=1,
+    )
+    attempt2 = fj.build_repair_attempt_record(
+        task_path="tasks/110.md",
+        repair_strategy="behavioral_test_repair",
+        targeted_patch_surface="result_shape_adapter",
+        target_files=["agents/lib/multi_agent_loop.py"],
+        failure_fingerprint="fp-1",
+        retry_count=2,
+    )
+
+    memory = fj.evaluate_repair_attempt_memory(current_attempt=attempt2, prior_attempts=[attempt1], retry_budget=2)
+
+    assert memory["duplicate_attempt_suppressed"] is True
+    assert memory["no_progress_detected"] is True
+    assert memory["repair_memory_signal"] == "duplicate_no_progress_repair_plan"
+
+
+def test_failure_remediation_plan_persists_repair_attempt_surface_metadata() -> None:
+    fj = _load_failure_journal_module()
+    plan = fj.build_failure_remediation_plan(
+        kind="tests",
+        message="pytest failure in test_example",
+        category="tests",
+        retry_count=1,
+        fingerprint="fp-1",
+        raw_failure_snippet="pytest failure in test_example",
+    )
+
+    assert plan["repair_attempt_fingerprint"].startswith("repair:")
+    assert plan["repair_target_surface"] == plan["targeted_patch_surface"]
+    assert plan["repair_target_files"] == plan["target_files"]
