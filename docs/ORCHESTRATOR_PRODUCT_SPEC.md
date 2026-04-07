@@ -20,6 +20,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **090–099 synchronize multi-agent contract + portability proof + extraction-prep boundary posture**
 - **100–106 harden resilience, hosted-authority truth, and external bootstrap recovery**
 - **107 adds a supervised mixed-manifest local-first re-proof over multiple task families**
+- **108 adds stable coder/tester/controller artifact envelopes persisted in batch-state and failure-journal surfaces**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
@@ -27,6 +28,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 The repo now has deterministic proof for:
 
 - role separation across `controller`, `builder`, and `verifier`
+- stable typed coder/tester/controller artifact envelopes that can be persisted and replayed without widening the proof boundary
 - sequential multi-agent loop with controller-owned final decision authority
 - dependency-aware short-manifest planning/routing
 - explicit verification-authority posture in the decision truth

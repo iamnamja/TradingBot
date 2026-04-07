@@ -248,3 +248,31 @@ def test_supervised_mixed_manifest_reproof_surface_is_available_and_bounded() ->
     normalized = run_task.normalize_multi_agent_loop_result(result)
     assert normalized["count"] == 3
     assert normalized["runtime_portability_scope"] == "python_only"
+
+
+def test_run_task_role_artifact_envelope_helpers_are_round_trippable() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    envelope = run_task.canonical_role_artifact_envelope(
+        {
+            "role": "verifier",
+            "task_path": "tasks/108_orchestrator_role_handoff_artifact_envelopes_and_persistence.md",
+            "summary": "Verifier produced focused replay evidence.",
+            "focused_results": ["pytest -q tests/test_controller_contract.py"],
+            "full_results": ["pytest -q"],
+            "verdict": "pass",
+            "verification_authority_profile": "local_only",
+            "acceptance_report": {
+                "acceptance_decision": "accepted",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+            },
+        }
+    )
+    summary = run_task.summarize_role_artifact_envelope(envelope)
+
+    assert envelope["envelope_type"] == "tester_output"
+    assert envelope["verifier_verdict"] == "pass"
+    assert summary["focused_result_count"] == 1
+    assert summary["full_result_count"] == 1
+    assert summary["next_task_may_proceed"] is True

@@ -14,6 +14,7 @@ RoleOutcome = Literal[
     "verification_blocked",
 ]
 VerifierVerdict = Literal["not_run", "pass", "fail", "blocked"]
+ArtifactEnvelopeType = Literal["coder_output", "tester_output", "controller_output"]
 
 AGENT_ROLES: tuple[AgentRole, ...] = ("controller", "builder", "verifier")
 SPECIALIST_ROLES: tuple[AgentRole, ...] = ("builder", "verifier")
@@ -35,6 +36,7 @@ ROLE_OUTCOMES: tuple[RoleOutcome, ...] = (
     "verification_blocked",
 )
 VERIFIER_VERDICTS: tuple[VerifierVerdict, ...] = ("not_run", "pass", "fail", "blocked")
+ARTIFACT_ENVELOPE_TYPES: tuple[ArtifactEnvelopeType, ...] = ("coder_output", "tester_output", "controller_output")
 ROLE_HANDOFF_FIELDS: tuple[str, ...] = (
     "active_role",
     "prior_role",
@@ -47,11 +49,93 @@ ROLE_HANDOFF_FIELDS: tuple[str, ...] = (
     "controller_next_role_decision",
     "role_outcome",
 )
+ARTIFACT_ENVELOPE_FIELDS: tuple[str, ...] = (
+    "schema_version",
+    "envelope_type",
+    "artifact_role",
+    "task_path",
+    "attempt_count",
+    "summary",
+    "role_outcome",
+    "proposed_next_role",
+    "handoff_reason",
+    "handoff_summary",
+    "handoff_instructions",
+    "verifier_verdict",
+    "acceptance_decision",
+    "post_task_decision",
+    "next_task_may_proceed",
+    "changed_files",
+    "focused_result_count",
+    "full_result_count",
+    "verification_authority_profile",
+    "raw_payload",
+)
+ARTIFACT_ENVELOPE_SUMMARY_FIELDS: tuple[str, ...] = (
+    "schema_version",
+    "envelope_type",
+    "artifact_role",
+    "task_path",
+    "attempt_count",
+    "summary",
+    "role_outcome",
+    "proposed_next_role",
+    "verifier_verdict",
+    "acceptance_decision",
+    "post_task_decision",
+    "next_task_may_proceed",
+    "changed_files",
+    "focused_result_count",
+    "full_result_count",
+    "verification_authority_profile",
+)
+ROLE_ARTIFACT_ENVELOPE_FIELD_NAMES: tuple[str, ...] = (
+    "coder_artifact_envelope",
+    "tester_artifact_envelope",
+    "controller_artifact_envelope",
+)
 ALLOWED_ROLE_HANDOFFS: dict[AgentRole, tuple[AgentRole, ...]] = {
     "controller": ("builder", "verifier"),
     "builder": ("controller", "verifier"),
     "verifier": ("controller", "builder"),
 }
+_ROLE_TO_ARTIFACT_TYPE: dict[AgentRole, ArtifactEnvelopeType] = {
+    "builder": "coder_output",
+    "verifier": "tester_output",
+    "controller": "controller_output",
+}
+
+
+def _coerce_string(value: Any) -> str:
+    return str(value or "")
+
+
+def _coerce_int(value: Any, default: int = 0, *, minimum: int = 0) -> int:
+    try:
+        return max(minimum, int(value or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_changed_files(value: Any) -> list[str]:
+    changed: list[str] = []
+    seen: set[str] = set()
+    for raw in value or []:
+        path = str(raw or "").strip().replace("\\", "/")
+        if path and path not in seen:
+            changed.append(path)
+            seen.add(path)
+    return changed
+
+
+def _json_safe_copy(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe_copy(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_copy(item) for item in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
 
 
 def coerce_agent_role(value: Any, default: AgentRole = "controller") -> AgentRole:
@@ -83,6 +167,20 @@ def coerce_role_outcome(value: Any, default: RoleOutcome = "not_run") -> RoleOut
     if text in ROLE_OUTCOMES:
         return cast(RoleOutcome, text)
     return default
+
+
+def coerce_artifact_envelope_type(
+    value: Any,
+    default: ArtifactEnvelopeType = "controller_output",
+) -> ArtifactEnvelopeType:
+    text = str(value or "").strip()
+    if text in ARTIFACT_ENVELOPE_TYPES:
+        return cast(ArtifactEnvelopeType, text)
+    return default
+
+
+def artifact_envelope_type_for_role(role: Any) -> ArtifactEnvelopeType:
+    return _ROLE_TO_ARTIFACT_TYPE[coerce_agent_role(role)]
 
 
 def allowed_role_handoff(from_role: Any, to_role: Any) -> bool:
@@ -125,22 +223,19 @@ def canonical_role_handoff_state(
     prior_raw = prior_role if prior_role is not None else data.get("prior_role")
     prior = "" if not str(prior_raw or "").strip() else coerce_agent_role(prior_raw)
     attempts_raw = role_attempt_count if role_attempt_count is not None else data.get("role_attempt_count")
-    try:
-        attempts = max(0, int(attempts_raw or 0))
-    except (TypeError, ValueError):
-        attempts = 0
+    attempts = _coerce_int(attempts_raw, minimum=0)
     decision_default: ControllerNextRoleDecision = "builder" if active == "controller" else "controller"
     return {
         "active_role": active,
         "prior_role": prior,
         "role_attempt_count": attempts,
-        "handoff_reason": str(handoff_reason if handoff_reason is not None else data.get("handoff_reason") or ""),
-        "handoff_summary": str(handoff_summary if handoff_summary is not None else data.get("handoff_summary") or ""),
-        "handoff_instructions": str(
-            handoff_instructions if handoff_instructions is not None else data.get("handoff_instructions") or ""
+        "handoff_reason": _coerce_string(handoff_reason if handoff_reason is not None else data.get("handoff_reason")),
+        "handoff_summary": _coerce_string(handoff_summary if handoff_summary is not None else data.get("handoff_summary")),
+        "handoff_instructions": _coerce_string(
+            handoff_instructions if handoff_instructions is not None else data.get("handoff_instructions")
         ),
-        "role_output_summary": str(
-            role_output_summary if role_output_summary is not None else data.get("role_output_summary") or ""
+        "role_output_summary": _coerce_string(
+            role_output_summary if role_output_summary is not None else data.get("role_output_summary")
         ),
         "verifier_verdict": coerce_verifier_verdict(
             verifier_verdict if verifier_verdict is not None else data.get("verifier_verdict")
@@ -168,6 +263,136 @@ def resume_role_handoff_state(payload: Mapping[str, Any] | None = None) -> dict[
     }
 
 
+def canonical_role_artifact_envelope(
+    payload: Mapping[str, Any] | None = None,
+    *,
+    envelope_type: Any | None = None,
+    artifact_role: Any | None = None,
+    task_path: Any | None = None,
+    attempt_count: Any | None = None,
+    summary: Any | None = None,
+    role_outcome: Any | None = None,
+    proposed_next_role: Any | None = None,
+    handoff_reason: Any | None = None,
+    handoff_summary: Any | None = None,
+    handoff_instructions: Any | None = None,
+    verifier_verdict: Any | None = None,
+    acceptance_decision: Any | None = None,
+    post_task_decision: Any | None = None,
+    next_task_may_proceed: Any | None = None,
+    changed_files: Any | None = None,
+    focused_result_count: Any | None = None,
+    full_result_count: Any | None = None,
+    verification_authority_profile: Any | None = None,
+    raw_payload: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    data = dict(payload or {})
+    acceptance_report = dict(data.get("acceptance_report") or {})
+    role_default = "controller"
+    if str(data.get("role") or "").strip() in AGENT_ROLES:
+        role_default = str(data.get("role"))
+    role = coerce_agent_role(
+        artifact_role if artifact_role is not None else data.get("artifact_role") or data.get("role"),
+        default=cast(AgentRole, role_default),
+    )
+    inferred_type = artifact_envelope_type_for_role(role)
+    artifact_type = coerce_artifact_envelope_type(
+        envelope_type if envelope_type is not None else data.get("envelope_type"),
+        default=inferred_type,
+    )
+    summary_value = _coerce_string(
+        summary
+        if summary is not None
+        else data.get("summary")
+        or data.get("output_summary")
+        or data.get("validator_note")
+        or acceptance_report.get("note")
+    )
+    raw = raw_payload if raw_payload is not None else (data.get("raw_payload") if isinstance(data.get("raw_payload"), Mapping) else data)
+    return {
+        "schema_version": 1,
+        "envelope_type": artifact_type,
+        "artifact_role": role,
+        "task_path": _coerce_string(task_path if task_path is not None else data.get("task_path")),
+        "attempt_count": _coerce_int(
+            attempt_count if attempt_count is not None else data.get("attempt_count") or data.get("role_attempt_count"),
+            minimum=0,
+        ),
+        "summary": summary_value,
+        "role_outcome": _coerce_string(role_outcome if role_outcome is not None else data.get("role_outcome")),
+        "proposed_next_role": _coerce_string(
+            proposed_next_role
+            if proposed_next_role is not None
+            else data.get("proposed_next_role")
+            or data.get("next_role_decision")
+            or data.get("controller_next_role_decision")
+        ),
+        "handoff_reason": _coerce_string(handoff_reason if handoff_reason is not None else data.get("handoff_reason")),
+        "handoff_summary": _coerce_string(handoff_summary if handoff_summary is not None else data.get("handoff_summary")),
+        "handoff_instructions": _coerce_string(
+            handoff_instructions if handoff_instructions is not None else data.get("handoff_instructions") or data.get("instructions")
+        ),
+        "verifier_verdict": _coerce_string(
+            verifier_verdict if verifier_verdict is not None else data.get("verifier_verdict") or data.get("verdict")
+        ),
+        "acceptance_decision": _coerce_string(
+            acceptance_decision
+            if acceptance_decision is not None
+            else data.get("acceptance_decision")
+            or acceptance_report.get("acceptance_decision")
+        ),
+        "post_task_decision": _coerce_string(
+            post_task_decision
+            if post_task_decision is not None
+            else data.get("post_task_decision")
+            or acceptance_report.get("post_task_decision")
+        ),
+        "next_task_may_proceed": bool(
+            next_task_may_proceed
+            if next_task_may_proceed is not None
+            else data.get("next_task_may_proceed")
+            if data.get("next_task_may_proceed") is not None
+            else acceptance_report.get("next_task_may_proceed", False)
+        ),
+        "changed_files": _coerce_changed_files(changed_files if changed_files is not None else data.get("changed_files")),
+        "focused_result_count": _coerce_int(
+            focused_result_count
+            if focused_result_count is not None
+            else data.get("focused_result_count")
+            if data.get("focused_result_count") is not None
+            else len(list(data.get("focused_results", []) or [])),
+            minimum=0,
+        ),
+        "full_result_count": _coerce_int(
+            full_result_count
+            if full_result_count is not None
+            else data.get("full_result_count")
+            if data.get("full_result_count") is not None
+            else len(list(data.get("full_results", []) or [])),
+            minimum=0,
+        ),
+        "verification_authority_profile": _coerce_string(
+            verification_authority_profile
+            if verification_authority_profile is not None
+            else data.get("verification_authority_profile")
+        ),
+        "raw_payload": cast(dict[str, object], _json_safe_copy(raw)),
+    }
+
+
+def summarize_role_artifact_envelope(payload: Mapping[str, Any] | None = None, **overrides: Any) -> dict[str, object]:
+    envelope = canonical_role_artifact_envelope(payload, **overrides)
+    return {field_name: envelope[field_name] for field_name in ARTIFACT_ENVELOPE_SUMMARY_FIELDS}
+
+
+def empty_role_artifact_envelopes() -> dict[str, dict[str, object]]:
+    return {
+        "coder_artifact_envelope": canonical_role_artifact_envelope(envelope_type="coder_output", artifact_role="builder", raw_payload={}),
+        "tester_artifact_envelope": canonical_role_artifact_envelope(envelope_type="tester_output", artifact_role="verifier", raw_payload={}),
+        "controller_artifact_envelope": canonical_role_artifact_envelope(envelope_type="controller_output", artifact_role="controller", raw_payload={}),
+    }
+
+
 def multi_agent_contract_snapshot() -> dict[str, object]:
     return {
         "roles": list(AGENT_ROLES),
@@ -176,6 +401,10 @@ def multi_agent_contract_snapshot() -> dict[str, object]:
         "role_outcomes": list(ROLE_OUTCOMES),
         "verifier_verdicts": list(VERIFIER_VERDICTS),
         "handoff_fields": list(ROLE_HANDOFF_FIELDS),
+        "artifact_envelope_types": list(ARTIFACT_ENVELOPE_TYPES),
+        "artifact_envelope_fields": list(ARTIFACT_ENVELOPE_FIELDS),
+        "artifact_envelope_summary_fields": list(ARTIFACT_ENVELOPE_SUMMARY_FIELDS),
+        "role_artifact_envelope_field_names": list(ROLE_ARTIFACT_ENVELOPE_FIELD_NAMES),
         "allowed_handoffs": {role: list(targets) for role, targets in ALLOWED_ROLE_HANDOFFS.items()},
         "controller_authority_over_next_role": True,
         "sequential_role_execution_only": True,

@@ -280,3 +280,49 @@ def test_targeted_repair_planner_prefers_docs_only_sync_for_proof_claim_drift() 
     assert route["prefer_minimal_patch"] is True
     assert route["minimal_patch_selected"] is True
     assert all(str(path).endswith('.md') for path in route["target_files"])
+
+
+def test_multi_agent_failure_context_persists_role_artifact_summaries() -> None:
+    fj = _load_failure_journal_module()
+
+    context = fj.build_multi_agent_failure_context(
+        task_path="tasks/108_orchestrator_role_handoff_artifact_envelopes_and_persistence.md",
+        role_trace=["controller", "builder", "verifier", "controller"],
+        builder_artifact={
+            "role": "builder",
+            "task_path": "tasks/108_orchestrator_role_handoff_artifact_envelopes_and_persistence.md",
+            "summary": "Builder proposed a bounded persistence patch.",
+            "attempt_count": 1,
+            "changed_files": ["agents/lib/batch_state.py"],
+            "proposed_next_role": "verifier",
+            "role_outcome": "builder_patch_proposed",
+        },
+        verifier_artifact={
+            "role": "verifier",
+            "task_path": "tasks/108_orchestrator_role_handoff_artifact_envelopes_and_persistence.md",
+            "summary": "Verifier replayed focused tests and found a failing checkpoint assertion.",
+            "focused_results": ["pytest -q tests/test_controller_contract.py"],
+            "full_results": ["pytest -q"],
+            "verdict": "fail",
+            "verification_authority_profile": "local_only",
+            "role_outcome": "verification_failed",
+        },
+        controller_decision={
+            "role": "controller",
+            "task_path": "tasks/108_orchestrator_role_handoff_artifact_envelopes_and_persistence.md",
+            "summary": "Controller requested a narrow persistence repair.",
+            "action": "repair",
+            "repair_strategy": "targeted_role_persistence_fix",
+            "remediation_lane": "builder",
+            "next_role_decision": "builder",
+            "post_task_decision": "stop",
+            "role_outcome": "controller_routed",
+        },
+    )
+
+    assert context["coder_artifact_summary"]["envelope_type"] == "coder_output"
+    assert context["tester_artifact_summary"]["envelope_type"] == "tester_output"
+    assert context["controller_artifact_summary"]["envelope_type"] == "controller_output"
+    assert context["tester_artifact_summary"]["verifier_verdict"] == "fail"
+    assert context["controller_artifact_summary"]["post_task_decision"] == "stop"
+    assert context["builder_summary"] == "Builder proposed a bounded persistence patch."

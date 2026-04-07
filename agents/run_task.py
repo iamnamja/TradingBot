@@ -662,6 +662,24 @@ def resume_role_handoff_state(payload: Mapping[str, object] | None = None) -> Di
     return dict(_impl(payload))
 
 
+def canonical_role_artifact_envelope(
+    payload: Mapping[str, object] | None = None,
+    **overrides: object,
+) -> Dict[str, object]:
+    from agents.lib.multi_agent_contract import canonical_role_artifact_envelope as _impl  # type: ignore
+
+    return dict(_impl(payload, **overrides))
+
+
+def summarize_role_artifact_envelope(
+    payload: Mapping[str, object] | None = None,
+    **overrides: object,
+) -> Dict[str, object]:
+    from agents.lib.multi_agent_contract import summarize_role_artifact_envelope as _impl  # type: ignore
+
+    return dict(_impl(payload, **overrides))
+
+
 def controller_decides_next_role(*, current_role: str, proposed_next_role: str, proposed_by_role: str) -> str:
     from agents.lib.multi_agent_contract import controller_decides_next_role as _impl  # type: ignore
 
