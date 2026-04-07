@@ -460,22 +460,10 @@ def accepted_task_pr_merge_flow(**kwargs: Any) -> Dict[str, object]:
     return dict(_impl(**kwargs))
 
 
-def canonical_repo_check_contract(**kwargs: Any) -> Dict[str, object]:
-    from agents.lib.git_workflow import canonical_repo_check_contract as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
-
-
 def canonical_required_check_truth(**kwargs: Any) -> Dict[str, object]:
     from agents.lib.git_workflow import canonical_required_check_truth as _impl  # type: ignore
 
     return dict(_impl(**kwargs))
-
-
-def probe_hosted_authority(runner, **kwargs: Any) -> Dict[str, object]:
-    from agents.lib.git_workflow import probe_hosted_authority as _impl  # type: ignore
-
-    return dict(_impl(runner, **kwargs))
 
 
 def evaluate_verification_authority(**kwargs: Any) -> Dict[str, object]:
@@ -762,6 +750,17 @@ def build_verifier_evidence_bundle(
     return dict(_impl(task_path=task_path, builder_artifact=builder_artifact, verification=verification))
 
 
+def build_ordinary_task_execution_plan(
+    payload: Mapping[str, object] | None = None,
+    *,
+    task_context: Mapping[str, object] | None = None,
+    changed_files: Sequence[str] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.check_runner import build_ordinary_task_execution_plan as _impl  # type: ignore
+
+    return dict(_impl(payload, task_context=task_context, changed_files=list(changed_files or [])))
+
+
 def build_multi_agent_controller_decision(
     *,
     verifier_artifact: Mapping[str, object],
@@ -769,6 +768,17 @@ def build_multi_agent_controller_decision(
     role_state: Mapping[str, object] | None = None,
 ) -> Dict[str, object]:
     from agents.lib.final_acceptance import build_multi_agent_controller_decision as _impl  # type: ignore
+
+    return dict(_impl(verifier_artifact=verifier_artifact, builder_artifact=builder_artifact, role_state=role_state))
+
+
+def build_multi_role_ordinary_controller_decision(
+    *,
+    verifier_artifact: Mapping[str, object],
+    builder_artifact: Mapping[str, object] | None = None,
+    role_state: Mapping[str, object] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.final_acceptance import build_multi_role_ordinary_controller_decision as _impl  # type: ignore
 
     return dict(_impl(verifier_artifact=verifier_artifact, builder_artifact=builder_artifact, role_state=role_state))
 
@@ -796,6 +806,21 @@ def execute_multi_agent_loop(
             controller_route_decide=controller_route_decide,
         )
     )
+
+
+
+
+def run_multi_agent_controller_cycle(*, manifest, builder, verifier, controller) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import run_multi_agent_controller_cycle as _impl  # type: ignore
+
+    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
+
+
+
+def run_multi_agent_task_cycle(*, manifest, builder, verifier, controller) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import run_multi_agent_task_cycle as _impl  # type: ignore
+
+    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
 
 
 

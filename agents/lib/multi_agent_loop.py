@@ -4,10 +4,10 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from agents.lib.agent_router import controller_selects_route, recommend_task_family_route
-from agents.lib.check_runner import build_tester_critique_bundle
+from agents.lib.check_runner import build_ordinary_task_execution_plan, build_tester_critique_bundle
 from agents.lib.controller_repair import classify_collection_failure
 from agents.lib.failure_journal import build_multi_agent_failure_context
-from agents.lib.final_acceptance import build_multi_agent_controller_decision
+from agents.lib.final_acceptance import build_multi_role_ordinary_controller_decision
 from agents.lib.git_workflow import canonical_required_check_truth, coerce_verification_authority_profile, evaluate_verification_authority
 from agents.lib.multi_agent_contract import canonical_role_handoff_state, controller_decides_next_role
 from agents.lib.project_workspace_adapter import (
@@ -16,7 +16,7 @@ from agents.lib.project_workspace_adapter import (
     recover_workspace_bootstrap_truth,
 )
 from agents.lib.manifest_planner import normalize_manifest_entries_schema
-from agents.lib.task_contracts import multi_agent_task_context
+from agents.lib.task_contracts import multi_agent_task_context, task_family_task_context
 
 
 BuilderStep = Callable[[dict[str, object]], Mapping[str, Any]]
@@ -64,6 +64,7 @@ def build_verifier_evidence_bundle(
     task_path: str,
     builder_artifact: Mapping[str, Any],
     verification: Mapping[str, Any] | None,
+    task_context: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     payload = dict(verification or {})
     acceptance_report = dict(payload.get("acceptance_report") or {})
@@ -129,6 +130,19 @@ def build_verifier_evidence_bundle(
         failure_category=failure_category,
         failure_message=failure_message,
     )
+    tester_execution_plan = build_ordinary_task_execution_plan(
+        {
+            "tester_critique_bundle": critique_bundle,
+            "focused_results": list(payload.get("focused_results", []) or []),
+            "full_results": list(payload.get("full_results", []) or []),
+            "failure_category": failure_category,
+            "failure_message": failure_message,
+            "test_ok": validator_ok,
+            "changed_files": list(builder_artifact.get("changed_files", []) or []),
+        },
+        task_context=task_context,
+        changed_files=list(builder_artifact.get("changed_files", []) or []),
+    )
     return {
         "role": "verifier",
         "artifact_kind": "verifier_evidence_bundle",
@@ -149,9 +163,11 @@ def build_verifier_evidence_bundle(
         "verdict": verdict,
         "summary": summary,
         "tester_critique_bundle": critique_bundle,
-        "focused_replay_commands": list(critique_bundle.get("focused_replay_commands") or []),
-        "broad_replay_commands": list(critique_bundle.get("broad_replay_commands") or []),
+        "focused_replay_commands": list(tester_execution_plan.get("focused_replay_commands") or critique_bundle.get("focused_replay_commands") or []),
+        "broad_replay_commands": list(tester_execution_plan.get("broad_replay_commands") or critique_bundle.get("broad_replay_commands") or []),
         "likely_failure_family": str(critique_bundle.get("likely_failure_family") or ""),
+        "tester_execution_plan": tester_execution_plan,
+        "ordinary_task_validation_mode": str(tester_execution_plan.get("validation_mode") or "focused_then_broad"),
         "likely_touched_files": list(critique_bundle.get("likely_touched_files") or []),
         "proposed_next_role": "controller",
         "role_outcome": role_outcome,
@@ -176,6 +192,7 @@ def normalize_multi_agent_loop_result(result: Mapping[str, Any] | None) -> dict[
         normalized.setdefault("runtime_portability_scope", "python_only")
         normalized.setdefault("role_trace", role_trace)
         normalized.setdefault("count", len(normalized.get("processed_task_ids", [])))
+        normalized.setdefault("ordinary_task_execution_surface", str(normalized.get("ordinary_task_execution_surface") or controller_decision.get("ordinary_task_execution_surface") or "multi_role_ordinary_task"))
         return normalized
     normalized = dict(payload)
     task_ids = list(normalized.get("processed_task_ids") or normalized.get("processed_tasks") or [])
@@ -185,6 +202,7 @@ def normalize_multi_agent_loop_result(result: Mapping[str, Any] | None) -> dict[
     normalized.setdefault("runtime_portability_scope", "python_only")
     normalized.setdefault("role_trace", list(normalized.get("role_trace") or []))
     normalized.setdefault("count", len(task_ids))
+    normalized.setdefault("ordinary_task_execution_surface", str(normalized.get("ordinary_task_execution_surface") or "compat_manifest"))
     return normalized
 
 
@@ -214,6 +232,10 @@ def execute_multi_agent_loop(
             "execute_multi_agent_loop requires either the canonical task-level surface or the compatibility manifest surface."
         )
     task_context = multi_agent_task_context(required_paths or [], controller_paths=None)
+    task_context.update(task_family_task_context(required_paths or [], task_file=str(task_path or ""), controller_paths=None))
+    task_context["multi_agent_enabled"] = True
+    task_context["sequential_role_execution_only"] = True
+    task_context["controller_authority_over_next_role"] = True
     route_recommendation = recommend_task_family_route(task_context=task_context, current_role="controller")
     route_selection = controller_selects_route(route_recommendation, current_role="controller")
 
@@ -267,6 +289,8 @@ def execute_multi_agent_loop(
             "instructions": "Stop honestly and wait for manual/controller-core handling before continuing.",
             "next_role_decision": selected_role,
             "routing_truth": dict(route_selection),
+            "task_admission_lane": str(task_context.get("task_admission_lane") or "manual_only"),
+            "ordinary_task_execution_surface": "manual_only",
         }
         failure_context = build_multi_agent_failure_context(
             task_path=task_path,
@@ -310,7 +334,7 @@ def execute_multi_agent_loop(
         )
         role_trace.append("verifier")
         verifier_result = dict(verifier_step(dict(builder_artifact), dict(verifier_state)))
-        verifier_artifact = build_verifier_evidence_bundle(task_path=task_path, builder_artifact=builder_artifact, verification=verifier_result)
+        verifier_artifact = build_verifier_evidence_bundle(task_path=task_path, builder_artifact=builder_artifact, verification=verifier_result, task_context=task_context)
         final_controller_state = canonical_role_handoff_state(
             verifier_state,
             active_role="controller",
@@ -367,7 +391,7 @@ def execute_multi_agent_loop(
         )
         role_trace.append("verifier")
         verifier_result = dict(verifier_step(dict(builder_artifact), dict(verifier_state)))
-        verifier_artifact = build_verifier_evidence_bundle(task_path=task_path, builder_artifact=builder_artifact, verification=verifier_result)
+        verifier_artifact = build_verifier_evidence_bundle(task_path=task_path, builder_artifact=builder_artifact, verification=verifier_result, task_context=task_context)
         final_controller_state = canonical_role_handoff_state(
             verifier_state,
             active_role="controller",
@@ -382,7 +406,7 @@ def execute_multi_agent_loop(
         )
         role_trace.append("controller")
 
-    decider = controller_decide or (lambda verifier, builder, state: build_multi_agent_controller_decision(verifier_artifact=verifier, builder_artifact=builder, role_state=state))
+    decider = controller_decide or (lambda verifier, builder, state: build_multi_role_ordinary_controller_decision(verifier_artifact=verifier, builder_artifact=builder, role_state={**dict(state), "task_context": dict(task_context), "task_admission_lane": str(task_context.get("task_admission_lane") or "autonomous_ordinary")}))
     controller_decision = dict(decider(dict(verifier_artifact), dict(builder_artifact), dict(final_controller_state)))
     controller_decision.setdefault("role", "controller")
     controller_decision.setdefault("artifact_kind", "controller_decision")
@@ -418,6 +442,7 @@ def execute_multi_agent_loop(
         "controller_decision": controller_decision,
         "role_handoff_state": final_state,
         "failure_journal_context": failure_context,
+        "ordinary_task_execution_surface": str(controller_decision.get("ordinary_task_execution_surface") or ("multi_role_ordinary_task" if str(task_context.get("task_admission_lane") or "") != "manual_only" else "manual_only")),
     })
 
 
@@ -538,37 +563,68 @@ def run_multi_agent_controller_cycle(
     verifier: Callable[[dict[str, object]], Mapping[str, Any]],
     controller: Callable[[dict[str, object], dict[str, object]], Mapping[str, Any]],
 ) -> dict[str, object]:
-    build_cache: dict[str, dict[str, object]] = {}
-    verify_cache: dict[str, dict[str, object]] = {}
+    entries = _compat_manifest_entries(manifest)
+    processed_task_ids: list[str] = []
+    role_trace: list[str] = []
+    task_results: list[dict[str, object]] = []
+    last_verification_authority = "local_only"
+    last_decision = "continue"
 
-    def choose_next_role(ctx: dict[str, object]) -> str:
-        phase = str(ctx.get("phase") or "")
-        if phase == "build":
-            return "builder"
-        if phase == "verify":
-            return "verifier"
-        return "controller"
+    for entry in entries:
+        task_path = str(entry["task_path"])
+        task_id = str(entry["task_id"])
 
-    def run_role(role: str, ctx: dict[str, object]) -> Mapping[str, Any]:
-        task_path = str(ctx.get("task_path") or "")
-        if role == "builder":
-            result = dict(builder(ctx))
-            build_cache[task_path] = result
-            return result
-        if role == "verifier":
-            result = dict(verifier(build_cache.get(task_path, {})))
-            verify_cache[task_path] = result
-            return result
-        return dict(controller(ctx, verify_cache.get(task_path, {})))
+        def builder_step(role_state: dict[str, object]) -> Mapping[str, Any]:
+            state = dict(role_state)
+            state.setdefault("task_path", task_path)
+            state.setdefault("task_id", task_id)
+            return dict(builder(state))
 
-    return execute_multi_agent_loop(
-        manifest=manifest,
-        choose_next_role=choose_next_role,
-        run_role=run_role,
-    )
+        def verifier_step(builder_artifact: dict[str, object], role_state: dict[str, object]) -> Mapping[str, Any]:
+            builder_input = dict(builder_artifact.get("result") or {})
+            builder_input.setdefault("task_path", task_path)
+            builder_input.setdefault("task_id", task_id)
+            builder_input["builder_artifact"] = dict(builder_artifact)
+            return dict(verifier(builder_input))
+
+        def controller_decide(verifier_artifact: dict[str, object], builder_artifact: dict[str, object], role_state: dict[str, object]) -> Mapping[str, Any]:
+            controller_state = dict(role_state)
+            controller_state.setdefault("task_path", task_path)
+            controller_state.setdefault("task_id", task_id)
+            controller_state["builder_artifact"] = dict(builder_artifact)
+            controller_input = dict(verifier_artifact)
+            controller_input.setdefault("task_path", task_path)
+            controller_input.setdefault("task_id", task_id)
+            return dict(controller(controller_state, controller_input))
+
+        result = normalize_multi_agent_loop_result(execute_multi_agent_loop(
+            task_path=task_path,
+            builder_step=builder_step,
+            verifier_step=verifier_step,
+            controller_decide=controller_decide,
+        ))
+        processed_task_ids.extend(list(result.get("processed_task_ids") or []))
+        role_trace.extend(list(result.get("role_trace") or []))
+        task_results.append(result)
+        last_verification_authority = str(result.get("verification_authority") or last_verification_authority)
+        last_decision = str(result.get("controller_final_decision") or result.get("post_task_decision") or "continue")
+        if last_decision != "continue":
+            break
+
+    return normalize_multi_agent_loop_result({
+        "status": "completed" if last_decision == "continue" else "stopped",
+        "processed_task_ids": processed_task_ids,
+        "verification_authority": last_verification_authority,
+        "controller_final_decision": last_decision,
+        "runtime_portability_scope": "python_only",
+        "role_trace": role_trace,
+        "ordinary_task_execution_surface": "multi_role_ordinary_manifest",
+        "task_results": task_results,
+    })
 
 
 def run_multi_agent_task_cycle(
+
     *,
     manifest: Mapping[str, Any] | list[Mapping[str, Any]],
     builder: Callable[[dict[str, object]], Mapping[str, Any]],
@@ -581,3 +637,4 @@ def run_multi_agent_task_cycle(
         verifier=verifier,
         controller=controller,
     )
+

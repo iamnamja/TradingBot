@@ -1004,3 +1004,29 @@ def test_task_family_context_keeps_small_verifier_only_shape_autonomous() -> Non
     assert context["task_family"] == "verifier_first"
     assert context["task_admission_lane"] == "autonomous_ordinary"
     assert context["bounded_decomposition_required"] is False
+
+
+def test_multi_agent_loop_marks_ordinary_execution_surface_for_autonomous_task() -> None:
+    loop = _multi_agent_loop_module()
+
+    result = loop.execute_multi_agent_loop(
+        task_path="tasks/113_orchestrator_multi_role_ordinary_task_execution_loop.md",
+        required_paths=["agents/lib/multi_agent_loop.py", "tests/test_task_queue.py"],
+        builder_step=lambda role_state: {"changed_files": ["agents/lib/multi_agent_loop.py"], "summary": "updated ordinary loop"},
+        verifier_step=lambda builder_artifact, role_state: {
+            "validator_ok": True,
+            "validator_note": "local validation passed",
+            "focused_results": ["pytest -q tests/test_task_queue.py"],
+            "full_results": ["pytest -q"],
+            "acceptance_report": {
+                "acceptance_decision": "accepted",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+                "note": "accepted",
+            },
+        },
+    )
+
+    assert result["task_context"]["task_admission_lane"] == "autonomous_ordinary"
+    assert result["verifier_artifact"]["tester_execution_plan"]["validation_mode"] == "focused_then_broad"
+    assert result["controller_decision"]["ordinary_task_execution_surface"] == "multi_role_ordinary_task"

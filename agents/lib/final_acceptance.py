@@ -409,3 +409,48 @@ def build_multi_agent_controller_decision(
         "instructions": instructions,
         "next_role_decision": next_role_decision,
     }
+
+
+def build_multi_role_ordinary_controller_decision(
+    *,
+    verifier_artifact: Mapping[str, Any],
+    builder_artifact: Mapping[str, Any] | None = None,
+    role_state: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    decision = build_multi_agent_controller_decision(
+        verifier_artifact=verifier_artifact,
+        builder_artifact=builder_artifact,
+        role_state=role_state,
+    )
+    state = dict(role_state or {})
+    task_context = dict(state.get("task_context") or {}) if isinstance(state.get("task_context"), Mapping) else {}
+    tester_plan = dict(verifier_artifact.get("tester_execution_plan") or {})
+    admission_lane = str(
+        tester_plan.get("task_admission_lane")
+        or task_context.get("task_admission_lane")
+        or state.get("task_admission_lane")
+        or "autonomous_ordinary"
+    )
+    decision["task_admission_lane"] = admission_lane
+    decision["ordinary_task_execution_surface"] = (
+        "multi_role_ordinary_task" if admission_lane != "manual_only" else "manual_only"
+    )
+    decision["tester_execution_summary"] = str(
+        tester_plan.get("summary")
+        or verifier_artifact.get("summary")
+        or decision.get("summary")
+        or ""
+    )
+    decision["focused_replay_commands"] = list(tester_plan.get("focused_replay_commands") or verifier_artifact.get("focused_replay_commands") or [])
+    decision["broad_replay_commands"] = list(tester_plan.get("broad_replay_commands") or verifier_artifact.get("broad_replay_commands") or [])
+    decision["controller_review_required"] = bool(tester_plan.get("controller_review_required", True))
+    if admission_lane == "manual_only":
+        decision.update({
+            "action": "stop",
+            "post_task_decision": "manual_patch",
+            "next_task_may_proceed": False,
+            "next_role_decision": "operator",
+            "summary": "Controller kept this protected/meta task in a manual-only ordinary-task lane.",
+            "instructions": "Stop honestly and wait for manual/controller-core handling before continuing.",
+        })
+    return decision

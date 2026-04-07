@@ -88,8 +88,6 @@ Hosted CI authority is now treated as first-class evidence in the truth model. T
 
 This keeps `no checks reported on the branch` as an explicit stop signal rather than silently collapsing it into generic missing-check noise.
 
-Task 112 hardens this further with a repo-scoped check contract and a persisted hosted-authority probe status. Hosted truth can now distinguish `unavailable`, `misconfigured`, and `reported_unsatisfied` states, which keeps the current repo honest while GitHub still reports no hosted checks on live PRs.
-
 ## Next product target after 107
 
 The next product step should evolve the orchestrator from a stronger proof-backed project runner into a more explicit **multi-role autonomous ordinary-task runner**.
@@ -104,3 +102,6 @@ This should remain sequential before any future concurrency or true parallel rol
 
 
 Task 111 adds a conservative task-admission and bounded-decomposition gate. Small ordinary or verifier-only shapes can remain autonomous-ordinary, larger ambiguous shapes are held in supervised-autonomous posture, and protected/controller/meta shapes are classified manual-only.
+
+
+- multi-role ordinary-task execution loop with explicit builder/tester/controller coordination while remaining sequential and bounded

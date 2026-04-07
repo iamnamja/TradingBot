@@ -186,11 +186,14 @@ CONTROLLER_RUNTIME_DELEGATE_SURFACES: tuple[str, ...] = (
     "resume_role_handoff_state",
     "controller_decides_next_role",
     "multi_agent_task_context",
+    "build_multi_role_ordinary_controller_decision",
 )
 
 
 PROOF_SYNC_RUN_TASK_EXPORTS: tuple[str, ...] = (
     "execute_multi_agent_loop",
+    "run_multi_agent_controller_cycle",
+    "run_multi_agent_task_cycle",
     "multi_agent_contract_snapshot",
     "orchestrator_package_boundary_snapshot",
     "proof_sync_contract_snapshot",
