@@ -36,3 +36,17 @@ The proof is intentionally bounded and does **not** claim:
 - broad unattended production scheduling across arbitrary task families
 - broad arbitrary multi-language portability
 - full standalone extraction is complete
+
+## Next product-stage focus
+
+The next continuation after Task 115 should focus on converting the current bounded ordinary-manifest proof into a portfolio-capable operating mode.
+
+The main product gaps are:
+
+- no canonical multi-project registry and contract surface yet
+- insufficient project-scoped isolation for state, branches, and workspaces
+- weak next-task selection across a real backlog
+- dependency and decomposition planning that is still too manifest-shaped
+- self-heal that still needs stronger repair-plan ranking and rollback behavior
+- validation and authority that are not yet fully project-aware
+- hosted authority that is still truthful but not yet operationally converged enough for low-babysitting portfolio execution
