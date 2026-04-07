@@ -12,19 +12,20 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 090–108 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, and a supervised mixed-manifest re-proof.
+- **Tasks 090–109 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, and a supervised mixed-manifest re-proof.
 
 The current deterministic proof slice now demonstrates:
 
 1. controller/builder/verifier role separation
 2. stable typed coder/tester/controller artifact envelopes persisted across batch-state and failure-journal surfaces
-3. dependency-aware short-manifest planning and routing truth
-4. explicit verification-authority posture
-5. Python-only second-project portability
-6. truthful external bootstrap blocked-then-recovered recovery
-7. supervised mixed-manifest progression across proof/docs, bootstrap, and consumer-facing task families
-8. conservative stop on unsatisfied authority
-9. extraction-prep consumer boundary posture rather than completed standalone extraction
+3. verifier/tester critique bundles with focused replay commands and bounded failure clustering
+4. dependency-aware short-manifest planning and routing truth
+5. explicit verification-authority posture
+6. Python-only second-project portability
+7. truthful external bootstrap blocked-then-recovered recovery
+8. supervised mixed-manifest progression across proof/docs, bootstrap, and consumer-facing task families
+9. conservative stop on unsatisfied authority
+10. extraction-prep consumer boundary posture rather than completed standalone extraction
 
 ## What recent failures taught us
 
@@ -46,7 +47,7 @@ The next tranche should shift from proof-hardening toward **autonomy operating m
 Planned focus areas are:
 
 - stable coder/tester/controller artifact envelopes and persisted role handoff payloads
-- tester/verifier critique bundles with focused replay instead of only raw pytest blobs
+- tester critique bundles with focused replay commands and likely-touched-file summaries instead of only raw pytest blobs
 - non-repeating repair memory and no-progress suppression
 - safe task admission, family classification, and decomposition gates
 - repo-scoped hosted-check contract and truthful environment probe behavior

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 
 def _int_env(name: str, default: int) -> int:
@@ -40,6 +41,258 @@ def _coerce_completed_output(result: object) -> str:
     if stderr and stderr not in stdout:
         return f"{stdout}{stderr}".strip()
     return str(stdout).strip()
+
+
+_PYTEST_FAILED_NODE_RE = re.compile(r"^FAILED\s+([^\s]+)", re.MULTILINE)
+_PYTEST_TEST_FILE_RE = re.compile(r"^(tests[\/][^\n:]+):(\d+):", re.MULTILINE)
+_MODULE_NOT_FOUND_RE = re.compile(r"ModuleNotFoundError: No module named '([^']+)'")
+_CANNOT_IMPORT_RE = re.compile(r"cannot import name '([^']+)' from '([^']+)'")
+_PATH_TOKEN_RE = re.compile(r"(?:agents|builder|docs|src|tasks|tests)[\/][A-Za-z0-9_./-]+\.(?:py|md)")
+
+
+def _coerce_string_list(value: object) -> list[str]:
+    items = value if isinstance(value, (list, tuple)) else []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in items:
+        text = str(raw or "").strip()
+        if text and text not in seen:
+            normalized.append(text)
+            seen.add(text)
+    return normalized
+
+
+def _bounded_output_excerpt(text: str, *, max_chars: int = 400) -> str:
+    value = str(text or "").strip()
+    if len(value) <= max_chars:
+        return value
+    suffix = "...[truncated]"
+    return f"{value[: max(0, max_chars - len(suffix))]}{suffix}"
+
+
+def _normalize_path(path: str) -> str:
+    return str(path or "").strip().replace("\\", "/")
+
+
+def _module_name_to_path(module_name: str) -> str:
+    module = str(module_name or "").strip().replace(".", "/")
+    if not module:
+        return ""
+    if module.endswith("/__init__"):
+        return f"{module}.py"
+    return f"{module}.py"
+
+
+def _collect_failed_test_nodes(output_text: str) -> list[str]:
+    nodes: list[str] = []
+    seen: set[str] = set()
+    for match in _PYTEST_FAILED_NODE_RE.finditer(output_text):
+        node = str(match.group(1) or "").strip()
+        if node and node not in seen:
+            nodes.append(node)
+            seen.add(node)
+    return nodes
+
+
+def _collect_failed_test_files(output_text: str, failed_nodes: list[str]) -> list[str]:
+    files: list[str] = []
+    seen: set[str] = set()
+    for node in failed_nodes:
+        file_token = _normalize_path(node.split("::", 1)[0])
+        if file_token.startswith("tests/") and file_token not in seen:
+            files.append(file_token)
+            seen.add(file_token)
+    for match in _PYTEST_TEST_FILE_RE.finditer(output_text):
+        file_token = _normalize_path(str(match.group(1) or ""))
+        if file_token and file_token not in seen:
+            files.append(file_token)
+            seen.add(file_token)
+    return files
+
+
+def _collect_likely_touched_files(output_text: str, *, fallback_files: list[str] | None = None) -> list[str]:
+    files: list[str] = []
+    seen: set[str] = set()
+
+    for raw in fallback_files or []:
+        path = _normalize_path(raw)
+        if path and path not in seen:
+            files.append(path)
+            seen.add(path)
+
+    for match in _MODULE_NOT_FOUND_RE.finditer(output_text):
+        path = _module_name_to_path(str(match.group(1) or ""))
+        if path and path not in seen:
+            files.append(path)
+            seen.add(path)
+
+    for match in _CANNOT_IMPORT_RE.finditer(output_text):
+        path = _module_name_to_path(str(match.group(2) or ""))
+        if path and path not in seen:
+            files.append(path)
+            seen.add(path)
+
+    for raw in _PATH_TOKEN_RE.findall(output_text):
+        path = _normalize_path(raw)
+        if path and path not in seen:
+            files.append(path)
+            seen.add(path)
+
+    return files
+
+
+def _classify_failure_family(output_text: str, *, lint_ok: bool, test_ok: bool) -> str:
+    text = str(output_text or "").lower()
+    if not text and lint_ok and test_ok:
+        return "pass"
+    if any(token in text for token in ("modulenotfounderror", "importerror while importing test module", "cannot import name", "attributeerror")):
+        return "import_contract"
+    if any(token in text for token in ("keyerror", "unexpected result", "result shape", "missing truth field", "missing export", "decision mismatch")):
+        return "result_shape"
+    if any(token in text for token in ("docs/", "readme", "documentation claim", "proof claim", "status narrative")):
+        return "docs_drift"
+    if not lint_ok:
+        return "lint_failure"
+    return "execution_failure"
+
+
+def _derive_focused_replay_commands(
+    *,
+    lint_ok: bool,
+    test_ok: bool,
+    failed_nodes: list[str],
+    failed_files: list[str],
+    likely_touched_files: list[str],
+) -> list[str]:
+    commands: list[str] = []
+    seen: set[str] = set()
+
+    if not lint_ok:
+        lint_targets = [path for path in likely_touched_files if path.endswith(".py")][:3]
+        lint_cmd = "ruff check ." if not lint_targets else f"ruff check {' '.join(lint_targets)}"
+        commands.append(lint_cmd)
+        seen.add(lint_cmd)
+
+    if not test_ok:
+        for node in failed_nodes[:2]:
+            cmd = f"pytest -q {node}"
+            if cmd not in seen:
+                commands.append(cmd)
+                seen.add(cmd)
+        for path in failed_files[:2]:
+            cmd = f"pytest -q {path}"
+            if cmd not in seen:
+                commands.append(cmd)
+                seen.add(cmd)
+        if not failed_nodes and not failed_files:
+            cmd = "pytest -q"
+            commands.append(cmd)
+            seen.add(cmd)
+
+    return commands[:4]
+
+
+def _derive_broad_replay_commands(*, lint_ok: bool, test_ok: bool) -> list[str]:
+    commands: list[str] = []
+    if not lint_ok:
+        commands.append("ruff check .")
+    if not test_ok:
+        commands.append("pytest -q")
+    return commands
+
+
+def build_tester_critique_bundle(
+    payload: Mapping[str, object] | None = None,
+    *,
+    lint_ok: bool | None = None,
+    test_ok: bool | None = None,
+    output_text: str | None = None,
+    focused_results: list[str] | tuple[str, ...] | None = None,
+    full_results: list[str] | tuple[str, ...] | None = None,
+    changed_files: list[str] | tuple[str, ...] | None = None,
+    failure_category: str | None = None,
+    failure_message: str | None = None,
+) -> dict[str, object]:
+    data = dict(payload or {})
+    lint_status = bool(lint_ok if lint_ok is not None else data.get("lint_ok", True))
+    test_status = bool(test_ok if test_ok is not None else data.get("test_ok", True))
+    raw_output = str(
+        output_text
+        if output_text is not None
+        else data.get("output_text")
+        or data.get("validator_note")
+        or data.get("failure_message")
+        or failure_message
+        or ""
+    ).strip()
+    failed_nodes = _coerce_string_list(data.get("failing_test_nodes")) or _collect_failed_test_nodes(raw_output)
+    failed_files = _coerce_string_list(data.get("failing_test_files")) or _collect_failed_test_files(raw_output, failed_nodes)
+    explicit_likely_touched = _coerce_string_list(data.get("likely_touched_files"))
+    likely_touched = explicit_likely_touched or _collect_likely_touched_files(
+        raw_output,
+        fallback_files=_coerce_string_list(changed_files if changed_files is not None else data.get("changed_files")),
+    )
+    family = str(data.get("likely_failure_family") or "").strip() or _classify_failure_family(raw_output, lint_ok=lint_status, test_ok=test_status)
+    focused_commands = _coerce_string_list(data.get("focused_replay_commands")) or _coerce_string_list(focused_results if focused_results is not None else data.get("focused_results"))
+    if not focused_commands:
+        focused_commands = _derive_focused_replay_commands(
+            lint_ok=lint_status,
+            test_ok=test_status,
+            failed_nodes=failed_nodes,
+            failed_files=failed_files,
+            likely_touched_files=likely_touched,
+        )
+    broad_commands = _coerce_string_list(data.get("broad_replay_commands")) or _coerce_string_list(full_results if full_results is not None else data.get("full_results"))
+    if not broad_commands:
+        broad_commands = _derive_broad_replay_commands(lint_ok=lint_status, test_ok=test_status)
+
+    if lint_status and test_status:
+        critique_summary = "Validation passed locally; no focused replay is currently required."
+    elif family == "import_contract":
+        critique_summary = "Tester found likely import/contract drift; replay should start with the smallest failing file or node."
+    elif family == "result_shape":
+        critique_summary = "Tester found likely result-shape drift; replay should start with the smallest failing test node or file."
+    elif family == "docs_drift":
+        critique_summary = "Tester found likely docs/status drift; replay should start with the narrowest documentation proof surface."
+    else:
+        critique_summary = "Tester found broader execution failure; replay should start focused and only widen after the first bounded rerun."
+
+    failure_clusters: list[dict[str, object]] = []
+    if failed_files:
+        failure_clusters.append({"cluster_type": "failing_test_files", "items": failed_files[:3], "count": len(failed_files)})
+    if failed_nodes:
+        failure_clusters.append({"cluster_type": "failing_test_nodes", "items": failed_nodes[:3], "count": len(failed_nodes)})
+    if likely_touched:
+        failure_clusters.append({"cluster_type": "likely_touched_files", "items": likely_touched[:3], "count": len(likely_touched)})
+
+    return {
+        "schema_version": 1,
+        "lint_ok": lint_status,
+        "test_ok": test_status,
+        "all_checks_passed": bool(lint_status and test_status),
+        "likely_failure_family": family,
+        "failure_category": str(failure_category if failure_category is not None else data.get("failure_category") or "").strip(),
+        "critique_summary": str(data.get("critique_summary") or critique_summary),
+        "failing_test_nodes": failed_nodes[:5],
+        "failing_test_files": failed_files[:5],
+        "likely_touched_files": likely_touched[:5],
+        "failure_clusters": failure_clusters,
+        "focused_replay_commands": focused_commands[:4],
+        "broad_replay_commands": broad_commands[:3],
+        "raw_output_excerpt": _bounded_output_excerpt(raw_output),
+    }
+
+
+def summarize_tester_critique_bundle(payload: Mapping[str, object] | None = None, **overrides: object) -> dict[str, object]:
+    bundle = build_tester_critique_bundle(payload, **overrides)
+    return {
+        "likely_failure_family": bundle["likely_failure_family"],
+        "critique_summary": bundle["critique_summary"],
+        "failing_test_files": list(bundle["failing_test_files"]),
+        "likely_touched_files": list(bundle["likely_touched_files"]),
+        "focused_replay_commands": list(bundle["focused_replay_commands"]),
+        "broad_replay_commands": list(bundle["broad_replay_commands"]),
+    }
 
 
 def _run_command_with_heartbeat(
@@ -166,8 +419,16 @@ def run_checks() -> Dict[str, Any] | Tuple[bool, str]:
             )
 
     output_text = "\n\n".join(chunk for chunk in chunks if chunk).strip()
+    critique_bundle = build_tester_critique_bundle(
+        {
+            "lint_ok": lint_ok,
+            "test_ok": test_ok,
+            "output_text": output_text,
+        }
+    )
     return {
         "lint_ok": lint_ok,
         "test_ok": test_ok,
         "output_text": output_text,
+        "critique_bundle": critique_bundle,
     }

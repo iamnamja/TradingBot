@@ -326,3 +326,42 @@ def test_multi_agent_failure_context_persists_role_artifact_summaries() -> None:
     assert context["tester_artifact_summary"]["verifier_verdict"] == "fail"
     assert context["controller_artifact_summary"]["post_task_decision"] == "stop"
     assert context["builder_summary"] == "Builder proposed a bounded persistence patch."
+
+
+def test_multi_agent_failure_context_includes_tester_critique_summary() -> None:
+    fj = _load_failure_journal_module()
+    context = fj.build_multi_agent_failure_context(
+        task_path="tasks/109_orchestrator_tester_critique_bundle_and_focused_replay_lane.md",
+        role_trace=["controller", "builder", "controller", "verifier", "controller"],
+        builder_artifact={
+            "role": "builder",
+            "summary": "builder changed verifier surface",
+            "changed_files": ["agents/lib/multi_agent_loop.py"],
+        },
+        verifier_artifact={
+            "role": "verifier",
+            "summary": "verification failed",
+            "failure_message": "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle' from 'agents.lib.multi_agent_loop'",
+            "failure_category": "collection_import_failure",
+            "focused_results": ["pytest -q tests/test_multi_project_adapters.py"],
+            "full_results": ["pytest -q"],
+            "tester_critique_bundle": {
+                "likely_failure_family": "import_contract",
+                "critique_summary": "Tester found likely import/contract drift.",
+                "focused_replay_commands": ["pytest -q tests/test_multi_project_adapters.py"],
+                "broad_replay_commands": ["pytest -q"],
+                "likely_touched_files": ["agents/lib/multi_agent_loop.py"],
+                "failing_test_files": ["tests/test_multi_project_adapters.py"],
+            },
+        },
+        controller_decision={
+            "summary": "controller requested targeted repair",
+            "action": "repair",
+            "repair_strategy": "collection_import_contract_repair",
+            "remediation_lane": "builder",
+        },
+    )
+
+    assert context["tester_critique_summary"]["likely_failure_family"] == "import_contract"
+    assert context["focused_replay_commands"] == ["pytest -q tests/test_multi_project_adapters.py"]
+    assert context["likely_touched_files"] == ["agents/lib/multi_agent_loop.py"]

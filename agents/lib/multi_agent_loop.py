@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from agents.lib.agent_router import controller_selects_route, recommend_task_family_route
+from agents.lib.check_runner import build_tester_critique_bundle
 from agents.lib.controller_repair import classify_collection_failure
 from agents.lib.failure_journal import build_multi_agent_failure_context
 from agents.lib.final_acceptance import build_multi_agent_controller_decision
@@ -117,6 +118,17 @@ def build_verifier_evidence_bundle(
             summary = str(authority["summary"] or "Verifier produced blocked evidence requiring controller stop.")
         else:
             summary = "Verifier produced failing evidence for controller review."
+    critique_bundle = build_tester_critique_bundle(
+        payload.get("critique_bundle") if isinstance(payload.get("critique_bundle"), Mapping) else None,
+        lint_ok=True,
+        test_ok=validator_ok,
+        output_text=str(payload.get("output_text") or payload.get("validator_output") or failure_message or validator_note),
+        focused_results=list(payload.get("focused_results", []) or []),
+        full_results=list(payload.get("full_results", []) or []),
+        changed_files=list(builder_artifact.get("changed_files", []) or []),
+        failure_category=failure_category,
+        failure_message=failure_message,
+    )
     return {
         "role": "verifier",
         "artifact_kind": "verifier_evidence_bundle",
@@ -136,6 +148,11 @@ def build_verifier_evidence_bundle(
         "failure_message": failure_message,
         "verdict": verdict,
         "summary": summary,
+        "tester_critique_bundle": critique_bundle,
+        "focused_replay_commands": list(critique_bundle.get("focused_replay_commands") or []),
+        "broad_replay_commands": list(critique_bundle.get("broad_replay_commands") or []),
+        "likely_failure_family": str(critique_bundle.get("likely_failure_family") or ""),
+        "likely_touched_files": list(critique_bundle.get("likely_touched_files") or []),
         "proposed_next_role": "controller",
         "role_outcome": role_outcome,
     }

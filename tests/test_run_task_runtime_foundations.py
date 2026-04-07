@@ -276,3 +276,24 @@ def test_run_task_role_artifact_envelope_helpers_are_round_trippable() -> None:
     assert summary["focused_result_count"] == 1
     assert summary["full_result_count"] == 1
     assert summary["next_task_may_proceed"] is True
+
+
+
+def test_run_task_exposes_tester_critique_bundle_helpers() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    bundle = run_task.build_tester_critique_bundle(
+        {
+            "lint_ok": True,
+            "test_ok": False,
+            "output_text": "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle' from 'agents.lib.multi_agent_loop'",
+        },
+        changed_files=["agents/lib/multi_agent_loop.py"],
+    )
+    summary = run_task.summarize_tester_critique_bundle(bundle)
+
+    assert bundle["likely_failure_family"] == "import_contract"
+    assert "agents/lib/multi_agent_loop.py" in bundle["likely_touched_files"]
+    assert summary["focused_replay_commands"]
+    assert callable(run_task.build_tester_critique_bundle)
+    assert callable(run_task.summarize_tester_critique_bundle)
