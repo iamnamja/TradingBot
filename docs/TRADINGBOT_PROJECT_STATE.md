@@ -44,7 +44,7 @@ Planned focus areas are:
 - real hosted CI authority integration instead of mostly local semantics
 - explicit hosted-authority availability vs satisfaction truth in branch/PR semantics
 - result-shape and manifest-schema normalization
-- targeted minimal-patch repair planning
+- targeted minimal-patch repair planning (105 narrows builder repair toward alias/import/result-shape/docs-only fixes before broader rewrites)
 - external workspace bootstrap recovery proof
 - supervised mixed-manifest autonomy re-proof
 

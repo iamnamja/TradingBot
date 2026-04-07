@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Mapping, Sequence
+from typing import Any, Dict, List, Tuple, Mapping, Sequence, Iterable
 
 FILE_BUNDLE_BEGIN = "BEGIN_FILE_BUNDLE"
 FILE_BUNDLE_END = "END_FILE_BUNDLE"
@@ -527,6 +527,19 @@ def is_collection_failure(*, kind: str, message: str, category: str = "") -> boo
     from agents.lib.controller_repair import is_collection_failure as _impl  # type: ignore
 
     return bool(_impl(kind=kind, message=message, category=category))
+
+
+def infer_targeted_repair_surface(
+    *,
+    kind: str,
+    message: str,
+    category: str = "",
+    touched_files: Iterable[str] | None = None,
+    task_file: str = "",
+) -> Dict[str, object]:
+    from agents.lib.controller_repair import infer_targeted_repair_surface as _impl  # type: ignore
+
+    return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
 
 
 def choose_repair_strategy(

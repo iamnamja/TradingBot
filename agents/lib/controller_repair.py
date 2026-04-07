@@ -59,6 +59,100 @@ REPAIR_STRATEGIES = (
     "manual_stop",
 )
 
+
+TARGETED_PATCH_SURFACES = (
+    "compatibility_alias_only",
+    "import_line_only",
+    "result_shape_adapter",
+    "manifest_schema_adapter",
+    "docs_claim_sync",
+    "controller_contract_surface",
+    "broad_builder_repair",
+    "manual_stop",
+)
+
+
+def _target_files_for_surface(surface: str, *, task_file: str = "", touched_files: Iterable[str] | None = None) -> list[str]:
+    candidates = _stable_unique([*(touched_files or ()), task_file])
+    normalized = [path for path in candidates if path]
+    if surface == "docs_claim_sync":
+        docs = [path for path in normalized if path.endswith('.md')]
+        return docs or [path for path in normalized if '/docs/' in path or path.startswith('docs/')] or [task_file] if task_file else []
+    if surface in {"compatibility_alias_only", "result_shape_adapter", "manifest_schema_adapter", "controller_contract_surface"}:
+        py_files = [path for path in normalized if path.endswith('.py')]
+        return py_files[:4]
+    if surface == "import_line_only":
+        py_files = [path for path in normalized if path.endswith('.py')]
+        return py_files[:2]
+    return normalized[:6]
+
+
+def infer_targeted_repair_surface(
+    *,
+    kind: str,
+    message: str,
+    category: str = "",
+    touched_files: Iterable[str] | None = None,
+    task_file: str = "",
+) -> dict[str, Any]:
+    text = _coerce_failure_text(kind, message, category)
+    normalized_category = str(category or "").strip()
+    surface = "broad_builder_repair"
+    rationale = "Failure likely requires a broader builder repair surface."
+    prefer_minimal = False
+    max_files_to_edit = 6
+
+    if classify_collection_failure(kind=kind, message=message, category=normalized_category):
+        if any(token in text for token in ("cannot import name", "has no attribute", "unexpected keyword argument", "attributeerror", "keyerror")):
+            surface = "compatibility_alias_only"
+            rationale = "Collection/import drift points to a narrow compatibility alias or public-surface repair."
+            prefer_minimal = True
+            max_files_to_edit = 2
+        else:
+            surface = "import_line_only"
+            rationale = "Collection/import drift points to a narrow import or symbol-surface repair."
+            prefer_minimal = True
+            max_files_to_edit = 2
+    elif normalized_category in {"imports", "python_syntax", "lint", "bundle_transport"}:
+        surface = "import_line_only"
+        rationale = "Import/lint/syntax failures should start with the smallest plausible import or syntax repair."
+        prefer_minimal = True
+        max_files_to_edit = 2
+    elif normalized_category in {"tests", "behavioral_regression"} and any(token in text for token in ("processed_task_ids", "verification_authority", "controller_final_decision", "runtime_portability_scope", "count", "unexpected keyword argument", "task_path", "path")):
+        if any(token in text for token in ("task_path", "missing `path`", "path")):
+            surface = "manifest_schema_adapter"
+            rationale = "The failure looks like bounded manifest-schema drift that should be repaired with a narrow adapter."
+        else:
+            surface = "result_shape_adapter"
+            rationale = "The failure looks like bounded result-shape drift that should be repaired with a narrow adapter."
+        prefer_minimal = True
+        max_files_to_edit = 3
+    elif normalized_category in {"seam_contract_mismatch", "controller_patch_quality", "file_local_semantic_failure"}:
+        surface = "controller_contract_surface"
+        rationale = "Controller-contract drift should prefer the smallest controller-surface correction before broader rewrites."
+        prefer_minimal = True
+        max_files_to_edit = 3
+    elif normalized_category == "docs_proof_claim_drift":
+        surface = "docs_claim_sync"
+        rationale = "Docs/proof drift should prefer a narrow documentation sync rather than broader code edits."
+        prefer_minimal = True
+        max_files_to_edit = 3
+    elif normalized_category == POLICY_BLOCKED_FAILURE_CATEGORY or normalized_category == 'environment_setup_failure':
+        surface = "manual_stop"
+        rationale = "This failure is not safely narrow and should remain manual/operator handled."
+        prefer_minimal = False
+        max_files_to_edit = 0
+
+    target_files = _target_files_for_surface(surface, task_file=task_file, touched_files=touched_files)
+    return {
+        "targeted_patch_surface": surface,
+        "prefer_minimal_patch": prefer_minimal,
+        "max_files_to_edit": max_files_to_edit,
+        "target_files": target_files,
+        "minimal_patch_reason": rationale,
+        "minimal_patch_selected": prefer_minimal and surface != "broad_builder_repair",
+    }
+
 _PYTEST_NAME_RE = re.compile(r"(?m)^(?:_{5,}\s+)?(test_[A-Za-z0-9_]+)")
 _ASSERT_MISMATCH_RE = re.compile(r"assert\s+['\"]([^'\"]+)['\"]\s*==\s*['\"]([^'\"]+)['\"]")
 _ATTR_MISSING_RE = re.compile(r"has no attribute ['\"]([^'\"]+)['\"]")
@@ -305,6 +399,13 @@ def choose_repair_strategy(
     text = _coerce_failure_text(kind, message, category)
     normalized_category = str(category or "").strip()
 
+    targeted = infer_targeted_repair_surface(
+        kind=kind,
+        message=message,
+        category=normalized_category,
+        touched_files=touched_files,
+        task_file=task_file,
+    )
     route = {
         "failure_kind": str(kind or "unknown").strip() or "unknown",
         "failure_category": normalized_category,
@@ -315,7 +416,9 @@ def choose_repair_strategy(
         "stop_after_failure": True,
         "manual_lane_recommended": True,
         "rationale": "Failure is not safely repairable without explicit operator intervention.",
+        "route_rationale": "Failure is not safely repairable without explicit operator intervention.",
         "semantic_failure_digest": digest,
+        **targeted,
     }
 
     if normalized_category == POLICY_BLOCKED_FAILURE_CATEGORY:
@@ -333,6 +436,7 @@ def choose_repair_strategy(
             stop_after_failure=False,
             manual_lane_recommended=False,
             rationale="Collection-time import, symbol, and public-surface failures should route to the builder for narrow compatibility repair before broader test retries.",
+            route_rationale="Collection-time import, symbol, and public-surface failures should route to the builder for narrow compatibility repair before broader test retries.",
         )
         return route
 
@@ -345,6 +449,7 @@ def choose_repair_strategy(
             stop_after_failure=True,
             manual_lane_recommended=True,
             rationale="Environment or bootstrap failures should stop conservatively for operator triage.",
+            route_rationale="Environment or bootstrap failures should stop conservatively for operator triage.",
         )
         return route
 
@@ -359,6 +464,7 @@ def choose_repair_strategy(
             stop_after_failure=False,
             manual_lane_recommended=False,
             rationale="CI-only and merge-posture failures belong to the verifier lane before the builder retries code changes.",
+            route_rationale="CI-only and merge-posture failures belong to the verifier lane before the builder retries code changes.",
         )
         return route
 
@@ -373,6 +479,7 @@ def choose_repair_strategy(
             stop_after_failure=False,
             manual_lane_recommended=False,
             rationale="Syntax, import, lint, and transport failures should route back to the builder for targeted repair.",
+            route_rationale="Syntax, import, lint, and transport failures should route back to the builder for targeted repair.",
         )
         return route
 
@@ -385,6 +492,7 @@ def choose_repair_strategy(
             stop_after_failure=False,
             manual_lane_recommended=False,
             rationale="Failing tests and behavioral regressions should route to the builder with exact failing evidence.",
+            route_rationale="Failing tests and behavioral regressions should route to the builder with exact failing evidence.",
         )
         return route
 
@@ -397,6 +505,7 @@ def choose_repair_strategy(
             stop_after_failure=False,
             manual_lane_recommended=False,
             rationale="Controller-contract and semantic drift failures require targeted builder repair using the semantic digest.",
+            route_rationale="Controller-contract and semantic drift failures require targeted builder repair using the semantic digest.",
         )
         return route
 
@@ -409,6 +518,7 @@ def choose_repair_strategy(
             stop_after_failure=False,
             manual_lane_recommended=False,
             rationale="Documentation and proof-claim drift should route to the builder with conservative proof-alignment fixes.",
+            route_rationale="Documentation and proof-claim drift should route to the builder with conservative proof-alignment fixes.",
         )
         return route
 
@@ -427,6 +537,9 @@ def format_repair_strategy(route: dict[str, Any] | None) -> str:
             f"- next_role: {payload.get('next_role', '')}",
             f"- continue_autonomously: {bool(payload.get('continue_autonomously', False))}",
             f"- stop_after_failure: {bool(payload.get('stop_after_failure', False))}",
+            f"- targeted_patch_surface: {payload.get('targeted_patch_surface', '')}",
+            f"- target_files: {', '.join(str(item) for item in payload.get('target_files', []))}",
+            f"- minimal_patch_selected: {bool(payload.get('minimal_patch_selected', False))}",
             f"- rationale: {payload.get('rationale', '')}",
         ]
     )

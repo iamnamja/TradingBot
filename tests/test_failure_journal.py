@@ -248,3 +248,35 @@ def test_report_failure_journals_collection_failure_category_explicitly(monkeypa
     assert rows[-1]["failure_category"] == "collection_import_failure"
     assert rows[-1]["repair_strategy"] == "collection_import_contract_repair"
     assert rows[-1]["remediation_lane"] == "builder"
+
+
+def test_targeted_repair_planner_prefers_minimal_compatibility_surface() -> None:
+    fj = _load_failure_journal_module()
+    plan = fj.build_failure_remediation_plan(
+        kind="tests",
+        message="ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle'",
+        category="collection_import_failure",
+        retry_count=1,
+        fingerprint="fp-collection",
+        raw_failure_snippet="ERROR collecting tests/test_multi_project_adapters.py",
+    )
+
+    assert plan["targeted_patch_surface"] == "compatibility_alias_only"
+    assert plan["prefer_minimal_patch"] is True
+    assert plan["minimal_patch_selected"] is True
+    assert plan["max_files_to_edit"] <= 2
+
+
+def test_targeted_repair_planner_prefers_docs_only_sync_for_proof_claim_drift() -> None:
+    fj = _load_failure_journal_module()
+    route = fj.choose_repair_strategy(
+        kind="docs",
+        message="README proof claim drift against bounded portability status narrative",
+        category="docs_proof_claim_drift",
+        touched_files=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+    )
+
+    assert route["targeted_patch_surface"] == "docs_claim_sync"
+    assert route["prefer_minimal_patch"] is True
+    assert route["minimal_patch_selected"] is True
+    assert all(str(path).endswith('.md') for path in route["target_files"])

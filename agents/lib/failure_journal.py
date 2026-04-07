@@ -100,7 +100,12 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str, re
         "retry_count": retry_count,
         "failure_fingerprint": fingerprint,
         "raw_failure_snippet": raw_failure_snippet,
-        "route_rationale": str(route["rationale"]),
+        "route_rationale": str(route.get("route_rationale") or route["rationale"]),
+        "targeted_patch_surface": str(route.get("targeted_patch_surface") or "broad_builder_repair"),
+        "target_files": [str(item) for item in route.get("target_files") or [] if str(item)],
+        "prefer_minimal_patch": bool(route.get("prefer_minimal_patch", False)),
+        "minimal_patch_selected": bool(route.get("minimal_patch_selected", False)),
+        "max_files_to_edit": int(route.get("max_files_to_edit", 0)),
     }
     if plan["remediation_lane"] == "builder":
         plan["autonomy_confidence"] = 0.8 if retry_count <= 2 else 0.35
@@ -116,6 +121,11 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str, re
             continue_autonomously=False,
             manual_lane_recommended=True,
             route_rationale="Repeated failures exhausted the conservative autonomous repair budget.",
+            targeted_patch_surface="manual_stop",
+            target_files=[],
+            prefer_minimal_patch=False,
+            minimal_patch_selected=False,
+            max_files_to_edit=0,
         )
     return plan
 

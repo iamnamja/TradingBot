@@ -130,6 +130,7 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.build_controller_repair_context)
     assert callable(run_task.classify_collection_failure)
     assert callable(run_task.is_collection_failure)
+    assert callable(run_task.infer_targeted_repair_surface)
     assert callable(run_task.choose_repair_strategy)
     assert callable(run_task.format_repair_strategy)
     assert callable(run_task.build_controller_test_failure_appendix)
@@ -197,3 +198,17 @@ def test_multi_agent_result_normalization_keeps_bounded_proof_fields() -> None:
     assert normalized["processed_task_ids"] == ["alpha", "beta"]
     assert normalized["count"] == 2
     assert normalized["runtime_portability_scope"] == "python_only"
+
+
+def test_targeted_repair_surface_helpers_prefer_narrow_bounded_patch() -> None:
+    run_task, *_ = _load_runtime_modules()
+    message = "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle'"
+
+    surface = run_task.infer_targeted_repair_surface(kind="tests", message=message, category="collection_import_failure")
+    assert surface["targeted_patch_surface"] == "compatibility_alias_only"
+    assert surface["minimal_patch_selected"] is True
+
+    route = run_task.choose_repair_strategy(kind="tests", message=message, category="collection_import_failure")
+    assert route["targeted_patch_surface"] == "compatibility_alias_only"
+    assert route["prefer_minimal_patch"] is True
+    assert route["minimal_patch_selected"] is True
