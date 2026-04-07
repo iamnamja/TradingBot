@@ -65,6 +65,7 @@ The synchronized post-089 proof remains intentionally limited to deterministic l
 - Controller strict-mode proof gates for controller-core tasks
 - Python-first second-project workspace adapter selection and bootstrap truth tracking
 - Sequential multi-agent builder/verifier/controller proof loop over short dependency-aware manifests
+- Targeted repair planner that prefers the smallest plausible compatibility/docs adapter for bounded failures
 
 ## Boundary and claim discipline
 

@@ -130,3 +130,30 @@ def format_task_family_route(route: Mapping[str, Any] | None) -> str:
         f"recommended={canonical['recommended_next_role']}({canonical['recommended_lane']}) "
         f"selected={canonical['controller_selected_next_role']}({canonical['controller_selected_lane']})"
     )
+
+
+
+def canonical_targeted_repair_route(payload: Mapping[str, Any] | None = None, **overrides: Any) -> dict[str, object]:
+    data = dict(payload or {})
+    data.update(overrides)
+    target_files = [str(item) for item in data.get("target_files") or [] if str(item)]
+    return {
+        "repair_strategy": str(data.get("repair_strategy") or "manual_stop"),
+        "remediation_lane": str(data.get("remediation_lane") or "operator"),
+        "targeted_patch_surface": str(data.get("targeted_patch_surface") or "broad_builder_repair"),
+        "target_files": target_files,
+        "prefer_minimal_patch": bool(data.get("prefer_minimal_patch", False)),
+        "minimal_patch_selected": bool(data.get("minimal_patch_selected", False)),
+        "max_files_to_edit": int(data.get("max_files_to_edit", len(target_files) or 0)),
+        "route_rationale": str(data.get("route_rationale") or data.get("rationale") or ""),
+    }
+
+
+def recommend_targeted_repair_route(route: Mapping[str, Any] | None = None) -> dict[str, object]:
+    canonical = canonical_targeted_repair_route(route)
+    if canonical["remediation_lane"] == "builder" and canonical["prefer_minimal_patch"]:
+        return canonical_targeted_repair_route(
+            canonical,
+            route_rationale=(canonical["route_rationale"] or "Prefer the smallest plausible repair surface before broader rewrites."),
+        )
+    return canonical
