@@ -555,6 +555,62 @@ def choose_repair_strategy(
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
 
 
+def build_validation_snapshot(
+    payload: Mapping[str, object] | None = None,
+    *,
+    lint_ok: bool | None = None,
+    test_ok: bool | None = None,
+    output_text: str | None = None,
+    validation_scope: str = "full",
+    branch_clean: bool | None = None,
+    required_checks_passed: bool | None = None,
+    executed_commands: List[str] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.check_runner import build_validation_snapshot as _impl  # type: ignore
+
+    return dict(_impl(payload, lint_ok=lint_ok, test_ok=test_ok, output_text=output_text, validation_scope=validation_scope, branch_clean=branch_clean, required_checks_passed=required_checks_passed, executed_commands=executed_commands))
+
+
+def select_last_green_validation_snapshot(history: Sequence[Mapping[str, object]] | None) -> Dict[str, object]:
+    from agents.lib.check_runner import select_last_green_validation_snapshot as _impl  # type: ignore
+
+    return dict(_impl(history))
+
+
+def evaluate_validation_regression(*, current_snapshot: Mapping[str, object] | None, last_green_snapshot: Mapping[str, object] | None) -> Dict[str, object]:
+    from agents.lib.check_runner import evaluate_validation_regression as _impl  # type: ignore
+
+    return dict(_impl(current_snapshot=current_snapshot, last_green_snapshot=last_green_snapshot))
+
+
+def evaluate_rollback_to_last_green(*, current_validation_snapshot: Mapping[str, object] | None, last_green_snapshot: Mapping[str, object] | None) -> Dict[str, object]:
+    from agents.lib.controller_repair import evaluate_rollback_to_last_green as _impl  # type: ignore
+
+    return dict(_impl(current_validation_snapshot=current_validation_snapshot, last_green_snapshot=last_green_snapshot))
+
+
+def rank_repair_candidates(
+    candidates: Sequence[Mapping[str, object]] | None,
+    *,
+    current_validation_snapshot: Mapping[str, object] | None = None,
+    last_green_snapshot: Mapping[str, object] | None = None,
+) -> List[Dict[str, object]]:
+    from agents.lib.controller_repair import rank_repair_candidates as _impl  # type: ignore
+
+    return [dict(item) for item in _impl(candidates, current_validation_snapshot=current_validation_snapshot, last_green_snapshot=last_green_snapshot)]
+
+
+def choose_ranked_repair_action(
+    *,
+    repair_candidates: Sequence[Mapping[str, object]] | None,
+    validation_history: Sequence[Mapping[str, object]] | None = None,
+    current_validation_snapshot: Mapping[str, object] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.batch_executor import choose_ranked_repair_action as _impl  # type: ignore
+
+    return dict(_impl(repair_candidates=list(repair_candidates or []), validation_history=list(validation_history or []), current_validation_snapshot=dict(current_validation_snapshot or {})))
+
+
 def format_repair_strategy(route: Mapping[str, object] | None) -> str:
     from agents.lib.controller_repair import format_repair_strategy as _impl  # type: ignore
 
@@ -750,17 +806,6 @@ def build_verifier_evidence_bundle(
     return dict(_impl(task_path=task_path, builder_artifact=builder_artifact, verification=verification))
 
 
-def build_ordinary_task_execution_plan(
-    payload: Mapping[str, object] | None = None,
-    *,
-    task_context: Mapping[str, object] | None = None,
-    changed_files: Sequence[str] | None = None,
-) -> Dict[str, object]:
-    from agents.lib.check_runner import build_ordinary_task_execution_plan as _impl  # type: ignore
-
-    return dict(_impl(payload, task_context=task_context, changed_files=list(changed_files or [])))
-
-
 def build_multi_agent_controller_decision(
     *,
     verifier_artifact: Mapping[str, object],
@@ -768,17 +813,6 @@ def build_multi_agent_controller_decision(
     role_state: Mapping[str, object] | None = None,
 ) -> Dict[str, object]:
     from agents.lib.final_acceptance import build_multi_agent_controller_decision as _impl  # type: ignore
-
-    return dict(_impl(verifier_artifact=verifier_artifact, builder_artifact=builder_artifact, role_state=role_state))
-
-
-def build_multi_role_ordinary_controller_decision(
-    *,
-    verifier_artifact: Mapping[str, object],
-    builder_artifact: Mapping[str, object] | None = None,
-    role_state: Mapping[str, object] | None = None,
-) -> Dict[str, object]:
-    from agents.lib.final_acceptance import build_multi_role_ordinary_controller_decision as _impl  # type: ignore
 
     return dict(_impl(verifier_artifact=verifier_artifact, builder_artifact=builder_artifact, role_state=role_state))
 
@@ -810,46 +844,10 @@ def execute_multi_agent_loop(
 
 
 
-def run_multi_agent_controller_cycle(*, manifest, builder, verifier, controller) -> Dict[str, object]:
-    from agents.lib.multi_agent_loop import run_multi_agent_controller_cycle as _impl  # type: ignore
-
-    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
-
-
-
-def run_multi_agent_task_cycle(*, manifest, builder, verifier, controller) -> Dict[str, object]:
-    from agents.lib.multi_agent_loop import run_multi_agent_task_cycle as _impl  # type: ignore
-
-    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
-
-
-
-
 def build_bounded_decomposition_truth(required_paths: Sequence[str] | None) -> Dict[str, object]:
     from agents.lib.manifest_planner import build_bounded_decomposition_truth as _impl  # type: ignore
 
     return dict(_impl(required_paths))
-
-
-
-def build_manifest_entry_decomposition_truth(entry: Mapping[str, object] | object) -> Dict[str, object]:
-    from agents.lib.manifest_planner import build_manifest_entry_decomposition_truth as _impl  # type: ignore
-
-    return dict(_impl(entry))
-
-
-
-def build_dependency_graph_truth(queue: Sequence[object]) -> Dict[str, object]:
-    from agents.lib.task_queue import build_dependency_graph_truth as _impl  # type: ignore
-
-    return dict(_impl(queue))
-
-
-
-def plan_dependency_decomposition(queue: Sequence[object]) -> Dict[str, object]:
-    from agents.lib.task_queue import plan_dependency_decomposition as _impl  # type: ignore
-
-    return dict(_impl(queue))
 
 
 def normalize_manifest_entry_schema(entry: object, *, index: int = 0) -> Dict[str, object]:
@@ -862,45 +860,6 @@ def normalize_multi_agent_loop_result(result: Mapping[str, object] | None) -> Di
     from agents.lib.multi_agent_loop import normalize_multi_agent_loop_result as _impl  # type: ignore
 
     return dict(_impl(result))
-
-
-def project_registry_snapshot() -> Dict[str, object]:
-    from agents.lib.project_registry import project_registry_snapshot as _impl  # type: ignore
-
-    return dict(_impl())
-
-
-def resolve_project_contract(project_id: str = 'tradingbot_monorepo') -> Dict[str, object]:
-    from agents.lib.project_registry import resolve_project_contract as _impl  # type: ignore
-
-    return dict(_impl(project_id))
-
-
-def project_scope_identity(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
-    from agents.lib.project_registry import project_scope_identity as _impl  # type: ignore
-
-    return dict(_impl(project_contract))
-
-
-def project_scoped_branch_name(project_contract: Mapping[str, object] | None, branch_slug: str) -> str:
-    from agents.lib.project_registry import project_scoped_branch_name as _impl  # type: ignore
-
-    return str(_impl(project_contract, branch_slug))
-
-
-def project_workspace_metadata(project_contract: Mapping[str, object] | None) -> Dict[str, object]:
-    from agents.lib.project_registry import project_workspace_metadata as _impl  # type: ignore
-
-    return dict(_impl(project_contract))
-
-
-def canonical_project_contract(
-    payload: Mapping[str, object] | None = None,
-    **overrides: object,
-) -> Dict[str, object]:
-    from agents.lib.project_registry import canonical_project_contract as _impl  # type: ignore
-
-    return dict(_impl(payload, **overrides))
 
 
 def workspace_adapter_snapshot() -> Dict[str, object]:
@@ -965,69 +924,10 @@ def consumer_bridge_snapshot() -> Dict[str, object]:
 
     return dict(_impl())
 
-
-def workspace_contract_from_project_contract(project_contract: Mapping[str, object] | None) -> Dict[str, object]:
-    from agents.lib.project_workspace_adapter import workspace_contract_from_project_contract as _impl  # type: ignore
-
-    return dict(_impl(project_contract))
-
-
-def project_validation_contract(project_contract: Mapping[str, object] | None) -> Dict[str, object]:
-    from agents.lib.project_workspace_adapter import project_validation_contract as _impl  # type: ignore
-
-    return dict(_impl(project_contract))
-
-
-def project_registry_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
-    from agents.lib.task_contracts import project_registry_task_context as _impl  # type: ignore
-
-    return dict(_impl(required_paths))
-
-
-
-def dependency_decomposition_task_context(
-    required_paths: Sequence[str] | None,
-    *,
-    decomposition_safe: bool = False,
-    max_paths_per_unit: int = 3,
-) -> Dict[str, object]:
-    from agents.lib.task_contracts import dependency_decomposition_task_context as _impl  # type: ignore
-
-    return dict(_impl(required_paths, decomposition_safe=decomposition_safe, max_paths_per_unit=max_paths_per_unit))
-
-
-def project_backlog_selection_contract(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
-    from agents.lib.project_registry import project_backlog_selection_contract as _impl  # type: ignore
-
-    return dict(_impl(project_contract))
-
-
-def select_next_backlog_task(
-    queue: Sequence[object],
-    *,
-    project_contract: Mapping[str, object] | None = None,
-    repo_memory: Mapping[str, object] | None = None,
-    hosted_authority_ready: bool = False,
-) -> Dict[str, object]:
-    from agents.lib.task_queue import select_next_backlog_task as _impl  # type: ignore
-
-    return dict(_impl(queue, project_contract=project_contract, repo_memory=repo_memory, hosted_authority_ready=hosted_authority_ready))
-
-
 def project_workspace_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
     from agents.lib.task_contracts import project_workspace_task_context as _impl  # type: ignore
 
     return dict(_impl(required_paths))
-
-
-def project_scoped_runtime_task_context(
-    required_paths: Sequence[str] | None,
-    *,
-    project_contract: Mapping[str, object] | None = None,
-) -> Dict[str, object]:
-    from agents.lib.task_contracts import project_scoped_runtime_task_context as _impl  # type: ignore
-
-    return dict(_impl(required_paths, project_contract=project_contract))
 
 
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:
@@ -5380,8 +5280,11 @@ def _failure_journal_exports() -> Dict[str, object]:
         "build_repair_attempt_record": None,
         "repair_attempt_fingerprint": None,
         "evaluate_repair_attempt_memory": None,
-        "summarize_cross_task_repo_memory": None,
-        "build_cross_task_failure_context": None,
+        "build_validation_snapshot": None,
+        "select_last_green_validation_snapshot": None,
+        "evaluate_validation_regression": None,
+        "evaluate_rollback_to_last_green": None,
+        "rank_repair_candidates": None,
         "build_semantic_failure_digest": None,
         "build_semantic_repair_context": None,
         "choose_repair_strategy": None,
@@ -5403,8 +5306,11 @@ def _failure_journal_exports() -> Dict[str, object]:
             "build_repair_attempt_record",
             "repair_attempt_fingerprint",
             "evaluate_repair_attempt_memory",
-            "summarize_cross_task_repo_memory",
-            "build_cross_task_failure_context",
+            "build_validation_snapshot",
+            "select_last_green_validation_snapshot",
+            "evaluate_validation_regression",
+            "evaluate_rollback_to_last_green",
+            "rank_repair_candidates",
             "build_semantic_failure_digest",
             "build_semantic_repair_context",
             "choose_repair_strategy",

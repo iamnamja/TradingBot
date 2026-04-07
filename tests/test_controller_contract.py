@@ -48,12 +48,6 @@ def test_controller_contract_snapshot_is_canonical() -> None:
     ]
     assert "acceptance_decision" in snapshot["checkpoint_truth_fields"]
     assert "resume_target_task_path" in snapshot["resume_metadata_fields"]
-    assert "selected_task_path" in snapshot["backlog_selection_truth_fields"]
-    assert "selection_policy" in snapshot["backlog_selection_truth_fields"]
-    assert "dependency_edges" in snapshot["dependency_decomposition_truth_fields"]
-    assert "decomposition_by_task" in snapshot["dependency_decomposition_truth_fields"]
-    assert "required_paths" in snapshot["proof_sync_allowed_manifest_entry_keys"]
-    assert "decomposition_safe" in snapshot["proof_sync_allowed_manifest_entry_keys"]
 
     assert snapshot["controller_strict_mode_paths"] == [
         "agents/run_task.py",
@@ -155,6 +149,19 @@ def test_controller_failure_digest_contract_is_stable_and_machine_readable() -> 
         "merge_posture_mismatches",
         "taxonomy_mismatches",
         "controller_family_files_touched",
+    ]
+    assert snapshot["repair_ranking_fields"] == [
+        "repair_rank",
+        "repair_lane_rank",
+        "rollback_risk",
+        "repair_rank_score",
+    ]
+    assert snapshot["rollback_to_last_green_fields"] == [
+        "have_last_green",
+        "regressed_from_last_green",
+        "regressed_dimensions",
+        "should_rollback_to_last_green",
+        "rollback_reason",
     ]
 
     digest = repair.build_controller_failure_digest(

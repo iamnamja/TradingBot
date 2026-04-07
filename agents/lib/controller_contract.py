@@ -114,36 +114,18 @@ ADMISSION_TRUTH_FIELDS: tuple[str, ...] = (
     "decomposition_unit_count",
     "decomposition_summary",
 )
-DEPENDENCY_DECOMPOSITION_TRUTH_FIELDS: tuple[str, ...] = (
-    "dependency_nodes",
-    "dependency_edges",
-    "blocking_edges",
-    "unresolved_dependencies",
-    "blocked_by_dependencies",
-    "decomposition_required_task_paths",
-    "decomposition_manual_only_task_paths",
-    "decomposition_by_task",
+REPAIR_RANKING_FIELDS: tuple[str, ...] = (
+    "repair_rank",
+    "repair_lane_rank",
+    "rollback_risk",
+    "repair_rank_score",
 )
-
-BACKLOG_SELECTION_TRUTH_FIELDS: tuple[str, ...] = (
-    "selected_task_path",
-    "selected_reason",
-    "reordered",
-    "ready_task_paths",
-    "blocked_task_paths",
-    "deferred_task_paths",
-    "skipped_task_paths",
-    "rerun_required_task_paths",
-    "ranked_candidate_paths",
-    "ranked_candidates",
-    "blocking_reasons",
-    "skip_reasons",
-    "priority_by_task",
-    "carry_forward_summary_used",
-    "carry_forward_related_task_paths",
-    "carry_forward_blocked_task_paths",
-    "hosted_authority_ready",
-    "selection_policy",
+ROLLBACK_TO_LAST_GREEN_FIELDS: tuple[str, ...] = (
+    "have_last_green",
+    "regressed_from_last_green",
+    "regressed_dimensions",
+    "should_rollback_to_last_green",
+    "rollback_reason",
 )
 RESUME_METADATA_FIELDS: tuple[str, ...] = (
     "resume_reason",
@@ -217,14 +199,11 @@ CONTROLLER_RUNTIME_DELEGATE_SURFACES: tuple[str, ...] = (
     "resume_role_handoff_state",
     "controller_decides_next_role",
     "multi_agent_task_context",
-    "build_multi_role_ordinary_controller_decision",
 )
 
 
 PROOF_SYNC_RUN_TASK_EXPORTS: tuple[str, ...] = (
     "execute_multi_agent_loop",
-    "run_multi_agent_controller_cycle",
-    "run_multi_agent_task_cycle",
     "multi_agent_contract_snapshot",
     "orchestrator_package_boundary_snapshot",
     "proof_sync_contract_snapshot",
@@ -256,11 +235,6 @@ PROOF_SYNC_ALLOWED_MANIFEST_ENTRY_KEYS: tuple[str, ...] = (
     "deferrable",
     "skipped_by_policy",
     "rerun_required",
-    "priority",
-    "authority_prerequisite",
-    "required_paths",
-    "decomposition_safe",
-    "decomposition_max_unit_size",
     "label",
     "note",
     "stop_policy",
@@ -465,8 +439,8 @@ def controller_contract_snapshot() -> dict[str, object]:
         "checkpoint_truth_fields": list(CHECKPOINT_TRUTH_FIELDS),
         "resume_metadata_fields": list(RESUME_METADATA_FIELDS),
         "admission_truth_fields": list(ADMISSION_TRUTH_FIELDS),
-        "backlog_selection_truth_fields": list(BACKLOG_SELECTION_TRUTH_FIELDS),
-        "dependency_decomposition_truth_fields": list(DEPENDENCY_DECOMPOSITION_TRUTH_FIELDS),
+        "repair_ranking_fields": list(REPAIR_RANKING_FIELDS),
+        "rollback_to_last_green_fields": list(ROLLBACK_TO_LAST_GREEN_FIELDS),
         "controller_failure_categories": list(CONTROLLER_FAILURE_CATEGORIES),
         "controller_strict_mode_paths": list(CONTROLLER_STRICT_MODE_PATHS),
         "controller_proof_test_paths": list(CONTROLLER_PROOF_TEST_PATHS),
