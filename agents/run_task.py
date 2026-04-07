@@ -472,6 +472,42 @@ def evaluate_verification_authority(**kwargs: Any) -> Dict[str, object]:
     return dict(_impl(**kwargs))
 
 
+def resolve_project_contract(project_id: str = "tradingbot_monorepo") -> Dict[str, object]:
+    from agents.lib.project_registry import resolve_project_contract as _impl  # type: ignore
+
+    return dict(_impl(project_id))
+
+
+def project_validation_matrix(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.lib.project_registry import project_validation_matrix as _impl  # type: ignore
+
+    return dict(_impl(project_contract))
+
+
+def build_project_validation_plan(project_contract: Mapping[str, object] | None = None, *, validation_scope: str = "full") -> Dict[str, object]:
+    from agents.lib.check_runner import build_project_validation_plan as _impl  # type: ignore
+
+    return dict(_impl(project_contract, validation_scope=validation_scope))
+
+
+def project_verification_authority_profile(project_contract: Mapping[str, object] | None = None) -> str:
+    from agents.lib.git_workflow import project_verification_authority_profile as _impl  # type: ignore
+
+    return str(_impl(project_contract))
+
+
+def project_repo_check_contract(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.lib.git_workflow import project_repo_check_contract as _impl  # type: ignore
+
+    return dict(_impl(project_contract))
+
+
+def evaluate_project_verification_authority(**kwargs: Any) -> Dict[str, object]:
+    from agents.lib.git_workflow import evaluate_project_verification_authority as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
 def report_branch_push_ready(branch: str) -> None:
     from agents.lib.git_workflow import report_branch_push_ready as _impl  # type: ignore
 
@@ -553,62 +589,6 @@ def choose_repair_strategy(
     from agents.lib.controller_repair import choose_repair_strategy as _impl  # type: ignore
 
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
-
-
-def build_validation_snapshot(
-    payload: Mapping[str, object] | None = None,
-    *,
-    lint_ok: bool | None = None,
-    test_ok: bool | None = None,
-    output_text: str | None = None,
-    validation_scope: str = "full",
-    branch_clean: bool | None = None,
-    required_checks_passed: bool | None = None,
-    executed_commands: List[str] | None = None,
-) -> Dict[str, object]:
-    from agents.lib.check_runner import build_validation_snapshot as _impl  # type: ignore
-
-    return dict(_impl(payload, lint_ok=lint_ok, test_ok=test_ok, output_text=output_text, validation_scope=validation_scope, branch_clean=branch_clean, required_checks_passed=required_checks_passed, executed_commands=executed_commands))
-
-
-def select_last_green_validation_snapshot(history: Sequence[Mapping[str, object]] | None) -> Dict[str, object]:
-    from agents.lib.check_runner import select_last_green_validation_snapshot as _impl  # type: ignore
-
-    return dict(_impl(history))
-
-
-def evaluate_validation_regression(*, current_snapshot: Mapping[str, object] | None, last_green_snapshot: Mapping[str, object] | None) -> Dict[str, object]:
-    from agents.lib.check_runner import evaluate_validation_regression as _impl  # type: ignore
-
-    return dict(_impl(current_snapshot=current_snapshot, last_green_snapshot=last_green_snapshot))
-
-
-def evaluate_rollback_to_last_green(*, current_validation_snapshot: Mapping[str, object] | None, last_green_snapshot: Mapping[str, object] | None) -> Dict[str, object]:
-    from agents.lib.controller_repair import evaluate_rollback_to_last_green as _impl  # type: ignore
-
-    return dict(_impl(current_validation_snapshot=current_validation_snapshot, last_green_snapshot=last_green_snapshot))
-
-
-def rank_repair_candidates(
-    candidates: Sequence[Mapping[str, object]] | None,
-    *,
-    current_validation_snapshot: Mapping[str, object] | None = None,
-    last_green_snapshot: Mapping[str, object] | None = None,
-) -> List[Dict[str, object]]:
-    from agents.lib.controller_repair import rank_repair_candidates as _impl  # type: ignore
-
-    return [dict(item) for item in _impl(candidates, current_validation_snapshot=current_validation_snapshot, last_green_snapshot=last_green_snapshot)]
-
-
-def choose_ranked_repair_action(
-    *,
-    repair_candidates: Sequence[Mapping[str, object]] | None,
-    validation_history: Sequence[Mapping[str, object]] | None = None,
-    current_validation_snapshot: Mapping[str, object] | None = None,
-) -> Dict[str, object]:
-    from agents.lib.batch_executor import choose_ranked_repair_action as _impl  # type: ignore
-
-    return dict(_impl(repair_candidates=list(repair_candidates or []), validation_history=list(validation_history or []), current_validation_snapshot=dict(current_validation_snapshot or {})))
 
 
 def format_repair_strategy(route: Mapping[str, object] | None) -> str:
@@ -806,6 +786,17 @@ def build_verifier_evidence_bundle(
     return dict(_impl(task_path=task_path, builder_artifact=builder_artifact, verification=verification))
 
 
+def build_ordinary_task_execution_plan(
+    payload: Mapping[str, object] | None = None,
+    *,
+    task_context: Mapping[str, object] | None = None,
+    changed_files: Sequence[str] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.check_runner import build_ordinary_task_execution_plan as _impl  # type: ignore
+
+    return dict(_impl(payload, task_context=task_context, changed_files=list(changed_files or [])))
+
+
 def build_multi_agent_controller_decision(
     *,
     verifier_artifact: Mapping[str, object],
@@ -813,6 +804,17 @@ def build_multi_agent_controller_decision(
     role_state: Mapping[str, object] | None = None,
 ) -> Dict[str, object]:
     from agents.lib.final_acceptance import build_multi_agent_controller_decision as _impl  # type: ignore
+
+    return dict(_impl(verifier_artifact=verifier_artifact, builder_artifact=builder_artifact, role_state=role_state))
+
+
+def build_multi_role_ordinary_controller_decision(
+    *,
+    verifier_artifact: Mapping[str, object],
+    builder_artifact: Mapping[str, object] | None = None,
+    role_state: Mapping[str, object] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.final_acceptance import build_multi_role_ordinary_controller_decision as _impl  # type: ignore
 
     return dict(_impl(verifier_artifact=verifier_artifact, builder_artifact=builder_artifact, role_state=role_state))
 
@@ -840,6 +842,21 @@ def execute_multi_agent_loop(
             controller_route_decide=controller_route_decide,
         )
     )
+
+
+
+
+def run_multi_agent_controller_cycle(*, manifest, builder, verifier, controller) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import run_multi_agent_controller_cycle as _impl  # type: ignore
+
+    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
+
+
+
+def run_multi_agent_task_cycle(*, manifest, builder, verifier, controller) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import run_multi_agent_task_cycle as _impl  # type: ignore
+
+    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
 
 
 
@@ -5280,11 +5297,8 @@ def _failure_journal_exports() -> Dict[str, object]:
         "build_repair_attempt_record": None,
         "repair_attempt_fingerprint": None,
         "evaluate_repair_attempt_memory": None,
-        "build_validation_snapshot": None,
-        "select_last_green_validation_snapshot": None,
-        "evaluate_validation_regression": None,
-        "evaluate_rollback_to_last_green": None,
-        "rank_repair_candidates": None,
+        "summarize_cross_task_repo_memory": None,
+        "build_cross_task_failure_context": None,
         "build_semantic_failure_digest": None,
         "build_semantic_repair_context": None,
         "choose_repair_strategy": None,
@@ -5306,11 +5320,8 @@ def _failure_journal_exports() -> Dict[str, object]:
             "build_repair_attempt_record",
             "repair_attempt_fingerprint",
             "evaluate_repair_attempt_memory",
-            "build_validation_snapshot",
-            "select_last_green_validation_snapshot",
-            "evaluate_validation_regression",
-            "evaluate_rollback_to_last_green",
-            "rank_repair_candidates",
+            "summarize_cross_task_repo_memory",
+            "build_cross_task_failure_context",
             "build_semantic_failure_digest",
             "build_semantic_repair_context",
             "choose_repair_strategy",

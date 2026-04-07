@@ -9,7 +9,6 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from agents.lib import git_workflow  # noqa: E402
-from agents.lib import project_registry  # noqa: E402
 
 
 REPO_CHECK_CONTRACT = {
@@ -157,13 +156,34 @@ def test_merge_flow_can_succeed_with_required_ci_authority() -> None:
     assert result["next_task_may_proceed"] is True
 
 
-def test_project_scoped_branch_name_isolated_by_project() -> None:
-    trading = project_registry.resolve_project_contract("tradingbot_monorepo")
-    external = project_registry.resolve_project_contract("generic_python_external")
 
-    trading_branch = git_workflow.project_scoped_branch_name(trading, "task-001")
-    external_branch = git_workflow.project_scoped_branch_name(external, "task-001")
+def test_project_aware_authority_profiles_can_differ_across_projects() -> None:
+    from agents.lib import project_registry  # noqa: E402
 
-    assert trading_branch != external_branch
-    assert trading_branch.startswith("project/tradingbot_monorepo/")
-    assert external_branch.startswith("project/generic_python_external/")
+    tradingbot = project_registry.resolve_project_contract("tradingbot_monorepo")
+    generic = project_registry.resolve_project_contract("generic_python_external")
+
+    generic_truth = git_workflow.evaluate_project_verification_authority(
+        project_contract=generic,
+        local_validation_passed=True,
+    )
+    tradingbot_truth = git_workflow.evaluate_project_verification_authority(
+        project_contract=tradingbot,
+        local_validation_passed=True,
+        required_check_truth=git_workflow.canonical_required_check_truth(
+            verification_authority_profile="local_plus_required_ci",
+            repo_check_contract=git_workflow.project_repo_check_contract(tradingbot),
+            required_checks_discovered=False,
+            hosted_checks_reported=False,
+            hosted_authority_probe_status="misconfigured",
+            hosted_authority_probe_note="Hosted checks did not report on the branch.",
+        ),
+    )
+
+    assert generic_truth["verification_authority_profile"] == "local_only"
+    assert generic_truth["verification_authority_satisfied"] is True
+    assert generic_truth["hosted_authority_satisfied"] is True
+
+    assert tradingbot_truth["verification_authority_profile"] == "local_plus_required_ci"
+    assert tradingbot_truth["verification_authority_satisfied"] is False
+    assert tradingbot_truth["required_check_truth"]["hosted_authority_probe_status"] == "misconfigured"
