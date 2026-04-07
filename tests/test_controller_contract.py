@@ -228,6 +228,13 @@ def test_multi_agent_contract_snapshot_and_controller_composition_are_canonical(
         "controller_next_role_decision",
         "role_outcome",
     ]
+    assert snapshot["artifact_envelope_types"] == ["coder_output", "tester_output", "controller_output"]
+    assert snapshot["role_artifact_envelope_field_names"] == [
+        "coder_artifact_envelope",
+        "tester_artifact_envelope",
+        "controller_artifact_envelope",
+    ]
+    assert "raw_payload" in snapshot["artifact_envelope_fields"]
     assert snapshot["allowed_handoffs"] == {
         "controller": ["builder", "verifier"],
         "builder": ["controller", "verifier"],
@@ -243,6 +250,36 @@ def test_multi_agent_contract_snapshot_and_controller_composition_are_canonical(
     assert "multi_agent_contract_snapshot" in controller_snapshot["controller_runtime_delegate_surfaces"]
 
 
+
+
+
+def test_role_artifact_envelope_is_typed_and_round_trippable() -> None:
+    import json
+
+    multi_agent = _load("agents.lib.multi_agent_contract")
+
+    envelope = multi_agent.canonical_role_artifact_envelope(
+        {
+            "role": "builder",
+            "task_path": "tasks/108_orchestrator_role_handoff_artifact_envelopes_and_persistence.md",
+            "attempt_count": 2,
+            "summary": "Builder updated role persistence fields.",
+            "changed_files": ["agents/lib/batch_state.py", "tests/test_controller_contract.py"],
+            "proposed_next_role": "verifier",
+            "role_outcome": "builder_patch_proposed",
+        }
+    )
+    payload = json.loads(json.dumps(envelope))
+
+    assert payload["schema_version"] == 1
+    assert payload["envelope_type"] == "coder_output"
+    assert payload["artifact_role"] == "builder"
+    assert payload["attempt_count"] == 2
+    assert payload["changed_files"] == [
+        "agents/lib/batch_state.py",
+        "tests/test_controller_contract.py",
+    ]
+    assert payload["raw_payload"]["role"] == "builder"
 
 def test_only_controller_may_choose_next_role() -> None:
     multi_agent = _load("agents.lib.multi_agent_contract")
@@ -265,8 +302,11 @@ def test_only_controller_may_choose_next_role() -> None:
 
 
 def test_role_handoff_truth_is_persisted_and_resume_can_reconstruct_pending_role(tmp_path: Path) -> None:
+    import json
+
     batch_state = _load("agents.lib.batch_state")
     task_queue = _load("agents.lib.task_queue")
+    multi_agent = _load("agents.lib.multi_agent_contract")
 
     task_path = tmp_path / "tasks" / "001.md"
     task_path.parent.mkdir(parents=True, exist_ok=True)
@@ -282,6 +322,47 @@ def test_role_handoff_truth_is_persisted_and_resume_can_reconstruct_pending_role
     )
     assert state.active_role == "controller"
     assert state.controller_next_role_decision == "builder"
+
+    coder_envelope = multi_agent.canonical_role_artifact_envelope(
+        {
+            "role": "builder",
+            "task_path": "tasks/001.md",
+            "attempt_count": 1,
+            "summary": "Builder updated controller wrappers and persisted handoff state.",
+            "changed_files": ["agents/lib/batch_state.py", "agents/run_task.py"],
+            "proposed_next_role": "verifier",
+            "role_outcome": "builder_patch_proposed",
+        }
+    )
+    tester_envelope = multi_agent.canonical_role_artifact_envelope(
+        {
+            "role": "verifier",
+            "task_path": "tasks/001.md",
+            "summary": "Verifier ran focused controller proof tests and found a failing handoff assertion.",
+            "focused_results": ["pytest -q tests/test_controller_contract.py"],
+            "full_results": ["pytest -q"],
+            "verdict": "fail",
+            "verification_authority_profile": "local_only",
+            "acceptance_report": {
+                "acceptance_decision": "accepted",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+            },
+            "role_outcome": "verification_failed",
+        }
+    )
+    controller_envelope = multi_agent.canonical_role_artifact_envelope(
+        {
+            "role": "controller",
+            "task_path": "tasks/001.md",
+            "summary": "Controller persisted the current verifier handoff state.",
+            "next_role_decision": "verifier",
+            "acceptance_decision": "accepted",
+            "post_task_decision": "continue",
+            "next_task_may_proceed": True,
+            "role_outcome": "controller_routed",
+        }
+    )
 
     state = batch_state.apply_task_result(
         state,
@@ -301,6 +382,9 @@ def test_role_handoff_truth_is_persisted_and_resume_can_reconstruct_pending_role
         verifier_verdict="fail",
         controller_next_role_decision="verifier",
         role_outcome="verification_failed",
+        coder_artifact_envelope=coder_envelope,
+        tester_artifact_envelope=tester_envelope,
+        controller_artifact_envelope=controller_envelope,
     )
 
     checkpoint = batch_state.last_checkpoint_for_task(state, "tasks/001.md")
@@ -311,6 +395,15 @@ def test_role_handoff_truth_is_persisted_and_resume_can_reconstruct_pending_role
     assert checkpoint.handoff_reason == "builder_patch_ready_for_verification"
     assert checkpoint.verifier_verdict == "fail"
     assert checkpoint.controller_next_role_decision == "verifier"
+    assert checkpoint.coder_artifact_envelope["envelope_type"] == "coder_output"
+    assert checkpoint.tester_artifact_envelope["envelope_type"] == "tester_output"
+    assert checkpoint.controller_artifact_envelope["envelope_type"] == "controller_output"
+
+    persisted = json.loads(json.dumps(state.to_dict()))
+    checkpoint_payload = persisted["checkpoints"][0]
+    assert checkpoint_payload["coder_artifact_envelope"]["summary"].startswith("Builder updated")
+    assert checkpoint_payload["tester_artifact_envelope"]["verifier_verdict"] == "fail"
+    assert checkpoint_payload["controller_artifact_envelope"]["post_task_decision"] == "continue"
 
     resumed = batch_state.resume_role_handoff_state_for_batch(state, task_path="tasks/001.md")
     assert resumed["active_role"] == "verifier"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from agents.lib.controller_contract import (
@@ -17,7 +17,12 @@ from agents.lib.controller_contract import (
     checkpoint_requires_manual_resolution,
 )
 from agents.lib.git_workflow import canonical_required_check_truth
-from agents.lib.multi_agent_contract import canonical_role_handoff_state, resume_role_handoff_state
+from agents.lib.multi_agent_contract import (
+    canonical_role_artifact_envelope,
+    canonical_role_handoff_state,
+    empty_role_artifact_envelopes,
+    resume_role_handoff_state,
+)
 from agents.lib.manifest_planner import plan_manifest_progress
 from agents.lib.task_queue import QueueStatus, TaskQueueItem, validate_queue_status_transition
 
@@ -55,6 +60,9 @@ class BatchTaskCheckpoint:
     required_checks_passed: bool = False
     merged_to_main: bool = False
     clean_main_reset_completed: bool = False
+    coder_artifact_envelope: dict[str, object] = field(default_factory=dict)
+    tester_artifact_envelope: dict[str, object] = field(default_factory=dict)
+    controller_artifact_envelope: dict[str, object] = field(default_factory=dict)
     verification_authority_profile: str = "local_only"
     required_checks_configured: bool = False
     required_checks_discovered: bool = False
@@ -111,6 +119,9 @@ class BatchTaskCheckpoint:
             "required_checks_passed": self.required_checks_passed,
             "merged_to_main": self.merged_to_main,
             "clean_main_reset_completed": self.clean_main_reset_completed,
+            "coder_artifact_envelope": dict(self.coder_artifact_envelope),
+            "tester_artifact_envelope": dict(self.tester_artifact_envelope),
+            "controller_artifact_envelope": dict(self.controller_artifact_envelope),
             "verification_authority_profile": self.verification_authority_profile,
             "required_checks_configured": self.required_checks_configured,
             "required_checks_discovered": self.required_checks_discovered,
@@ -177,6 +188,9 @@ class BatchState:
     resume_reason: str = ""
     resume_target_task_path: str = ""
     resume_gate: str = ""
+    coder_artifact_envelope: dict[str, object] = field(default_factory=dict)
+    tester_artifact_envelope: dict[str, object] = field(default_factory=dict)
+    controller_artifact_envelope: dict[str, object] = field(default_factory=dict)
     verification_authority_profile: str = "local_only"
     required_checks_configured: bool = False
     required_checks_discovered: bool = False
@@ -243,6 +257,9 @@ class BatchState:
             "resume_reason": self.resume_reason,
             "resume_target_task_path": self.resume_target_task_path,
             "resume_gate": self.resume_gate,
+            "coder_artifact_envelope": dict(self.coder_artifact_envelope),
+            "tester_artifact_envelope": dict(self.tester_artifact_envelope),
+            "controller_artifact_envelope": dict(self.controller_artifact_envelope),
             "verification_authority_profile": self.verification_authority_profile,
             "required_checks_configured": self.required_checks_configured,
             "required_checks_discovered": self.required_checks_discovered,
@@ -354,6 +371,20 @@ def initialize_batch_state(
         handoff_summary="Controller owns the next-role decision until a specialized role is chosen.",
         controller_next_role_decision="builder",
         role_outcome="controller_routed",
+    )
+    artifact_envelopes = empty_role_artifact_envelopes()
+    artifact_envelopes["controller_artifact_envelope"] = canonical_role_artifact_envelope(
+        envelope_type="controller_output",
+        artifact_role="controller",
+        task_path="",
+        attempt_count=0,
+        summary=str(handoff["handoff_summary"]),
+        role_outcome=str(handoff["role_outcome"]),
+        proposed_next_role=str(handoff["controller_next_role_decision"]),
+        handoff_reason=str(handoff["handoff_reason"]),
+        handoff_summary=str(handoff["handoff_summary"]),
+        handoff_instructions=str(handoff["handoff_instructions"]),
+        raw_payload=dict(handoff),
     )
     planner = _planner_truth_from_queue(queue_state)
     return BatchState(
@@ -468,6 +499,9 @@ def apply_task_result(
     required_checks_passed: bool | None = None,
     merged_to_main: bool | None = None,
     clean_main_reset_completed: bool | None = None,
+    coder_artifact_envelope: dict[str, object] | None = None,
+    tester_artifact_envelope: dict[str, object] | None = None,
+    controller_artifact_envelope: dict[str, object] | None = None,
     verification_authority_profile: str | None = None,
     required_checks_discovered: bool | None = None,
     required_checks_missing: bool | None = None,
@@ -555,6 +589,23 @@ def apply_task_result(
         role_outcome=role_outcome if role_outcome is not None else state.role_outcome,
     )
 
+    envelope_defaults = empty_role_artifact_envelopes()
+    coder_envelope = canonical_role_artifact_envelope(
+        coder_artifact_envelope if coder_artifact_envelope is not None else state.coder_artifact_envelope or envelope_defaults["coder_artifact_envelope"],
+        envelope_type="coder_output",
+        artifact_role="builder",
+    )
+    tester_envelope = canonical_role_artifact_envelope(
+        tester_artifact_envelope if tester_artifact_envelope is not None else state.tester_artifact_envelope or envelope_defaults["tester_artifact_envelope"],
+        envelope_type="tester_output",
+        artifact_role="verifier",
+    )
+    controller_envelope = canonical_role_artifact_envelope(
+        controller_artifact_envelope if controller_artifact_envelope is not None else state.controller_artifact_envelope or envelope_defaults["controller_artifact_envelope"],
+        envelope_type="controller_output",
+        artifact_role="controller",
+    )
+
     planner = _planner_truth_from_queue(state.queue)
 
     checkpoint = BatchTaskCheckpoint(
@@ -576,6 +627,9 @@ def apply_task_result(
         required_checks_passed=merge_truth["required_checks_passed"],
         merged_to_main=merge_truth["merged_to_main"],
         clean_main_reset_completed=merge_truth["clean_main_reset_completed"],
+        coder_artifact_envelope=dict(coder_envelope),
+        tester_artifact_envelope=dict(tester_envelope),
+        controller_artifact_envelope=dict(controller_envelope),
         verification_authority_profile=str(authority_truth["verification_authority_profile"]),
         required_checks_configured=bool(authority_truth["required_checks_configured"]),
         required_checks_discovered=bool(authority_truth["required_checks_discovered"]),
@@ -621,6 +675,9 @@ def apply_task_result(
         post_task_decision=post_task_decision,
         batch_status=batch_status,
         updated_ts=updated_ts,
+        coder_artifact_envelope=dict(coder_envelope),
+        tester_artifact_envelope=dict(tester_envelope),
+        controller_artifact_envelope=dict(controller_envelope),
         verification_authority_profile=str(authority_truth["verification_authority_profile"]),
         required_checks_configured=bool(authority_truth["required_checks_configured"]),
         required_checks_discovered=bool(authority_truth["required_checks_discovered"]),
@@ -755,6 +812,9 @@ def mark_resume_plan(
         resume_target_task_path=metadata["resume_target_task_path"],
         resume_gate=metadata["resume_gate"],
         updated_ts=updated_ts,
+        coder_artifact_envelope=dict(state.coder_artifact_envelope),
+        tester_artifact_envelope=dict(state.tester_artifact_envelope),
+        controller_artifact_envelope=dict(state.controller_artifact_envelope),
         verification_authority_profile=state.verification_authority_profile,
         required_checks_configured=state.required_checks_configured,
         required_checks_discovered=state.required_checks_discovered,

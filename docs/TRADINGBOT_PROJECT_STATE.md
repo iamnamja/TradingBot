@@ -12,18 +12,19 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 090–107 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, and a supervised mixed-manifest re-proof.
+- **Tasks 090–108 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, and a supervised mixed-manifest re-proof.
 
 The current deterministic proof slice now demonstrates:
 
 1. controller/builder/verifier role separation
-2. dependency-aware short-manifest planning and routing truth
-3. explicit verification-authority posture
-4. Python-only second-project portability
-5. truthful external bootstrap blocked-then-recovered recovery
-6. supervised mixed-manifest progression across proof/docs, bootstrap, and consumer-facing task families
-7. conservative stop on unsatisfied authority
-8. extraction-prep consumer boundary posture rather than completed standalone extraction
+2. stable typed coder/tester/controller artifact envelopes persisted across batch-state and failure-journal surfaces
+3. dependency-aware short-manifest planning and routing truth
+4. explicit verification-authority posture
+5. Python-only second-project portability
+6. truthful external bootstrap blocked-then-recovered recovery
+7. supervised mixed-manifest progression across proof/docs, bootstrap, and consumer-facing task families
+8. conservative stop on unsatisfied authority
+9. extraction-prep consumer boundary posture rather than completed standalone extraction
 
 ## What recent failures taught us
 
@@ -32,6 +33,7 @@ The 097, 099, and 107 misses were not broad core-loop failures. They exposed nar
 - proof tasks still drift too easily toward broader public APIs than the repo actually exports
 - compatibility wrappers and proof-facing adapters can regress when adjacent controller work lands
 - the orchestrator still benefits from stronger coder/tester/controller handoff artifacts instead of loosely shared role context
+- artifact envelopes must remain stable and round-trippable in state/journal persistence so adjacent controller work does not regress role handoffs
 - self-heal remains too stateless across repeated attempts and is still vulnerable to no-progress retries
 - task admission is still too permissive for larger or more ambiguous task shapes
 - hosted required-check authority is modeled more strongly in code than it is enforced in the live GitHub environment

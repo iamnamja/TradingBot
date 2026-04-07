@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from agents.lib.controller_contract import POLICY_BLOCKED_FAILURE_CATEGORY
+from agents.lib.multi_agent_contract import summarize_role_artifact_envelope
 from agents.lib.controller_repair import (
     build_controller_failure_digest,
     build_controller_repair_context,
@@ -217,13 +218,23 @@ def build_multi_agent_failure_context(
     verifier_artifact: Dict[str, Any] | dict[str, Any],
     controller_decision: Dict[str, Any] | dict[str, Any],
 ) -> Dict[str, Any]:
+    coder_summary = summarize_role_artifact_envelope(builder_artifact, envelope_type="coder_output", artifact_role="builder")
+    tester_summary = summarize_role_artifact_envelope(verifier_artifact, envelope_type="tester_output", artifact_role="verifier")
+    controller_summary = summarize_role_artifact_envelope(
+        controller_decision,
+        envelope_type="controller_output",
+        artifact_role="controller",
+    )
     return {
         "task_path": str(task_path),
         "role_trace": list(role_trace),
-        "builder_summary": str((builder_artifact or {}).get("summary") or ""),
-        "verifier_summary": str((verifier_artifact or {}).get("summary") or ""),
-        "controller_summary": str((controller_decision or {}).get("summary") or ""),
-        "verifier_verdict": str((verifier_artifact or {}).get("verdict") or "not_run"),
+        "builder_summary": str(coder_summary.get("summary") or ""),
+        "verifier_summary": str(tester_summary.get("summary") or ""),
+        "controller_summary": str(controller_summary.get("summary") or ""),
+        "coder_artifact_summary": coder_summary,
+        "tester_artifact_summary": tester_summary,
+        "controller_artifact_summary": controller_summary,
+        "verifier_verdict": str(tester_summary.get("verifier_verdict") or "not_run"),
         "controller_action": str((controller_decision or {}).get("action") or ""),
         "repair_strategy": str((controller_decision or {}).get("repair_strategy") or ""),
         "remediation_lane": str((controller_decision or {}).get("remediation_lane") or ""),
