@@ -103,5 +103,4 @@ This should remain sequential before any future concurrency or true parallel rol
 
 Task 111 adds a conservative task-admission and bounded-decomposition gate. Small ordinary or verifier-only shapes can remain autonomous-ordinary, larger ambiguous shapes are held in supervised-autonomous posture, and protected/controller/meta shapes are classified manual-only.
 
-
-- multi-role ordinary-task execution loop with explicit builder/tester/controller coordination while remaining sequential and bounded
+Task 113 adds a bounded ordinary-task execution loop with explicit builder/tester/controller coordination while remaining sequential. Task 114 then carries accepted changes, unresolved blockers, deferred issues, and compact repo memory forward across tasks so broader manifests can retain truthful prior context without replaying raw logs.

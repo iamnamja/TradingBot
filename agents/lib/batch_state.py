@@ -23,7 +23,7 @@ from agents.lib.multi_agent_contract import (
     empty_role_artifact_envelopes,
     resume_role_handoff_state,
 )
-from agents.lib.manifest_planner import plan_manifest_progress
+from agents.lib.manifest_planner import build_bounded_repo_memory, plan_manifest_progress
 from agents.lib.task_queue import QueueStatus, TaskQueueItem, validate_queue_status_transition
 
 CheckpointTransition = Literal[
@@ -105,6 +105,11 @@ class BatchTaskCheckpoint:
     planner_skipped_task_paths: tuple[str, ...] = ()
     planner_rerun_required_task_paths: tuple[str, ...] = ()
     planner_blocking_reasons: tuple[tuple[str, str], ...] = ()
+    accepted_change_summaries: tuple[dict[str, object], ...] = ()
+    unresolved_blockers: tuple[dict[str, object], ...] = ()
+    deferred_issue_summaries: tuple[dict[str, object], ...] = ()
+    repo_memory_entries: tuple[dict[str, object], ...] = ()
+    carry_forward_summary: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -171,6 +176,11 @@ class BatchTaskCheckpoint:
             "planner_skipped_task_paths": list(self.planner_skipped_task_paths),
             "planner_rerun_required_task_paths": list(self.planner_rerun_required_task_paths),
             "planner_blocking_reasons": {task_path: reason for task_path, reason in self.planner_blocking_reasons},
+            "accepted_change_summaries": [dict(item) for item in self.accepted_change_summaries],
+            "unresolved_blockers": [dict(item) for item in self.unresolved_blockers],
+            "deferred_issue_summaries": [dict(item) for item in self.deferred_issue_summaries],
+            "repo_memory_entries": [dict(item) for item in self.repo_memory_entries],
+            "carry_forward_summary": self.carry_forward_summary,
         }
 
 
@@ -251,6 +261,11 @@ class BatchState:
     planner_skipped_task_paths: tuple[str, ...] = ()
     planner_rerun_required_task_paths: tuple[str, ...] = ()
     planner_blocking_reasons: tuple[tuple[str, str], ...] = ()
+    accepted_change_summaries: tuple[dict[str, object], ...] = ()
+    unresolved_blockers: tuple[dict[str, object], ...] = ()
+    deferred_issue_summaries: tuple[dict[str, object], ...] = ()
+    repo_memory_entries: tuple[dict[str, object], ...] = ()
+    carry_forward_summary: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -331,6 +346,11 @@ class BatchState:
             "planner_skipped_task_paths": list(self.planner_skipped_task_paths),
             "planner_rerun_required_task_paths": list(self.planner_rerun_required_task_paths),
             "planner_blocking_reasons": {task_path: reason for task_path, reason in self.planner_blocking_reasons},
+            "accepted_change_summaries": [dict(item) for item in self.accepted_change_summaries],
+            "unresolved_blockers": [dict(item) for item in self.unresolved_blockers],
+            "deferred_issue_summaries": [dict(item) for item in self.deferred_issue_summaries],
+            "repo_memory_entries": [dict(item) for item in self.repo_memory_entries],
+            "carry_forward_summary": self.carry_forward_summary,
         }
 
 
@@ -489,6 +509,11 @@ def initialize_batch_state(
         hosted_authority_satisfied=True,
         hosted_authority_probe_status="not_required",
         hosted_authority_probe_note="",
+        accepted_change_summaries=(),
+        unresolved_blockers=(),
+        deferred_issue_summaries=(),
+        repo_memory_entries=(),
+        carry_forward_summary="Carry forward 0 accepted change(s), 0 unresolved blocker(s), and 0 deferred issue(s).",
         active_role=str(handoff["active_role"]),
         prior_role=str(handoff["prior_role"]),
         role_attempt_count=int(handoff["role_attempt_count"]),
@@ -696,6 +721,7 @@ def apply_task_result(
     normalized_repair_attempt_history = tuple(dict(item) for item in (repair_attempt_history if repair_attempt_history is not None else state.repair_attempt_history))
 
     planner = _planner_truth_from_queue(state.queue)
+    repo_memory = build_bounded_repo_memory(state.checkpoints + (), planner_truth=planner)
 
     checkpoint = BatchTaskCheckpoint(
         task_path=current.task_path,
@@ -743,6 +769,11 @@ def apply_task_result(
         hosted_authority_satisfied=bool(authority_truth["hosted_authority_satisfied"]),
         hosted_authority_probe_status=str(authority_truth["hosted_authority_probe_status"]),
         hosted_authority_probe_note=str(authority_truth["hosted_authority_probe_note"]),
+        accepted_change_summaries=tuple(dict(item) for item in repo_memory["accepted_change_summaries"]),
+        unresolved_blockers=tuple(dict(item) for item in repo_memory["unresolved_blockers"]),
+        deferred_issue_summaries=tuple(dict(item) for item in repo_memory["deferred_issue_summaries"]),
+        repo_memory_entries=tuple(dict(item) for item in repo_memory["repo_memory_entries"]),
+        carry_forward_summary=str(repo_memory["carry_forward_summary"]),
         active_role=str(role_state["active_role"]),
         prior_role=str(role_state["prior_role"]),
         role_attempt_count=int(role_state["role_attempt_count"]),
@@ -763,6 +794,17 @@ def apply_task_result(
         planner_blocking_reasons=tuple(sorted((str(k), str(v)) for k, v in dict(planner["blocking_reasons"]).items())),
     )
 
+    checkpoints = state.checkpoints + (checkpoint,)
+    repo_memory = build_bounded_repo_memory(checkpoints, planner_truth=planner)
+    checkpoint = replace(
+        checkpoint,
+        accepted_change_summaries=tuple(dict(item) for item in repo_memory["accepted_change_summaries"]),
+        unresolved_blockers=tuple(dict(item) for item in repo_memory["unresolved_blockers"]),
+        deferred_issue_summaries=tuple(dict(item) for item in repo_memory["deferred_issue_summaries"]),
+        repo_memory_entries=tuple(dict(item) for item in repo_memory["repo_memory_entries"]),
+        carry_forward_summary=str(repo_memory["carry_forward_summary"]),
+    )
+    checkpoints = state.checkpoints + (checkpoint,)
     batch_status = batch_status_for_post_task_decision(
         default_status=_derive_batch_status(state.queue),
         post_task_decision=post_task_decision,
@@ -770,7 +812,7 @@ def apply_task_result(
 
     return replace(
         state,
-        checkpoints=state.checkpoints + (checkpoint,),
+        checkpoints=checkpoints,
         next_task_may_proceed=bool(next_task_may_proceed),
         post_task_decision=post_task_decision,
         batch_status=batch_status,
@@ -802,6 +844,11 @@ def apply_task_result(
         hosted_authority_satisfied=bool(authority_truth["hosted_authority_satisfied"]),
         hosted_authority_probe_status=str(authority_truth["hosted_authority_probe_status"]),
         hosted_authority_probe_note=str(authority_truth["hosted_authority_probe_note"]),
+        accepted_change_summaries=tuple(dict(item) for item in repo_memory["accepted_change_summaries"]),
+        unresolved_blockers=tuple(dict(item) for item in repo_memory["unresolved_blockers"]),
+        deferred_issue_summaries=tuple(dict(item) for item in repo_memory["deferred_issue_summaries"]),
+        repo_memory_entries=tuple(dict(item) for item in repo_memory["repo_memory_entries"]),
+        carry_forward_summary=str(repo_memory["carry_forward_summary"]),
         active_role=str(role_state["active_role"]),
         prior_role=str(role_state["prior_role"]),
         role_attempt_count=int(role_state["role_attempt_count"]),
@@ -862,6 +909,29 @@ def _resume_after_merge_rewind_index(state: BatchState) -> int | None:
             return idx
     return None
 
+
+
+
+
+def current_repo_memory_snapshot(state: BatchState) -> dict[str, object]:
+    return {
+        "accepted_change_summaries": [dict(item) for item in state.accepted_change_summaries],
+        "unresolved_blockers": [dict(item) for item in state.unresolved_blockers],
+        "deferred_issue_summaries": [dict(item) for item in state.deferred_issue_summaries],
+        "repo_memory_entries": [dict(item) for item in state.repo_memory_entries],
+        "carry_forward_summary": state.carry_forward_summary,
+    }
+
+
+def carry_forward_context_for_task(state: BatchState, *, task_path: str = "") -> dict[str, object]:
+    snapshot = current_repo_memory_snapshot(state)
+    snapshot["task_path"] = str(task_path or "")
+    snapshot["visible_deferred_task_paths"] = [
+        str(item.get("task_path") or "")
+        for item in snapshot["deferred_issue_summaries"]
+        if str(item.get("task_path") or "")
+    ]
+    return snapshot
 
 
 def current_role_handoff_state(state: BatchState) -> dict[str, object]:
@@ -950,6 +1020,11 @@ def mark_resume_plan(
         hosted_authority_satisfied=state.hosted_authority_satisfied,
         hosted_authority_probe_status=state.hosted_authority_probe_status,
         hosted_authority_probe_note=state.hosted_authority_probe_note,
+        accepted_change_summaries=state.accepted_change_summaries,
+        unresolved_blockers=state.unresolved_blockers,
+        deferred_issue_summaries=state.deferred_issue_summaries,
+        repo_memory_entries=state.repo_memory_entries,
+        carry_forward_summary=state.carry_forward_summary,
         planner_selected_task_path=state.planner_selected_task_path,
         planner_reordered=state.planner_reordered,
         planner_ready_task_paths=state.planner_ready_task_paths,

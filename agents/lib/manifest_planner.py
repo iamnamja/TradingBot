@@ -64,6 +64,24 @@ class ManifestPlannerTruth:
         }
 
 
+@dataclass(frozen=True)
+class RepoMemorySnapshot:
+    accepted_change_summaries: tuple[dict[str, object], ...] = ()
+    unresolved_blockers: tuple[dict[str, object], ...] = ()
+    deferred_issue_summaries: tuple[dict[str, object], ...] = ()
+    repo_memory_entries: tuple[dict[str, object], ...] = ()
+    carry_forward_summary: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "accepted_change_summaries": [dict(item) for item in self.accepted_change_summaries],
+            "unresolved_blockers": [dict(item) for item in self.unresolved_blockers],
+            "deferred_issue_summaries": [dict(item) for item in self.deferred_issue_summaries],
+            "repo_memory_entries": [dict(item) for item in self.repo_memory_entries],
+            "carry_forward_summary": self.carry_forward_summary,
+        }
+
+
 def manifest_planner_snapshot() -> dict[str, object]:
     return asdict(ManifestPlannerSnapshot())
 
@@ -286,4 +304,137 @@ def build_bounded_decomposition_truth(required_paths: Sequence[object] | None, *
         decomposition_unit_count=len(units),
         decomposition_summary=summary,
         decomposition_units=tuple(units),
+    ).to_dict()
+
+
+def _bounded_summary_value(raw: object, *, max_chars: int = 140) -> str:
+    value = str(raw or "").strip()
+    if len(value) <= max_chars:
+        return value
+    return value[: max_chars - 13].rstrip() + "...[truncated]"
+
+
+def _bounded_changed_files(raw: object, *, limit: int = 3) -> list[str]:
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out: list[str] = []
+    for item in raw:
+        path = _normalized_path_value(item)
+        if path and path not in out:
+            out.append(path)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _checkpoint_summary(checkpoint: Any) -> str:
+    for envelope_name in ("controller_artifact_envelope", "tester_artifact_envelope", "coder_artifact_envelope"):
+        envelope = getattr(checkpoint, envelope_name, {}) or {}
+        if isinstance(envelope, Mapping):
+            summary = _bounded_summary_value(envelope.get("summary"))
+            if summary:
+                return summary
+    return _bounded_summary_value(getattr(checkpoint, "note", ""))
+
+
+def _accepted_change_entry(checkpoint: Any) -> dict[str, object]:
+    coder = getattr(checkpoint, "coder_artifact_envelope", {}) or {}
+    return {
+        "task_path": str(getattr(checkpoint, "task_path", "") or ""),
+        "summary": _checkpoint_summary(checkpoint),
+        "changed_files": _bounded_changed_files(coder.get("changed_files")),
+        "event_seq": int(getattr(checkpoint, "event_seq", 0) or 0),
+    }
+
+
+def _unresolved_blocker_entry(checkpoint: Any) -> dict[str, object]:
+    return {
+        "task_path": str(getattr(checkpoint, "task_path", "") or ""),
+        "summary": _checkpoint_summary(checkpoint),
+        "terminal_status": str(getattr(checkpoint, "terminal_status", "") or ""),
+        "post_task_decision": str(getattr(checkpoint, "post_task_decision", "") or ""),
+        "event_seq": int(getattr(checkpoint, "event_seq", 0) or 0),
+    }
+
+
+def build_bounded_repo_memory(
+    checkpoints: Sequence[Any],
+    *,
+    planner_truth: Mapping[str, object] | None = None,
+    max_accepts: int = 4,
+    max_blockers: int = 4,
+    max_deferred: int = 4,
+    max_entries: int = 8,
+) -> dict[str, object]:
+    accepted_by_task: dict[str, dict[str, object]] = {}
+    blockers_by_task: dict[str, dict[str, object]] = {}
+
+    for checkpoint in checkpoints:
+        task_path = str(getattr(checkpoint, "task_path", "") or "")
+        if not task_path:
+            continue
+        accepted = str(getattr(checkpoint, "acceptance_decision", "") or "") == "accepted" and str(getattr(checkpoint, "terminal_status", "") or "") == "completed"
+        if accepted:
+            accepted_by_task[task_path] = _accepted_change_entry(checkpoint)
+            blockers_by_task.pop(task_path, None)
+            continue
+        is_blocked = (
+            not bool(getattr(checkpoint, "next_task_may_proceed", True))
+            or str(getattr(checkpoint, "terminal_status", "") or "") in {"blocked", "failed", "manual_patch"}
+            or str(getattr(checkpoint, "post_task_decision", "") or "") in {"stop", "manual_patch"}
+        )
+        if is_blocked:
+            blockers_by_task[task_path] = _unresolved_blocker_entry(checkpoint)
+
+    accepted_changes = sorted(accepted_by_task.values(), key=lambda item: int(item.get("event_seq", 0)))[-max_accepts:]
+    unresolved_blockers = sorted(blockers_by_task.values(), key=lambda item: int(item.get("event_seq", 0)))[-max_blockers:]
+
+    deferred_issue_summaries: list[dict[str, object]] = []
+    planner_truth = dict(planner_truth or {})
+    blocking_reasons = dict(planner_truth.get("blocking_reasons") or {})
+    for task_path in list(planner_truth.get("deferred_task_paths") or [])[:max_deferred]:
+        task = _normalized_path_value(task_path)
+        if not task:
+            continue
+        deferred_issue_summaries.append(
+            {
+                "task_path": task,
+                "reason": _bounded_summary_value(blocking_reasons.get(task) or "deferred"),
+                "summary": f"Deferred issue remains visible for {task}.",
+            }
+        )
+
+    repo_memory_entries: list[dict[str, object]] = []
+    for item in accepted_changes:
+        repo_memory_entries.append({
+            "memory_kind": "accepted_change",
+            "task_path": str(item.get("task_path") or ""),
+            "summary": str(item.get("summary") or ""),
+        })
+    for item in unresolved_blockers:
+        repo_memory_entries.append({
+            "memory_kind": "unresolved_blocker",
+            "task_path": str(item.get("task_path") or ""),
+            "summary": str(item.get("summary") or ""),
+        })
+    for item in deferred_issue_summaries:
+        repo_memory_entries.append({
+            "memory_kind": "deferred_issue",
+            "task_path": str(item.get("task_path") or ""),
+            "summary": str(item.get("reason") or item.get("summary") or ""),
+        })
+    repo_memory_entries = repo_memory_entries[-max_entries:]
+
+    carry_forward_summary = (
+        f"Carry forward {len(accepted_changes)} accepted change(s), "
+        f"{len(unresolved_blockers)} unresolved blocker(s), and "
+        f"{len(deferred_issue_summaries)} deferred issue(s)."
+    )
+
+    return RepoMemorySnapshot(
+        accepted_change_summaries=tuple(dict(item) for item in accepted_changes),
+        unresolved_blockers=tuple(dict(item) for item in unresolved_blockers),
+        deferred_issue_summaries=tuple(dict(item) for item in deferred_issue_summaries),
+        repo_memory_entries=tuple(dict(item) for item in repo_memory_entries),
+        carry_forward_summary=carry_forward_summary,
     ).to_dict()
