@@ -12,6 +12,7 @@ from agents.lib.controller_repair import (
     build_controller_failure_digest,
     build_controller_repair_context,
     choose_repair_strategy,
+    classify_collection_failure,
 )
 
 DEFAULT_RAW_SNIPPET_LIMIT = 400
@@ -20,6 +21,9 @@ _FAILURE_COUNTS: Dict[str, int] = {}
 
 
 def classify_failure(kind: str, message: str) -> str:
+    collection_category = classify_collection_failure(kind=kind, message=message)
+    if collection_category:
+        return collection_category
     text = f"{kind}\n{message}".lower()
     if "modulenotfounderror" in text or "imports" in text:
         return "imports"
@@ -137,6 +141,11 @@ def retry_count_for_fingerprint(fingerprint: str) -> int:
     _FAILURE_COUNTS[fingerprint] = count
     return count
 
+
+
+
+def collection_failure_category(kind: str, message: str, category: str = "") -> str:
+    return str(classify_collection_failure(kind=kind, message=message, category=category))
 
 def build_semantic_failure_digest(*, kind: str, message: str, category: str = "", touched_files: list[str] | None = None, task_file: str = "") -> Dict[str, Any]:
     return dict(

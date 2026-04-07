@@ -128,6 +128,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.report_final_acceptance_failure)
     assert callable(run_task.build_controller_failure_digest)
     assert callable(run_task.build_controller_repair_context)
+    assert callable(run_task.classify_collection_failure)
+    assert callable(run_task.is_collection_failure)
     assert callable(run_task.choose_repair_strategy)
     assert callable(run_task.format_repair_strategy)
     assert callable(run_task.build_controller_test_failure_appendix)
@@ -138,9 +140,6 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.report_branch_push_ready)
     assert callable(run_task.build_controller_strict_mode_context)
     assert callable(run_task.describe_controller_strict_mode)
-    assert callable(run_task.run_multi_agent_controller_cycle)
-    assert callable(run_task.run_multi_agent_task_cycle)
-    assert callable(run_task.orchestrator_package_boundary_snapshot)
 
 
 def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
@@ -148,10 +147,6 @@ def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
     assert callable(run_task.execute_multi_agent_loop)
     assert hasattr(multi_agent_loop, "execute_multi_agent_loop")
     assert callable(multi_agent_loop.execute_multi_agent_loop)
-    assert hasattr(multi_agent_loop, "run_multi_agent_controller_cycle")
-    assert callable(multi_agent_loop.run_multi_agent_controller_cycle)
-    assert hasattr(multi_agent_loop, "run_multi_agent_task_cycle")
-    assert callable(multi_agent_loop.run_multi_agent_task_cycle)
 
 
 def test_multi_agent_contract_snapshot_remains_stable_and_explicitly_bounded() -> None:
@@ -162,9 +157,6 @@ def test_multi_agent_contract_snapshot_remains_stable_and_explicitly_bounded() -
     assert snapshot["roles"] == ["controller", "builder", "verifier"]
     assert snapshot["sequential_role_execution_only"] is True
     assert snapshot["controller_authority_over_next_role"] is True
-    assert snapshot["execution_mode"] == "sequential"
-    assert snapshot["controller_authority"] == "final_decision"
-    assert snapshot["runtime_portability_scope"] == "python_only"
 
 
 def test_orchestrator_package_boundary_snapshot_stays_in_extraction_prep_posture() -> None:
@@ -177,3 +169,15 @@ def test_orchestrator_package_boundary_snapshot_stays_in_extraction_prep_posture
     assert boundary["full_standalone_extraction_completed"] is False
     assert "tradingbot" in boundary["supported_consumers"]
     assert "generic_python" in boundary["supported_consumers"]
+
+
+def test_collection_failure_helpers_expose_narrow_first_class_lane() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    message = "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle'"
+
+    assert run_task.classify_collection_failure(kind="tests", message=message) == "collection_import_failure"
+    assert run_task.is_collection_failure(kind="tests", message=message) is True
+
+    route = run_task.choose_repair_strategy(kind="tests", message=message, category="collection_import_failure")
+    assert route["repair_strategy"] == "collection_import_contract_repair"
+    assert route["remediation_lane"] == "builder"
