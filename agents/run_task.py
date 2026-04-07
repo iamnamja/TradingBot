@@ -855,6 +855,24 @@ def resolve_project_contract(project_id: str = 'tradingbot_monorepo') -> Dict[st
     return dict(_impl(project_id))
 
 
+def project_scope_identity(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.lib.project_registry import project_scope_identity as _impl  # type: ignore
+
+    return dict(_impl(project_contract))
+
+
+def project_scoped_branch_name(project_contract: Mapping[str, object] | None, branch_slug: str) -> str:
+    from agents.lib.project_registry import project_scoped_branch_name as _impl  # type: ignore
+
+    return str(_impl(project_contract, branch_slug))
+
+
+def project_workspace_metadata(project_contract: Mapping[str, object] | None) -> Dict[str, object]:
+    from agents.lib.project_registry import project_workspace_metadata as _impl  # type: ignore
+
+    return dict(_impl(project_contract))
+
+
 def canonical_project_contract(
     payload: Mapping[str, object] | None = None,
     **overrides: object,
@@ -949,6 +967,16 @@ def project_workspace_task_context(required_paths: Sequence[str] | None) -> Dict
     from agents.lib.task_contracts import project_workspace_task_context as _impl  # type: ignore
 
     return dict(_impl(required_paths))
+
+
+def project_scoped_runtime_task_context(
+    required_paths: Sequence[str] | None,
+    *,
+    project_contract: Mapping[str, object] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.task_contracts import project_scoped_runtime_task_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths, project_contract=project_contract))
 
 
 def _final_acceptance_failure_feedback(report: Dict[str, object]) -> str:

@@ -52,6 +52,7 @@ class TaskQueueTransitionError(ValueError):
 class TaskQueueItem:
     task_path: str
     ordinal: int
+    project_id: str = ""
     status: QueueStatus = "queued"
     status_note: str = ""
     label: str = ""
@@ -114,7 +115,10 @@ def validate_queue_status_transition(from_status: QueueStatus, to_status: QueueS
 
 
 def queue_signature(queue: list[TaskQueueItem]) -> tuple[str, ...]:
-    return tuple(item.task_path for item in queue)
+    return tuple(
+        f"{item.project_id}:{item.task_path}" if str(item.project_id or "").strip() else item.task_path
+        for item in queue
+    )
 
 
 
@@ -141,7 +145,12 @@ def may_proceed_to_next_task(status: QueueStatus) -> bool:
 
 
 
-def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Path = ".") -> list[TaskQueueItem]:
+def build_task_queue_from_manifest(
+    manifest: dict[str, Any],
+    repo_root: str | Path = ".",
+    *,
+    project_id: str = "",
+) -> list[TaskQueueItem]:
     tasks = manifest.get("tasks")
     if not isinstance(tasks, list):
         raise TaskQueueManifestError("Manifest must include `tasks` list before queue construction.")
@@ -178,6 +187,7 @@ def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Pa
         TaskQueueItem(
             task_path=str(entry.get("task_path") or entry["path"]),
             ordinal=i + 1,
+            project_id=str(project_id or ""),
             label=str(entry["label"]),
             note=str(entry["note"]),
             stop_policy=str(entry["stop_policy"]),

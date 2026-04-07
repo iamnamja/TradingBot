@@ -16,7 +16,7 @@ from agents.lib.controller_contract import (
     checkpoint_allows_resume_after_merge,
     checkpoint_requires_manual_resolution,
 )
-from agents.lib.git_workflow import canonical_required_check_truth
+from agents.lib.git_workflow import canonical_required_check_truth, workspace_metadata_for_project
 from agents.lib.multi_agent_contract import (
     canonical_role_artifact_envelope,
     canonical_role_handoff_state,
@@ -24,6 +24,7 @@ from agents.lib.multi_agent_contract import (
     resume_role_handoff_state,
 )
 from agents.lib.manifest_planner import build_bounded_repo_memory, plan_manifest_progress
+from agents.lib.project_registry import project_scope_identity, resolve_project_contract
 from agents.lib.task_queue import QueueStatus, TaskQueueItem, validate_queue_status_transition
 
 CheckpointTransition = Literal[
@@ -110,6 +111,13 @@ class BatchTaskCheckpoint:
     deferred_issue_summaries: tuple[dict[str, object], ...] = ()
     repo_memory_entries: tuple[dict[str, object], ...] = ()
     carry_forward_summary: str = ""
+    project_id: str = "tradingbot_monorepo"
+    project_identity_ambiguous: bool = False
+    project_state_namespace: str = "project_state/tradingbot_monorepo"
+    project_checkpoint_namespace: str = "project_checkpoint/tradingbot_monorepo"
+    project_branch_namespace: str = "project/tradingbot_monorepo"
+    project_workspace_root: str = "."
+    project_repo_root: str = "."
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -181,6 +189,13 @@ class BatchTaskCheckpoint:
             "deferred_issue_summaries": [dict(item) for item in self.deferred_issue_summaries],
             "repo_memory_entries": [dict(item) for item in self.repo_memory_entries],
             "carry_forward_summary": self.carry_forward_summary,
+            "project_id": self.project_id,
+            "project_identity_ambiguous": self.project_identity_ambiguous,
+            "project_state_namespace": self.project_state_namespace,
+            "project_checkpoint_namespace": self.project_checkpoint_namespace,
+            "project_branch_namespace": self.project_branch_namespace,
+            "project_workspace_root": self.project_workspace_root,
+            "project_repo_root": self.project_repo_root,
         }
 
 
@@ -266,6 +281,13 @@ class BatchState:
     deferred_issue_summaries: tuple[dict[str, object], ...] = ()
     repo_memory_entries: tuple[dict[str, object], ...] = ()
     carry_forward_summary: str = ""
+    project_id: str = "tradingbot_monorepo"
+    project_identity_ambiguous: bool = False
+    project_state_namespace: str = "project_state/tradingbot_monorepo"
+    project_checkpoint_namespace: str = "project_checkpoint/tradingbot_monorepo"
+    project_branch_namespace: str = "project/tradingbot_monorepo"
+    project_workspace_root: str = "."
+    project_repo_root: str = "."
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -351,6 +373,13 @@ class BatchState:
             "deferred_issue_summaries": [dict(item) for item in self.deferred_issue_summaries],
             "repo_memory_entries": [dict(item) for item in self.repo_memory_entries],
             "carry_forward_summary": self.carry_forward_summary,
+            "project_id": self.project_id,
+            "project_identity_ambiguous": self.project_identity_ambiguous,
+            "project_state_namespace": self.project_state_namespace,
+            "project_checkpoint_namespace": self.project_checkpoint_namespace,
+            "project_branch_namespace": self.project_branch_namespace,
+            "project_workspace_root": self.project_workspace_root,
+            "project_repo_root": self.project_repo_root,
         }
 
 
@@ -399,6 +428,7 @@ def _queue_items_for_planner(queue_state: tuple[BatchTaskState, ...]) -> list[Ta
         TaskQueueItem(
             task_path=item.task_path,
             ordinal=item.ordinal,
+            project_id="",
             status=item.status,
             status_note=item.status_note,
             depends_on=item.depends_on,
@@ -437,6 +467,7 @@ def initialize_batch_state(
     queue: list[TaskQueueItem],
     manifest_source: str,
     created_ts: int,
+    project_contract: dict[str, Any] | None = None,
 ) -> BatchState:
     queue_state = tuple(
         BatchTaskState(
@@ -476,6 +507,9 @@ def initialize_batch_state(
         raw_payload=dict(handoff),
     )
     planner = _planner_truth_from_queue(queue_state)
+    resolved_project_contract = dict(project_contract or resolve_project_contract('tradingbot_monorepo'))
+    identity = project_scope_identity(resolved_project_contract)
+    workspace_metadata = workspace_metadata_for_project(resolved_project_contract)
     return BatchState(
         manifest_source=manifest_source,
         manifest_fingerprint=manifest_fingerprint(manifest),
@@ -514,6 +548,13 @@ def initialize_batch_state(
         deferred_issue_summaries=(),
         repo_memory_entries=(),
         carry_forward_summary="Carry forward 0 accepted change(s), 0 unresolved blocker(s), and 0 deferred issue(s).",
+        project_id=str(identity["project_id"]),
+        project_identity_ambiguous=bool(identity["project_identity_ambiguous"]),
+        project_state_namespace=str(identity["project_state_namespace"]),
+        project_checkpoint_namespace=str(identity["project_checkpoint_namespace"]),
+        project_branch_namespace=str(identity["project_branch_namespace"]),
+        project_workspace_root=str(workspace_metadata["project_workspace_root"]),
+        project_repo_root=str(workspace_metadata["project_repo_root"]),
         active_role=str(handoff["active_role"]),
         prior_role=str(handoff["prior_role"]),
         role_attempt_count=int(handoff["role_attempt_count"]),
@@ -774,6 +815,13 @@ def apply_task_result(
         deferred_issue_summaries=tuple(dict(item) for item in repo_memory["deferred_issue_summaries"]),
         repo_memory_entries=tuple(dict(item) for item in repo_memory["repo_memory_entries"]),
         carry_forward_summary=str(repo_memory["carry_forward_summary"]),
+        project_id=state.project_id,
+        project_identity_ambiguous=state.project_identity_ambiguous,
+        project_state_namespace=state.project_state_namespace,
+        project_checkpoint_namespace=state.project_checkpoint_namespace,
+        project_branch_namespace=state.project_branch_namespace,
+        project_workspace_root=state.project_workspace_root,
+        project_repo_root=state.project_repo_root,
         active_role=str(role_state["active_role"]),
         prior_role=str(role_state["prior_role"]),
         role_attempt_count=int(role_state["role_attempt_count"]),
@@ -803,6 +851,13 @@ def apply_task_result(
         deferred_issue_summaries=tuple(dict(item) for item in repo_memory["deferred_issue_summaries"]),
         repo_memory_entries=tuple(dict(item) for item in repo_memory["repo_memory_entries"]),
         carry_forward_summary=str(repo_memory["carry_forward_summary"]),
+        project_id=state.project_id,
+        project_identity_ambiguous=state.project_identity_ambiguous,
+        project_state_namespace=state.project_state_namespace,
+        project_checkpoint_namespace=state.project_checkpoint_namespace,
+        project_branch_namespace=state.project_branch_namespace,
+        project_workspace_root=state.project_workspace_root,
+        project_repo_root=state.project_repo_root,
     )
     checkpoints = state.checkpoints + (checkpoint,)
     batch_status = batch_status_for_post_task_decision(
@@ -915,6 +970,13 @@ def _resume_after_merge_rewind_index(state: BatchState) -> int | None:
 
 def current_repo_memory_snapshot(state: BatchState) -> dict[str, object]:
     return {
+        "project_id": state.project_id,
+        "project_identity_ambiguous": state.project_identity_ambiguous,
+        "project_state_namespace": state.project_state_namespace,
+        "project_checkpoint_namespace": state.project_checkpoint_namespace,
+        "project_branch_namespace": state.project_branch_namespace,
+        "project_workspace_root": state.project_workspace_root,
+        "project_repo_root": state.project_repo_root,
         "accepted_change_summaries": [dict(item) for item in state.accepted_change_summaries],
         "unresolved_blockers": [dict(item) for item in state.unresolved_blockers],
         "deferred_issue_summaries": [dict(item) for item in state.deferred_issue_summaries],
@@ -926,6 +988,7 @@ def current_repo_memory_snapshot(state: BatchState) -> dict[str, object]:
 def carry_forward_context_for_task(state: BatchState, *, task_path: str = "") -> dict[str, object]:
     snapshot = current_repo_memory_snapshot(state)
     snapshot["task_path"] = str(task_path or "")
+    snapshot["carry_forward_project_safe"] = not bool(state.project_identity_ambiguous)
     snapshot["visible_deferred_task_paths"] = [
         str(item.get("task_path") or "")
         for item in snapshot["deferred_issue_summaries"]

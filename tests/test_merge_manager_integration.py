@@ -9,6 +9,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from agents.lib import git_workflow  # noqa: E402
+from agents.lib import project_registry  # noqa: E402
 
 
 REPO_CHECK_CONTRACT = {
@@ -154,3 +155,15 @@ def test_merge_flow_can_succeed_with_required_ci_authority() -> None:
     assert result["merged_to_main"] is True
     assert result["clean_main_reset_completed"] is True
     assert result["next_task_may_proceed"] is True
+
+
+def test_project_scoped_branch_name_isolated_by_project() -> None:
+    trading = project_registry.resolve_project_contract("tradingbot_monorepo")
+    external = project_registry.resolve_project_contract("generic_python_external")
+
+    trading_branch = git_workflow.project_scoped_branch_name(trading, "task-001")
+    external_branch = git_workflow.project_scoped_branch_name(external, "task-001")
+
+    assert trading_branch != external_branch
+    assert trading_branch.startswith("project/tradingbot_monorepo/")
+    assert external_branch.startswith("project/generic_python_external/")

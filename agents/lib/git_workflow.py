@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Literal, Mapping, Sequence
 
 from agents.lib.controller_contract import canonical_merge_posture_truth, merge_posture_decision_for_flow_stage
+from agents.lib.project_registry import project_scope_identity, project_scoped_branch_name as _project_scoped_branch_name, project_workspace_metadata as _project_workspace_metadata
 
 Runner = Callable[[list[str], bool], object]
 VerificationAuthorityProfile = Literal["local_only", "local_plus_required_ci", "required_ci_only"]
@@ -605,3 +606,16 @@ def accepted_task_pr_merge_flow(
 def report_branch_push_ready(branch: str, *, printer=print) -> None:
     printer(f"Pushed branch: {branch}")
     printer("Create a PR on GitHub for this branch (repo rules require PR).")
+
+
+def project_scoped_branch_namespace(project_contract: Mapping[str, Any] | None) -> str:
+    identity = project_scope_identity(project_contract)
+    return str(identity['project_branch_namespace'])
+
+
+def project_scoped_branch_name(project_contract: Mapping[str, Any] | None, branch_slug: str) -> str:
+    return str(_project_scoped_branch_name(project_contract, branch_slug))
+
+
+def workspace_metadata_for_project(project_contract: Mapping[str, Any] | None) -> dict[str, object]:
+    return dict(_project_workspace_metadata(project_contract))

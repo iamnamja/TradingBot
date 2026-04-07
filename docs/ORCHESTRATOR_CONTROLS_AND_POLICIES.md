@@ -204,3 +204,8 @@ Current required behavior:
 ## Task admission gate
 
 The orchestrator now distinguishes between `autonomous_ordinary`, `supervised_autonomous`, and `manual_only` task-admission lanes. Protected/controller/meta task shapes remain conservative and manual-only. Larger mixed-surface ordinary tasks may still be admissible only under supervision and may require bounded decomposition before execution begins.
+
+
+## Project-scoped isolation posture
+
+With Task 117, batch state, checkpoints, branch namespaces, and workspace metadata must remain project-scoped. A project identity must be explicit and deterministic before resume-safe autonomy may proceed. When project identity is missing or ambiguous, the orchestrator should remain conservative and avoid cross-project carry-forward or resume assumptions.
