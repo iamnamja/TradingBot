@@ -12,6 +12,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from agents.lib import multi_agent_contract  # noqa: E402
+from agents.lib import project_registry  # noqa: E402
 from agents.lib.multi_agent_loop import execute_multi_agent_loop  # noqa: E402
 
 
@@ -147,3 +148,16 @@ def test_supervised_ordinary_manifest_reproof_is_local_first_and_truthful() -> N
     assert decision["task_path"] == "tasks/201.md"
     assert decision["rounds_run"] == 1
     assert decision["authority_satisfied"] in {True, False}
+
+
+def test_project_registry_resolves_monorepo_and_generic_external_contracts() -> None:
+    snapshot = project_registry.project_registry_snapshot()
+    assert set(snapshot["registered_project_ids"]) >= {"tradingbot_monorepo", "generic_python_external"}
+
+    tradingbot = project_registry.resolve_project_contract("tradingbot_monorepo")
+    generic = project_registry.resolve_project_contract("generic_python_external")
+
+    assert tradingbot["workspace_type"] == "monorepo_python"
+    assert generic["workspace_type"] == "external_python"
+    assert tradingbot["allow_unattended_execution"] is False
+    assert generic["allow_unattended_execution"] is False

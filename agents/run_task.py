@@ -843,6 +843,27 @@ def normalize_multi_agent_loop_result(result: Mapping[str, object] | None) -> Di
     return dict(_impl(result))
 
 
+def project_registry_snapshot() -> Dict[str, object]:
+    from agents.lib.project_registry import project_registry_snapshot as _impl  # type: ignore
+
+    return dict(_impl())
+
+
+def resolve_project_contract(project_id: str = 'tradingbot_monorepo') -> Dict[str, object]:
+    from agents.lib.project_registry import resolve_project_contract as _impl  # type: ignore
+
+    return dict(_impl(project_id))
+
+
+def canonical_project_contract(
+    payload: Mapping[str, object] | None = None,
+    **overrides: object,
+) -> Dict[str, object]:
+    from agents.lib.project_registry import canonical_project_contract as _impl  # type: ignore
+
+    return dict(_impl(payload, **overrides))
+
+
 def workspace_adapter_snapshot() -> Dict[str, object]:
     from agents.lib.project_workspace_adapter import workspace_adapter_snapshot as _impl  # type: ignore
 
@@ -904,6 +925,25 @@ def consumer_bridge_snapshot() -> Dict[str, object]:
     from agents.lib.project_workspace_adapter import consumer_bridge_snapshot as _impl  # type: ignore
 
     return dict(_impl())
+
+
+def workspace_contract_from_project_contract(project_contract: Mapping[str, object] | None) -> Dict[str, object]:
+    from agents.lib.project_workspace_adapter import workspace_contract_from_project_contract as _impl  # type: ignore
+
+    return dict(_impl(project_contract))
+
+
+def project_validation_contract(project_contract: Mapping[str, object] | None) -> Dict[str, object]:
+    from agents.lib.project_workspace_adapter import project_validation_contract as _impl  # type: ignore
+
+    return dict(_impl(project_contract))
+
+
+def project_registry_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
+    from agents.lib.task_contracts import project_registry_task_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths))
+
 
 def project_workspace_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
     from agents.lib.task_contracts import project_workspace_task_context as _impl  # type: ignore
