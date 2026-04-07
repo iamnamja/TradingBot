@@ -179,6 +179,10 @@ def multi_agent_contract_snapshot() -> dict[str, object]:
         "allowed_handoffs": {role: list(targets) for role, targets in ALLOWED_ROLE_HANDOFFS.items()},
         "controller_authority_over_next_role": True,
         "sequential_role_execution_only": True,
+        # Bounded proof-facing compatibility aliases frozen in Task 100.
+        "execution_mode": "sequential",
+        "controller_authority": "final_decision",
+        "runtime_portability_scope": "python_only",
     }
 
 

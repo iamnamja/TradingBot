@@ -138,6 +138,9 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.report_branch_push_ready)
     assert callable(run_task.build_controller_strict_mode_context)
     assert callable(run_task.describe_controller_strict_mode)
+    assert callable(run_task.run_multi_agent_controller_cycle)
+    assert callable(run_task.run_multi_agent_task_cycle)
+    assert callable(run_task.orchestrator_package_boundary_snapshot)
 
 
 def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
@@ -145,6 +148,10 @@ def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
     assert callable(run_task.execute_multi_agent_loop)
     assert hasattr(multi_agent_loop, "execute_multi_agent_loop")
     assert callable(multi_agent_loop.execute_multi_agent_loop)
+    assert hasattr(multi_agent_loop, "run_multi_agent_controller_cycle")
+    assert callable(multi_agent_loop.run_multi_agent_controller_cycle)
+    assert hasattr(multi_agent_loop, "run_multi_agent_task_cycle")
+    assert callable(multi_agent_loop.run_multi_agent_task_cycle)
 
 
 def test_multi_agent_contract_snapshot_remains_stable_and_explicitly_bounded() -> None:
@@ -155,6 +162,9 @@ def test_multi_agent_contract_snapshot_remains_stable_and_explicitly_bounded() -
     assert snapshot["roles"] == ["controller", "builder", "verifier"]
     assert snapshot["sequential_role_execution_only"] is True
     assert snapshot["controller_authority_over_next_role"] is True
+    assert snapshot["execution_mode"] == "sequential"
+    assert snapshot["controller_authority"] == "final_decision"
+    assert snapshot["runtime_portability_scope"] == "python_only"
 
 
 def test_orchestrator_package_boundary_snapshot_stays_in_extraction_prep_posture() -> None:

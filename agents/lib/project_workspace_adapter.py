@@ -226,3 +226,9 @@ def consumer_bridge_snapshot() -> dict[str, object]:
         'tradingbot': consumer_bridge_contract(tradingbot_workspace_contract('.')),
         'generic_python': consumer_bridge_contract(generic_python_workspace_contract('.')),
     }
+
+
+def orchestrator_package_boundary_snapshot() -> dict[str, object]:
+    from agents.lib.multi_agent_contract import orchestrator_package_boundary_snapshot as _impl
+
+    return dict(_impl())

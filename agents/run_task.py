@@ -688,13 +688,17 @@ def build_multi_agent_controller_decision(
 
 def execute_multi_agent_loop(
     *,
-    task_path: str,
-    builder_step,
-    verifier_step,
+    task_path: str | None = None,
+    builder_step=None,
+    verifier_step=None,
     controller_decide=None,
     initial_role_state: Mapping[str, object] | None = None,
     required_paths: List[str] | None = None,
     controller_route_decide=None,
+    task_manifest: Mapping[str, object] | List[Mapping[str, object]] | None = None,
+    manifest: Mapping[str, object] | List[Mapping[str, object]] | None = None,
+    choose_next_role=None,
+    run_role=None,
 ) -> Dict[str, object]:
     from agents.lib.multi_agent_loop import execute_multi_agent_loop as _impl  # type: ignore
 
@@ -707,9 +711,38 @@ def execute_multi_agent_loop(
             initial_role_state=initial_role_state,
             required_paths=required_paths,
             controller_route_decide=controller_route_decide,
+            task_manifest=task_manifest,
+            manifest=manifest,
+            choose_next_role=choose_next_role,
+            run_role=run_role,
         )
     )
 
+
+
+
+def run_multi_agent_controller_cycle(
+    *,
+    manifest: Mapping[str, object] | List[Mapping[str, object]],
+    builder,
+    verifier,
+    controller,
+) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import run_multi_agent_controller_cycle as _impl  # type: ignore
+
+    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
+
+
+def run_multi_agent_task_cycle(
+    *,
+    manifest: Mapping[str, object] | List[Mapping[str, object]],
+    builder,
+    verifier,
+    controller,
+) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import run_multi_agent_task_cycle as _impl  # type: ignore
+
+    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
 
 def workspace_adapter_snapshot() -> Dict[str, object]:
     from agents.lib.project_workspace_adapter import workspace_adapter_snapshot as _impl  # type: ignore
