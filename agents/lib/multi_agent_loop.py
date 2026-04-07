@@ -9,6 +9,7 @@ from agents.lib.failure_journal import build_multi_agent_failure_context
 from agents.lib.final_acceptance import build_multi_agent_controller_decision
 from agents.lib.git_workflow import canonical_required_check_truth, coerce_verification_authority_profile, evaluate_verification_authority
 from agents.lib.multi_agent_contract import canonical_role_handoff_state, controller_decides_next_role
+from agents.lib.manifest_planner import normalize_manifest_entries_schema
 from agents.lib.task_contracts import multi_agent_task_context
 
 
@@ -135,6 +136,36 @@ def build_verifier_evidence_bundle(
     }
 
 
+
+
+
+def normalize_multi_agent_loop_result(result: Mapping[str, Any] | None) -> dict[str, object]:
+    payload = dict(result or {})
+    if "builder_artifact" in payload or "verifier_artifact" in payload or "controller_decision" in payload:
+        task_path = str(payload.get("task_path") or payload.get("controller_decision", {}).get("task_path") or "")
+        task_id = Path(task_path).stem if task_path else ""
+        verifier_artifact = dict(payload.get("verifier_artifact") or {})
+        controller_decision = dict(payload.get("controller_decision") or {})
+        role_trace = list(payload.get("role_trace") or [])
+        normalized = dict(payload)
+        normalized.setdefault("processed_task_ids", [task_id] if task_id else [])
+        normalized.setdefault("verification_authority", str(verifier_artifact.get("verification_authority_profile") or "local_only"))
+        normalized.setdefault("controller_final_decision", str(controller_decision.get("post_task_decision") or controller_decision.get("controller_final_decision") or ("continue" if controller_decision.get("next_task_may_proceed", True) else "stop")))
+        normalized.setdefault("runtime_portability_scope", "python_only")
+        normalized.setdefault("role_trace", role_trace)
+        normalized.setdefault("count", len(normalized.get("processed_task_ids", [])))
+        return normalized
+    normalized = dict(payload)
+    task_ids = list(normalized.get("processed_task_ids") or normalized.get("processed_tasks") or [])
+    normalized["processed_task_ids"] = task_ids
+    normalized.setdefault("verification_authority", str(normalized.get("verification_authority") or "local_only"))
+    normalized.setdefault("controller_final_decision", str(normalized.get("controller_final_decision") or normalized.get("post_task_decision") or "continue"))
+    normalized.setdefault("runtime_portability_scope", "python_only")
+    normalized.setdefault("role_trace", list(normalized.get("role_trace") or []))
+    normalized.setdefault("count", len(task_ids))
+    return normalized
+
+
 def execute_multi_agent_loop(
     *,
     task_path: str | None = None,
@@ -150,11 +181,11 @@ def execute_multi_agent_loop(
     run_role: Callable[[str, dict[str, object]], Mapping[str, Any]] | None = None,
 ) -> dict[str, object]:
     if task_manifest is not None or manifest is not None:
-        return _execute_multi_agent_manifest_compat(
+        return normalize_multi_agent_loop_result(_execute_multi_agent_manifest_compat(
             task_manifest if task_manifest is not None else manifest,
             choose_next_role=choose_next_role,
             run_role=run_role,
-        )
+        ))
 
     if task_path is None or builder_step is None or verifier_step is None:
         raise TypeError(
@@ -355,7 +386,7 @@ def execute_multi_agent_loop(
         controller_next_role_decision=str(controller_decision.get("next_role_decision") or "controller"),
     )
 
-    return {
+    return normalize_multi_agent_loop_result({
         "task_path": str(task_path),
         "task_context": task_context,
         "routing_truth": route_selection,
@@ -365,28 +396,19 @@ def execute_multi_agent_loop(
         "controller_decision": controller_decision,
         "role_handoff_state": final_state,
         "failure_journal_context": failure_context,
-    }
+    })
 
 
 def _compat_manifest_entries(task_manifest: Mapping[str, Any] | list[Mapping[str, Any]] | None) -> list[dict[str, object]]:
     if task_manifest is None:
         return []
-    raw_tasks = task_manifest.get("tasks", []) if isinstance(task_manifest, Mapping) else task_manifest
     entries: list[dict[str, object]] = []
-    for index, raw in enumerate(raw_tasks):
-        if not isinstance(raw, Mapping):
-            continue
-        task_path = str(raw.get("task_path") or raw.get("path") or "").strip()
-        task_id = str(raw.get("task_id") or Path(task_path).stem or f"task_{index+1}").strip()
-        if not task_path:
-            task_path = f"tasks/{task_id}.md"
-        entries.append(
-            {
-                "task_id": task_id,
-                "task_path": task_path,
-                "depends_on": list(raw.get("depends_on", [])),
-            }
-        )
+    for normalized in normalize_manifest_entries_schema(task_manifest):
+        entries.append({
+            "task_id": str(normalized["task_id"]),
+            "task_path": str(normalized["task_path"]),
+            "depends_on": list(normalized["depends_on"]),
+        })
     return entries
 
 

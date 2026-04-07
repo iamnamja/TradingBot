@@ -749,6 +749,20 @@ def execute_multi_agent_loop(
     )
 
 
+
+
+def normalize_manifest_entry_schema(entry: object, *, index: int = 0) -> Dict[str, object]:
+    from agents.lib.manifest_planner import normalize_manifest_entry_schema as _impl  # type: ignore
+
+    return dict(_impl(entry, index=index))
+
+
+def normalize_multi_agent_loop_result(result: Mapping[str, object] | None) -> Dict[str, object]:
+    from agents.lib.multi_agent_loop import normalize_multi_agent_loop_result as _impl  # type: ignore
+
+    return dict(_impl(result))
+
+
 def workspace_adapter_snapshot() -> Dict[str, object]:
     from agents.lib.project_workspace_adapter import workspace_adapter_snapshot as _impl  # type: ignore
 
