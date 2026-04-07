@@ -12,57 +12,17 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 090–108 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, and a supervised mixed-manifest re-proof.
+- **Tasks 090–115 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, and a supervised ordinary-manifest re-proof.
 
 The current deterministic proof slice now demonstrates:
 
-1. controller/builder/verifier role separation
-2. stable typed coder/tester/controller artifact envelopes persisted across batch-state and failure-journal surfaces
-3. dependency-aware short-manifest planning and routing truth
-4. explicit verification-authority posture
-5. Python-only second-project portability
-6. truthful external bootstrap blocked-then-recovered recovery
-7. supervised mixed-manifest progression across proof/docs, bootstrap, and consumer-facing task families
-8. conservative stop on unsatisfied authority
-9. extraction-prep consumer boundary posture rather than completed standalone extraction
-
-## What recent failures taught us
-
-The 097, 099, and 107 misses were not broad core-loop failures. They exposed narrower resilience gaps:
-
-- proof tasks still drift too easily toward broader public APIs than the repo actually exports
-- compatibility wrappers and proof-facing adapters can regress when adjacent controller work lands
-- the orchestrator still benefits from stronger coder/tester/controller handoff artifacts instead of loosely shared role context
-- artifact envelopes must remain stable and round-trippable in state/journal persistence so adjacent controller work does not regress role handoffs
-- self-heal remains too stateless across repeated attempts and is still vulnerable to no-progress retries
-- task admission is still too permissive for larger or more ambiguous task shapes
-- hosted required-check authority is modeled more strongly in code than it is enforced in the live GitHub environment
-- cross-task context carry-forward is still weak for broader autonomous backlog progression
-
-## Next planned tranche (108–115)
-
-The next tranche should shift from proof-hardening toward **autonomy operating mode hardening**.
-
-Planned focus areas are:
-
-- stable coder/tester/controller artifact envelopes and persisted role handoff payloads
-- tester/verifier critique bundles with focused replay instead of only raw pytest blobs
-- non-repeating repair memory and no-progress suppression
-- safe task admission, family classification, and decomposition gates
-- repo-scoped hosted-check contract and truthful environment probe behavior
-- explicit multi-role task execution loop over ordinary tasks rather than only proof-facing role surfaces
-- cross-task context carry-forward and bounded repo memory
-- a new supervised end-to-end ordinary-manifest autonomy re-proof
-
-## Near-term posture
-
-Execution should remain intentionally sequential and deterministic.
-
-Recommended lane mix for the next tranche:
-
-- **108–113:** manual first
-- **114:** manual or hybrid depending on how 113 lands
-- **115:** orchestrator-supervised, local-first, bounded
+1. short ordinary-manifest progression across more than one ordinary task
+2. truthful combined use of coder/tester/controller surfaces together
+3. tester critique and focused replay before broader validation where relevant
+4. repair-memory suppression of repeated no-progress attempts
+5. bounded cross-task carry-forward memory
+6. conservative stop behavior when authority or admission gates are unsatisfied
+7. no broader claim than the deterministic local supervised proof covers
 
 ## Scope honesty
 
@@ -72,35 +32,7 @@ Current proof scope remains explicitly limited to:
 - deterministic local tests and stubs
 - conservative stop-on-risk posture
 - simple external Python project/workspace shapes through the adapter contract
-- supervised mixed-manifest slices bounded by `max_tasks`
+- supervised short ordinary manifests bounded by `max_tasks`
 - extraction preparation posture rather than completed standalone extraction
 
 It still does **not** claim autonomy for arbitrary protected/controller/meta task lists, broad unattended production scheduling, or broad multi-language portability.
-
-## Hosted CI authority posture after 103
-
-Hosted CI authority is now treated as first-class evidence in the truth model. The orchestrator distinguishes between:
-
-- hosted checks were reported
-- hosted checks were not reported
-- hosted authority is available
-- hosted authority is satisfied
-
-This keeps `no checks reported on the branch` as an explicit stop signal rather than silently collapsing it into generic missing-check noise.
-
-## Next product target after 107
-
-The next product step should evolve the orchestrator from a stronger proof-backed project runner into a more explicit **multi-role autonomous ordinary-task runner**.
-
-The intended next architecture is still intentionally conservative:
-
-- **controller/orchestrator** decides what should happen next
-- **builder/coder** proposes the narrowest plausible repo patch
-- **tester/verifier** runs focused and full validation and summarizes bounded evidence
-
-This should remain sequential before any future concurrency or true parallel role scheduling is considered.
-
-
-Task 111 adds a conservative task-admission and bounded-decomposition gate. Small ordinary or verifier-only shapes can remain autonomous-ordinary, larger ambiguous shapes are held in supervised-autonomous posture, and protected/controller/meta shapes are classified manual-only.
-
-Task 113 adds a bounded ordinary-task execution loop with explicit builder/tester/controller coordination while remaining sequential. Task 114 then carries accepted changes, unresolved blockers, deferred issues, and compact repo memory forward across tasks so broader manifests can retain truthful prior context without replaying raw logs.
