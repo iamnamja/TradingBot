@@ -175,6 +175,32 @@ def evaluate_workspace_bootstrap_result(contract: Mapping[str, object] | None, *
     )
 
 
+
+def recover_workspace_bootstrap_truth(
+    truth: Mapping[str, object] | None,
+    *,
+    bootstrap_ok: bool,
+    bootstrap_error: str = '',
+) -> dict[str, object]:
+    previous = canonical_workspace_bootstrap_truth(truth)
+    recovered = evaluate_workspace_bootstrap_result(previous, bootstrap_ok=bootstrap_ok, bootstrap_error=bootstrap_error)
+    return {
+        **recovered,
+        'previous_bootstrap_status': str(previous.get('bootstrap_status') or 'not_started'),
+        'recovery_attempted': True,
+        'resumed_from_bootstrap_blocked_state': bool(previous.get('bootstrap_status') == 'blocked'),
+        'bootstrap_recovered': bool(previous.get('bootstrap_status') == 'blocked' and recovered.get('bootstrap_status') == 'succeeded'),
+    }
+
+
+def bootstrap_recovery_proof_snapshot() -> dict[str, object]:
+    return {
+        'python_first_scope_only': True,
+        'bootstrap_statuses': list(WORKSPACE_BOOTSTRAP_STATUSES),
+        'recovery_proof_scope': 'simple_external_python_workspace',
+        'supports_truthful_blocked_then_recovered_state': True,
+    }
+
 def workspace_validation_commands(contract: Mapping[str, object] | None) -> list[str]:
     return canonical_workspace_contract(contract).get('validation_commands', [])  # type: ignore[return-value]
 

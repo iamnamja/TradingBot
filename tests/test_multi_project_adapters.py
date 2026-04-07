@@ -15,7 +15,7 @@ if str(root) not in sys.path:
 from agents import run_task  # noqa: E402
 from agents.lib import multi_agent_contract  # noqa: E402
 from agents.lib import project_workspace_adapter  # noqa: E402
-from agents.lib.multi_agent_loop import execute_multi_agent_loop  # noqa: E402
+from agents.lib.multi_agent_loop import execute_external_workspace_bootstrap_recovery_proof, execute_multi_agent_loop  # noqa: E402
 
 
 def _builder_exports():
@@ -305,9 +305,9 @@ def test_proof_sync_validator_accepts_current_bounded_multi_project_surface() ->
         role_snapshot=snapshot,
         boundary_snapshot=boundary,
         claim_texts=[
-            Path('README.md').read_text(encoding='utf-8'),
-            Path('docs/ORCHESTRATOR_PRODUCT_SPEC.md').read_text(encoding='utf-8'),
-            Path('docs/TRADINGBOT_PROJECT_STATE.md').read_text(encoding='utf-8'),
+            (root / 'README.md').read_text(encoding='utf-8'),
+            (root / 'docs' / 'ORCHESTRATOR_PRODUCT_SPEC.md').read_text(encoding='utf-8'),
+            (root / 'docs' / 'TRADINGBOT_PROJECT_STATE.md').read_text(encoding='utf-8'),
         ],
     )
 
@@ -346,3 +346,23 @@ def test_execute_multi_agent_loop_normalizes_manifest_entry_aliases() -> None:
     assert result["count"] == 2
     assert result["controller_final_decision"] == "continue"
     assert result["runtime_portability_scope"] == "python_only"
+
+
+def test_external_workspace_bootstrap_recovery_proof_is_truthful_and_python_only() -> None:
+    result = execute_external_workspace_bootstrap_recovery_proof(
+        workspace_root='external-app',
+        initial_bootstrap_error='missing virtualenv',
+    )
+
+    blocked = result['initial_bootstrap_truth']
+    recovered = result['recovered_bootstrap_truth']
+
+    assert blocked['bootstrap_status'] == 'blocked'
+    assert blocked['workspace_ready_for_validation'] is False
+    assert recovered['previous_bootstrap_status'] == 'blocked'
+    assert recovered['bootstrap_status'] == 'succeeded'
+    assert recovered['bootstrap_recovered'] is True
+    assert recovered['workspace_ready_for_validation'] is True
+    assert result['controller_final_decision'] == 'continue'
+    assert result['runtime_portability_scope'] == 'python_only'
+    assert result['bootstrap_recovery_proof_completed'] is True

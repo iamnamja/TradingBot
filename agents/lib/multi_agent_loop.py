@@ -9,6 +9,11 @@ from agents.lib.failure_journal import build_multi_agent_failure_context
 from agents.lib.final_acceptance import build_multi_agent_controller_decision
 from agents.lib.git_workflow import canonical_required_check_truth, coerce_verification_authority_profile, evaluate_verification_authority
 from agents.lib.multi_agent_contract import canonical_role_handoff_state, controller_decides_next_role
+from agents.lib.project_workspace_adapter import (
+    evaluate_workspace_bootstrap_result,
+    generic_python_workspace_contract,
+    recover_workspace_bootstrap_truth,
+)
 from agents.lib.manifest_planner import normalize_manifest_entries_schema
 from agents.lib.task_contracts import multi_agent_task_context
 
@@ -480,6 +485,34 @@ def _execute_multi_agent_manifest_compat(
         "role_trace": role_trace,
     }
 
+
+
+def execute_external_workspace_bootstrap_recovery_proof(
+    *,
+    workspace_root: str = 'external-app',
+    initial_bootstrap_error: str = 'missing virtualenv',
+) -> dict[str, object]:
+    contract = generic_python_workspace_contract(workspace_root)
+    blocked_truth = evaluate_workspace_bootstrap_result(
+        contract,
+        bootstrap_ok=False,
+        bootstrap_error=initial_bootstrap_error,
+    )
+    recovered_truth = recover_workspace_bootstrap_truth(
+        blocked_truth,
+        bootstrap_ok=True,
+        bootstrap_error='',
+    )
+    controller_final_decision = 'continue' if recovered_truth.get('workspace_ready_for_validation') else 'stop'
+    return {
+        'workspace_root': workspace_root,
+        'initial_bootstrap_truth': blocked_truth,
+        'recovered_bootstrap_truth': recovered_truth,
+        'verification_authority': 'local_only',
+        'controller_final_decision': controller_final_decision,
+        'runtime_portability_scope': 'python_only',
+        'bootstrap_recovery_proof_completed': bool(recovered_truth.get('bootstrap_recovered')),
+    }
 
 def run_multi_agent_controller_cycle(
     *,

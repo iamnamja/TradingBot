@@ -81,3 +81,8 @@ Hosted CI authority is now treated as first-class evidence in the truth model. T
 - hosted authority is satisfied
 
 This keeps `no checks reported on the branch` as an explicit stop signal rather than silently collapsing it into generic missing-check noise.
+
+
+## External workspace bootstrap recovery proof (106)
+
+The current bounded proof now also covers a simple external Python workspace that first enters a `blocked` bootstrap state and then recovers truthfully into `succeeded`, with resume-safe recovery semantics kept explicit and deterministic.

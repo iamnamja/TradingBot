@@ -26,6 +26,7 @@ def _load_runtime_modules():
     final_acceptance = importlib.import_module("agents.lib.final_acceptance")
     batch_executor = importlib.import_module("agents.lib.batch_executor")
     controller_strict_mode = importlib.import_module("agents.lib.controller_strict_mode")
+    project_workspace_adapter = importlib.import_module("agents.lib.project_workspace_adapter")
     multi_agent_loop = importlib.import_module("agents.lib.multi_agent_loop")
     return (
         run_task,
@@ -44,12 +45,13 @@ def _load_runtime_modules():
         final_acceptance,
         batch_executor,
         controller_strict_mode,
+        project_workspace_adapter,
         multi_agent_loop,
     )
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -62,7 +64,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     def fake_capture(cmd: list[str]) -> str:
@@ -88,7 +90,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_capture_result(cmd):
         if cmd == ["ruff", "check", "."]:
@@ -105,7 +107,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -146,7 +148,7 @@ def test_public_surface_still_available() -> None:
 
 
 def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, multi_agent_loop = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, multi_agent_loop = _load_runtime_modules()
     assert callable(run_task.execute_multi_agent_loop)
     assert callable(run_task.normalize_manifest_entry_schema)
     assert callable(run_task.normalize_multi_agent_loop_result)
@@ -155,7 +157,7 @@ def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
 
 
 def test_multi_agent_contract_snapshot_remains_stable_and_explicitly_bounded() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _, _ = _load_runtime_modules()
     snapshot = multi_agent_contract.multi_agent_contract_snapshot()
 
     assert callable(run_task.multi_agent_contract_snapshot)
@@ -165,7 +167,7 @@ def test_multi_agent_contract_snapshot_remains_stable_and_explicitly_bounded() -
 
 
 def test_orchestrator_package_boundary_snapshot_stays_in_extraction_prep_posture() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _, _ = _load_runtime_modules()
     boundary = multi_agent_contract.orchestrator_package_boundary_snapshot()
 
     assert callable(run_task.orchestrator_package_boundary_snapshot)
@@ -177,7 +179,7 @@ def test_orchestrator_package_boundary_snapshot_stays_in_extraction_prep_posture
 
 
 def test_collection_failure_helpers_expose_narrow_first_class_lane() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     message = "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle'"
 
     assert run_task.classify_collection_failure(kind="tests", message=message) == "collection_import_failure"
@@ -212,3 +214,11 @@ def test_targeted_repair_surface_helpers_prefer_narrow_bounded_patch() -> None:
     assert route["targeted_patch_surface"] == "compatibility_alias_only"
     assert route["prefer_minimal_patch"] is True
     assert route["minimal_patch_selected"] is True
+
+
+def test_external_workspace_bootstrap_recovery_proof_surface_is_available() -> None:
+    _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, project_workspace_adapter, multi_agent_loop = _load_runtime_modules()
+
+    assert callable(project_workspace_adapter.recover_workspace_bootstrap_truth)
+    assert callable(project_workspace_adapter.bootstrap_recovery_proof_snapshot)
+    assert callable(multi_agent_loop.execute_external_workspace_bootstrap_recovery_proof)

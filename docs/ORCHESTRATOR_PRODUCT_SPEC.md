@@ -75,3 +75,8 @@ Public claims in docs/README must remain narrower than or equal to deterministic
 ## Result-shape and manifest-schema normalization
 
 The proof-facing portability surface now normalizes manifest entries through one canonical adapter and normalizes loop results through one bounded compatibility adapter. This keeps `path` vs `task_path` drift and proof-facing result-field drift from breaking otherwise valid tasks.
+
+
+## External workspace bootstrap recovery proof (106)
+
+The current bounded proof now also covers a simple external Python workspace that first enters a `blocked` bootstrap state and then recovers truthfully into `succeeded`, with resume-safe recovery semantics kept explicit and deterministic.
