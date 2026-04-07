@@ -203,3 +203,61 @@ def resolve_project_contract(project_id: str = 'tradingbot_monorepo') -> dict[st
         return dict(registry[str(project_id)])
     except KeyError as exc:
         raise KeyError(f'Unknown project id: {project_id}') from exc
+
+
+PROJECT_SCOPE_AMBIGUOUS_ID = 'ambiguous_project'
+
+
+def project_scope_identity(project_contract: Mapping[str, object] | None = None) -> dict[str, object]:
+    payload = dict(project_contract or {})
+    project_id = str(payload.get('project_id') or '').strip()
+    repo_root = _normalize_repo_root(payload.get('repo_root', '.'))
+    workspace_contract = canonical_workspace_contract(payload.get('workspace_contract'))
+    workspace_root = _normalize_repo_root(workspace_contract.get('workspace_root', repo_root))
+    branch_policy = _normalize_branch_policy(payload.get('branch_policy'), project_id=project_id or PROJECT_SCOPE_AMBIGUOUS_ID)
+    ambiguous = not bool(project_id)
+    stable_project_id = project_id or PROJECT_SCOPE_AMBIGUOUS_ID
+    state_namespace = f'project_state/{stable_project_id}'
+    checkpoint_namespace = f'project_checkpoint/{stable_project_id}'
+    branch_namespace = f'project/{stable_project_id}'
+    return {
+        'project_id': stable_project_id,
+        'project_identity_ambiguous': ambiguous,
+        'project_repo_root': repo_root,
+        'project_workspace_root': workspace_root,
+        'project_state_namespace': state_namespace,
+        'project_checkpoint_namespace': checkpoint_namespace,
+        'project_branch_namespace': branch_namespace,
+        'default_base_branch': str(branch_policy['default_base_branch']),
+        'branch_naming_pattern': str(branch_policy['branch_naming_pattern']),
+        'resume_allowed': not ambiguous,
+    }
+
+
+def project_scoped_branch_name(project_contract: Mapping[str, object] | None, branch_slug: str) -> str:
+    identity = project_scope_identity(project_contract)
+    slug = str(branch_slug or '').strip().strip('/').replace(' ', '-')
+    if not slug:
+        slug = 'task'
+    pattern = str(identity.get('branch_naming_pattern') or '').strip()
+    if '*' in pattern:
+        branch_core = pattern.replace('*', slug)
+    elif pattern:
+        branch_core = f"{pattern.rstrip('/')}/{slug}"
+    else:
+        branch_core = slug
+    branch_core = branch_core.replace('//', '/').strip('/')
+    return f"{identity['project_branch_namespace']}/{branch_core}"
+
+
+def project_workspace_metadata(project_contract: Mapping[str, object] | None) -> dict[str, object]:
+    identity = project_scope_identity(project_contract)
+    return {
+        'project_id': str(identity['project_id']),
+        'project_identity_ambiguous': bool(identity['project_identity_ambiguous']),
+        'project_repo_root': str(identity['project_repo_root']),
+        'project_workspace_root': str(identity['project_workspace_root']),
+        'project_state_namespace': str(identity['project_state_namespace']),
+        'project_checkpoint_namespace': str(identity['project_checkpoint_namespace']),
+        'project_branch_namespace': str(identity['project_branch_namespace']),
+    }

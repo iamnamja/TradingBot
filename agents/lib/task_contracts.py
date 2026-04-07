@@ -656,3 +656,22 @@ def validate_proof_sync_contract(
         "manifest_issues": manifest_issues,
         "claim_guard_issues": claim_issues,
     }
+
+
+def project_scoped_runtime_task_context(
+    required_paths: Sequence[str] | None,
+    *,
+    project_contract: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    from agents.lib.project_registry import project_scope_identity
+
+    required = normalize_paths(required_paths)
+    identity = project_scope_identity(project_contract)
+    return {
+        'touches_project_scoped_runtime': bool(required),
+        'project_id': str(identity['project_id']),
+        'project_identity_ambiguous': bool(identity['project_identity_ambiguous']),
+        'project_state_namespace': str(identity['project_state_namespace']),
+        'project_checkpoint_namespace': str(identity['project_checkpoint_namespace']),
+        'project_branch_namespace': str(identity['project_branch_namespace']),
+    }
