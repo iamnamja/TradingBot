@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Callable, Dict, List, Pattern, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Pattern, Sequence, Tuple
 
 
 def parse_task_contract_directives(
@@ -447,4 +447,105 @@ def multi_agent_task_context(
         "allowed_handoffs": {role: list(targets) for role, targets in ALLOWED_ROLE_HANDOFFS.items()},
         "active_role": "controller",
         "suggested_first_specialist_role": "builder",
+    }
+
+
+
+def _normalize_claim_lines(text: str) -> list[str]:
+    return [line.strip().lower().replace('*', '') for line in str(text or '').replace("\r\n", "\n").replace("\r", "\n").split("\n") if line.strip()]
+
+
+def _claim_line_is_guarded(line: str, phrase: str) -> bool:
+    idx = line.find(phrase)
+    if idx < 0:
+        return False
+    prefix = line[:idx]
+    return "does not" in prefix or "do not" in prefix or "not " in prefix or "without" in prefix
+
+
+def validate_proof_sync_contract(
+    *,
+    run_task_exports: Sequence[str] | None = None,
+    multi_agent_loop_exports: Sequence[str] | None = None,
+    compatibility_result: Mapping[str, Any] | None = None,
+    canonical_result: Mapping[str, Any] | None = None,
+    manifest_examples: Sequence[Mapping[str, Any]] | None = None,
+    role_snapshot: Mapping[str, Any] | None = None,
+    boundary_snapshot: Mapping[str, Any] | None = None,
+    claim_texts: Sequence[str] | None = None,
+) -> dict[str, object]:
+    from agents.lib.controller_contract import proof_sync_contract_snapshot
+
+    spec = proof_sync_contract_snapshot()
+    expected_run = {str(x) for x in spec["run_task_exports"]}
+    expected_loop = {str(x) for x in spec["multi_agent_loop_exports"]}
+    compat_fields = {str(x) for x in spec["compatibility_result_fields"]}
+    canonical_fields = {str(x) for x in spec["canonical_result_fields"]}
+    allowed_manifest = {str(x) for x in spec["allowed_manifest_entry_keys"]}
+    required_boundary = {str(x) for x in spec["required_boundary_keys"]}
+    required_role = {str(x) for x in spec["required_role_snapshot_keys"]}
+    forbidden_phrases = [str(x) for x in spec["claim_forbidden_phrases"]]
+
+    run_exports = {str(x) for x in (run_task_exports or ())}
+    loop_exports = {str(x) for x in (multi_agent_loop_exports or ())}
+    compat_present = set((compatibility_result or {}).keys())
+    canonical_present = set((canonical_result or {}).keys())
+    boundary_present = set((boundary_snapshot or {}).keys())
+    role_present = set((role_snapshot or {}).keys())
+
+    manifest_issues: list[str] = []
+    for index, entry in enumerate(manifest_examples or []):
+        keys = {str(k) for k in entry.keys()}
+        unknown = sorted(keys - allowed_manifest)
+        if unknown:
+            manifest_issues.append(f"manifest entry {index} uses unsupported keys: {', '.join(unknown)}")
+        if not ({'path','task_path'} & keys):
+            manifest_issues.append(f"manifest entry {index} is missing path/task_path")
+
+    claim_issues: list[str] = []
+    for text_block in claim_texts or ():
+        previous_line = ""
+        negated_claim_section = False
+        for line in _normalize_claim_lines(text_block):
+            if "does not claim" in line or "does not honestly claim" in line or "it does not claim" in line:
+                negated_claim_section = True
+                previous_line = line
+                continue
+            if negated_claim_section and not line.startswith('-'):
+                negated_claim_section = False
+            guarded_by_context = negated_claim_section or ("does not claim" in previous_line or "does not honestly claim" in previous_line or "it does not claim" in previous_line)
+            for phrase in forbidden_phrases:
+                if phrase in line and not guarded_by_context and not _claim_line_is_guarded(line, phrase):
+                    claim_issues.append(f"unguarded claim phrase: {phrase}")
+            previous_line = line
+
+    missing_run = sorted(expected_run - run_exports)
+    missing_loop = sorted(expected_loop - loop_exports)
+    missing_compat = sorted(compat_fields - compat_present)
+    missing_canonical = sorted(canonical_fields - canonical_present)
+    missing_boundary = sorted(required_boundary - boundary_present)
+    missing_role = sorted(required_role - role_present)
+
+    issues = [
+        *[f"missing run_task export: {x}" for x in missing_run],
+        *[f"missing multi_agent_loop export: {x}" for x in missing_loop],
+        *[f"missing compatibility result field: {x}" for x in missing_compat],
+        *[f"missing canonical result field: {x}" for x in missing_canonical],
+        *[f"missing boundary snapshot key: {x}" for x in missing_boundary],
+        *[f"missing role snapshot key: {x}" for x in missing_role],
+        *manifest_issues,
+        *claim_issues,
+    ]
+
+    return {
+        "ok": not issues,
+        "issues": issues,
+        "missing_run_task_exports": missing_run,
+        "missing_multi_agent_loop_exports": missing_loop,
+        "missing_compatibility_result_fields": missing_compat,
+        "missing_canonical_result_fields": missing_canonical,
+        "missing_boundary_snapshot_keys": missing_boundary,
+        "missing_role_snapshot_keys": missing_role,
+        "manifest_issues": manifest_issues,
+        "claim_guard_issues": claim_issues,
     }

@@ -504,18 +504,6 @@ def build_controller_repair_context(
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
 
 
-def classify_collection_failure(*, kind: str, message: str, category: str = "") -> str:
-    from agents.lib.controller_repair import classify_collection_failure as _impl  # type: ignore
-
-    return str(_impl(kind=kind, message=message, category=category))
-
-
-def is_collection_failure(*, kind: str, message: str, category: str = "") -> bool:
-    from agents.lib.controller_repair import is_collection_failure as _impl  # type: ignore
-
-    return bool(_impl(kind=kind, message=message, category=category))
-
-
 def choose_repair_strategy(
     *,
     kind: str,
@@ -600,6 +588,19 @@ def strict_validation_profile(strict_check_result: Dict[str, object] | None) -> 
 
     return dict(_impl(strict_check_result))
 
+
+
+
+def proof_sync_contract_snapshot() -> Dict[str, object]:
+    from agents.lib.controller_contract import proof_sync_contract_snapshot as _impl  # type: ignore
+
+    return dict(_impl())
+
+
+def validate_proof_sync_contract(**kwargs: Any) -> Dict[str, object]:
+    from agents.lib.task_contracts import validate_proof_sync_contract as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
 
 
 def multi_agent_contract_snapshot() -> Dict[str, object]:
@@ -4373,7 +4374,7 @@ def _report_failure(kind: str, message: str, *, touched_files: List[str] | None 
         "recommended_next_action": recommended_action,
         "chosen_remediation_path": remediation_path,
         "repair_strategy": str(plan.get("repair_strategy") or remediation_path),
-        "remediation_lane": str(plan.get("remediation_lane") or "operator"),
+        "remediation_lane": str(plan.get("remediation_lane") or ("operator" if manual_lane_recommended else "")),
         "route_rationale": str(plan.get("route_rationale") or ""),
         "autonomy_confidence": autonomy_conf,
         "continue_autonomously": continue_auto,
@@ -5141,7 +5142,6 @@ def _failure_journal_exports() -> Dict[str, object]:
         "build_semantic_failure_digest": None,
         "build_semantic_repair_context": None,
         "choose_repair_strategy": None,
-        "collection_failure_category": None,
     }
 
     if _failure_journal is not None:
@@ -5159,7 +5159,6 @@ def _failure_journal_exports() -> Dict[str, object]:
             "build_semantic_failure_digest",
             "build_semantic_repair_context",
             "choose_repair_strategy",
-            "collection_failure_category",
         ):
             obj = getattr(_failure_journal, name, None)
             if callable(obj):
