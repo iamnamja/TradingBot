@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 @dataclass(frozen=True)
 class ManifestPlannerSnapshot:
@@ -12,7 +12,32 @@ class ManifestPlannerSnapshot:
     supports_deferrable: bool = True
     supports_skipped_by_policy: bool = True
     supports_rerun_required: bool = True
+    supports_task_admission: bool = True
+    supports_bounded_decomposition: bool = True
     conservative_reordering_only: bool = True
+
+
+
+
+@dataclass(frozen=True)
+class TaskDecompositionTruth:
+    decomposition_status: str = "not_required"
+    bounded_decomposition_required: bool = False
+    decomposition_unit_count: int = 0
+    decomposition_summary: str = ""
+    decomposition_units: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "decomposition_status": self.decomposition_status,
+            "bounded_decomposition_required": self.bounded_decomposition_required,
+            "decomposition_unit_count": self.decomposition_unit_count,
+            "decomposition_summary": self.decomposition_summary,
+            "decomposition_units": [
+                {"label": label, "task_paths": list(paths)}
+                for label, paths in self.decomposition_units
+            ],
+        }
 
 
 @dataclass(frozen=True)
@@ -201,3 +226,64 @@ def plan_manifest_progress(queue: Sequence[Any]) -> dict[str, object]:
 
 def choose_next_manifest_task(queue: Sequence[Any]) -> str:
     return str(plan_manifest_progress(queue)["selected_task_path"])
+
+
+
+def _dedupe_paths(paths: Iterable[object]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for raw in paths:
+        path = _normalized_path_value(raw)
+        if not path or path in seen:
+            continue
+        normalized.append(path)
+        seen.add(path)
+    return normalized
+
+
+def _decomposition_group_for_path(path: str) -> str:
+    if path == "README.md" or path.startswith("docs/"):
+        return "docs"
+    if path.startswith("tests/"):
+        return "tests"
+    if path.startswith("agents/") or path.startswith("src/"):
+        return "code"
+    if path.startswith("tasks/"):
+        return "tasks"
+    return "other"
+
+
+def build_bounded_decomposition_truth(required_paths: Sequence[object] | None, *, max_paths_per_unit: int = 3) -> dict[str, object]:
+    paths = _dedupe_paths(required_paths or ())
+    groups: dict[str, list[str]] = {}
+    for path in paths:
+        groups.setdefault(_decomposition_group_for_path(path), []).append(path)
+
+    ordered_groups = [name for name in ("code", "tests", "docs", "tasks", "other") if groups.get(name)]
+    units: list[tuple[str, tuple[str, ...]]] = []
+    for name in ordered_groups:
+        bucket = groups[name]
+        for idx in range(0, len(bucket), max_paths_per_unit):
+            chunk = tuple(bucket[idx:idx + max_paths_per_unit])
+            suffix = "" if idx == 0 else f"_{idx // max_paths_per_unit + 1}"
+            units.append((f"{name}{suffix}", chunk))
+
+    group_count = len(ordered_groups)
+    total_paths = len(paths)
+    required = total_paths >= 5 or group_count >= 3
+    suggested = not required and total_paths >= 3 and group_count >= 2
+    status = "required" if required else ("suggested" if suggested else "not_required")
+    if status == "required":
+        summary = f"Bounded decomposition required: {len(units)} scoped unit(s) across {group_count} surface group(s)."
+    elif status == "suggested":
+        summary = f"Bounded decomposition suggested: {len(units)} scoped unit(s) across {group_count} surface group(s)."
+    else:
+        summary = "Bounded decomposition not required for this task shape."
+
+    return TaskDecompositionTruth(
+        decomposition_status=status,
+        bounded_decomposition_required=(status == "required"),
+        decomposition_unit_count=len(units),
+        decomposition_summary=summary,
+        decomposition_units=tuple(units),
+    ).to_dict()

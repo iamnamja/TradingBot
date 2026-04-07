@@ -45,34 +45,64 @@ def canonical_task_family_route(payload: Mapping[str, Any] | None = None, **over
         "controller_selected_lane": str(data.get("controller_selected_lane") or recommended_lane),
         "manual_lane_required": bool(data.get("manual_lane_required", False)),
         "blocked": bool(data.get("blocked", False)),
+        "task_admission_lane": str(data.get("task_admission_lane") or "supervised_autonomous"),
+        "task_admission_rationale": str(data.get("task_admission_rationale") or ""),
+        "protected_or_meta_task": bool(data.get("protected_or_meta_task", False)),
+        "ambiguous_task_shape": bool(data.get("ambiguous_task_shape", False)),
+        "bounded_decomposition_required": bool(data.get("bounded_decomposition_required", False)),
+        "decomposition_status": str(data.get("decomposition_status") or "not_required"),
+        "decomposition_unit_count": int(data.get("decomposition_unit_count", 0) or 0),
+        "decomposition_summary": str(data.get("decomposition_summary") or ""),
+        "decomposition_units": [dict(item) for item in data.get("decomposition_units") or [] if isinstance(item, Mapping)],
     }
 
 
 def recommend_task_family_route(*, task_context: Mapping[str, Any] | None = None, current_role: str = "controller") -> dict[str, object]:
     context = dict(task_context or {})
     family = str(context.get("task_family") or "builder_first")
-    if family == "strict_manual_controller_core":
+    admission_lane = str(context.get("task_admission_lane") or "supervised_autonomous")
+    base = {
+        "task_admission_lane": admission_lane,
+        "task_admission_rationale": str(context.get("task_admission_rationale") or ""),
+        "protected_or_meta_task": bool(context.get("protected_or_meta_task", False)),
+        "ambiguous_task_shape": bool(context.get("ambiguous_task_shape", False)),
+        "bounded_decomposition_required": bool(context.get("bounded_decomposition_required", False)),
+        "decomposition_status": str(context.get("decomposition_status") or "not_required"),
+        "decomposition_unit_count": int(context.get("decomposition_unit_count", 0) or 0),
+        "decomposition_summary": str(context.get("decomposition_summary") or ""),
+        "decomposition_units": [dict(item) for item in context.get("decomposition_units") or [] if isinstance(item, Mapping)],
+    }
+    rationale = base["task_admission_rationale"] or ""
+    if rationale and base["decomposition_status"] != "not_required" and base["decomposition_summary"]:
+        rationale = rationale + " " + str(base["decomposition_summary"])
+    elif not rationale and base["decomposition_summary"] and base["decomposition_status"] != "not_required":
+        rationale = str(base["decomposition_summary"])
+
+    if admission_lane == "manual_only" or bool(base["protected_or_meta_task"]) or family == "strict_manual_controller_core":
         return canonical_task_family_route(
-            task_family=family,
+            task_family="strict_manual_controller_core",
             recommended_next_role="manual_patch",
             recommended_lane="constrained_manual",
             strict_mode_required=True,
             manual_lane_required=True,
-            route_rationale="Controller-core tasks remain constrained/manual and must not bypass strict-mode guardrails.",
+            route_rationale=rationale or "Controller-core tasks remain constrained/manual and must not bypass strict-mode guardrails.",
+            **base,
         )
     if family == "bootstrap_setup":
         return canonical_task_family_route(
             task_family=family,
             recommended_next_role="builder",
             recommended_lane="bootstrap_setup",
-            route_rationale="Bootstrap and workspace setup tasks should begin in the builder lane.",
+            route_rationale=rationale or "Bootstrap and workspace setup tasks should begin in the builder lane.",
+            **base,
         )
     if family == "verifier_first":
         return canonical_task_family_route(
             task_family=family,
             recommended_next_role="verifier",
             recommended_lane="verifier",
-            route_rationale="Verification-only tasks can begin directly in the verifier lane.",
+            route_rationale=rationale or "Verification-only tasks can begin directly in the verifier lane.",
+            **base,
         )
     if family == "proof_docs":
         return canonical_task_family_route(
@@ -80,13 +110,15 @@ def recommend_task_family_route(*, task_context: Mapping[str, Any] | None = None
             recommended_next_role="builder",
             recommended_lane="proof_docs",
             strict_mode_required=True,
-            route_rationale="Proof/docs tasks remain builder-driven but stay under proof-shaping guardrails.",
+            route_rationale=rationale or "Proof/docs tasks remain builder-driven but stay under proof-shaping guardrails.",
+            **base,
         )
     return canonical_task_family_route(
         task_family="builder_first",
         recommended_next_role="builder",
         recommended_lane="builder",
-        route_rationale="Builder-first is the default route for code-building tasks.",
+        route_rationale=rationale or "Builder-first is the default route for code-building tasks.",
+        **base,
     )
 
 

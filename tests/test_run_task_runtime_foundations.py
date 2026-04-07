@@ -130,8 +130,6 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.build_controller_repair_context)
     assert callable(run_task.choose_repair_strategy)
     assert callable(run_task.format_repair_strategy)
-    assert callable(run_task.build_repair_attempt_record)
-    assert callable(run_task.evaluate_repair_attempt_memory)
     assert callable(run_task.build_controller_test_failure_appendix)
     assert callable(run_task.execute_batch_loop)
     assert callable(run_task.accepted_task_pr_merge_flow)
@@ -142,6 +140,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.describe_controller_strict_mode)
     assert callable(run_task.proof_sync_contract_snapshot)
     assert callable(run_task.validate_proof_sync_contract)
+    assert callable(run_task.task_admission_context)
+    assert callable(run_task.build_bounded_decomposition_truth)
 
 
 def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
@@ -280,22 +280,44 @@ def test_run_task_role_artifact_envelope_helpers_are_round_trippable() -> None:
     assert summary["next_task_may_proceed"] is True
 
 
-
-def test_run_task_exposes_tester_critique_bundle_helpers() -> None:
+def test_run_task_task_admission_helpers_expose_explicit_lane_truth() -> None:
     run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
-    bundle = run_task.build_tester_critique_bundle(
-        {
-            "lint_ok": True,
-            "test_ok": False,
-            "output_text": "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle' from 'agents.lib.multi_agent_loop'",
-        },
-        changed_files=["agents/lib/multi_agent_loop.py"],
+    context = run_task.task_admission_context(
+        [
+            "agents/lib/agent_router.py",
+            "agents/lib/task_contracts.py",
+            "agents/lib/manifest_planner.py",
+            "tests/test_task_queue.py",
+            "docs/ORCHESTRATOR_PRODUCT_SPEC.md",
+        ],
+        task_file="tasks/111_orchestrator_task_admission_and_decomposition_gate.md",
     )
-    summary = run_task.summarize_tester_critique_bundle(bundle)
+    route = run_task.recommend_task_family_route(task_context=context, current_role="controller")
+    decomp = run_task.build_bounded_decomposition_truth([
+        "agents/lib/agent_router.py",
+        "agents/lib/task_contracts.py",
+        "agents/lib/manifest_planner.py",
+        "tests/test_task_queue.py",
+        "docs/ORCHESTRATOR_PRODUCT_SPEC.md",
+    ])
 
-    assert bundle["likely_failure_family"] == "import_contract"
-    assert "agents/lib/multi_agent_loop.py" in bundle["likely_touched_files"]
-    assert summary["focused_replay_commands"]
-    assert callable(run_task.build_tester_critique_bundle)
-    assert callable(run_task.summarize_tester_critique_bundle)
+    assert context["task_admission_lane"] == "supervised_autonomous"
+    assert context["bounded_decomposition_required"] is True
+    assert route["task_admission_lane"] == "supervised_autonomous"
+    assert route["decomposition_status"] == "required"
+    assert decomp["decomposition_status"] == "required"
+
+
+def test_run_task_route_keeps_manual_only_shapes_conservatively_manual() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    context = run_task.task_family_task_context(
+        ["agents/run_task.py", "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md"],
+        task_file="tasks/111_orchestrator_task_admission_and_decomposition_gate.md",
+    )
+    route = run_task.recommend_task_family_route(task_context=context, current_role="controller")
+
+    assert context["task_admission_lane"] == "manual_only"
+    assert route["recommended_next_role"] == "manual_patch"
+    assert route["manual_lane_required"] is True
