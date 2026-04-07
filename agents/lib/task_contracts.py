@@ -675,3 +675,27 @@ def project_scoped_runtime_task_context(
         'project_checkpoint_namespace': str(identity['project_checkpoint_namespace']),
         'project_branch_namespace': str(identity['project_branch_namespace']),
     }
+
+
+
+def dependency_decomposition_task_context(
+    required_paths: Sequence[str] | None,
+    *,
+    decomposition_safe: bool = False,
+    max_paths_per_unit: int = 3,
+) -> dict[str, object]:
+    from agents.lib.manifest_planner import build_manifest_entry_decomposition_truth
+
+    truth = build_manifest_entry_decomposition_truth(
+        {
+            "required_paths": list(required_paths or ()),
+            "decomposition_safe": decomposition_safe,
+            "decomposition_max_unit_size": max_paths_per_unit,
+        }
+    )
+    return {
+        "decomposition_status": str(truth.get("decomposition_status", "not_required")),
+        "bounded_decomposition_required": bool(truth.get("bounded_decomposition_required", False)),
+        "decomposition_unit_count": int(truth.get("decomposition_unit_count", 0) or 0),
+        "decomposition_summary": str(truth.get("decomposition_summary", "") or ""),
+    }

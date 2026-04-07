@@ -114,6 +114,17 @@ ADMISSION_TRUTH_FIELDS: tuple[str, ...] = (
     "decomposition_unit_count",
     "decomposition_summary",
 )
+DEPENDENCY_DECOMPOSITION_TRUTH_FIELDS: tuple[str, ...] = (
+    "dependency_nodes",
+    "dependency_edges",
+    "blocking_edges",
+    "unresolved_dependencies",
+    "blocked_by_dependencies",
+    "decomposition_required_task_paths",
+    "decomposition_manual_only_task_paths",
+    "decomposition_by_task",
+)
+
 BACKLOG_SELECTION_TRUTH_FIELDS: tuple[str, ...] = (
     "selected_task_path",
     "selected_reason",
@@ -247,6 +258,9 @@ PROOF_SYNC_ALLOWED_MANIFEST_ENTRY_KEYS: tuple[str, ...] = (
     "rerun_required",
     "priority",
     "authority_prerequisite",
+    "required_paths",
+    "decomposition_safe",
+    "decomposition_max_unit_size",
     "label",
     "note",
     "stop_policy",
@@ -452,6 +466,7 @@ def controller_contract_snapshot() -> dict[str, object]:
         "resume_metadata_fields": list(RESUME_METADATA_FIELDS),
         "admission_truth_fields": list(ADMISSION_TRUTH_FIELDS),
         "backlog_selection_truth_fields": list(BACKLOG_SELECTION_TRUTH_FIELDS),
+        "dependency_decomposition_truth_fields": list(DEPENDENCY_DECOMPOSITION_TRUTH_FIELDS),
         "controller_failure_categories": list(CONTROLLER_FAILURE_CATEGORIES),
         "controller_strict_mode_paths": list(CONTROLLER_STRICT_MODE_PATHS),
         "controller_proof_test_paths": list(CONTROLLER_PROOF_TEST_PATHS),

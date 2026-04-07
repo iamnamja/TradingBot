@@ -10,7 +10,7 @@ from agents.lib.controller_contract import (
     is_merge_posture_decision,
     terminal_status_to_post_task_decision,
 )
-from agents.lib.manifest_planner import normalize_manifest_entry_schema
+from agents.lib.manifest_planner import build_dependency_graph_truth as _build_dependency_graph_truth, build_manifest_entry_decomposition_truth, normalize_manifest_entry_schema, plan_dependency_decomposition as _plan_dependency_decomposition
 
 QueueStatus = Literal["queued", "running", "completed", "blocked", "failed", "manual_patch"]
 
@@ -65,6 +65,14 @@ class TaskQueueItem:
     rerun_required: bool = False
     priority: int = 0
     authority_prerequisite: str = "none"
+    required_paths: tuple[str, ...] = ()
+    decomposition_safe: bool = False
+    decomposition_max_unit_size: int = 3
+    decomposition_status: str = "not_required"
+    bounded_decomposition_required: bool = False
+    decomposition_unit_count: int = 0
+    decomposition_summary: str = ""
+    decomposition_units: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 
@@ -107,6 +115,9 @@ def _coerce_manifest_task_entry(entry: Any, index: int) -> dict[str, object]:
         "rerun_required": bool(normalized["rerun_required"]),
         "priority": int(normalized["priority"]),
         "authority_prerequisite": str(normalized["authority_prerequisite"]),
+        "required_paths": tuple(str(p) for p in normalized["required_paths"]),
+        "decomposition_safe": bool(normalized["decomposition_safe"]),
+        "decomposition_max_unit_size": int(normalized["decomposition_max_unit_size"]),
     }
 
 
@@ -187,24 +198,42 @@ def build_task_queue_from_manifest(
         if path in blocks:
             raise TaskQueueManifestError(f"Task `{path}` cannot block itself.")
 
-    return [
-        TaskQueueItem(
-            task_path=str(entry.get("task_path") or entry["path"]),
-            ordinal=i + 1,
-            project_id=str(project_id or ""),
-            label=str(entry["label"]),
-            note=str(entry["note"]),
-            stop_policy=str(entry["stop_policy"]),
-            depends_on=tuple(str(p) for p in entry["depends_on"]),
-            blocks=tuple(str(p) for p in entry["blocks"]),
-            deferrable=bool(entry["deferrable"]),
-            skipped_by_policy=bool(entry["skipped_by_policy"]),
-            rerun_required=bool(entry["rerun_required"]),
-            priority=int(entry["priority"]),
-            authority_prerequisite=str(entry["authority_prerequisite"]),
+    items: list[TaskQueueItem] = []
+    for i, entry in enumerate(entries):
+        decomposition_truth = build_manifest_entry_decomposition_truth(entry)
+        units = tuple(
+            (
+                str(unit.get("label") or ""),
+                tuple(str(p) for p in list(unit.get("task_paths") or [])),
+            )
+            for unit in list(decomposition_truth.get("decomposition_units") or [])
         )
-        for i, entry in enumerate(entries)
-    ]
+        items.append(
+            TaskQueueItem(
+                task_path=str(entry.get("task_path") or entry["path"]),
+                ordinal=i + 1,
+                project_id=str(project_id or ""),
+                label=str(entry["label"]),
+                note=str(entry["note"]),
+                stop_policy=str(entry["stop_policy"]),
+                depends_on=tuple(str(p) for p in entry["depends_on"]),
+                blocks=tuple(str(p) for p in entry["blocks"]),
+                deferrable=bool(entry["deferrable"]),
+                skipped_by_policy=bool(entry["skipped_by_policy"]),
+                rerun_required=bool(entry["rerun_required"]),
+                priority=int(entry["priority"]),
+                authority_prerequisite=str(entry["authority_prerequisite"]),
+                required_paths=tuple(str(p) for p in entry["required_paths"]),
+                decomposition_safe=bool(entry["decomposition_safe"]),
+                decomposition_max_unit_size=int(entry["decomposition_max_unit_size"]),
+                decomposition_status=str(decomposition_truth["decomposition_status"]),
+                bounded_decomposition_required=bool(decomposition_truth["bounded_decomposition_required"]),
+                decomposition_unit_count=int(decomposition_truth["decomposition_unit_count"]),
+                decomposition_summary=str(decomposition_truth["decomposition_summary"]),
+                decomposition_units=units,
+            )
+        )
+    return items
 
 
 
@@ -225,6 +254,15 @@ def select_next_backlog_task(
     from agents.lib.manifest_planner import select_next_backlog_task as _impl
 
     return dict(_impl(queue, project_contract=project_contract, repo_memory=repo_memory, hosted_authority_ready=hosted_authority_ready))
+
+
+def build_dependency_graph_truth(queue: Sequence[TaskQueueItem]) -> dict[str, object]:
+    return dict(_build_dependency_graph_truth(queue))
+
+
+
+def plan_dependency_decomposition(queue: Sequence[TaskQueueItem]) -> dict[str, object]:
+    return dict(_plan_dependency_decomposition(queue))
 
 
 def choose_next_manifest_task(queue: Sequence[TaskQueueItem]) -> str:
