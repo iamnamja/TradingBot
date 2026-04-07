@@ -54,3 +54,15 @@ def test_project_validation_plan_resolves_by_scope_and_project_id() -> None:
     assert full["project_id"] == "generic_python_external"
     assert full["validation_scope"] == "full"
     assert full["commands"] == ["ruff check .", "pytest -q"]
+
+
+def test_project_merge_eligibility_contract_is_project_aware() -> None:
+    registry = _load_project_registry_module()
+
+    tradingbot = registry.project_merge_eligibility_contract(registry.resolve_project_contract('tradingbot_monorepo'))
+    generic = registry.project_merge_eligibility_contract(registry.resolve_project_contract('generic_python_external'))
+
+    assert tradingbot['merge_requires_hosted_authority'] is True
+    assert tradingbot['repo_required_checks'] == ['ci']
+    assert generic['merge_requires_hosted_authority'] is False
+    assert generic['repo_required_checks'] == []

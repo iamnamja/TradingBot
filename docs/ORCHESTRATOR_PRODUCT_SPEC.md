@@ -41,3 +41,4 @@ The proof is intentionally bounded and does **not** claim:
 ## Post-120 continuation note
 
 Task 121 adds a project-aware validation matrix and authority-profile contract derived from the project registry so validation plans can differ by project while staying serializable and inspectable.
+- Task 122 adds project-aware hosted authority convergence and explicit merge-eligibility truth so merge posture can be evaluated against each project's validation contract instead of a repo-shaped default.

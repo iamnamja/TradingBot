@@ -508,6 +508,30 @@ def evaluate_project_verification_authority(**kwargs: Any) -> Dict[str, object]:
     return dict(_impl(**kwargs))
 
 
+def project_merge_eligibility_contract(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.lib.project_registry import project_merge_eligibility_contract as _impl  # type: ignore
+
+    return dict(_impl(project_contract))
+
+
+def evaluate_hosted_authority_convergence(**kwargs: Any) -> Dict[str, object]:
+    from agents.lib.git_workflow import evaluate_hosted_authority_convergence as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
+def evaluate_merge_eligibility(**kwargs: Any) -> Dict[str, object]:
+    from agents.lib.git_workflow import evaluate_merge_eligibility as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
+def evaluate_project_merge_eligibility(**kwargs: Any) -> Dict[str, object]:
+    from agents.lib.git_workflow import evaluate_project_merge_eligibility as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
 def report_branch_push_ready(branch: str) -> None:
     from agents.lib.git_workflow import report_branch_push_ready as _impl  # type: ignore
 

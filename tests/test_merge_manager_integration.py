@@ -187,3 +187,45 @@ def test_project_aware_authority_profiles_can_differ_across_projects() -> None:
     assert tradingbot_truth["verification_authority_profile"] == "local_plus_required_ci"
     assert tradingbot_truth["verification_authority_satisfied"] is False
     assert tradingbot_truth["required_check_truth"]["hosted_authority_probe_status"] == "misconfigured"
+
+
+def test_project_merge_eligibility_blocks_when_hosted_authority_is_misconfigured() -> None:
+    from agents.lib import project_registry  # noqa: E402
+
+    tradingbot = project_registry.resolve_project_contract('tradingbot_monorepo')
+    truth = git_workflow.canonical_required_check_truth(
+        verification_authority_profile='local_plus_required_ci',
+        repo_check_contract=git_workflow.project_repo_check_contract(tradingbot),
+        required_checks_discovered=False,
+        hosted_checks_reported=False,
+        hosted_authority_probe_status='misconfigured',
+        hosted_authority_probe_note='Hosted checks did not report on the branch.',
+    )
+
+    eligibility = git_workflow.evaluate_project_merge_eligibility(
+        project_contract=tradingbot,
+        accepted=True,
+        autonomous_merge_enabled=True,
+        local_validation_passed=True,
+        required_check_truth=truth,
+    )
+
+    assert eligibility['merge_eligible_now'] is False
+    assert eligibility['merge_eligibility_reason'] == 'hosted_required_checks_misconfigured'
+    assert eligibility['hosted_authority_convergence']['hosted_authority_converged'] is False
+
+
+def test_project_merge_eligibility_succeeds_for_local_only_project_without_hosted_checks() -> None:
+    from agents.lib import project_registry  # noqa: E402
+
+    generic = project_registry.resolve_project_contract('generic_python_external')
+    eligibility = git_workflow.evaluate_project_merge_eligibility(
+        project_contract=generic,
+        accepted=True,
+        autonomous_merge_enabled=True,
+        local_validation_passed=True,
+    )
+
+    assert eligibility['merge_eligible_now'] is True
+    assert eligibility['merge_eligibility_reason'] == 'eligible'
+    assert eligibility['hosted_authority_convergence']['hosted_authority_converged'] is True

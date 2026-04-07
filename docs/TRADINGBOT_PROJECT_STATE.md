@@ -41,3 +41,4 @@ It still does **not** claim autonomy for arbitrary protected/controller/meta tas
 ## Latest continuation checkpoint
 
 Task 121 makes validation and authority project-aware by resolving focused checks, full checks, bootstrap requirements, and verification-authority profiles from the project registry rather than monorepo defaults alone.
+- Task 122 extends the bounded supervised slice with project-aware hosted-authority convergence and merge-eligibility proof helpers.

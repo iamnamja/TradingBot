@@ -155,3 +155,25 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.project_verification_authority_profile)
     assert callable(run_task.project_repo_check_contract)
     assert callable(run_task.evaluate_project_verification_authority)
+
+
+def test_project_merge_helpers_are_available() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    contract = run_task.resolve_project_contract('tradingbot_monorepo')
+    merge_contract = run_task.project_merge_eligibility_contract(contract)
+    convergence = run_task.evaluate_hosted_authority_convergence(
+        verification_authority_profile='local_plus_required_ci',
+        repo_check_contract=run_task.project_repo_check_contract(contract),
+        required_check_truth=run_task.canonical_required_check_truth(
+            verification_authority_profile='local_plus_required_ci',
+            repo_check_contract=run_task.project_repo_check_contract(contract),
+            required_checks_discovered=False,
+            hosted_checks_reported=False,
+            hosted_authority_probe_status='misconfigured',
+        ),
+    )
+
+    assert merge_contract['project_id'] == 'tradingbot_monorepo'
+    assert merge_contract['merge_requires_hosted_authority'] is True
+    assert convergence['hosted_authority_converged'] is False

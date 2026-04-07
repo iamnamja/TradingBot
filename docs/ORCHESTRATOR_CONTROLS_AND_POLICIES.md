@@ -209,3 +209,4 @@ The orchestrator now distinguishes between `autonomous_ordinary`, `supervised_au
 ## Project-aware validation and authority
 
 Validation and authority must be resolved from the active project contract rather than assuming monorepo defaults. Different projects may carry different focused checks, full checks, bootstrap requirements, and hosted-authority profiles, and the controller must remain truthful when hosted authority is weaker or stronger than local validation evidence.
+- Task 122 requires hosted merge eligibility to be evaluated against the project's declared validation matrix and repo check contract before autonomous merge posture can be treated as satisfied.

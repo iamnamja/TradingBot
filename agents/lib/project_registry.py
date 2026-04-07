@@ -275,6 +275,24 @@ def project_registry_snapshot() -> dict[str, object]:
         'supported_authority_profiles': list(PROJECT_AUTHORITY_PROFILES),
         'unattended_safe_project_ids': [project_id for project_id, entry in by_id.items() if bool(entry.get('allow_unattended_execution'))],
         'validation_matrix_by_project': {project_id: project_validation_matrix(entry) for project_id, entry in by_id.items()},
+        'merge_eligibility_by_project': {project_id: project_merge_eligibility_contract(entry) for project_id, entry in by_id.items()},
+    }
+
+
+def project_merge_eligibility_contract(project_contract: Mapping[str, object] | None = None) -> dict[str, object]:
+    contract = canonical_project_contract(project_contract)
+    matrix = project_validation_matrix(contract)
+    hosted_required = str(matrix['verification_authority_profile']) != 'local_only'
+    return {
+        'project_id': str(matrix['project_id']),
+        'verification_authority_profile': str(matrix['verification_authority_profile']),
+        'repo_required_checks': list(matrix['repo_required_checks']),
+        'repo_check_contract_source': str(matrix['repo_check_contract_source']),
+        'hosted_checks_source': str(matrix['hosted_checks_source']),
+        'merge_requires_hosted_authority': hosted_required,
+        'missing_required_checks_blocks_merge': hosted_required and bool(matrix['repo_required_checks']),
+        'allow_unattended_execution': bool(contract.get('allow_unattended_execution', False)),
+        'merge_contract_serializable': True,
     }
 
 
