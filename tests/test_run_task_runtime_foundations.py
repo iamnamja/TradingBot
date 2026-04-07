@@ -145,3 +145,25 @@ def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
     assert callable(run_task.execute_multi_agent_loop)
     assert hasattr(multi_agent_loop, "execute_multi_agent_loop")
     assert callable(multi_agent_loop.execute_multi_agent_loop)
+
+
+def test_multi_agent_contract_snapshot_remains_stable_and_explicitly_bounded() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _ = _load_runtime_modules()
+    snapshot = multi_agent_contract.multi_agent_contract_snapshot()
+
+    assert callable(run_task.multi_agent_contract_snapshot)
+    assert snapshot["roles"] == ["controller", "builder", "verifier"]
+    assert snapshot["sequential_role_execution_only"] is True
+    assert snapshot["controller_authority_over_next_role"] is True
+
+
+def test_orchestrator_package_boundary_snapshot_stays_in_extraction_prep_posture() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _ = _load_runtime_modules()
+    boundary = multi_agent_contract.orchestrator_package_boundary_snapshot()
+
+    assert callable(run_task.orchestrator_package_boundary_snapshot)
+    assert boundary["product_name"] == "orchestrator"
+    assert boundary["operates_inside_monorepo"] is True
+    assert boundary["full_standalone_extraction_completed"] is False
+    assert "tradingbot" in boundary["supported_consumers"]
+    assert "generic_python" in boundary["supported_consumers"]

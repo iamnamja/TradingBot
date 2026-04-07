@@ -857,3 +857,72 @@ def test_resume_reconstructs_dependency_planner_truth_deterministically(tmp_path
     assert resumed.planner_selected_task_path == state.planner_selected_task_path
     assert resumed.planner_ready_task_paths == state.planner_ready_task_paths
     assert resumed.planner_blocking_reasons == state.planner_blocking_reasons
+
+
+def test_planner_routing_and_verification_truth_stay_consistent_together(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    mal = _multi_agent_loop_module()
+
+    _write_task(tmp_path / "tasks" / "001_foundation.md")
+    _write_task(tmp_path / "tasks" / "002_followup.md")
+    manifest = {
+        "tasks": [
+            {"path": "tasks/001_foundation.md"},
+            {"path": "tasks/002_followup.md", "depends_on": ["tasks/001_foundation.md"]},
+        ]
+    }
+
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    assert [item.task_path for item in queue] == ["tasks/001_foundation.md", "tasks/002_followup.md"]
+
+    calls: list[tuple[str, str]] = []
+
+    current_task_path = {"value": ""}
+
+    def builder_step(role_state: dict[str, object]) -> dict[str, object]:
+        calls.append((current_task_path["value"], "build"))
+        return {"changed_files": [current_task_path["value"].replace(".md", ".py")], "summary": "built"}
+
+    def verifier_step(_builder_artifact: dict[str, object], role_state: dict[str, object]) -> dict[str, object]:
+        calls.append((current_task_path["value"], "verify"))
+        return {
+            "validator_ok": True,
+            "validator_note": "local validation passed",
+            "acceptance_report": {
+                "acceptance_decision": "accepted",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+                "note": "accepted",
+            },
+        }
+
+    def controller_decide(verifier_artifact: dict[str, object], _builder_artifact: dict[str, object], role_state: dict[str, object]) -> dict[str, object]:
+        calls.append((current_task_path["value"], "decide"))
+        return {
+            "task_path": current_task_path["value"],
+            "post_task_decision": "continue" if verifier_artifact["verdict"] == "pass" else "stop",
+            "next_task_may_proceed": verifier_artifact["verdict"] == "pass",
+            "summary": "verification accepted",
+            "action": "advance" if verifier_artifact["verdict"] == "pass" else "stop",
+        }
+
+    decisions = []
+    for item in queue:
+        current_task_path["value"] = item.task_path
+        result = mal.execute_multi_agent_loop(
+            task_path=item.task_path,
+            builder_step=builder_step,
+            verifier_step=verifier_step,
+            controller_decide=controller_decide,
+        )
+        decisions.append(result["controller_decision"]["post_task_decision"])
+
+    assert decisions == ["continue", "continue"]
+    assert calls == [
+        ("tasks/001_foundation.md", "build"),
+        ("tasks/001_foundation.md", "verify"),
+        ("tasks/001_foundation.md", "decide"),
+        ("tasks/002_followup.md", "build"),
+        ("tasks/002_followup.md", "verify"),
+        ("tasks/002_followup.md", "decide"),
+    ]
