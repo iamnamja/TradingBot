@@ -305,9 +305,9 @@ def test_proof_sync_validator_accepts_current_bounded_multi_project_surface() ->
         role_snapshot=snapshot,
         boundary_snapshot=boundary,
         claim_texts=[
-            (root / 'README.md').read_text(encoding='utf-8'),
-            (root / 'docs' / 'ORCHESTRATOR_PRODUCT_SPEC.md').read_text(encoding='utf-8'),
-            (root / 'docs' / 'TRADINGBOT_PROJECT_STATE.md').read_text(encoding='utf-8'),
+            Path('README.md').read_text(encoding='utf-8'),
+            Path('docs/ORCHESTRATOR_PRODUCT_SPEC.md').read_text(encoding='utf-8'),
+            Path('docs/TRADINGBOT_PROJECT_STATE.md').read_text(encoding='utf-8'),
         ],
     )
 
@@ -315,54 +315,109 @@ def test_proof_sync_validator_accepts_current_bounded_multi_project_surface() ->
     assert result['issues'] == []
 
 
-def test_execute_multi_agent_loop_normalizes_manifest_entry_aliases() -> None:
+
+def test_supervised_mixed_manifest_progression_is_bounded_and_truthful() -> None:
     manifest = {
         "tasks": [
-            {"task_id": "alpha", "task_path": "tasks/001_prepare.md"},
-            {"task_id": "beta", "path": "tasks/002_verify.md", "depends_on": ["tasks/001_prepare.md"]},
+            {"task_path": "tasks/089_orchestrator_hardened_autonomous_short_manifest_proof.md", "task_family": "proof_docs"},
+            {"task_path": "tasks/106_orchestrator_external_workspace_bootstrap_recovery_proof.md", "task_family": "bootstrap"},
+            {"task_path": "tasks/107_orchestrator_supervised_mixed_manifest_autonomy_reproof.md", "task_family": "consumer_facing"},
         ]
     }
 
-    role_calls: list[tuple[str, str]] = []
-
     def choose_next_role(ctx: dict[str, object]) -> str:
-        role_calls.append((str(ctx["task_path"]), str(ctx["phase"])))
-        if ctx["phase"] == "build":
+        phase = str(ctx.get("phase") or "")
+        if phase == "build":
             return "builder"
-        if ctx["phase"] == "verify":
+        if phase == "verify":
             return "verifier"
         return "controller"
 
     def run_role(role: str, ctx: dict[str, object]) -> dict[str, object]:
         if role == "builder":
-            return {"status": "built", "changed_files": [str(ctx["task_path"]).replace(".md", ".py")]}
+            return {"status": "built", "task_path": str(ctx["task_path"]) }
         if role == "verifier":
-            return {"status": "verified", "verification_authority": "local_only", "ok": True}
-        return {"status": "accepted", "controller_final_decision": "continue"}
+            return {
+                "accepted": True,
+                "verification_authority": "local_only",
+                "task_path": str(ctx["task_path"]),
+            }
+        return {
+            "controller_final_decision": "continue",
+            "post_task_decision": "continue",
+        }
 
     result = execute_multi_agent_loop(task_manifest=manifest, choose_next_role=choose_next_role, run_role=run_role)
+    normalized = run_task.normalize_multi_agent_loop_result(result)
 
-    assert result["processed_task_ids"] == ["alpha", "beta"]
-    assert result["count"] == 2
-    assert result["controller_final_decision"] == "continue"
-    assert result["runtime_portability_scope"] == "python_only"
+    assert normalized["count"] == 3
+    assert normalized["runtime_portability_scope"] == "python_only"
+    assert normalized["verification_authority"] == "local_only"
+    assert normalized["controller_final_decision"] == "continue"
+    assert normalized["processed_task_ids"] == [
+        "089_orchestrator_hardened_autonomous_short_manifest_proof",
+        "106_orchestrator_external_workspace_bootstrap_recovery_proof",
+        "107_orchestrator_supervised_mixed_manifest_autonomy_reproof",
+    ]
 
 
-def test_external_workspace_bootstrap_recovery_proof_is_truthful_and_python_only() -> None:
-    result = execute_external_workspace_bootstrap_recovery_proof(
-        workspace_root='external-app',
-        initial_bootstrap_error='missing virtualenv',
-    )
 
-    blocked = result['initial_bootstrap_truth']
-    recovered = result['recovered_bootstrap_truth']
+def test_supervised_mixed_manifest_stops_conservatively_when_authority_unsatisfied() -> None:
+    manifest = {
+        "tasks": [
+            {"task_path": "tasks/106_orchestrator_external_workspace_bootstrap_recovery_proof.md", "task_family": "bootstrap"},
+            {"task_path": "tasks/107_orchestrator_supervised_mixed_manifest_autonomy_reproof.md", "task_family": "consumer_facing"},
+        ]
+    }
 
-    assert blocked['bootstrap_status'] == 'blocked'
-    assert blocked['workspace_ready_for_validation'] is False
-    assert recovered['previous_bootstrap_status'] == 'blocked'
-    assert recovered['bootstrap_status'] == 'succeeded'
-    assert recovered['bootstrap_recovered'] is True
-    assert recovered['workspace_ready_for_validation'] is True
-    assert result['controller_final_decision'] == 'continue'
-    assert result['runtime_portability_scope'] == 'python_only'
-    assert result['bootstrap_recovery_proof_completed'] is True
+    def choose_next_role(ctx: dict[str, object]) -> str:
+        phase = str(ctx.get("phase") or "")
+        if phase == "build":
+            return "builder"
+        if phase == "verify":
+            return "verifier"
+        return "controller"
+
+    def run_role(role: str, ctx: dict[str, object]) -> dict[str, object]:
+        if role == "builder":
+            return {"status": "built", "task_path": str(ctx["task_path"])}
+        if role == "verifier":
+            return {
+                "accepted": False,
+                "verification_authority": "local_plus_required_ci",
+                "verification_authority_satisfied": False,
+                "task_path": str(ctx["task_path"]),
+            }
+        return {
+            "controller_final_decision": "stop",
+            "post_task_decision": "stop",
+            "stopped_reason": "verification authority unsatisfied",
+        }
+
+    result = execute_multi_agent_loop(task_manifest=manifest, choose_next_role=choose_next_role, run_role=run_role)
+    normalized = run_task.normalize_multi_agent_loop_result(result)
+
+    assert normalized["count"] == 1
+    assert normalized["runtime_portability_scope"] == "python_only"
+    assert normalized["verification_authority"] == "local_plus_required_ci"
+    assert normalized["controller_final_decision"] == "stop"
+    assert normalized["processed_task_ids"] == [
+        "106_orchestrator_external_workspace_bootstrap_recovery_proof",
+    ]
+
+
+
+def test_external_workspace_bootstrap_recovery_proof_is_exposed() -> None:
+    proof = execute_external_workspace_bootstrap_recovery_proof()
+
+    assert proof["bootstrap_recovery_proof_completed"] is True
+    assert proof["controller_final_decision"] == "continue"
+    assert proof["runtime_portability_scope"] == "python_only"
+
+    blocked = proof["initial_bootstrap_truth"]
+    recovered = proof["recovered_bootstrap_truth"]
+
+    assert blocked["bootstrap_status"] == "blocked"
+    assert recovered["previous_bootstrap_status"] == "blocked"
+    assert recovered["bootstrap_status"] == "succeeded"
+    assert recovered["bootstrap_recovered"] is True

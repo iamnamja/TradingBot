@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized proof checkpoint is now complete through **Task 106** for the post-099 resilience tranche.
+The synchronized proof checkpoint is now complete through **Task 107** for the post-099 resilience tranche.
 
 The deterministic proof-backed slice currently covers:
 
@@ -20,20 +20,23 @@ The deterministic proof-backed slice currently covers:
 - explicit verification-authority truth posture
 - second-project **Python** portability proof
 - truthful external-workspace bootstrap blocked-then-recovered proof
+- supervised local-first mixed-manifest re-proof across proof/docs + bootstrap + consumer-facing task families
 - extraction-prep consumer boundary posture (not full extraction)
 
 Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for authoritative status narrative.
 
 ## What the repo can honestly claim today
 
-Today the repo has deterministic local proof for a bounded multi-agent portability and recovery slice:
+Today the repo has deterministic local proof for a bounded multi-agent portability, recovery, and supervised mixed-manifest slice:
 
 1. controller/builder/verifier role separation
 2. stable sequential role loop
 3. planner/routing/verification truth consistency
 4. Python-only second-project portability
 5. truthful bootstrap blocked-then-recovered handling for a simple external Python workspace
-6. explicit consumer boundary and extraction-prep posture
+6. supervised mixed-manifest progression bounded by explicit max-task limits
+7. conservative stop behavior when verification authority is unsatisfied
+8. explicit consumer boundary and extraction-prep posture
 
 It does **not** claim:
 
@@ -48,6 +51,7 @@ The current proof remains intentionally narrow:
 - short dependency-aware manifests
 - deterministic local tests and stubs
 - explicit verification-authority constraints
+- supervised local-first mixed-manifest execution only
 - Python-first portability only
 - simple external workspace bootstrap recovery only
 - monorepo operation with extraction preparation posture
