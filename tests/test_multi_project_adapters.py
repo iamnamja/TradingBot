@@ -421,3 +421,37 @@ def test_external_workspace_bootstrap_recovery_proof_is_exposed() -> None:
     assert recovered["previous_bootstrap_status"] == "blocked"
     assert recovered["bootstrap_status"] == "succeeded"
     assert recovered["bootstrap_recovered"] is True
+
+
+def test_multi_agent_loop_emits_tester_critique_bundle_for_targeted_replay() -> None:
+    def _builder(_role_state: dict[str, object]) -> dict[str, object]:
+        return {"changed_files": ["agents/lib/multi_agent_loop.py"], "summary": "builder updated loop seam"}
+
+    def _verifier(_builder_artifact: dict[str, object], _role_state: dict[str, object]) -> dict[str, object]:
+        return {
+            "validator_ok": False,
+            "validator_note": "collection import failure",
+            "failure_category": "collection_import_failure",
+            "failure_message": "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle' from 'agents.lib.multi_agent_loop'",
+            "focused_results": ["pytest -q tests/test_multi_project_adapters.py"],
+            "full_results": ["pytest -q"],
+            "acceptance_report": {
+                "acceptance_decision": "retryable_failure",
+                "post_task_decision": "stop",
+                "next_task_may_proceed": False,
+                "note": "collection import failure",
+            },
+        }
+
+    result = execute_multi_agent_loop(
+        task_path="external-app/tasks/alpha.md",
+        builder_step=_builder,
+        verifier_step=_verifier,
+    )
+
+    critique = result["verifier_artifact"]["tester_critique_bundle"]
+    assert critique["likely_failure_family"] == "import_contract"
+    assert critique["focused_replay_commands"] == ["pytest -q tests/test_multi_project_adapters.py"]
+    assert critique["broad_replay_commands"] == ["pytest -q"]
+    assert "agents/lib/multi_agent_loop.py" in critique["likely_touched_files"]
+    assert result["failure_journal_context"]["tester_critique_summary"]["likely_failure_family"] == "import_contract"

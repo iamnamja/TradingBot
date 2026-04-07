@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from agents.lib.controller_contract import POLICY_BLOCKED_FAILURE_CATEGORY
+from agents.lib.check_runner import summarize_tester_critique_bundle
 from agents.lib.multi_agent_contract import summarize_role_artifact_envelope
 from agents.lib.controller_repair import (
     build_controller_failure_digest,
@@ -225,6 +226,7 @@ def build_multi_agent_failure_context(
         envelope_type="controller_output",
         artifact_role="controller",
     )
+    critique_summary = summarize_tester_critique_bundle((verifier_artifact or {}).get("tester_critique_bundle"), failure_message=(verifier_artifact or {}).get("failure_message"), failure_category=(verifier_artifact or {}).get("failure_category"), focused_results=(verifier_artifact or {}).get("focused_results"), full_results=(verifier_artifact or {}).get("full_results"), changed_files=(builder_artifact or {}).get("changed_files"))
     return {
         "task_path": str(task_path),
         "role_trace": list(role_trace),
@@ -234,6 +236,10 @@ def build_multi_agent_failure_context(
         "coder_artifact_summary": coder_summary,
         "tester_artifact_summary": tester_summary,
         "controller_artifact_summary": controller_summary,
+        "tester_critique_summary": critique_summary,
+        "focused_replay_commands": list(critique_summary.get("focused_replay_commands") or []),
+        "broad_replay_commands": list(critique_summary.get("broad_replay_commands") or []),
+        "likely_touched_files": list(critique_summary.get("likely_touched_files") or []),
         "verifier_verdict": str(tester_summary.get("verifier_verdict") or "not_run"),
         "controller_action": str((controller_decision or {}).get("action") or ""),
         "repair_strategy": str((controller_decision or {}).get("repair_strategy") or ""),
