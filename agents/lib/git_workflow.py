@@ -513,11 +513,17 @@ def accepted_task_pr_merge_flow(
     pr_body: str = "",
     verification_authority_profile: Any = "local_plus_required_ci",
     repo_check_contract: Mapping[str, Any] | None = None,
+    project_contract: Mapping[str, Any] | None = None,
 ) -> Dict[str, object]:
+    if project_contract is not None and repo_check_contract is None:
+        repo_check_contract = project_repo_check_contract(project_contract)
+    if project_contract is not None and verification_authority_profile == "local_plus_required_ci":
+        verification_authority_profile = project_verification_authority_profile(project_contract)
     profile = coerce_verification_authority_profile(verification_authority_profile)
+    repo_contract = canonical_repo_check_contract(repo_check_contract)
     required_truth = canonical_required_check_truth(
         verification_authority_profile=profile,
-        repo_check_contract=repo_check_contract,
+        repo_check_contract=repo_contract,
     )
     result: Dict[str, object] = {
         "accepted": bool(accepted),
@@ -535,6 +541,8 @@ def accepted_task_pr_merge_flow(
         "clean_main_reset_completed": False,
         "next_task_may_proceed": False,
         **required_truth,
+        'project_id': str((project_contract or {}).get('project_id', '')),
+        'repo_check_contract': dict(repo_contract),
     }
 
     if not accepted:
@@ -606,6 +614,129 @@ def report_branch_push_ready(branch: str, *, printer=print) -> None:
     printer(f"Pushed branch: {branch}")
     printer("Create a PR on GitHub for this branch (repo rules require PR).")
 
+
+
+def evaluate_hosted_authority_convergence(
+    *,
+    verification_authority_profile: Any,
+    repo_check_contract: Mapping[str, Any] | None = None,
+    required_check_truth: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    profile = coerce_verification_authority_profile(verification_authority_profile)
+    contract = canonical_repo_check_contract(repo_check_contract)
+    truth = canonical_required_check_truth(
+        required_check_truth,
+        verification_authority_profile=profile,
+        repo_check_contract=contract,
+    )
+    hosted_required = profile != 'local_only'
+    configured = bool(contract['repo_check_contract_configured'])
+    expected_checks = tuple(contract['repo_required_checks'])
+    reported_checks = tuple(truth['repo_required_checks'])
+    contract_match = expected_checks == reported_checks
+    probe_status = str(truth['hosted_authority_probe_status'])
+    if not hosted_required:
+        converged = True
+        reason = 'hosted_authority_not_required'
+    elif not configured:
+        converged = False
+        reason = 'repo_check_contract_not_configured'
+    elif not contract_match:
+        converged = False
+        reason = 'repo_check_contract_mismatch'
+    elif probe_status in {'unavailable', 'misconfigured'}:
+        converged = False
+        reason = probe_status
+    else:
+        converged = True
+        reason = 'converged'
+    return {
+        'verification_authority_profile': profile,
+        'repo_check_contract': dict(contract),
+        'required_check_truth': dict(truth),
+        'hosted_authority_converged': converged,
+        'hosted_authority_convergence_reason': reason,
+        'hosted_authority_required': hosted_required,
+    }
+
+
+def evaluate_merge_eligibility(
+    *,
+    accepted: bool,
+    autonomous_merge_enabled: bool,
+    local_validation_passed: bool,
+    verification_authority_profile: Any = 'local_plus_required_ci',
+    repo_check_contract: Mapping[str, Any] | None = None,
+    required_check_truth: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    authority = evaluate_verification_authority(
+        verification_authority_profile=verification_authority_profile,
+        local_validation_passed=local_validation_passed,
+        required_check_truth=canonical_required_check_truth(
+            required_check_truth,
+            verification_authority_profile=verification_authority_profile,
+            repo_check_contract=repo_check_contract,
+        ),
+    )
+    convergence = evaluate_hosted_authority_convergence(
+        verification_authority_profile=verification_authority_profile,
+        repo_check_contract=repo_check_contract,
+        required_check_truth=authority['required_check_truth'],
+    )
+    if not accepted:
+        eligible = False
+        reason = 'task_not_accepted'
+    elif not autonomous_merge_enabled:
+        eligible = False
+        reason = 'autonomous_merge_disabled'
+    elif not bool(authority['verification_authority_satisfied']):
+        eligible = False
+        reason = str(authority['blocking_reason']) or 'verification_authority_unsatisfied'
+    elif not bool(convergence['hosted_authority_converged']):
+        eligible = False
+        reason = str(convergence['hosted_authority_convergence_reason'])
+    else:
+        eligible = True
+        reason = 'eligible'
+    return {
+        'accepted': bool(accepted),
+        'autonomous_merge_enabled': bool(autonomous_merge_enabled),
+        'local_validation_passed': bool(local_validation_passed),
+        'merge_eligible_now': eligible,
+        'merge_eligibility_reason': reason,
+        'verification_authority': dict(authority),
+        'hosted_authority_convergence': dict(convergence),
+    }
+
+
+def evaluate_project_merge_eligibility(
+    *,
+    project_contract: Mapping[str, Any] | None = None,
+    accepted: bool,
+    autonomous_merge_enabled: bool,
+    local_validation_passed: bool,
+    required_check_truth: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    from agents.lib.project_registry import project_merge_eligibility_contract, project_validation_matrix
+
+    matrix = project_validation_matrix(project_contract)
+    merge_contract = project_merge_eligibility_contract(project_contract)
+    repo_contract = project_repo_check_contract(project_contract)
+    result = evaluate_merge_eligibility(
+        accepted=accepted,
+        autonomous_merge_enabled=autonomous_merge_enabled,
+        local_validation_passed=local_validation_passed,
+        verification_authority_profile=matrix['verification_authority_profile'],
+        repo_check_contract=repo_contract,
+        required_check_truth=required_check_truth,
+    )
+    return {
+        **result,
+        'project_id': str(matrix['project_id']),
+        'validation_matrix': dict(matrix),
+        'merge_contract': dict(merge_contract),
+        'repo_check_contract': dict(repo_contract),
+    }
 
 
 def project_verification_authority_profile(project_contract: Mapping[str, Any] | None = None) -> VerificationAuthorityProfile:
