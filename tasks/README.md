@@ -15,32 +15,20 @@ This file is the canonical visible ordering for task execution history and conti
 - 068–075: backlog execution continuation, merge-readiness hardening, first conservative batch runner, and first narrow end-to-end backlog proof
 - 076–082: autonomous backlog progression and controller-thinning continuation, ending with the first narrow ordinary-manifest autonomous proof slice
 - 083–089: controller-contract hardening, stricter controller-task discipline, and the hardened short-manifest proof synchronization
+- 090–099: multi-agent portability and productization tranche, ending with synchronized proof for the bounded Python-first portability slice
 
-## Next multi-agent portability and productization tranche
+## Next resilience and hosted-authority hardening tranche
 
-- **090** `orchestrator_multi_agent_role_contract_and_handoff_state`
-- **091** `orchestrator_builder_verifier_controller_loop`
-- **092** `orchestrator_verification_authority_and_ci_required_checks`
-- **093** `orchestrator_repair_strategy_router_and_failure_lane_selection`
-- **094** `orchestrator_project_workspace_adapter_and_bootstrap_contract_v2`
-- **095** `orchestrator_dependency_aware_manifest_planner`
-- **096** `orchestrator_task_family_router_and_agent_selection`
-- **097** `orchestrator_second_project_multi_agent_portability_proof`
-- **098** `orchestrator_standalone_package_boundary_and_consumer_bridge`
-- **099** `orchestrator_multi_agent_portability_proof_sync`
-
-## Numbering policy
-
-1. Task IDs and filenames in `tasks/` are the source of truth.
-2. Continuation references in docs must use the existing numbered IDs (no ad hoc renumbering).
-3. Umbrella/subtask suffixes (`a`, `b`, etc.) remain part of canonical identity when present.
-4. When a plain-number task is deferred behind suffix subtasks, the task index must state that ordering explicitly.
+- **100** `orchestrator_public_surface_freeze_and_compatibility_aliases`
+- **101** `orchestrator_collection_error_and_import_repair_lane`
+- **102** `orchestrator_proof_sync_contract_validator_and_claim_guard`
+- **103** `orchestrator_real_hosted_ci_authority_integration`
+- **104** `orchestrator_result_shape_and_manifest_schema_normalization`
+- **105** `orchestrator_targeted_repair_planner_and_minimal_patch_selection`
+- **106** `orchestrator_external_workspace_bootstrap_recovery_proof`
+- **107** `orchestrator_supervised_mixed_manifest_autonomy_reproof`
 
 ## Related planning artifacts
 
-- `TASK_CLEANUP_055_068.md` tracks cleanup/planning considerations spanning the reliability/autonomy tranche through the stabilization extension.
-- `docs/ORCHESTRATOR_ROADMAP_055_068.md` covers the stabilization extension around Task 068.
-- `docs/ORCHESTRATOR_ROADMAP_069_075.md` covers the first backlog-execution continuation through the initial proof slice.
-- `docs/ORCHESTRATOR_ROADMAP_076_082.md` covers the autonomy-and-controller-thinning tranche that culminated in Task 082.
-- `docs/ORCHESTRATOR_ROADMAP_083_089.md` covers the controller-contract hardening tranche after Task 082.
-- `docs/ORCHESTRATOR_ROADMAP_090_099.md` covers the next multi-agent portability and productization tranche after Task 089.
+- `docs/ORCHESTRATOR_ROADMAP_090_099.md` covers the multi-agent portability/productization tranche after Task 089.
+- `docs/ORCHESTRATOR_ROADMAP_100_107.md` covers the resilience and hosted-authority hardening tranche after Task 099.
