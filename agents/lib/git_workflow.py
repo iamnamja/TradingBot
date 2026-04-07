@@ -43,6 +43,12 @@ def _coerce_bool(value: Any) -> bool:
 
 
 
+def _coerce_text(value: Any, default: str = "") -> str:
+    text = str(value if value is not None else default).strip()
+    return text or default
+
+
+
 def _required_check_state(
     *,
     configured: bool,
@@ -79,6 +85,8 @@ def canonical_required_check_truth(
     required_checks_failed: Any | None = None,
     required_checks_passed: Any | None = None,
     missing_required_checks_blocks_merge: Any | None = None,
+    hosted_checks_source: Any | None = None,
+    hosted_checks_reported: Any | None = None,
 ) -> dict[str, object]:
     data = payload or {}
     profile = coerce_verification_authority_profile(verification_authority_profile)
@@ -110,7 +118,16 @@ def canonical_required_check_truth(
         if missing_required_checks_blocks_merge is not None
         else data.get("missing_required_checks_blocks_merge", configured)
     )
-    authority_satisfied = passed if configured else True
+    hosted_source = _coerce_text(
+        hosted_checks_source if hosted_checks_source is not None else data.get("hosted_checks_source"),
+        default=("not_required" if not configured else "gh_pr_checks"),
+    )
+    hosted_reported = _coerce_bool(
+        hosted_checks_reported if hosted_checks_reported is not None else data.get("hosted_checks_reported", discovered)
+    )
+    hosted_available = (not configured) or hosted_reported
+    hosted_satisfied = (not configured) or (hosted_reported and passed)
+    authority_satisfied = hosted_satisfied if configured else True
     return {
         "verification_authority_profile": profile,
         "required_checks_configured": configured,
@@ -130,8 +147,11 @@ def canonical_required_check_truth(
             failed=failed,
             passed=passed,
         ),
+        "hosted_checks_source": hosted_source,
+        "hosted_checks_reported": hosted_reported,
+        "hosted_authority_available": hosted_available,
+        "hosted_authority_satisfied": hosted_satisfied,
     }
-
 
 
 def evaluate_verification_authority(
@@ -145,7 +165,8 @@ def evaluate_verification_authority(
     local_required = profile != "required_ci_only"
     required_ci_required = profile != "local_only"
     local_satisfied = (not local_required) or bool(local_validation_passed)
-    required_ci_satisfied = (not required_ci_required) or bool(truth["verification_authority_satisfied"])
+    hosted_available = bool(truth["hosted_authority_available"])
+    required_ci_satisfied = (not required_ci_required) or bool(truth["hosted_authority_satisfied"])
     satisfied = local_satisfied and required_ci_satisfied
     if satisfied:
         summary = "Configured verification authority is satisfied."
@@ -167,7 +188,10 @@ def evaluate_verification_authority(
         }
     else:
         state = str(truth["required_check_state"])
-        if state == "missing":
+        if not hosted_available:
+            summary = "Configured hosted verification authority is not available because required hosted CI checks were not reported."
+            blocking_reason = "hosted_required_checks_not_reported"
+        elif state == "missing":
             summary = "Configured verification authority is not satisfied because required CI checks were not discovered."
             blocking_reason = "required_checks_missing"
         elif state == "pending":
@@ -194,13 +218,14 @@ def evaluate_verification_authority(
         "required_ci_required": required_ci_required,
         "local_validation_satisfied": local_satisfied,
         "required_ci_satisfied": required_ci_satisfied,
+        "hosted_authority_available": hosted_available,
+        "hosted_authority_satisfied": bool(truth["hosted_authority_satisfied"]),
         "verification_authority_satisfied": satisfied,
         "blocking_reason": blocking_reason,
         "summary": summary,
         "required_check_truth": dict(truth),
         "controller_report": controller_report,
     }
-
 
 
 def _extract_stdout_stderr(result: object) -> tuple[str, str]:
@@ -241,6 +266,8 @@ def _infer_required_check_truth_from_output(text: str, *, profile: VerificationA
         required_checks_timed_out=timed_out,
         required_checks_failed=failed,
         required_checks_passed=passed,
+        hosted_checks_source="gh_pr_checks",
+        hosted_checks_reported=discovered,
     )
 
 

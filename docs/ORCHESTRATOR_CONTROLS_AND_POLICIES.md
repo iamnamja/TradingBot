@@ -186,3 +186,15 @@ Guardrails:
 - acceptance and merge/reset truth rules from earlier controller tranches remain in force
 
 - task-family routing remains controller-owned; the router may recommend builder, verifier, proof/docs, bootstrap, or constrained/manual lanes, but it may not bypass controller authority
+
+
+## Hosted CI authority posture
+
+When the configured verification-authority profile requires hosted CI checks, the orchestrator must treat hosted check discovery as first-class evidence.
+
+Current required behavior:
+
+- hosted CI authority absence is itself a blocking signal
+- `no checks reported` must not be interpreted as success
+- persisted batch/checkpoint truth must distinguish hosted authority availability from hosted authority satisfaction
+- controller stop posture remains conservative whenever hosted authority is absent or unsatisfied

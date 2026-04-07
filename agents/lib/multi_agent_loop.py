@@ -123,6 +123,8 @@ def build_verifier_evidence_bundle(
         "acceptance_report": acceptance_report,
         "verification_authority_profile": profile,
         "verification_authority_satisfied": bool(authority["verification_authority_satisfied"]),
+        "hosted_authority_available": bool(authority["hosted_authority_available"]),
+        "hosted_authority_satisfied": bool(authority["hosted_authority_satisfied"]),
         "required_check_truth": required_check_truth,
         "failure_category": failure_category,
         "failure_message": failure_message,

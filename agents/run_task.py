@@ -478,6 +478,19 @@ def report_branch_push_ready(branch: str) -> None:
     _impl(branch)
 
 
+def wait_for_required_checks(runner, **kwargs: Any) -> Dict[str, object]:
+    from agents.lib.git_workflow import wait_for_required_checks as _impl  # type: ignore
+
+    result = _impl(runner, **kwargs)
+    return {"ok": bool(result.ok), "step": str(result.step), "message": str(result.message), "evidence": dict(result.evidence or {})}
+
+
+def coerce_verification_authority_profile(value: Any, default: str = "local_only") -> str:
+    from agents.lib.git_workflow import coerce_verification_authority_profile as _impl  # type: ignore
+
+    return str(_impl(value, default=default))
+
+
 def build_controller_failure_digest(
     *,
     kind: str,
@@ -502,6 +515,18 @@ def build_controller_repair_context(
     from agents.lib.controller_repair import build_controller_repair_context as _impl  # type: ignore
 
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
+
+
+def classify_collection_failure(*, kind: str, message: str, category: str = "") -> str:
+    from agents.lib.controller_repair import classify_collection_failure as _impl  # type: ignore
+
+    return str(_impl(kind=kind, message=message, category=category))
+
+
+def is_collection_failure(*, kind: str, message: str, category: str = "") -> bool:
+    from agents.lib.controller_repair import is_collection_failure as _impl  # type: ignore
+
+    return bool(_impl(kind=kind, message=message, category=category))
 
 
 def choose_repair_strategy(
@@ -4374,7 +4399,7 @@ def _report_failure(kind: str, message: str, *, touched_files: List[str] | None 
         "recommended_next_action": recommended_action,
         "chosen_remediation_path": remediation_path,
         "repair_strategy": str(plan.get("repair_strategy") or remediation_path),
-        "remediation_lane": str(plan.get("remediation_lane") or ("operator" if manual_lane_recommended else "")),
+        "remediation_lane": str(plan.get("remediation_lane") or "operator"),
         "route_rationale": str(plan.get("route_rationale") or ""),
         "autonomy_confidence": autonomy_conf,
         "continue_autonomously": continue_auto,
@@ -5142,6 +5167,7 @@ def _failure_journal_exports() -> Dict[str, object]:
         "build_semantic_failure_digest": None,
         "build_semantic_repair_context": None,
         "choose_repair_strategy": None,
+        "collection_failure_category": None,
     }
 
     if _failure_journal is not None:
@@ -5159,6 +5185,7 @@ def _failure_journal_exports() -> Dict[str, object]:
             "build_semantic_failure_digest",
             "build_semantic_repair_context",
             "choose_repair_strategy",
+            "collection_failure_category",
         ):
             obj = getattr(_failure_journal, name, None)
             if callable(obj):
