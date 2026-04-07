@@ -88,6 +88,8 @@ Hosted CI authority is now treated as first-class evidence in the truth model. T
 
 This keeps `no checks reported on the branch` as an explicit stop signal rather than silently collapsing it into generic missing-check noise.
 
+Task 112 hardens this further with a repo-scoped check contract and a persisted hosted-authority probe status. Hosted truth can now distinguish `unavailable`, `misconfigured`, and `reported_unsatisfied` states, which keeps the current repo honest while GitHub still reports no hosted checks on live PRs.
+
 ## Next product target after 107
 
 The next product step should evolve the orchestrator from a stronger proof-backed project runner into a more explicit **multi-role autonomous ordinary-task runner**.
