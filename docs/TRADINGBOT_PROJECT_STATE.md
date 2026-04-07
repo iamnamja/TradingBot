@@ -20,34 +20,37 @@ The current deterministic proof slice now demonstrates:
 2. dependency-aware short-manifest planning and routing truth
 3. explicit verification-authority posture
 4. Python-only second-project portability
-5. extraction-prep consumer boundary posture rather than completed standalone extraction
+5. truthful external bootstrap blocked-then-recovered recovery
 6. supervised mixed-manifest progression across proof/docs, bootstrap, and consumer-facing task families
+7. conservative stop on unsatisfied authority
+8. extraction-prep consumer boundary posture rather than completed standalone extraction
 
 ## What recent failures taught us
 
-The 097 and 099 misses were not broad core-loop failures. They exposed narrower resilience gaps:
+The 097, 099, and 107 misses were not broad core-loop failures. They exposed narrower resilience gaps:
 
-- collection-time import/public-surface drift
-- result-shape drift between proof tests and actual exported surfaces
-- manifest-schema drift (`path` vs `task_path`)
-- docs/proof-sync drift that should have been caught before full pytest
-- hosted required-check authority still not behaving as a fully enforced external signal in practice
+- proof tasks still drift too easily toward broader public APIs than the repo actually exports
+- compatibility wrappers and proof-facing adapters can regress when adjacent controller work lands
+- the orchestrator still benefits from stronger coder/tester/controller handoff artifacts instead of loosely shared role context
+- self-heal remains too stateless across repeated attempts and is still vulnerable to no-progress retries
+- task admission is still too permissive for larger or more ambiguous task shapes
+- hosted required-check authority is modeled more strongly in code than it is enforced in the live GitHub environment
+- cross-task context carry-forward is still weak for broader autonomous backlog progression
 
-## Next planned tranche (100–107)
+## Next planned tranche (108–115)
 
-The next tranche should harden the orchestrator against those exact failure families before making broader autonomy claims.
+The next tranche should shift from proof-hardening toward **autonomy operating mode hardening**.
 
 Planned focus areas are:
 
-- public-surface freeze and compatibility aliases for proof-facing helpers
-- first-class collection-error/import-error repair routing
-- proof-sync contract validation and claim guards before full pytest
-- real hosted CI authority integration instead of mostly local semantics
-- explicit hosted-authority availability vs satisfaction truth in branch/PR semantics
-- result-shape and manifest-schema normalization
-- targeted minimal-patch repair planning (105 narrows builder repair toward alias/import/result-shape/docs-only fixes before broader rewrites)
-- external workspace bootstrap recovery proof
-- supervised mixed-manifest autonomy re-proof
+- stable coder/tester/controller artifact envelopes and persisted role handoff payloads
+- tester/verifier critique bundles with focused replay instead of only raw pytest blobs
+- non-repeating repair memory and no-progress suppression
+- safe task admission, family classification, and decomposition gates
+- repo-scoped hosted-check contract and truthful environment probe behavior
+- explicit multi-role task execution loop over ordinary tasks rather than only proof-facing role surfaces
+- cross-task context carry-forward and bounded repo memory
+- a new supervised end-to-end ordinary-manifest autonomy re-proof
 
 ## Near-term posture
 
@@ -55,9 +58,9 @@ Execution should remain intentionally sequential and deterministic.
 
 Recommended lane mix for the next tranche:
 
-- **100–105:** manual first
-- **106:** manual first
-- **107:** orchestrator-supervised, local-first, bounded
+- **108–113:** manual first
+- **114:** manual or hybrid depending on how 113 lands
+- **115:** orchestrator-supervised, local-first, bounded
 
 ## Scope honesty
 
@@ -72,7 +75,6 @@ Current proof scope remains explicitly limited to:
 
 It still does **not** claim autonomy for arbitrary protected/controller/meta task lists, broad unattended production scheduling, or broad multi-language portability.
 
-
 ## Hosted CI authority posture after 103
 
 Hosted CI authority is now treated as first-class evidence in the truth model. The orchestrator distinguishes between:
@@ -84,17 +86,14 @@ Hosted CI authority is now treated as first-class evidence in the truth model. T
 
 This keeps `no checks reported on the branch` as an explicit stop signal rather than silently collapsing it into generic missing-check noise.
 
+## Next product target after 107
 
-## External workspace bootstrap recovery proof (106)
+The next product step should evolve the orchestrator from a stronger proof-backed project runner into a more explicit **multi-role autonomous ordinary-task runner**.
 
-The current bounded proof now also covers a simple external Python workspace that first enters a `blocked` bootstrap state and then recovers truthfully into `succeeded`, with resume-safe recovery semantics kept explicit and deterministic.
+The intended next architecture is still intentionally conservative:
 
+- **controller/orchestrator** decides what should happen next
+- **builder/coder** proposes the narrowest plausible repo patch
+- **tester/verifier** runs focused and full validation and summarizes bounded evidence
 
-## Supervised mixed-manifest re-proof (107)
-
-The fresh re-proof is intentionally narrow and supervised. It demonstrates:
-
-- short mixed-manifest progression across more than one task family
-- truthful combined use of routing/planner/bootstrap/verification/controller surfaces
-- conservative stop behavior when verification authority is unsatisfied
-- bounded local-first scope with no broader autonomy claim than the deterministic tests cover
+This should remain sequential before any future concurrency or true parallel role scheduling is considered.

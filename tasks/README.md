@@ -16,19 +16,20 @@ This file is the canonical visible ordering for task execution history and conti
 - 076–082: autonomous backlog progression and controller-thinning continuation, ending with the first narrow ordinary-manifest autonomous proof slice
 - 083–089: controller-contract hardening, stricter controller-task discipline, and the hardened short-manifest proof synchronization
 - 090–099: multi-agent portability and productization tranche, ending with synchronized proof for the bounded Python-first portability slice
+- 100–107: resilience and hosted-authority hardening tranche, ending with a supervised mixed-manifest local-first re-proof
 
-## Next resilience and hosted-authority hardening tranche
+## Next autonomy operating-mode continuation tranche
 
-- **100** `orchestrator_public_surface_freeze_and_compatibility_aliases`
-- **101** `orchestrator_collection_error_and_import_repair_lane`
-- **102** `orchestrator_proof_sync_contract_validator_and_claim_guard`
-- **103** `orchestrator_real_hosted_ci_authority_integration`
-- **104** `orchestrator_result_shape_and_manifest_schema_normalization`
-- **105** `orchestrator_targeted_repair_planner_and_minimal_patch_selection`
-- **106** `orchestrator_external_workspace_bootstrap_recovery_proof`
-- **107** `orchestrator_supervised_mixed_manifest_autonomy_reproof`
+- **108** `orchestrator_role_handoff_artifact_envelopes_and_persistence`
+- **109** `orchestrator_tester_critique_bundle_and_focused_replay_lane`
+- **110** `orchestrator_repair_memory_and_duplicate_attempt_suppression`
+- **111** `orchestrator_task_admission_and_decomposition_gate`
+- **112** `orchestrator_repo_check_contract_and_hosted_authority_probe`
+- **113** `orchestrator_multi_role_ordinary_task_execution_loop`
+- **114** `orchestrator_cross_task_context_carry_forward_and_repo_memory`
+- **115** `orchestrator_supervised_end_to_end_ordinary_manifest_autonomy_reproof`
 
 ## Related planning artifacts
 
-- `docs/ORCHESTRATOR_ROADMAP_090_099.md` covers the multi-agent portability/productization tranche after Task 089.
 - `docs/ORCHESTRATOR_ROADMAP_100_107.md` covers the resilience and hosted-authority hardening tranche after Task 099.
+- `docs/ORCHESTRATOR_ROADMAP_108_115.md` covers the autonomy operating-mode continuation tranche after Task 107.

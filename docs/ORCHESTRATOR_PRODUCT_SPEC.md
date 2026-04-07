@@ -18,7 +18,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **083–088 harden the controller contract, retry/self-heal truth, merge/resume truth, controller repair context, strict mode, and further `run_task.py` decomposition**
 - **089 synchronizes the hardened short-manifest proof surface and docs**
 - **090–099 synchronize multi-agent contract + portability proof + extraction-prep boundary posture**
-- **100–106 harden resilience and add external bootstrap recovery proof**
+- **100–106 harden resilience, hosted-authority truth, and external bootstrap recovery**
 - **107 adds a supervised mixed-manifest local-first re-proof over multiple task families**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
@@ -32,8 +32,9 @@ The repo now has deterministic proof for:
 - explicit verification-authority posture in the decision truth
 - second-project Python portability proof for a simple generic Python workspace
 - explicit monorepo consumer-boundary snapshot as extraction preparation, not completed extraction
-- explicit external bootstrap blocked-then-recovered truth for a simple external Python workspace
-- supervised mixed-manifest progression and conservative stop when authority is unsatisfied
+- truthful external bootstrap blocked-then-recovered recovery
+- supervised mixed-manifest progression across proof/docs, bootstrap, and consumer-facing task shapes
+- conservative stop on unsatisfied authority
 
 The proof is intentionally bounded and does **not** claim:
 
@@ -72,28 +73,25 @@ The synchronized post-107 proof remains intentionally limited to deterministic l
 - Controller strict-mode proof gates for controller-core tasks
 - Python-first second-project workspace adapter selection and bootstrap truth tracking
 - Sequential multi-agent builder/verifier/controller proof loop over short dependency-aware manifests
+- Public-surface freeze, proof-sync validation, and bounded compatibility normalization
 - Targeted repair planner that prefers the smallest plausible compatibility/docs adapter for bounded failures
-- Supervised local-first mixed-manifest re-proof lane with bounded max-task progression and authority stop guardrails
+- External bootstrap blocked-then-recovered proof and supervised mixed-manifest local-first re-proof
+
+## What the next product step should harden
+
+The next tranche after 107 should turn the current proof slice into a more durable operating mode for broader ordinary-task autonomy.
+
+The highest-value next hardenings are:
+
+- explicit coder/tester/controller artifact envelopes and persisted handoff payloads
+- tester critique bundles and focused replay commands
+- repair memory that prevents repeated no-progress self-heal loops
+- task admission, family classification, and decomposition gates for larger task shapes
+- repo-scoped hosted-check contract and truthful environment probe behavior
+- a real multi-role ordinary-task execution loop instead of only proof-facing role surfaces
+- cross-task context carry-forward and bounded repo memory
+- a fresh end-to-end ordinary-manifest autonomy re-proof after those land
 
 ## Boundary and claim discipline
 
-Public claims in docs/README must remain narrower than or equal to deterministic proof tests. This remains in force for the multi-agent portability tranche.
-
-
-## Result-shape and manifest-schema normalization
-
-The proof-facing portability surface now normalizes manifest entries through one canonical adapter and normalizes loop results through one bounded compatibility adapter. This keeps `path` vs `task_path` drift and proof-facing result-field drift from breaking otherwise valid tasks.
-
-
-## External workspace bootstrap recovery proof (106)
-
-The current bounded proof now also covers a simple external Python workspace that first enters a `blocked` bootstrap state and then recovers truthfully into `succeeded`, with resume-safe recovery semantics kept explicit and deterministic.
-
-
-## Supervised mixed-manifest autonomy re-proof (107)
-
-The current bounded proof also covers a short supervised mixed manifest that spans multiple task families (proof/docs, bootstrap, consumer-facing) and confirms:
-
-- planner/routing/bootstrap/verification/controller surfaces are used together in one deterministic slice
-- the loop remains local-first and bounded by explicit `max_tasks`
-- when verification authority is unsatisfied, controller decision is conservative `stop`
+Public claims in docs/README must remain narrower than or equal to deterministic proof tests. This remains in force for the multi-agent portability and autonomy-operating-mode tranches.

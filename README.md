@@ -44,6 +44,21 @@ It does **not** claim:
 - broad unattended scheduler autonomy
 - full standalone extraction completion
 
+## Next continuation target
+
+The next tranche after 107 should convert the current bounded proof into a more durable operating mode for broader ordinary-task autonomy.
+
+That work should focus on:
+
+- explicit coder/tester/controller handoff artifacts
+- tester critique bundles and focused replay
+- non-repeating repair memory
+- safe task admission and decomposition gates
+- truthful hosted-check contract and repo probe behavior
+- a real multi-role task execution loop rather than only proof-facing role surfaces
+- cross-task context carry-forward for bounded backlog execution
+- a fresh end-to-end supervised ordinary-manifest autonomy re-proof
+
 ## Scope boundary
 
 The current proof remains intentionally narrow:
@@ -62,6 +77,7 @@ The current proof remains intentionally narrow:
 - `docs/TRADINGBOT_PROJECT_STATE.md` — authoritative current state and tranche boundaries
 - `docs/ORCHESTRATOR_PRODUCT_SPEC.md` — product capability and boundary posture
 - `docs/ORCHESTRATOR_ROADMAP_100_107.md` — resilience and hosted-authority tranche
+- `docs/ORCHESTRATOR_ROADMAP_108_115.md` — autonomy-operating-mode continuation after Task 107
 - `tasks/README.md` — canonical numbered task map
 
 ## Development
