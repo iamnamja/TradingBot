@@ -17,6 +17,8 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **108–114 harden ordinary-task autonomy operating mode (artifact envelopes, tester critique/replay, repair memory, admission gates, authority contracts, multi-role ordinary execution, cross-task carry-forward)**
 - **115 adds a fresh supervised local-first ordinary-manifest end-to-end re-proof**
 - **116 adds a canonical project registry and per-project contract surface for the monorepo plus a generic external Python project**
+- **117 adds project-scoped state, branch, checkpoint, workspace, and carry-forward isolation**
+- **118 adds backlog intake and explicit next-task selection policy based on priority, readiness, blocked state, authority prerequisites, and bounded carry-forward memory**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
@@ -30,6 +32,7 @@ The repo now has deterministic proof for a bounded supervised slice:
 - bounded cross-task carry-forward memory
 - conservative authority/admission gate stop posture
 - explicit claim discipline that does not exceed tested deterministic scope
+- deterministic next-task selection from a backlog using explicit priority/readiness/blocked-state policy
 
 The proof is intentionally bounded and does **not** claim:
 
@@ -40,13 +43,12 @@ The proof is intentionally bounded and does **not** claim:
 
 ## Next product-stage focus
 
-The next continuation after Task 116 should focus on converting the new canonical project-registry surface into stronger isolated portfolio execution.
+The next continuation after Task 118 should focus on building from isolated project execution into dependency-aware backlog planning and stronger repair/authority behavior.
 
 The main product gaps are:
 
-- insufficient project-scoped isolation for state, branches, and workspaces
-- weak next-task selection across a real backlog
 - dependency and decomposition planning that is still too manifest-shaped
 - self-heal that still needs stronger repair-plan ranking and rollback behavior
 - validation and authority that are not yet fully project-aware
 - hosted authority that is still truthful but not yet operationally converged enough for low-babysitting portfolio execution
+- multi-project scheduling that still does not own portfolio-level next-step choice end to end

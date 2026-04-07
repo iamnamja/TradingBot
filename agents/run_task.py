@@ -963,6 +963,24 @@ def project_registry_task_context(required_paths: Sequence[str] | None) -> Dict[
     return dict(_impl(required_paths))
 
 
+def project_backlog_selection_contract(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.lib.project_registry import project_backlog_selection_contract as _impl  # type: ignore
+
+    return dict(_impl(project_contract))
+
+
+def select_next_backlog_task(
+    queue: Sequence[object],
+    *,
+    project_contract: Mapping[str, object] | None = None,
+    repo_memory: Mapping[str, object] | None = None,
+    hosted_authority_ready: bool = False,
+) -> Dict[str, object]:
+    from agents.lib.task_queue import select_next_backlog_task as _impl  # type: ignore
+
+    return dict(_impl(queue, project_contract=project_contract, repo_memory=repo_memory, hosted_authority_ready=hosted_authority_ready))
+
+
 def project_workspace_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
     from agents.lib.task_contracts import project_workspace_task_context as _impl  # type: ignore
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Sequence, TypedDict
+from typing import Any, Literal, Mapping, Sequence, TypedDict
 
 from agents.lib.controller_contract import (
     BatchPostTaskDecision,
@@ -63,6 +63,8 @@ class TaskQueueItem:
     deferrable: bool = False
     skipped_by_policy: bool = False
     rerun_required: bool = False
+    priority: int = 0
+    authority_prerequisite: str = "none"
 
 
 
@@ -103,6 +105,8 @@ def _coerce_manifest_task_entry(entry: Any, index: int) -> dict[str, object]:
         "deferrable": bool(normalized["deferrable"]),
         "skipped_by_policy": bool(normalized["skipped_by_policy"]),
         "rerun_required": bool(normalized["rerun_required"]),
+        "priority": int(normalized["priority"]),
+        "authority_prerequisite": str(normalized["authority_prerequisite"]),
     }
 
 
@@ -196,6 +200,8 @@ def build_task_queue_from_manifest(
             deferrable=bool(entry["deferrable"]),
             skipped_by_policy=bool(entry["skipped_by_policy"]),
             rerun_required=bool(entry["rerun_required"]),
+            priority=int(entry["priority"]),
+            authority_prerequisite=str(entry["authority_prerequisite"]),
         )
         for i, entry in enumerate(entries)
     ]
@@ -207,6 +213,18 @@ def plan_manifest_progress(queue: Sequence[TaskQueueItem]) -> dict[str, object]:
 
     return dict(_impl(queue))
 
+
+
+def select_next_backlog_task(
+    queue: Sequence[TaskQueueItem],
+    *,
+    project_contract: Mapping[str, Any] | None = None,
+    repo_memory: Mapping[str, object] | None = None,
+    hosted_authority_ready: bool = False,
+) -> dict[str, object]:
+    from agents.lib.manifest_planner import select_next_backlog_task as _impl
+
+    return dict(_impl(queue, project_contract=project_contract, repo_memory=repo_memory, hosted_authority_ready=hosted_authority_ready))
 
 
 def choose_next_manifest_task(queue: Sequence[TaskQueueItem]) -> str:

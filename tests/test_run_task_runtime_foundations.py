@@ -160,3 +160,5 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.workspace_contract_from_project_contract)
     assert callable(run_task.project_validation_contract)
     assert callable(run_task.project_registry_task_context)
+    assert callable(run_task.project_backlog_selection_contract)
+    assert callable(run_task.select_next_backlog_task)

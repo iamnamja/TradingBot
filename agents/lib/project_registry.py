@@ -261,3 +261,20 @@ def project_workspace_metadata(project_contract: Mapping[str, object] | None) ->
         'project_checkpoint_namespace': str(identity['project_checkpoint_namespace']),
         'project_branch_namespace': str(identity['project_branch_namespace']),
     }
+
+
+
+def project_backlog_selection_contract(project_contract: Mapping[str, object] | None = None) -> dict[str, object]:
+    contract = canonical_project_contract(project_contract)
+    validation_contract = dict(contract.get('validation_contract') or {})
+    return {
+        'project_id': str(contract['project_id']),
+        'allowed_autonomy_lane': str(contract['allowed_autonomy_lane']),
+        'verification_authority_profile': str(validation_contract.get('verification_authority_profile') or 'local_plus_required_ci'),
+        'supports_priority_ranking': True,
+        'supports_readiness_gating': True,
+        'supports_blocked_state_gating': True,
+        'supports_carry_forward_memory_input': True,
+        'supported_authority_prerequisites': ['none', 'hosted'],
+        'hosted_authority_ready_default': False,
+    }

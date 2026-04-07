@@ -231,3 +231,72 @@ def test_queue_signature_is_project_scoped(tmp_path: Path) -> None:
 
     assert tq.queue_signature(queue_a) == ("alpha:tasks/001.md",)
     assert tq.queue_signature(queue_b) == ("beta:tasks/001.md",)
+
+
+def test_backlog_selector_prefers_highest_priority_ready_task(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    pr = _project_registry_module()
+
+    _write_task(tmp_path / "tasks" / "001.md")
+    _write_task(tmp_path / "tasks" / "002.md")
+    _write_task(tmp_path / "tasks" / "003.md")
+
+    manifest = {
+        "tasks": [
+            {"path": "tasks/001.md", "priority": 1},
+            {"path": "tasks/002.md", "priority": 5},
+            {"path": "tasks/003.md", "priority": 3, "depends_on": ["tasks/001.md"]},
+        ]
+    }
+    contract = pr.resolve_project_contract("tradingbot_monorepo")
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path, project_id=contract["project_id"])
+
+    truth = tq.select_next_backlog_task(queue, project_contract=contract)
+
+    assert truth["selected_task_path"] == "tasks/002.md"
+    assert truth["selected_reason"] == "selected_by_priority"
+    assert truth["ranked_candidate_paths"][:2] == ["tasks/002.md", "tasks/001.md"]
+    assert truth["blocking_reasons"]["tasks/003.md"] == "missing_prerequisites:tasks/001.md"
+
+
+def test_backlog_selector_blocks_unsatisfied_authority_and_uses_carry_forward_memory(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    pr = _project_registry_module()
+
+    _write_task(tmp_path / "tasks" / "010.md")
+    _write_task(tmp_path / "tasks" / "011.md")
+    _write_task(tmp_path / "tasks" / "012.md")
+
+    manifest = {
+        "tasks": [
+            {"path": "tasks/010.md", "priority": 10, "authority_prerequisite": "hosted"},
+            {"path": "tasks/011.md", "priority": 4},
+            {"path": "tasks/012.md", "priority": 8},
+        ]
+    }
+    contract = pr.resolve_project_contract("tradingbot_monorepo")
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path, project_id=contract["project_id"])
+    repo_memory = {
+        "carry_forward_summary": "Carry forward 0 accepted change(s), 1 unresolved blocker(s), and 0 deferred issue(s).",
+        "unresolved_blockers": [{"task_path": "tasks/012.md", "summary": "Blocked previously"}],
+    }
+
+    truth = tq.select_next_backlog_task(queue, project_contract=contract, repo_memory=repo_memory, hosted_authority_ready=False)
+
+    assert truth["selected_task_path"] == "tasks/011.md"
+    assert truth["blocking_reasons"]["tasks/010.md"] == "authority_prerequisite_unsatisfied:hosted"
+    assert truth["blocking_reasons"]["tasks/012.md"] == "carry_forward_blocked"
+    assert truth["carry_forward_summary_used"].startswith("Carry forward")
+
+
+def test_manifest_entry_schema_includes_priority_and_authority_prerequisite() -> None:
+    planner = _manifest_planner_module()
+
+    entry = planner.normalize_manifest_entry_schema({
+        "path": "tasks/020.md",
+        "priority": 7,
+        "authority_prerequisite": "required_ci",
+    })
+
+    assert entry["priority"] == 7
+    assert entry["authority_prerequisite"] == "hosted"
