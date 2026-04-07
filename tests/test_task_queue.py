@@ -300,3 +300,90 @@ def test_manifest_entry_schema_includes_priority_and_authority_prerequisite() ->
 
     assert entry["priority"] == 7
     assert entry["authority_prerequisite"] == "hosted"
+
+
+
+def test_dependency_graph_truth_reports_edges_and_decomposition(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+
+    _write_task(tmp_path / "tasks" / "100.md")
+    _write_task(tmp_path / "tasks" / "101.md")
+    _write_task(tmp_path / "tasks" / "102.md")
+
+    manifest = {
+        "tasks": [
+            {"path": "tasks/100.md", "priority": 1},
+            {
+                "path": "tasks/101.md",
+                "depends_on": ["tasks/100.md"],
+                "required_paths": ["agents/lib/a.py", "tests/test_a.py", "docs/A.md", "tasks/100.md"],
+                "decomposition_safe": True,
+                "decomposition_max_unit_size": 2,
+            },
+            {"path": "tasks/102.md", "blocks": ["tasks/101.md"]},
+        ]
+    }
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path, project_id="alpha")
+
+    truth = tq.build_dependency_graph_truth(queue)
+
+    assert truth["dependency_nodes"] == ["tasks/100.md", "tasks/101.md", "tasks/102.md"]
+    assert {tuple(item.values()) for item in truth["dependency_edges"]} == {("tasks/100.md", "tasks/101.md")}
+    assert {tuple(item.values()) for item in truth["blocking_edges"]} == {("tasks/102.md", "tasks/101.md")}
+    assert truth["decomposition_required_task_paths"] == ["tasks/101.md"]
+    assert truth["decomposition_manual_only_task_paths"] == []
+
+
+def test_large_task_without_safe_decomposition_is_blocked_from_selection(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    pr = _project_registry_module()
+
+    _write_task(tmp_path / "tasks" / "200.md")
+    _write_task(tmp_path / "tasks" / "201.md")
+
+    manifest = {
+        "tasks": [
+            {
+                "path": "tasks/200.md",
+                "priority": 9,
+                "required_paths": [
+                    "agents/lib/a.py",
+                    "agents/lib/b.py",
+                    "tests/test_a.py",
+                    "docs/A.md",
+                    "tasks/extra.md",
+                ],
+                "decomposition_safe": False,
+            },
+            {"path": "tasks/201.md", "priority": 1},
+        ]
+    }
+    contract = pr.resolve_project_contract("tradingbot_monorepo")
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path, project_id=contract["project_id"])
+
+    truth = tq.select_next_backlog_task(queue, project_contract=contract)
+    assert truth["selected_task_path"] == "tasks/201.md"
+    assert truth["blocking_reasons"]["tasks/200.md"] == "decomposition_not_safe"
+
+
+def test_plan_dependency_decomposition_returns_persistable_truth(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+
+    _write_task(tmp_path / "tasks" / "300.md")
+    manifest = {
+        "tasks": [
+            {
+                "path": "tasks/300.md",
+                "required_paths": ["agents/lib/a.py", "tests/test_a.py", "docs/A.md", "docs/B.md", "tasks/300.md"],
+                "decomposition_safe": True,
+                "decomposition_max_unit_size": 2,
+            }
+        ]
+    }
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path, project_id="alpha")
+
+    truth = tq.plan_dependency_decomposition(queue)
+    assert truth["dependency_graph"]["dependency_nodes"] == ["tasks/300.md"]
+    assert truth["decomposition_by_task"]["tasks/300.md"]["decomposition_status"] == "required"
+    assert truth["decomposition_by_task"]["tasks/300.md"]["decomposition_unit_count"] >= 2
+    assert truth["decomposition_by_task"]["tasks/300.md"]["decomposition_units"]

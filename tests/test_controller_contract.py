@@ -50,6 +50,10 @@ def test_controller_contract_snapshot_is_canonical() -> None:
     assert "resume_target_task_path" in snapshot["resume_metadata_fields"]
     assert "selected_task_path" in snapshot["backlog_selection_truth_fields"]
     assert "selection_policy" in snapshot["backlog_selection_truth_fields"]
+    assert "dependency_edges" in snapshot["dependency_decomposition_truth_fields"]
+    assert "decomposition_by_task" in snapshot["dependency_decomposition_truth_fields"]
+    assert "required_paths" in snapshot["proof_sync_allowed_manifest_entry_keys"]
+    assert "decomposition_safe" in snapshot["proof_sync_allowed_manifest_entry_keys"]
 
     assert snapshot["controller_strict_mode_paths"] == [
         "agents/run_task.py",

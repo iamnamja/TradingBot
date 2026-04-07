@@ -70,6 +70,37 @@ class ManifestPlannerTruth:
 
 
 @dataclass(frozen=True)
+class DependencyGraphTruth:
+    dependency_nodes: tuple[str, ...] = ()
+    dependency_edges: tuple[tuple[str, str], ...] = ()
+    blocking_edges: tuple[tuple[str, str], ...] = ()
+    unresolved_dependencies: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    blocked_by_dependencies: tuple[str, ...] = ()
+    decomposition_required_task_paths: tuple[str, ...] = ()
+    decomposition_manual_only_task_paths: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "dependency_nodes": list(self.dependency_nodes),
+            "dependency_edges": [
+                {"from": source, "to": target}
+                for source, target in self.dependency_edges
+            ],
+            "blocking_edges": [
+                {"from": source, "to": target}
+                for source, target in self.blocking_edges
+            ],
+            "unresolved_dependencies": {
+                task_path: list(deps)
+                for task_path, deps in self.unresolved_dependencies
+            },
+            "blocked_by_dependencies": list(self.blocked_by_dependencies),
+            "decomposition_required_task_paths": list(self.decomposition_required_task_paths),
+            "decomposition_manual_only_task_paths": list(self.decomposition_manual_only_task_paths),
+        }
+
+
+@dataclass(frozen=True)
 class RepoMemorySnapshot:
     accepted_change_summaries: tuple[dict[str, object], ...] = ()
     unresolved_blockers: tuple[dict[str, object], ...] = ()
@@ -179,6 +210,9 @@ def normalize_manifest_entry_schema(entry: Any, *, index: int = 0) -> dict[str, 
             "rerun_required": False,
             "priority": 0,
             "authority_prerequisite": "none",
+            "required_paths": [],
+            "decomposition_safe": False,
+            "decomposition_max_unit_size": 3,
         }
     if not isinstance(entry, Mapping):
         raise ValueError(f"Manifest entry at index {index} must be a string or mapping.")
@@ -206,6 +240,9 @@ def normalize_manifest_entry_schema(entry: Any, *, index: int = 0) -> dict[str, 
         "rerun_required": bool(entry.get("rerun_required", False)),
         "priority": _normalized_priority_value(entry.get("priority", 0)),
         "authority_prerequisite": _normalized_authority_prerequisite(entry.get("authority_prerequisite", "none")),
+        "required_paths": _path_list(entry.get("required_paths")),
+        "decomposition_safe": bool(entry.get("decomposition_safe", False)),
+        "decomposition_max_unit_size": max(1, _normalized_priority_value(entry.get("decomposition_max_unit_size", 3)) or 3),
     }
 
 
@@ -312,6 +349,80 @@ def plan_manifest_progress(queue: Sequence[Any]) -> dict[str, object]:
 
 
 
+def build_manifest_entry_decomposition_truth(entry: Mapping[str, object] | Any) -> dict[str, object]:
+    required_paths = tuple(_dedupe_paths(getattr(entry, "required_paths", None) if not isinstance(entry, Mapping) else entry.get("required_paths") or ()))
+    decomposition_safe = bool(getattr(entry, "decomposition_safe", None) if not isinstance(entry, Mapping) else entry.get("decomposition_safe", False))
+    max_paths_per_unit = max(1, int(getattr(entry, "decomposition_max_unit_size", None) if not isinstance(entry, Mapping) else entry.get("decomposition_max_unit_size", 3) or 3))
+
+    base_truth = dict(build_bounded_decomposition_truth(required_paths, max_paths_per_unit=max_paths_per_unit))
+    if base_truth["decomposition_status"] == "required" and not decomposition_safe:
+        base_truth["decomposition_status"] = "manual_only"
+        base_truth["bounded_decomposition_required"] = False
+        base_truth["decomposition_summary"] = "Large task shape detected, but bounded decomposition is not marked safe for autonomous planning."
+    return base_truth
+
+
+def build_dependency_graph_truth(queue: Sequence[Any]) -> dict[str, object]:
+    completed_paths = {item.task_path for item in queue if getattr(item, "status", "queued") == "completed"}
+    dependency_nodes = tuple(item.task_path for item in queue)
+    dependency_edges: list[tuple[str, str]] = []
+    blocking_edges: list[tuple[str, str]] = []
+    unresolved: list[tuple[str, tuple[str, ...]]] = []
+    blocked: list[str] = []
+    decomp_required: list[str] = []
+    decomp_manual: list[str] = []
+
+    for item in queue:
+        for dep in getattr(item, "depends_on", ()):
+            dependency_edges.append((str(dep), item.task_path))
+        for blocked_task in getattr(item, "blocks", ()):
+            blocking_edges.append((item.task_path, str(blocked_task)))
+        missing = tuple(sorted(dep for dep in getattr(item, "depends_on", ()) if dep not in completed_paths))
+        if missing:
+            unresolved.append((item.task_path, missing))
+            blocked.append(item.task_path)
+        decomposition_status = str(getattr(item, "decomposition_status", "not_required") or "not_required")
+        if decomposition_status == "required":
+            decomp_required.append(item.task_path)
+        elif decomposition_status == "manual_only":
+            decomp_manual.append(item.task_path)
+            if item.task_path not in blocked:
+                blocked.append(item.task_path)
+
+    truth = DependencyGraphTruth(
+        dependency_nodes=dependency_nodes,
+        dependency_edges=tuple(dependency_edges),
+        blocking_edges=tuple(blocking_edges),
+        unresolved_dependencies=tuple(unresolved),
+        blocked_by_dependencies=tuple(blocked),
+        decomposition_required_task_paths=tuple(decomp_required),
+        decomposition_manual_only_task_paths=tuple(decomp_manual),
+    )
+    return truth.to_dict()
+
+
+def plan_dependency_decomposition(queue: Sequence[Any]) -> dict[str, object]:
+    planner_truth = dict(plan_manifest_progress(queue))
+    graph_truth = build_dependency_graph_truth(queue)
+    decomposition_by_task: dict[str, dict[str, object]] = {}
+    for item in queue:
+        decomposition_by_task[item.task_path] = {
+            "decomposition_status": str(getattr(item, "decomposition_status", "not_required") or "not_required"),
+            "bounded_decomposition_required": bool(getattr(item, "bounded_decomposition_required", False)),
+            "decomposition_unit_count": int(getattr(item, "decomposition_unit_count", 0) or 0),
+            "decomposition_summary": str(getattr(item, "decomposition_summary", "") or ""),
+            "decomposition_units": [
+                {"label": label, "task_paths": list(paths)}
+                for label, paths in getattr(item, "decomposition_units", ())
+            ],
+        }
+    return {
+        **planner_truth,
+        "dependency_graph": graph_truth,
+        "decomposition_by_task": decomposition_by_task,
+    }
+
+
 def _carry_forward_related_and_blocked_paths(repo_memory: Mapping[str, object] | None) -> tuple[set[str], set[str], str]:
     memory = dict(repo_memory or {})
     related = {
@@ -363,6 +474,14 @@ def select_next_backlog_task(
             continue
         if item.task_path in carry_forward_blocked and item.task_path not in blocking_reasons:
             blocking_reasons[item.task_path] = "carry_forward_blocked"
+            if item.task_path not in blocked_paths:
+                blocked_paths.append(item.task_path)
+            if item.deferrable and item.task_path not in deferred_paths:
+                deferred_paths.append(item.task_path)
+            continue
+        decomposition_status = str(getattr(item, "decomposition_status", "not_required") or "not_required")
+        if decomposition_status == "manual_only":
+            blocking_reasons[item.task_path] = "decomposition_not_safe"
             if item.task_path not in blocked_paths:
                 blocked_paths.append(item.task_path)
             if item.deferrable and item.task_path not in deferred_paths:

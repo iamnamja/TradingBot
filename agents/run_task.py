@@ -831,6 +831,27 @@ def build_bounded_decomposition_truth(required_paths: Sequence[str] | None) -> D
     return dict(_impl(required_paths))
 
 
+
+def build_manifest_entry_decomposition_truth(entry: Mapping[str, object] | object) -> Dict[str, object]:
+    from agents.lib.manifest_planner import build_manifest_entry_decomposition_truth as _impl  # type: ignore
+
+    return dict(_impl(entry))
+
+
+
+def build_dependency_graph_truth(queue: Sequence[object]) -> Dict[str, object]:
+    from agents.lib.task_queue import build_dependency_graph_truth as _impl  # type: ignore
+
+    return dict(_impl(queue))
+
+
+
+def plan_dependency_decomposition(queue: Sequence[object]) -> Dict[str, object]:
+    from agents.lib.task_queue import plan_dependency_decomposition as _impl  # type: ignore
+
+    return dict(_impl(queue))
+
+
 def normalize_manifest_entry_schema(entry: object, *, index: int = 0) -> Dict[str, object]:
     from agents.lib.manifest_planner import normalize_manifest_entry_schema as _impl  # type: ignore
 
@@ -961,6 +982,18 @@ def project_registry_task_context(required_paths: Sequence[str] | None) -> Dict[
     from agents.lib.task_contracts import project_registry_task_context as _impl  # type: ignore
 
     return dict(_impl(required_paths))
+
+
+
+def dependency_decomposition_task_context(
+    required_paths: Sequence[str] | None,
+    *,
+    decomposition_safe: bool = False,
+    max_paths_per_unit: int = 3,
+) -> Dict[str, object]:
+    from agents.lib.task_contracts import dependency_decomposition_task_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths, decomposition_safe=decomposition_safe, max_paths_per_unit=max_paths_per_unit))
 
 
 def project_backlog_selection_contract(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:

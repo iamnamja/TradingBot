@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 090–118 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, a supervised ordinary-manifest re-proof, and a canonical project registry plus per-project contract surface for the monorepo and a generic external Python project, along with project-scoped isolation and deterministic backlog intake / next-task selection policy.
+- **Tasks 090–118 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, a supervised ordinary-manifest re-proof, and a canonical project registry plus per-project contract surface for the monorepo and a generic external Python project, along with project-scoped isolation and deterministic backlog intake / next-task selection policy, plus explicit dependency-graph truth and bounded decomposition planning for larger multi-step work.
 
 The current deterministic proof slice now demonstrates:
 
@@ -24,7 +24,8 @@ The current deterministic proof slice now demonstrates:
 6. conservative stop behavior when authority or admission gates are unsatisfied
 7. deterministic project-registry resolution for the monorepo and a generic external Python project
 8. deterministic next-task selection across a backlog using priority, readiness, blocked-state, authority, and carry-forward signals
-9. no broader claim than the deterministic local supervised proof covers
+9. explicit dependency edges, unresolved-dependency blocking, and bounded decomposition truth for larger multi-step work
+10. no broader claim than the deterministic local supervised proof covers
 
 ## Scope honesty
 
