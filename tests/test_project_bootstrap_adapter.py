@@ -137,3 +137,34 @@ def test_bootstrap_success_is_explicit_and_ready_for_validation() -> None:
     assert truth['bootstrap_status'] == 'succeeded'
     assert truth['bootstrap_error'] == ''
     assert truth['workspace_ready_for_validation'] is True
+
+
+def test_bootstrap_recovery_from_blocked_state_is_truthful_and_resumable() -> None:
+    contract = project_workspace_adapter.generic_python_workspace_contract('external-app')
+    blocked = project_workspace_adapter.evaluate_workspace_bootstrap_result(
+        contract,
+        bootstrap_ok=False,
+        bootstrap_error='missing virtualenv',
+    )
+    recovered = project_workspace_adapter.recover_workspace_bootstrap_truth(
+        blocked,
+        bootstrap_ok=True,
+        bootstrap_error='',
+    )
+
+    assert blocked['bootstrap_status'] == 'blocked'
+    assert recovered['previous_bootstrap_status'] == 'blocked'
+    assert recovered['recovery_attempted'] is True
+    assert recovered['resumed_from_bootstrap_blocked_state'] is True
+    assert recovered['bootstrap_status'] == 'succeeded'
+    assert recovered['bootstrap_recovered'] is True
+    assert recovered['workspace_ready_for_validation'] is True
+
+
+def test_bootstrap_recovery_snapshot_stays_python_first_and_narrow() -> None:
+    snapshot = project_workspace_adapter.bootstrap_recovery_proof_snapshot()
+
+    assert snapshot['python_first_scope_only'] is True
+    assert snapshot['recovery_proof_scope'] == 'simple_external_python_workspace'
+    assert snapshot['supports_truthful_blocked_then_recovered_state'] is True
+    assert snapshot['bootstrap_statuses'] == ['not_started', 'succeeded', 'blocked']
