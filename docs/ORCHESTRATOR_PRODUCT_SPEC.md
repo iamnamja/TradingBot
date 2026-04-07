@@ -99,4 +99,4 @@ The highest-value next hardenings are:
 Public claims in docs/README must remain narrower than or equal to deterministic proof tests. This remains in force for the multi-agent portability and autonomy-operating-mode tranches.
 
 
-Task 110 extends the bounded self-heal posture with persisted repair memory. Repeated same-surface repair plans are now treated as explicit no-progress signals and are suppressed deterministically rather than consuming the retry budget silently.
+Task 111 adds an explicit task-admission gate. The repo now distinguishes between autonomous-ordinary, supervised-autonomous, and manual-only task shapes, and it produces bounded decomposition truth for larger ordinary tasks instead of pretending every ambiguous shape is safely autonomously admissible.

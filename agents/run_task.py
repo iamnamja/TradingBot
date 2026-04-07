@@ -555,40 +555,6 @@ def choose_repair_strategy(
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
 
 
-def build_repair_attempt_record(
-    *,
-    task_path: str,
-    repair_strategy: str,
-    targeted_patch_surface: str,
-    target_files: Iterable[str] | None = None,
-    failure_fingerprint: str = "",
-    retry_count: int = 0,
-) -> Dict[str, object]:
-    from agents.lib.controller_repair import build_repair_attempt_record as _impl  # type: ignore
-
-    return dict(
-        _impl(
-            task_path=task_path,
-            repair_strategy=repair_strategy,
-            targeted_patch_surface=targeted_patch_surface,
-            target_files=target_files,
-            failure_fingerprint=failure_fingerprint,
-            retry_count=retry_count,
-        )
-    )
-
-
-def evaluate_repair_attempt_memory(
-    *,
-    current_attempt: Mapping[str, object] | None,
-    prior_attempts: Iterable[Mapping[str, object]] | None = None,
-    retry_budget: int = 0,
-) -> Dict[str, object]:
-    from agents.lib.controller_repair import evaluate_repair_attempt_memory as _impl  # type: ignore
-
-    return dict(_impl(current_attempt=dict(current_attempt or {}), prior_attempts=[dict(item) for item in (prior_attempts or ())], retry_budget=retry_budget))
-
-
 def format_repair_strategy(route: Mapping[str, object] | None) -> str:
     from agents.lib.controller_repair import format_repair_strategy as _impl  # type: ignore
 
@@ -721,6 +687,12 @@ def controller_decides_next_role(*, current_role: str, proposed_next_role: str, 
 
 
 
+def task_admission_context(required_paths: Sequence[str] | None, *, task_file: str = "") -> Dict[str, object]:
+    from agents.lib.task_contracts import task_admission_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths, task_file=task_file))
+
+
 def task_family_task_context(required_paths: Sequence[str] | None, *, task_file: str = "") -> Dict[str, object]:
     from agents.lib.task_contracts import task_family_task_context as _impl  # type: ignore
 
@@ -814,6 +786,12 @@ def execute_multi_agent_loop(
     )
 
 
+
+
+def build_bounded_decomposition_truth(required_paths: Sequence[str] | None) -> Dict[str, object]:
+    from agents.lib.manifest_planner import build_bounded_decomposition_truth as _impl  # type: ignore
+
+    return dict(_impl(required_paths))
 
 
 def normalize_manifest_entry_schema(entry: object, *, index: int = 0) -> Dict[str, object]:
@@ -4618,62 +4596,6 @@ def run_checks() -> Tuple[bool, str]:
 
 
 
-def _check_runner_exports() -> Dict[str, object]:
-    try:
-        from agents.lib import check_runner as _check_runner  # type: ignore
-    except Exception:
-        _check_runner = None  # type: ignore[assignment]
-
-    exports: Dict[str, object] = {
-        "check_runner": _check_runner,
-        "build_tester_critique_bundle": None,
-        "summarize_tester_critique_bundle": None,
-    }
-
-    if _check_runner is not None:
-        critique_fn = getattr(_check_runner, "build_tester_critique_bundle", None)
-        summary_fn = getattr(_check_runner, "summarize_tester_critique_bundle", None)
-        if callable(critique_fn):
-            exports["build_tester_critique_bundle"] = critique_fn
-        if callable(summary_fn):
-            exports["summarize_tester_critique_bundle"] = summary_fn
-
-    return exports
-
-
-def build_tester_critique_bundle(payload: Mapping[str, object] | None = None, **overrides: object) -> dict[str, object]:
-    exports = _check_runner_exports()
-    delegated = exports.get("build_tester_critique_bundle")
-    if callable(delegated):
-        return delegated(payload, **overrides)
-    return {
-        "schema_version": 1,
-        "all_checks_passed": True,
-        "likely_failure_family": "pass",
-        "critique_summary": "Validation passed locally; no focused replay is currently required.",
-        "failing_test_files": [],
-        "likely_touched_files": [],
-        "focused_replay_commands": [],
-        "broad_replay_commands": [],
-    }
-
-
-def summarize_tester_critique_bundle(payload: Mapping[str, object] | None = None, **overrides: object) -> dict[str, object]:
-    exports = _check_runner_exports()
-    delegated = exports.get("summarize_tester_critique_bundle")
-    if callable(delegated):
-        return delegated(payload, **overrides)
-    bundle = build_tester_critique_bundle(payload, **overrides)
-    return {
-        "likely_failure_family": bundle.get("likely_failure_family", "pass"),
-        "critique_summary": bundle.get("critique_summary", ""),
-        "failing_test_files": list(bundle.get("failing_test_files", []) or []),
-        "likely_touched_files": list(bundle.get("likely_touched_files", []) or []),
-        "focused_replay_commands": list(bundle.get("focused_replay_commands", []) or []),
-        "broad_replay_commands": list(bundle.get("broad_replay_commands", []) or []),
-    }
-
-
 def main() -> int:
     _load_dotenv_if_available()
 
@@ -5299,13 +5221,13 @@ def _failure_journal_exports() -> Dict[str, object]:
         "build_failure_remediation_plan": None,
         "autonomy_confidence": None,
         "continue_autonomously": None,
+        "build_repair_attempt_record": None,
+        "repair_attempt_fingerprint": None,
+        "evaluate_repair_attempt_memory": None,
         "build_semantic_failure_digest": None,
         "build_semantic_repair_context": None,
         "choose_repair_strategy": None,
         "collection_failure_category": None,
-        "build_repair_attempt_record": None,
-        "repair_attempt_fingerprint": None,
-        "evaluate_repair_attempt_memory": None,
     }
 
     if _failure_journal is not None:
@@ -5320,13 +5242,13 @@ def _failure_journal_exports() -> Dict[str, object]:
             "build_failure_remediation_plan",
             "autonomy_confidence",
             "continue_autonomously",
+            "build_repair_attempt_record",
+            "repair_attempt_fingerprint",
+            "evaluate_repair_attempt_memory",
             "build_semantic_failure_digest",
             "build_semantic_repair_context",
             "choose_repair_strategy",
             "collection_failure_category",
-            "build_repair_attempt_record",
-            "repair_attempt_fingerprint",
-            "evaluate_repair_attempt_memory",
         ):
             obj = getattr(_failure_journal, name, None)
             if callable(obj):
@@ -5408,3 +5330,4 @@ def autonomous_backlog_runner_proof_capabilities() -> dict[str, object]:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

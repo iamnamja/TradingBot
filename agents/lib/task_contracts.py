@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Pattern, Sequence, Tuple
 
+PROTECTED_META_TASK_HINTS = ("protected", "meta", "controller core", "controller-core", "strict mode")
+
 
 def parse_task_contract_directives(
     *,
@@ -367,6 +369,82 @@ def project_workspace_task_context(
         'supported_workspace_consumers': list(snapshot['supported_consumers']),
     }
 
+def task_admission_context(
+    required_paths: Sequence[str] | None,
+    *,
+    task_file: str = "",
+    controller_paths: Sequence[str] | None = None,
+) -> dict[str, object]:
+    from agents.lib.manifest_planner import build_bounded_decomposition_truth
+
+    required = normalize_paths(required_paths)
+    controller_context = controller_core_task_context(required, controller_paths=controller_paths)
+    workspace_context = project_workspace_task_context(required)
+    task_file_text = str(task_file or "").lower()
+
+    doc_like = [path for path in required if path == "README.md" or path.startswith("docs/")]
+    test_like = [path for path in required if path.startswith("tests/")]
+    code_like = [path for path in required if path.startswith("agents/") or path.startswith("src/")]
+    protected_meta_paths = [
+        path
+        for path in required
+        if path.startswith("agents/lib/protected_")
+        or path.startswith("agents/lib/controller_")
+        or path == "agents/run_task.py"
+    ]
+    protected_meta_task = bool(controller_context["touches_controller_core"] or protected_meta_paths or any(hint in task_file_text for hint in PROTECTED_META_TASK_HINTS))
+    bootstrap_like = bool(workspace_context["touches_project_workspace_contract"]) or "bootstrap" in task_file_text or "workspace" in task_file_text
+    proof_like = (bool(required) and len(doc_like) == len(required)) or "proof" in task_file_text or "sync" in task_file_text
+    verifier_only = bool(required) and len(test_like) == len(required)
+    mixed_surface_groups = sum(bool(group) for group in (code_like, test_like, doc_like))
+    ambiguous_task_shape = not bool(required) or mixed_surface_groups >= 3 or (len(required) >= 4 and doc_like and code_like)
+    decomposition = build_bounded_decomposition_truth(required)
+
+    if protected_meta_task:
+        lane = "manual_only"
+        rationale = "Task touches protected/controller/meta surfaces and must not be admitted to autonomous execution."
+        decomposition_status = "manual_only"
+        decomposition_required = False
+        decomposition_summary = "Manual-only task shape; do not auto-decompose into autonomous work units."
+    elif bootstrap_like or proof_like:
+        lane = "supervised_autonomous"
+        rationale = "Task shape remains supervised because bootstrap/proof work is broader than ordinary autonomous scope."
+        decomposition_status = str(decomposition["decomposition_status"])
+        decomposition_required = bool(decomposition["bounded_decomposition_required"])
+        decomposition_summary = str(decomposition["decomposition_summary"])
+    elif ambiguous_task_shape or bool(decomposition["bounded_decomposition_required"]):
+        lane = "supervised_autonomous"
+        rationale = "Task shape is larger or more ambiguous than the bounded ordinary-autonomy slice and should stay supervised."
+        decomposition_status = str(decomposition["decomposition_status"])
+        decomposition_required = bool(decomposition["bounded_decomposition_required"])
+        decomposition_summary = str(decomposition["decomposition_summary"])
+    else:
+        lane = "autonomous_ordinary"
+        rationale = "Task shape fits the current bounded ordinary-autonomy slice."
+        decomposition_status = str(decomposition["decomposition_status"])
+        decomposition_required = bool(decomposition["bounded_decomposition_required"])
+        decomposition_summary = str(decomposition["decomposition_summary"])
+
+    return {
+        **controller_context,
+        **workspace_context,
+        "task_admission_lane": lane,
+        "task_admission_rationale": rationale,
+        "protected_or_meta_task": protected_meta_task,
+        "protected_or_meta_required_paths": list(protected_meta_paths),
+        "ambiguous_task_shape": ambiguous_task_shape,
+        "ordinary_task_candidate": bool(required) and not protected_meta_task and not bootstrap_like and not proof_like,
+        "bounded_decomposition_required": decomposition_required,
+        "decomposition_status": decomposition_status,
+        "decomposition_unit_count": int(decomposition["decomposition_unit_count"]),
+        "decomposition_units": list(decomposition["decomposition_units"]),
+        "decomposition_summary": decomposition_summary,
+        "verifier_only_task_shape": verifier_only,
+        "proof_like_task_shape": proof_like,
+        "bootstrap_like_task_shape": bootstrap_like,
+    }
+
+
 def task_family_task_context(
     required_paths: Sequence[str] | None,
     *,
@@ -374,21 +452,23 @@ def task_family_task_context(
     controller_paths: Sequence[str] | None = None,
 ) -> dict[str, object]:
     required = normalize_paths(required_paths)
-    controller_context = controller_core_task_context(required, controller_paths=controller_paths)
-    workspace_context = project_workspace_task_context(required)
-    task_file_text = str(task_file or "").lower()
-    doc_like = [path for path in required if path == "README.md" or path.startswith("docs/")]
-    test_like = [path for path in required if path.startswith("tests/")]
-    bootstrap_like = bool(workspace_context["touches_project_workspace_contract"]) or "bootstrap" in task_file_text or "workspace" in task_file_text
-    proof_like = (bool(required) and len(doc_like) == len(required)) or "proof" in task_file_text or "sync" in task_file_text
-    verifier_only = bool(required) and len(test_like) == len(required)
+    admission_context = task_admission_context(required, task_file=task_file, controller_paths=controller_paths)
+    bootstrap_like = bool(admission_context["bootstrap_like_task_shape"])
+    proof_like = bool(admission_context["proof_like_task_shape"])
+    verifier_only = bool(admission_context["verifier_only_task_shape"])
 
-    if bool(controller_context["touches_controller_core"]):
+    if bool(admission_context["touches_controller_core"]):
         family = "strict_manual_controller_core"
         suggested_role = "manual_patch"
         lane = "constrained_manual"
         strict_required = True
         rationale = "Task touches controller-core surfaces and must remain constrained/manual."
+    elif bool(admission_context["protected_or_meta_task"]):
+        family = "strict_manual_controller_core"
+        suggested_role = "manual_patch"
+        lane = "constrained_manual"
+        strict_required = True
+        rationale = "Task admission gate classified this shape as protected/meta and manual-only."
     elif bootstrap_like:
         family = "bootstrap_setup"
         suggested_role = "builder"
@@ -415,8 +495,7 @@ def task_family_task_context(
         rationale = "Task defaults to builder-first routing."
 
     return {
-        **controller_context,
-        **workspace_context,
+        **admission_context,
         "task_family": family,
         "task_family_rationale": rationale,
         "suggested_first_specialist_role": suggested_role,

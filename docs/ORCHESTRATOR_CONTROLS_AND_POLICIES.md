@@ -198,3 +198,8 @@ Current required behavior:
 - `no checks reported` must not be interpreted as success
 - persisted batch/checkpoint truth must distinguish hosted authority availability from hosted authority satisfaction
 - controller stop posture remains conservative whenever hosted authority is absent or unsatisfied
+
+
+## Task admission gate
+
+The orchestrator now distinguishes between `autonomous_ordinary`, `supervised_autonomous`, and `manual_only` task-admission lanes. Protected/controller/meta task shapes remain conservative and manual-only. Larger mixed-surface ordinary tasks may still be admissible only under supervision and may require bounded decomposition before execution begins.

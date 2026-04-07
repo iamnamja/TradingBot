@@ -30,12 +30,25 @@ ResumeMode = Literal[
     "resume_after_manual_resolution",
 ]
 QueueTerminalStatus = Literal["completed", "failed", "manual_patch", "blocked"]
+TaskAdmissionLane = Literal["autonomous_ordinary", "supervised_autonomous", "manual_only"]
+DecompositionStatus = Literal["not_required", "suggested", "required", "manual_only"]
 
 ACCEPTANCE_DECISIONS: tuple[AcceptanceDecision, ...] = (
     "accepted",
     "retryable_failure",
     "manual_patch",
     "blocked",
+)
+TASK_ADMISSION_LANES: tuple[TaskAdmissionLane, ...] = (
+    "autonomous_ordinary",
+    "supervised_autonomous",
+    "manual_only",
+)
+DECOMPOSITION_STATUSES: tuple[DecompositionStatus, ...] = (
+    "not_required",
+    "suggested",
+    "required",
+    "manual_only",
 )
 POST_TASK_DECISIONS: tuple[BatchPostTaskDecision, ...] = (
     "continue",
@@ -90,6 +103,16 @@ CHECKPOINT_TRUTH_FIELDS: tuple[str, ...] = (
     "verifier_verdict",
     "controller_next_role_decision",
     "role_outcome",
+)
+ADMISSION_TRUTH_FIELDS: tuple[str, ...] = (
+    "task_admission_lane",
+    "task_admission_rationale",
+    "protected_or_meta_task",
+    "ambiguous_task_shape",
+    "bounded_decomposition_required",
+    "decomposition_status",
+    "decomposition_unit_count",
+    "decomposition_summary",
 )
 RESUME_METADATA_FIELDS: tuple[str, ...] = (
     "resume_reason",
@@ -241,6 +264,20 @@ _POST_TASK_FROM_TERMINAL: dict[QueueTerminalStatus, BatchPostTaskDecision] = {
 }
 
 
+def coerce_task_admission_lane(value: Any, default: TaskAdmissionLane = "supervised_autonomous") -> TaskAdmissionLane:
+    text = str(value or "").strip()
+    if text in TASK_ADMISSION_LANES:
+        return cast(TaskAdmissionLane, text)
+    return default
+
+
+def coerce_decomposition_status(value: Any, default: DecompositionStatus = "not_required") -> DecompositionStatus:
+    text = str(value or "").strip()
+    if text in DECOMPOSITION_STATUSES:
+        return cast(DecompositionStatus, text)
+    return default
+
+
 def coerce_acceptance_decision(value: Any, default: AcceptanceDecision = "retryable_failure") -> AcceptanceDecision:
     text = str(value or "").strip()
     if text in ACCEPTANCE_DECISIONS:
@@ -382,10 +419,13 @@ def resume_mode_allows_execution(*, resume_mode: ResumeMode, explicit_resume: bo
 def controller_contract_snapshot() -> dict[str, object]:
     return {
         "acceptance_decisions": list(ACCEPTANCE_DECISIONS),
+        "task_admission_lanes": list(TASK_ADMISSION_LANES),
+        "decomposition_statuses": list(DECOMPOSITION_STATUSES),
         "post_task_decisions": list(POST_TASK_DECISIONS),
         "resume_modes": list(RESUME_MODES),
         "checkpoint_truth_fields": list(CHECKPOINT_TRUTH_FIELDS),
         "resume_metadata_fields": list(RESUME_METADATA_FIELDS),
+        "admission_truth_fields": list(ADMISSION_TRUTH_FIELDS),
         "controller_failure_categories": list(CONTROLLER_FAILURE_CATEGORIES),
         "controller_strict_mode_paths": list(CONTROLLER_STRICT_MODE_PATHS),
         "controller_proof_test_paths": list(CONTROLLER_PROOF_TEST_PATHS),
