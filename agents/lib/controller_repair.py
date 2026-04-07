@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from agents.lib.controller_contract import (
     CHECKPOINT_TRUTH_FIELDS,
@@ -142,6 +142,70 @@ def evaluate_repair_attempt_memory(
         "repair_memory_signal": no_progress_signal,
         "should_stop": suppressed,
     }
+
+def evaluate_rollback_to_last_green(
+    *,
+    current_validation_snapshot: Mapping[str, Any] | None,
+    last_green_snapshot: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    from agents.lib.check_runner import evaluate_validation_regression
+
+    regression = evaluate_validation_regression(
+        current_snapshot=current_validation_snapshot,
+        last_green_snapshot=last_green_snapshot,
+    )
+    return {
+        "have_last_green": bool(regression["have_last_green"]),
+        "regressed_from_last_green": bool(regression["regressed_from_last_green"]),
+        "regressed_dimensions": list(regression["regressed_dimensions"]),
+        "should_rollback_to_last_green": bool(regression["should_rollback_to_last_green"]),
+        "rollback_reason": str(regression["rollback_reason"]),
+        "last_green_snapshot": dict(regression["last_green_snapshot"]),
+        "current_validation_snapshot": dict(regression["current_snapshot"]),
+    }
+
+
+def rank_repair_candidates(
+    candidates: Iterable[Mapping[str, Any]] | None,
+    *,
+    current_validation_snapshot: Mapping[str, Any] | None = None,
+    last_green_snapshot: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    rollback_truth = evaluate_rollback_to_last_green(
+        current_validation_snapshot=current_validation_snapshot,
+        last_green_snapshot=last_green_snapshot,
+    )
+    scored: list[tuple[tuple[int, int, int, int, str], dict[str, Any]]] = []
+    for ordinal, raw in enumerate(candidates or (), start=1):
+        candidate = dict(raw or {})
+        lane = str(candidate.get("remediation_lane") or ("operator" if candidate.get("manual_lane_recommended") else "builder"))
+        target_files = _stable_unique(str(path) for path in candidate.get("target_files") or [] if str(path or "").strip())
+        minimal = bool(candidate.get("minimal_patch_selected") or candidate.get("prefer_minimal_patch"))
+        restores_last_green = bool(candidate.get("restores_last_green", False))
+        lane_rank = {"builder": 0, "verifier": 1, "operator": 2}.get(lane, 3)
+        manual_penalty = 1 if bool(candidate.get("manual_lane_recommended", False)) else 0
+        regression_penalty = 0
+        if bool(rollback_truth["regressed_from_last_green"]) and not restores_last_green:
+            regression_penalty = 1
+        sort_key = (lane_rank, 0 if minimal else 1, len(target_files), regression_penalty + manual_penalty, str(candidate.get("repair_strategy") or ""))
+        candidate.update(
+            repair_lane_rank=lane_rank,
+            rollback_risk=regression_penalty,
+            target_files=target_files,
+            repair_rank_score=list(sort_key[:-1]),
+            rollback_truth={
+                "regressed_from_last_green": bool(rollback_truth["regressed_from_last_green"]),
+                "should_rollback_to_last_green": bool(rollback_truth["should_rollback_to_last_green"]),
+            },
+        )
+        scored.append((sort_key, candidate))
+    scored.sort(key=lambda item: item[0])
+    ranked: list[dict[str, Any]] = []
+    for rank, (_, candidate) in enumerate(scored, start=1):
+        payload = dict(candidate)
+        payload["repair_rank"] = rank
+        ranked.append(payload)
+    return ranked
 
 
 TARGETED_PATCH_SURFACES = (
