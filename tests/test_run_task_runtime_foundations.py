@@ -130,6 +130,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.build_controller_repair_context)
     assert callable(run_task.choose_repair_strategy)
     assert callable(run_task.format_repair_strategy)
+    assert callable(run_task.build_repair_attempt_record)
+    assert callable(run_task.evaluate_repair_attempt_memory)
     assert callable(run_task.build_controller_test_failure_appendix)
     assert callable(run_task.execute_batch_loop)
     assert callable(run_task.accepted_task_pr_merge_flow)

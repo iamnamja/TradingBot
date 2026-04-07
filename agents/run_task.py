@@ -555,6 +555,40 @@ def choose_repair_strategy(
     return dict(_impl(kind=kind, message=message, category=category, touched_files=touched_files, task_file=task_file))
 
 
+def build_repair_attempt_record(
+    *,
+    task_path: str,
+    repair_strategy: str,
+    targeted_patch_surface: str,
+    target_files: Iterable[str] | None = None,
+    failure_fingerprint: str = "",
+    retry_count: int = 0,
+) -> Dict[str, object]:
+    from agents.lib.controller_repair import build_repair_attempt_record as _impl  # type: ignore
+
+    return dict(
+        _impl(
+            task_path=task_path,
+            repair_strategy=repair_strategy,
+            targeted_patch_surface=targeted_patch_surface,
+            target_files=target_files,
+            failure_fingerprint=failure_fingerprint,
+            retry_count=retry_count,
+        )
+    )
+
+
+def evaluate_repair_attempt_memory(
+    *,
+    current_attempt: Mapping[str, object] | None,
+    prior_attempts: Iterable[Mapping[str, object]] | None = None,
+    retry_budget: int = 0,
+) -> Dict[str, object]:
+    from agents.lib.controller_repair import evaluate_repair_attempt_memory as _impl  # type: ignore
+
+    return dict(_impl(current_attempt=dict(current_attempt or {}), prior_attempts=[dict(item) for item in (prior_attempts or ())], retry_budget=retry_budget))
+
+
 def format_repair_strategy(route: Mapping[str, object] | None) -> str:
     from agents.lib.controller_repair import format_repair_strategy as _impl  # type: ignore
 
@@ -5269,6 +5303,9 @@ def _failure_journal_exports() -> Dict[str, object]:
         "build_semantic_repair_context": None,
         "choose_repair_strategy": None,
         "collection_failure_category": None,
+        "build_repair_attempt_record": None,
+        "repair_attempt_fingerprint": None,
+        "evaluate_repair_attempt_memory": None,
     }
 
     if _failure_journal is not None:
@@ -5287,6 +5324,9 @@ def _failure_journal_exports() -> Dict[str, object]:
             "build_semantic_repair_context",
             "choose_repair_strategy",
             "collection_failure_category",
+            "build_repair_attempt_record",
+            "repair_attempt_fingerprint",
+            "evaluate_repair_attempt_memory",
         ):
             obj = getattr(_failure_journal, name, None)
             if callable(obj):

@@ -13,8 +13,11 @@ from agents.lib.multi_agent_contract import summarize_role_artifact_envelope
 from agents.lib.controller_repair import (
     build_controller_failure_digest,
     build_controller_repair_context,
+    build_repair_attempt_record,
     choose_repair_strategy,
     classify_collection_failure,
+    evaluate_repair_attempt_memory,
+    repair_attempt_fingerprint,
 )
 
 DEFAULT_RAW_SNIPPET_LIMIT = 400
@@ -109,6 +112,17 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str, re
         "minimal_patch_selected": bool(route.get("minimal_patch_selected", False)),
         "max_files_to_edit": int(route.get("max_files_to_edit", 0)),
     }
+    repair_attempt = build_repair_attempt_record(
+        task_path="",
+        repair_strategy=str(plan["repair_strategy"]),
+        targeted_patch_surface=str(plan["targeted_patch_surface"]),
+        target_files=plan["target_files"],
+        failure_fingerprint=fingerprint,
+        retry_count=retry_count,
+    )
+    plan["repair_attempt_fingerprint"] = str(repair_attempt["repair_attempt_fingerprint"])
+    plan["repair_target_files"] = list(repair_attempt["target_files"])
+    plan["repair_target_surface"] = str(repair_attempt["targeted_patch_surface"])
     if plan["remediation_lane"] == "builder":
         plan["autonomy_confidence"] = 0.8 if retry_count <= 2 else 0.35
     elif plan["remediation_lane"] == "verifier":
@@ -246,3 +260,8 @@ def build_multi_agent_failure_context(
         "remediation_lane": str((controller_decision or {}).get("remediation_lane") or ""),
         "final_authority_role": str((controller_decision or {}).get("final_authority_role") or "controller"),
     }
+
+__all__ = [
+    "evaluate_repair_attempt_memory",
+    "repair_attempt_fingerprint",
+]

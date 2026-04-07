@@ -63,6 +63,10 @@ class BatchTaskCheckpoint:
     coder_artifact_envelope: dict[str, object] = field(default_factory=dict)
     tester_artifact_envelope: dict[str, object] = field(default_factory=dict)
     controller_artifact_envelope: dict[str, object] = field(default_factory=dict)
+    repair_attempt_history: tuple[dict[str, object], ...] = ()
+    repair_memory_signal: str = ""
+    duplicate_attempt_suppressed: bool = False
+    no_progress_detected: bool = False
     verification_authority_profile: str = "local_only"
     required_checks_configured: bool = False
     required_checks_discovered: bool = False
@@ -122,6 +126,10 @@ class BatchTaskCheckpoint:
             "coder_artifact_envelope": dict(self.coder_artifact_envelope),
             "tester_artifact_envelope": dict(self.tester_artifact_envelope),
             "controller_artifact_envelope": dict(self.controller_artifact_envelope),
+            "repair_attempt_history": [dict(item) for item in self.repair_attempt_history],
+            "repair_memory_signal": self.repair_memory_signal,
+            "duplicate_attempt_suppressed": self.duplicate_attempt_suppressed,
+            "no_progress_detected": self.no_progress_detected,
             "verification_authority_profile": self.verification_authority_profile,
             "required_checks_configured": self.required_checks_configured,
             "required_checks_discovered": self.required_checks_discovered,
@@ -191,6 +199,10 @@ class BatchState:
     coder_artifact_envelope: dict[str, object] = field(default_factory=dict)
     tester_artifact_envelope: dict[str, object] = field(default_factory=dict)
     controller_artifact_envelope: dict[str, object] = field(default_factory=dict)
+    repair_attempt_history: tuple[dict[str, object], ...] = ()
+    repair_memory_signal: str = ""
+    duplicate_attempt_suppressed: bool = False
+    no_progress_detected: bool = False
     verification_authority_profile: str = "local_only"
     required_checks_configured: bool = False
     required_checks_discovered: bool = False
@@ -260,6 +272,10 @@ class BatchState:
             "coder_artifact_envelope": dict(self.coder_artifact_envelope),
             "tester_artifact_envelope": dict(self.tester_artifact_envelope),
             "controller_artifact_envelope": dict(self.controller_artifact_envelope),
+            "repair_attempt_history": [dict(item) for item in self.repair_attempt_history],
+            "repair_memory_signal": self.repair_memory_signal,
+            "duplicate_attempt_suppressed": self.duplicate_attempt_suppressed,
+            "no_progress_detected": self.no_progress_detected,
             "verification_authority_profile": self.verification_authority_profile,
             "required_checks_configured": self.required_checks_configured,
             "required_checks_discovered": self.required_checks_discovered,
@@ -303,6 +319,31 @@ def last_checkpoint_for_task(state: BatchState, task_path: str) -> BatchTaskChec
             return checkpoint
     return None
 
+
+
+def repair_attempt_history_for_task(state: BatchState, task_path: str) -> list[dict[str, object]]:
+    target = str(task_path or "").strip()
+    return [dict(item) for item in state.repair_attempt_history if str(dict(item).get("task_path") or "").strip() == target]
+
+
+def record_repair_attempt(
+    state: BatchState,
+    *,
+    repair_attempt: dict[str, object],
+    repair_memory_signal: str = "",
+    duplicate_attempt_suppressed: bool = False,
+    no_progress_detected: bool = False,
+    updated_ts: int | None = None,
+) -> BatchState:
+    history = state.repair_attempt_history + (dict(repair_attempt),)
+    return replace(
+        state,
+        repair_attempt_history=history,
+        repair_memory_signal=str(repair_memory_signal or ""),
+        duplicate_attempt_suppressed=bool(duplicate_attempt_suppressed),
+        no_progress_detected=bool(no_progress_detected),
+        updated_ts=state.updated_ts if updated_ts is None else updated_ts,
+    )
 
 
 def _queue_items_for_planner(queue_state: tuple[BatchTaskState, ...]) -> list[TaskQueueItem]:
@@ -502,6 +543,10 @@ def apply_task_result(
     coder_artifact_envelope: dict[str, object] | None = None,
     tester_artifact_envelope: dict[str, object] | None = None,
     controller_artifact_envelope: dict[str, object] | None = None,
+    repair_attempt_history: tuple[dict[str, object], ...] | list[dict[str, object]] | None = None,
+    repair_memory_signal: str | None = None,
+    duplicate_attempt_suppressed: bool | None = None,
+    no_progress_detected: bool | None = None,
     verification_authority_profile: str | None = None,
     required_checks_discovered: bool | None = None,
     required_checks_missing: bool | None = None,
@@ -605,6 +650,7 @@ def apply_task_result(
         envelope_type="controller_output",
         artifact_role="controller",
     )
+    normalized_repair_attempt_history = tuple(dict(item) for item in (repair_attempt_history if repair_attempt_history is not None else state.repair_attempt_history))
 
     planner = _planner_truth_from_queue(state.queue)
 
@@ -630,6 +676,10 @@ def apply_task_result(
         coder_artifact_envelope=dict(coder_envelope),
         tester_artifact_envelope=dict(tester_envelope),
         controller_artifact_envelope=dict(controller_envelope),
+        repair_attempt_history=normalized_repair_attempt_history,
+        repair_memory_signal=str(repair_memory_signal if repair_memory_signal is not None else state.repair_memory_signal),
+        duplicate_attempt_suppressed=bool(duplicate_attempt_suppressed if duplicate_attempt_suppressed is not None else state.duplicate_attempt_suppressed),
+        no_progress_detected=bool(no_progress_detected if no_progress_detected is not None else state.no_progress_detected),
         verification_authority_profile=str(authority_truth["verification_authority_profile"]),
         required_checks_configured=bool(authority_truth["required_checks_configured"]),
         required_checks_discovered=bool(authority_truth["required_checks_discovered"]),
@@ -678,6 +728,10 @@ def apply_task_result(
         coder_artifact_envelope=dict(coder_envelope),
         tester_artifact_envelope=dict(tester_envelope),
         controller_artifact_envelope=dict(controller_envelope),
+        repair_attempt_history=normalized_repair_attempt_history,
+        repair_memory_signal=str(repair_memory_signal if repair_memory_signal is not None else state.repair_memory_signal),
+        duplicate_attempt_suppressed=bool(duplicate_attempt_suppressed if duplicate_attempt_suppressed is not None else state.duplicate_attempt_suppressed),
+        no_progress_detected=bool(no_progress_detected if no_progress_detected is not None else state.no_progress_detected),
         verification_authority_profile=str(authority_truth["verification_authority_profile"]),
         required_checks_configured=bool(authority_truth["required_checks_configured"]),
         required_checks_discovered=bool(authority_truth["required_checks_discovered"]),

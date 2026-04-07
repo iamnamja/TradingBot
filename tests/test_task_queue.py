@@ -953,3 +953,59 @@ def test_multi_agent_loop_supervised_mixed_manifest_stays_bounded() -> None:
         "107_orchestrator_supervised_mixed_manifest_autonomy_reproof",
     ]
     assert result["runtime_portability_scope"] == "python_only"
+
+
+def test_duplicate_repair_attempt_is_suppressed_and_persisted(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    bs = _batch_state_module()
+    be = _batch_executor_module()
+
+    _write_task(tmp_path / "tasks" / "001.md")
+    manifest = {"tasks": ["tasks/001.md"]}
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    state = bs.initialize_batch_state(manifest=manifest, queue=queue, manifest_source="tasks/manifest.json", created_ts=1)
+
+    repairs: list[int] = []
+    persisted: list[dict[str, object]] = []
+
+    def execute_task(item):
+        return {"task_path": item.task_path, "changed_files": ["agents/lib/multi_agent_loop.py"]}
+
+    def validator(_item, _result):
+        return False, "pytest failure"
+
+    def acceptance(_item, _result, _ok, _note):
+        return {
+            "acceptance_decision": "retryable_failure",
+            "note": "retry same repair",
+            "repair_strategy": "behavioral_test_repair",
+            "targeted_patch_surface": "result_shape_adapter",
+            "target_files": ["agents/lib/multi_agent_loop.py"],
+            "failure_fingerprint": "fp-same",
+        }
+
+    def retry(_item, result, retry_count):
+        repairs.append(retry_count)
+        return dict(result)
+
+    final_state, outcomes, final_decision = be.execute_batch_loop(
+        initial_state=state,
+        queue=queue,
+        execute_task=execute_task,
+        run_authoritative_validation=validator,
+        run_final_acceptance_review=acceptance,
+        self_heal_and_retry=retry,
+        retry_budget=2,
+        persist_state=lambda s: persisted.append(s.to_dict()),
+    )
+
+    assert repairs == [1]
+    assert final_decision == "manual_patch"
+    assert final_state.batch_status == "manual_patch"
+    assert final_state.repair_memory_signal == "duplicate_no_progress_repair_plan"
+    assert final_state.duplicate_attempt_suppressed is True
+    assert final_state.no_progress_detected is True
+    assert len(final_state.repair_attempt_history) == 2
+    assert outcomes[0]["repair_memory_signal"] == "duplicate_no_progress_repair_plan"
+    assert persisted[-1]["checkpoints"][-1]["duplicate_attempt_suppressed"] is True
+    assert persisted[-1]["checkpoints"][-1]["no_progress_detected"] is True

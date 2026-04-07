@@ -100,3 +100,6 @@ The intended next architecture is still intentionally conservative:
 - **tester/verifier** runs focused and full validation and summarizes bounded evidence
 
 This should remain sequential before any future concurrency or true parallel role scheduling is considered.
+
+
+Task 110 extends the bounded self-heal posture with persisted repair memory. Repeated same-surface repair plans are now treated as explicit no-progress signals and are suppressed deterministically rather than consuming the retry budget silently.

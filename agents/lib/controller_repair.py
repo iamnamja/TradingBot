@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any, Iterable
 
@@ -58,6 +60,88 @@ REPAIR_STRATEGIES = (
     "docs_proof_claim_repair",
     "manual_stop",
 )
+
+
+def build_repair_attempt_record(
+    *,
+    task_path: str,
+    repair_strategy: str,
+    targeted_patch_surface: str,
+    target_files: Iterable[str] | None = None,
+    failure_fingerprint: str = "",
+    retry_count: int = 0,
+) -> dict[str, Any]:
+    normalized_files = _stable_unique(_normalize_path(path) for path in (target_files or ()) if str(path or "").strip())
+    payload = {
+        "task_path": str(task_path or "").strip(),
+        "repair_strategy": str(repair_strategy or "manual_stop").strip() or "manual_stop",
+        "targeted_patch_surface": str(targeted_patch_surface or "manual_stop").strip() or "manual_stop",
+        "target_files": normalized_files,
+        "failure_fingerprint": str(failure_fingerprint or "").strip(),
+    }
+    digest = hashlib.sha1(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8", errors="replace")
+    ).hexdigest()[:12]
+    return {
+        **payload,
+        "retry_count": max(0, int(retry_count)),
+        "repair_attempt_fingerprint": f"repair:{digest}",
+    }
+
+
+def repair_attempt_fingerprint(
+    *,
+    task_path: str,
+    repair_strategy: str,
+    targeted_patch_surface: str,
+    target_files: Iterable[str] | None = None,
+    failure_fingerprint: str = "",
+) -> str:
+    return str(
+        build_repair_attempt_record(
+            task_path=task_path,
+            repair_strategy=repair_strategy,
+            targeted_patch_surface=targeted_patch_surface,
+            target_files=target_files,
+            failure_fingerprint=failure_fingerprint,
+        )["repair_attempt_fingerprint"]
+    )
+
+
+def evaluate_repair_attempt_memory(
+    *,
+    current_attempt: dict[str, Any] | None,
+    prior_attempts: Iterable[dict[str, Any]] | None = None,
+    retry_budget: int = 0,
+) -> dict[str, Any]:
+    attempt = dict(current_attempt or {})
+    normalized_prior = [dict(item) for item in (prior_attempts or ()) if isinstance(item, dict)]
+    fingerprint = str(attempt.get("repair_attempt_fingerprint") or "").strip()
+    duplicate_count = sum(
+        1
+        for item in normalized_prior
+        if str(item.get("repair_attempt_fingerprint") or "").strip() == fingerprint and fingerprint
+    )
+    same_surface_count = sum(
+        1
+        for item in normalized_prior
+        if str(item.get("repair_strategy") or "").strip() == str(attempt.get("repair_strategy") or "").strip()
+        and str(item.get("targeted_patch_surface") or "").strip() == str(attempt.get("targeted_patch_surface") or "").strip()
+        and [str(path) for path in item.get("target_files") or []] == [str(path) for path in attempt.get("target_files") or []]
+    )
+    suppressed = duplicate_count > 0
+    no_progress_signal = "duplicate_no_progress_repair_plan" if suppressed else ""
+    return {
+        "repair_attempt_fingerprint": fingerprint,
+        "duplicate_attempt_count": duplicate_count + (1 if fingerprint else 0),
+        "same_surface_attempt_count": same_surface_count + 1,
+        "retry_budget": max(0, int(retry_budget)),
+        "retry_budget_remaining": max(0, int(retry_budget) - duplicate_count),
+        "duplicate_attempt_suppressed": suppressed,
+        "no_progress_detected": suppressed,
+        "repair_memory_signal": no_progress_signal,
+        "should_stop": suppressed,
+    }
 
 
 TARGETED_PATCH_SURFACES = (
