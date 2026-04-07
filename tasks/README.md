@@ -18,7 +18,7 @@ This file is the canonical visible ordering for task execution history and conti
 - 090–099: multi-agent portability and productization tranche, ending with synchronized proof for the bounded Python-first portability slice
 - 100–107: resilience and hosted-authority hardening tranche, ending with a supervised mixed-manifest local-first re-proof
 
-## Next autonomy operating-mode continuation tranche
+## Completed autonomy operating-mode continuation tranche
 
 - **108** `orchestrator_role_handoff_artifact_envelopes_and_persistence`
 - **109** `orchestrator_tester_critique_bundle_and_focused_replay_lane`
@@ -29,7 +29,19 @@ This file is the canonical visible ordering for task execution history and conti
 - **114** `orchestrator_cross_task_context_carry_forward_and_repo_memory`
 - **115** `orchestrator_supervised_end_to_end_ordinary_manifest_autonomy_reproof`
 
+## Next multi-project portfolio continuation tranche
+
+- **116** `orchestrator_project_registry_and_per_project_contract`
+- **117** `orchestrator_project_scoped_state_branch_and_workspace_isolation`
+- **118** `orchestrator_backlog_intake_and_next_task_selection_policy`
+- **119** `orchestrator_dependency_graph_and_decomposition_planner`
+- **120** `orchestrator_repair_planner_ranking_and_rollback_to_last_green`
+- **121** `orchestrator_project_aware_validation_matrix_and_authority_profiles`
+- **122** `orchestrator_hosted_authority_convergence_and_merge_eligibility_proof`
+- **123** `orchestrator_supervised_multi_project_portfolio_scheduler_reproof`
+
 ## Related planning artifacts
 
 - `docs/ORCHESTRATOR_ROADMAP_100_107.md` covers the resilience and hosted-authority hardening tranche after Task 099.
 - `docs/ORCHESTRATOR_ROADMAP_108_115.md` covers the autonomy operating-mode continuation tranche after Task 107.
+- `docs/ORCHESTRATOR_ROADMAP_116_123.md` covers the multi-project portfolio continuation tranche after Task 115.

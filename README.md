@@ -42,3 +42,18 @@ It does **not** claim:
 - arbitrary project creation for any language or task family
 - broad unattended scheduler autonomy
 - full standalone extraction completion
+
+## Next continuation target
+
+The next tranche after Task 115 should focus on turning the current bounded ordinary-manifest proof into the first credible multi-project portfolio operating mode.
+
+That work should focus on:
+
+- canonical project registry and per-project contracts
+- project-scoped state, branch, and workspace isolation
+- backlog intake plus next-task selection policy
+- dependency-aware decomposition for larger backlog work
+- stronger self-heal with repair-plan ranking and rollback-to-last-green
+- project-aware validation matrices and authority profiles
+- stronger hosted merge-eligibility truth
+- a new supervised bounded multi-project portfolio re-proof

@@ -36,3 +36,17 @@ Current proof scope remains explicitly limited to:
 - extraction preparation posture rather than completed standalone extraction
 
 It still does **not** claim autonomy for arbitrary protected/controller/meta task lists, broad unattended production scheduling, or broad multi-language portability.
+
+## Next continuation target
+
+The next tranche should focus on moving from a bounded supervised ordinary-manifest proof toward the first credible multi-project portfolio operating mode.
+
+That means prioritizing:
+
+1. canonical project registry and per-project contracts
+2. project-scoped isolation for state, branches, workspaces, and carry-forward memory
+3. explicit next-task selection policy driven by backlog readiness and dependency truth
+4. stronger repair planning with rollback-to-last-green
+5. project-aware validation and authority profiles
+6. hosted merge-eligibility convergence grounded in real repo contracts
+7. a bounded supervised multi-project portfolio re-proof
