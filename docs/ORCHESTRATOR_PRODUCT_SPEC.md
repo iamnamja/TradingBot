@@ -58,3 +58,8 @@ This tranche should focus on:
 ## Boundary and claim discipline
 
 Public claims in docs/README must remain narrower than or equal to deterministic proof tests. This remains in force for the post-099 resilience tranche.
+
+
+## Public surface stability
+
+The bounded proof-facing public surface is now explicitly frozen. Current canonical symbols remain preferred, but thin compatibility aliases are allowed where needed for proof-facing helpers so collection-time name drift does not break bounded proof tasks.

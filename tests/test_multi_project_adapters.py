@@ -14,7 +14,7 @@ if str(root) not in sys.path:
 
 from agents.lib import project_workspace_adapter  # noqa: E402
 from agents.lib import multi_agent_contract  # noqa: E402
-from agents.lib.multi_agent_loop import execute_multi_agent_loop  # noqa: E402
+from agents.lib.multi_agent_loop import execute_multi_agent_loop, run_multi_agent_controller_cycle, run_multi_agent_task_cycle  # noqa: E402
 
 
 def _builder_exports():
@@ -272,3 +272,87 @@ def test_workspace_boundary_snapshot_is_extraction_prep_not_full_extraction() ->
     assert "generic_python" in boundary["supported_consumers"]
     assert boundary["role_contract"]["sequential_role_execution_only"] is True
     assert boundary["role_contract"]["controller_authority_over_next_role"] is True
+
+
+
+def test_compatibility_aliases_bridge_bounded_proof_surfaces() -> None:
+    boundary = project_workspace_adapter.orchestrator_package_boundary_snapshot()
+    assert boundary['product_name'] == 'orchestrator'
+
+    manifest = [
+        {'task_id': 'alpha', 'task_path': 'external-app/tasks/alpha.md'},
+        {'task_id': 'beta', 'task_path': 'external-app/tasks/beta.md', 'depends_on': ['alpha']},
+    ]
+
+    def _builder(task: dict[str, object]) -> dict[str, object]:
+        return {'status': 'built', 'task_id': task.get('task_id', ''), 'changed_files': ['src/app.py']}
+
+    def _verifier(_build_result: dict[str, object]) -> dict[str, object]:
+        return {'verification_authority': 'local_only', 'accepted': True, 'evidence': ['pytest -q']}
+
+    def _controller(task: dict[str, object], verify_result: dict[str, object]) -> dict[str, object]:
+        return {
+            'task_id': task.get('task_id', ''),
+            'post_task_decision': 'continue' if verify_result.get('accepted') else 'stop',
+            'reason': 'verification accepted',
+        }
+
+    result = run_multi_agent_controller_cycle(
+        manifest=manifest,
+        builder=_builder,
+        verifier=_verifier,
+        controller=_controller,
+    )
+    alias_result = run_multi_agent_task_cycle(
+        manifest=manifest,
+        builder=_builder,
+        verifier=_verifier,
+        controller=_controller,
+    )
+
+    assert result['processed_task_ids'] == ['alpha', 'beta']
+    assert result['controller_final_decision'] == 'continue'
+    assert result['runtime_portability_scope'] == 'python_only'
+    assert alias_result['processed_task_ids'] == ['alpha', 'beta']
+
+
+
+def test_execute_multi_agent_loop_accepts_compatibility_manifest_surface() -> None:
+    manifest = {
+        'tasks': [
+            {'task_id': 'alpha', 'task_path': 'tasks/001_prepare.md'},
+            {'task_id': 'beta', 'task_path': 'tasks/002_verify.md', 'depends_on': ['alpha']},
+        ]
+    }
+
+    role_calls: list[tuple[str, str]] = []
+
+    def choose_next_role(ctx: dict[str, object]) -> str:
+        role_calls.append((str(ctx['task_path']), str(ctx['phase'])))
+        if ctx['phase'] == 'build':
+            return 'builder'
+        if ctx['phase'] == 'verify':
+            return 'verifier'
+        return 'controller'
+
+    def run_role(role: str, ctx: dict[str, object]) -> dict[str, object]:
+        if role == 'builder':
+            return {'status': 'built', 'changed_files': [str(ctx['task_path']).replace('.md', '.py')]}
+        if role == 'verifier':
+            return {'status': 'verified', 'verification_authority': 'local_only', 'ok': True}
+        return {'status': 'accepted', 'controller_final_decision': 'continue'}
+
+    result = execute_multi_agent_loop(task_manifest=manifest, choose_next_role=choose_next_role, run_role=run_role)
+
+    assert result['processed_task_ids'] == ['alpha', 'beta']
+    assert result['controller_final_decision'] == 'continue'
+    assert result['verification_authority'] == 'local_only'
+    assert result['runtime_portability_scope'] == 'python_only'
+    assert role_calls == [
+        ('tasks/001_prepare.md', 'build'),
+        ('tasks/001_prepare.md', 'verify'),
+        ('tasks/001_prepare.md', 'decide'),
+        ('tasks/002_verify.md', 'build'),
+        ('tasks/002_verify.md', 'verify'),
+        ('tasks/002_verify.md', 'decide'),
+    ]

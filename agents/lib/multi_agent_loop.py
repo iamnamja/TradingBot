@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pathlib import Path
 
 from typing import Any, Callable, Mapping
 
@@ -130,14 +131,28 @@ def build_verifier_evidence_bundle(
 
 def execute_multi_agent_loop(
     *,
-    task_path: str,
-    builder_step: BuilderStep,
-    verifier_step: VerifierStep,
+    task_path: str | None = None,
+    builder_step: BuilderStep | None = None,
+    verifier_step: VerifierStep | None = None,
     controller_decide: ControllerDecisionStep | None = None,
     initial_role_state: Mapping[str, Any] | None = None,
     required_paths: list[str] | None = None,
     controller_route_decide: Callable[[dict[str, object], dict[str, object]], Mapping[str, Any]] | None = None,
+    task_manifest: Mapping[str, Any] | list[Mapping[str, Any]] | None = None,
+    manifest: Mapping[str, Any] | list[Mapping[str, Any]] | None = None,
+    choose_next_role: Callable[[dict[str, object]], str] | None = None,
+    run_role: Callable[[str, dict[str, object]], Mapping[str, Any]] | None = None,
 ) -> dict[str, object]:
+    if task_manifest is not None or manifest is not None:
+        return _execute_multi_agent_manifest_compat(
+            task_manifest if task_manifest is not None else manifest,
+            choose_next_role=choose_next_role,
+            run_role=run_role,
+        )
+
+    if task_path is None or builder_step is None or verifier_step is None:
+        raise TypeError('execute_multi_agent_loop requires either the canonical task-level surface or the compatibility manifest surface.')
+
     task_context = multi_agent_task_context(required_paths or [], controller_paths=None)
     route_recommendation = recommend_task_family_route(task_context=task_context, current_role="controller")
     route_selection = controller_selects_route(route_recommendation, current_role="controller")
@@ -344,3 +359,128 @@ def execute_multi_agent_loop(
         "role_handoff_state": final_state,
         "failure_journal_context": failure_context,
     }
+
+
+
+def _compat_manifest_entries(task_manifest: Mapping[str, Any] | list[Mapping[str, Any]] | None) -> list[dict[str, object]]:
+    if task_manifest is None:
+        return []
+    raw_tasks = task_manifest.get('tasks', []) if isinstance(task_manifest, Mapping) else task_manifest
+    entries: list[dict[str, object]] = []
+    for index, raw in enumerate(raw_tasks):
+        if not isinstance(raw, Mapping):
+            continue
+        task_path = str(raw.get('task_path') or raw.get('path') or '').strip()
+        task_id = str(raw.get('task_id') or Path(task_path).stem or f'task_{index+1}').strip()
+        if not task_path:
+            task_path = f'tasks/{task_id}.md'
+        entries.append({'task_id': task_id, 'task_path': task_path, 'depends_on': list(raw.get('depends_on', []))})
+    return entries
+
+
+
+def _execute_multi_agent_manifest_compat(
+    task_manifest: Mapping[str, Any] | list[Mapping[str, Any]] | None,
+    *,
+    choose_next_role: Callable[[dict[str, object]], str] | None,
+    run_role: Callable[[str, dict[str, object]], Mapping[str, Any]] | None,
+) -> dict[str, object]:
+    if choose_next_role is None or run_role is None:
+        raise TypeError('compatibility manifest surface requires choose_next_role and run_role callables.')
+
+    entries = _compat_manifest_entries(task_manifest)
+    processed_task_ids: list[str] = []
+    role_trace: list[str] = []
+    last_verification_authority = 'local_only'
+    last_decision = 'continue'
+    for entry in entries:
+        task_path = str(entry['task_path'])
+        task_id = str(entry['task_id'])
+        processed_task_ids.append(task_id)
+
+        build_ctx = {'task_path': task_path, 'task_id': task_id, 'phase': 'build'}
+        build_role = str(choose_next_role(build_ctx) or 'builder')
+        role_trace.append(build_role)
+        build_result = dict(run_role(build_role, build_ctx) or {})
+
+        verify_ctx = {'task_path': task_path, 'task_id': task_id, 'phase': 'verify', 'build_result': build_result}
+        verify_role = str(choose_next_role(verify_ctx) or 'verifier')
+        role_trace.append(verify_role)
+        verify_result = dict(run_role(verify_role, verify_ctx) or {})
+        last_verification_authority = str(verify_result.get('verification_authority') or last_verification_authority)
+        verification_ok = bool(verify_result.get('ok', verify_result.get('accepted', True)))
+
+        decide_ctx = {
+            'task_path': task_path,
+            'task_id': task_id,
+            'phase': 'decide',
+            'build_result': build_result,
+            'verify_result': verify_result,
+        }
+        decide_role = str(choose_next_role(decide_ctx) or 'controller')
+        role_trace.append(decide_role)
+        decide_result = dict(run_role(decide_role, decide_ctx) or {})
+        last_decision = str(
+            decide_result.get('controller_final_decision')
+            or decide_result.get('post_task_decision')
+            or ('continue' if verification_ok else 'stop')
+        )
+        if last_decision not in {'continue', 'stop'}:
+            last_decision = 'continue' if verification_ok else 'stop'
+        if last_decision != 'continue':
+            break
+
+    return {
+        'status': 'completed' if last_decision == 'continue' else 'stopped',
+        'processed_task_ids': processed_task_ids,
+        'verification_authority': last_verification_authority,
+        'controller_final_decision': last_decision,
+        'runtime_portability_scope': 'python_only',
+        'role_trace': role_trace,
+    }
+
+
+
+def run_multi_agent_controller_cycle(
+    *,
+    manifest: Mapping[str, Any] | list[Mapping[str, Any]],
+    builder: Callable[[dict[str, object]], Mapping[str, Any]],
+    verifier: Callable[[dict[str, object]], Mapping[str, Any]],
+    controller: Callable[[dict[str, object], dict[str, object]], Mapping[str, Any]],
+) -> dict[str, object]:
+
+    def choose_next_role(ctx: dict[str, object]) -> str:
+        phase = str(ctx.get('phase') or '')
+        if phase == 'build':
+            return 'builder'
+        if phase == 'verify':
+            return 'verifier'
+        return 'controller'
+
+    build_cache: dict[str, dict[str, object]] = {}
+    verify_cache: dict[str, dict[str, object]] = {}
+
+    def run_role(role: str, ctx: dict[str, object]) -> Mapping[str, Any]:
+        task_path = str(ctx.get('task_path') or '')
+        if role == 'builder':
+            result = dict(builder(ctx))
+            build_cache[task_path] = result
+            return result
+        if role == 'verifier':
+            result = dict(verifier(build_cache.get(task_path, {})))
+            verify_cache[task_path] = result
+            return result
+        return dict(controller(ctx, verify_cache.get(task_path, {})))
+
+    return _execute_multi_agent_manifest_compat(manifest, choose_next_role=choose_next_role, run_role=run_role)
+
+
+
+def run_multi_agent_task_cycle(
+    *,
+    manifest: Mapping[str, Any] | list[Mapping[str, Any]],
+    builder: Callable[[dict[str, object]], Mapping[str, Any]],
+    verifier: Callable[[dict[str, object]], Mapping[str, Any]],
+    controller: Callable[[dict[str, object], dict[str, object]], Mapping[str, Any]],
+) -> dict[str, object]:
+    return run_multi_agent_controller_cycle(manifest=manifest, builder=builder, verifier=verifier, controller=controller)
