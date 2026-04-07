@@ -100,3 +100,5 @@ Public claims in docs/README must remain narrower than or equal to deterministic
 
 
 Task 111 adds an explicit task-admission gate. The repo now distinguishes between autonomous-ordinary, supervised-autonomous, and manual-only task shapes, and it produces bounded decomposition truth for larger ordinary tasks instead of pretending every ambiguous shape is safely autonomously admissible.
+
+Task 112 adds a repo-scoped hosted-check contract and a truthful hosted-authority probe. The repo now records whether hosted authority is unavailable, misconfigured, or reported-but-unsatisfied instead of flattening every non-success case into the same missing-check story.

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 from agents.lib.controller_contract import (
     AcceptanceDecision,
@@ -69,21 +69,24 @@ class BatchTaskCheckpoint:
     no_progress_detected: bool = False
     verification_authority_profile: str = "local_only"
     required_checks_configured: bool = False
+    repo_check_contract_source: str = "repo_defaults"
+    repo_required_checks: tuple[str, ...] = ()
+    repo_check_contract_configured: bool = False
     required_checks_discovered: bool = False
     required_checks_missing: bool = False
     required_checks_pending: bool = False
     required_checks_timed_out: bool = False
     required_checks_failed: bool = False
+    required_checks_unavailable: bool = False
+    required_checks_misconfigured: bool = False
     missing_required_checks_blocks_merge: bool = False
     verification_authority_satisfied: bool = True
     hosted_checks_source: str = "not_required"
     hosted_checks_reported: bool = False
     hosted_authority_available: bool = True
     hosted_authority_satisfied: bool = True
-    hosted_checks_source: str = ""
-    hosted_checks_reported: bool = False
-    hosted_authority_available: bool = True
-    hosted_authority_satisfied: bool = True
+    hosted_authority_probe_status: str = "not_required"
+    hosted_authority_probe_note: str = ""
     active_role: str = "controller"
     prior_role: str = ""
     role_attempt_count: int = 0
@@ -132,17 +135,24 @@ class BatchTaskCheckpoint:
             "no_progress_detected": self.no_progress_detected,
             "verification_authority_profile": self.verification_authority_profile,
             "required_checks_configured": self.required_checks_configured,
+            "repo_check_contract_source": self.repo_check_contract_source,
+            "repo_required_checks": list(self.repo_required_checks),
+            "repo_check_contract_configured": self.repo_check_contract_configured,
             "required_checks_discovered": self.required_checks_discovered,
             "required_checks_missing": self.required_checks_missing,
             "required_checks_pending": self.required_checks_pending,
             "required_checks_timed_out": self.required_checks_timed_out,
             "required_checks_failed": self.required_checks_failed,
+            "required_checks_unavailable": self.required_checks_unavailable,
+            "required_checks_misconfigured": self.required_checks_misconfigured,
             "missing_required_checks_blocks_merge": self.missing_required_checks_blocks_merge,
             "verification_authority_satisfied": self.verification_authority_satisfied,
             "hosted_checks_source": self.hosted_checks_source,
             "hosted_checks_reported": self.hosted_checks_reported,
             "hosted_authority_available": self.hosted_authority_available,
             "hosted_authority_satisfied": self.hosted_authority_satisfied,
+            "hosted_authority_probe_status": self.hosted_authority_probe_status,
+            "hosted_authority_probe_note": self.hosted_authority_probe_note,
             "active_role": self.active_role,
             "prior_role": self.prior_role,
             "role_attempt_count": self.role_attempt_count,
@@ -205,17 +215,24 @@ class BatchState:
     no_progress_detected: bool = False
     verification_authority_profile: str = "local_only"
     required_checks_configured: bool = False
+    repo_check_contract_source: str = "repo_defaults"
+    repo_required_checks: tuple[str, ...] = ()
+    repo_check_contract_configured: bool = False
     required_checks_discovered: bool = False
     required_checks_missing: bool = False
     required_checks_pending: bool = False
     required_checks_timed_out: bool = False
     required_checks_failed: bool = False
+    required_checks_unavailable: bool = False
+    required_checks_misconfigured: bool = False
     missing_required_checks_blocks_merge: bool = False
     verification_authority_satisfied: bool = True
     hosted_checks_source: str = "not_required"
     hosted_checks_reported: bool = False
     hosted_authority_available: bool = True
     hosted_authority_satisfied: bool = True
+    hosted_authority_probe_status: str = "not_required"
+    hosted_authority_probe_note: str = ""
     active_role: str = "controller"
     prior_role: str = ""
     role_attempt_count: int = 0
@@ -278,13 +295,24 @@ class BatchState:
             "no_progress_detected": self.no_progress_detected,
             "verification_authority_profile": self.verification_authority_profile,
             "required_checks_configured": self.required_checks_configured,
+            "repo_check_contract_source": self.repo_check_contract_source,
+            "repo_required_checks": list(self.repo_required_checks),
+            "repo_check_contract_configured": self.repo_check_contract_configured,
             "required_checks_discovered": self.required_checks_discovered,
             "required_checks_missing": self.required_checks_missing,
             "required_checks_pending": self.required_checks_pending,
             "required_checks_timed_out": self.required_checks_timed_out,
             "required_checks_failed": self.required_checks_failed,
+            "required_checks_unavailable": self.required_checks_unavailable,
+            "required_checks_misconfigured": self.required_checks_misconfigured,
             "missing_required_checks_blocks_merge": self.missing_required_checks_blocks_merge,
             "verification_authority_satisfied": self.verification_authority_satisfied,
+            "hosted_checks_source": self.hosted_checks_source,
+            "hosted_checks_reported": self.hosted_checks_reported,
+            "hosted_authority_available": self.hosted_authority_available,
+            "hosted_authority_satisfied": self.hosted_authority_satisfied,
+            "hosted_authority_probe_status": self.hosted_authority_probe_status,
+            "hosted_authority_probe_note": self.hosted_authority_probe_note,
             "active_role": self.active_role,
             "prior_role": self.prior_role,
             "role_attempt_count": self.role_attempt_count,
@@ -443,17 +471,24 @@ def initialize_batch_state(
         post_task_decision="continue",
         verification_authority_profile="local_only",
         required_checks_configured=False,
+        repo_check_contract_source="repo_defaults",
+        repo_required_checks=(),
+        repo_check_contract_configured=False,
         required_checks_discovered=False,
         required_checks_missing=False,
         required_checks_pending=False,
         required_checks_timed_out=False,
         required_checks_failed=False,
+        required_checks_unavailable=False,
+        required_checks_misconfigured=False,
         missing_required_checks_blocks_merge=False,
         verification_authority_satisfied=True,
         hosted_checks_source="not_required",
         hosted_checks_reported=False,
         hosted_authority_available=True,
         hosted_authority_satisfied=True,
+        hosted_authority_probe_status="not_required",
+        hosted_authority_probe_note="",
         active_role=str(handoff["active_role"]),
         prior_role=str(handoff["prior_role"]),
         role_attempt_count=int(handoff["role_attempt_count"]),
@@ -548,6 +583,10 @@ def apply_task_result(
     duplicate_attempt_suppressed: bool | None = None,
     no_progress_detected: bool | None = None,
     verification_authority_profile: str | None = None,
+    repo_check_contract_source: str | None = None,
+    repo_required_checks: Sequence[str] | None = None,
+    hosted_authority_probe_status: str | None = None,
+    hosted_authority_probe_note: str | None = None,
     required_checks_discovered: bool | None = None,
     required_checks_missing: bool | None = None,
     required_checks_pending: bool | None = None,
@@ -610,6 +649,10 @@ def apply_task_result(
     )
     authority_truth = canonical_required_check_truth(
         verification_authority_profile=(verification_authority_profile if verification_authority_profile is not None else state.verification_authority_profile),
+        repo_check_contract_source=(repo_check_contract_source if repo_check_contract_source is not None else state.repo_check_contract_source),
+        repo_required_checks=(tuple(str(item) for item in repo_required_checks) if repo_required_checks is not None else state.repo_required_checks),
+        hosted_authority_probe_status=(hosted_authority_probe_status if hosted_authority_probe_status is not None else state.hosted_authority_probe_status),
+        hosted_authority_probe_note=(hosted_authority_probe_note if hosted_authority_probe_note is not None else state.hosted_authority_probe_note),
         required_checks_discovered=required_checks_discovered if required_checks_discovered is not None else state.required_checks_discovered,
         required_checks_missing=required_checks_missing if required_checks_missing is not None else state.required_checks_missing,
         required_checks_pending=required_checks_pending if required_checks_pending is not None else state.required_checks_pending,
@@ -682,17 +725,24 @@ def apply_task_result(
         no_progress_detected=bool(no_progress_detected if no_progress_detected is not None else state.no_progress_detected),
         verification_authority_profile=str(authority_truth["verification_authority_profile"]),
         required_checks_configured=bool(authority_truth["required_checks_configured"]),
+        repo_check_contract_source=str(authority_truth["repo_check_contract_source"]),
+        repo_required_checks=tuple(str(item) for item in authority_truth["repo_required_checks"]),
+        repo_check_contract_configured=bool(authority_truth["repo_check_contract_configured"]),
         required_checks_discovered=bool(authority_truth["required_checks_discovered"]),
         required_checks_missing=bool(authority_truth["required_checks_missing"]),
         required_checks_pending=bool(authority_truth["required_checks_pending"]),
         required_checks_timed_out=bool(authority_truth["required_checks_timed_out"]),
         required_checks_failed=bool(authority_truth["required_checks_failed"]),
+        required_checks_unavailable=bool(authority_truth["required_checks_unavailable"]),
+        required_checks_misconfigured=bool(authority_truth["required_checks_misconfigured"]),
         missing_required_checks_blocks_merge=bool(authority_truth["missing_required_checks_blocks_merge"]),
         verification_authority_satisfied=bool(authority_truth["verification_authority_satisfied"]),
         hosted_checks_source=str(authority_truth["hosted_checks_source"]),
         hosted_checks_reported=bool(authority_truth["hosted_checks_reported"]),
         hosted_authority_available=bool(authority_truth["hosted_authority_available"]),
         hosted_authority_satisfied=bool(authority_truth["hosted_authority_satisfied"]),
+        hosted_authority_probe_status=str(authority_truth["hosted_authority_probe_status"]),
+        hosted_authority_probe_note=str(authority_truth["hosted_authority_probe_note"]),
         active_role=str(role_state["active_role"]),
         prior_role=str(role_state["prior_role"]),
         role_attempt_count=int(role_state["role_attempt_count"]),
@@ -734,13 +784,24 @@ def apply_task_result(
         no_progress_detected=bool(no_progress_detected if no_progress_detected is not None else state.no_progress_detected),
         verification_authority_profile=str(authority_truth["verification_authority_profile"]),
         required_checks_configured=bool(authority_truth["required_checks_configured"]),
+        repo_check_contract_source=str(authority_truth["repo_check_contract_source"]),
+        repo_required_checks=tuple(str(item) for item in authority_truth["repo_required_checks"]),
+        repo_check_contract_configured=bool(authority_truth["repo_check_contract_configured"]),
         required_checks_discovered=bool(authority_truth["required_checks_discovered"]),
         required_checks_missing=bool(authority_truth["required_checks_missing"]),
         required_checks_pending=bool(authority_truth["required_checks_pending"]),
         required_checks_timed_out=bool(authority_truth["required_checks_timed_out"]),
         required_checks_failed=bool(authority_truth["required_checks_failed"]),
+        required_checks_unavailable=bool(authority_truth["required_checks_unavailable"]),
+        required_checks_misconfigured=bool(authority_truth["required_checks_misconfigured"]),
         missing_required_checks_blocks_merge=bool(authority_truth["missing_required_checks_blocks_merge"]),
         verification_authority_satisfied=bool(authority_truth["verification_authority_satisfied"]),
+        hosted_checks_source=str(authority_truth["hosted_checks_source"]),
+        hosted_checks_reported=bool(authority_truth["hosted_checks_reported"]),
+        hosted_authority_available=bool(authority_truth["hosted_authority_available"]),
+        hosted_authority_satisfied=bool(authority_truth["hosted_authority_satisfied"]),
+        hosted_authority_probe_status=str(authority_truth["hosted_authority_probe_status"]),
+        hosted_authority_probe_note=str(authority_truth["hosted_authority_probe_note"]),
         active_role=str(role_state["active_role"]),
         prior_role=str(role_state["prior_role"]),
         role_attempt_count=int(role_state["role_attempt_count"]),
@@ -871,17 +932,24 @@ def mark_resume_plan(
         controller_artifact_envelope=dict(state.controller_artifact_envelope),
         verification_authority_profile=state.verification_authority_profile,
         required_checks_configured=state.required_checks_configured,
+        repo_check_contract_source=state.repo_check_contract_source,
+        repo_required_checks=state.repo_required_checks,
+        repo_check_contract_configured=state.repo_check_contract_configured,
         required_checks_discovered=state.required_checks_discovered,
         required_checks_missing=state.required_checks_missing,
         required_checks_pending=state.required_checks_pending,
         required_checks_timed_out=state.required_checks_timed_out,
         required_checks_failed=state.required_checks_failed,
+        required_checks_unavailable=state.required_checks_unavailable,
+        required_checks_misconfigured=state.required_checks_misconfigured,
         missing_required_checks_blocks_merge=state.missing_required_checks_blocks_merge,
         verification_authority_satisfied=state.verification_authority_satisfied,
         hosted_checks_source=state.hosted_checks_source,
         hosted_checks_reported=state.hosted_checks_reported,
         hosted_authority_available=state.hosted_authority_available,
         hosted_authority_satisfied=state.hosted_authority_satisfied,
+        hosted_authority_probe_status=state.hosted_authority_probe_status,
+        hosted_authority_probe_note=state.hosted_authority_probe_note,
         planner_selected_task_path=state.planner_selected_task_path,
         planner_reordered=state.planner_reordered,
         planner_ready_task_paths=state.planner_ready_task_paths,

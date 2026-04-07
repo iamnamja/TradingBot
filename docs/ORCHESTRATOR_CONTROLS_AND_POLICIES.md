@@ -196,7 +196,8 @@ Current required behavior:
 
 - hosted CI authority absence is itself a blocking signal
 - `no checks reported` must not be interpreted as success
-- persisted batch/checkpoint truth must distinguish hosted authority availability from hosted authority satisfaction
+- one repo-scoped check contract must be the source of truth for required hosted checks
+- persisted batch/checkpoint truth must distinguish hosted probe `unavailable`, `misconfigured`, and `reported_unsatisfied` states
 - controller stop posture remains conservative whenever hosted authority is absent or unsatisfied
 
 

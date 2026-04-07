@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Literal, Mapping
+from typing import Any, Callable, Dict, Literal, Mapping, Sequence
 
 from agents.lib.controller_contract import canonical_merge_posture_truth, merge_posture_decision_for_flow_stage
 
@@ -13,6 +13,9 @@ VERIFICATION_AUTHORITY_PROFILES: tuple[VerificationAuthorityProfile, ...] = (
     "local_plus_required_ci",
     "required_ci_only",
 )
+DEFAULT_REPO_REQUIRED_CHECKS: tuple[str, ...] = ()
+DEFAULT_REPO_CHECK_CONTRACT_SOURCE = "repo_defaults"
+DEFAULT_HOSTED_CHECKS_SOURCE = "gh_pr_checks"
 
 
 @dataclass(frozen=True)
@@ -21,7 +24,6 @@ class GitWorkflowResult:
     step: str
     message: str
     evidence: Dict[str, object] = field(default_factory=dict)
-
 
 
 def coerce_verification_authority_profile(
@@ -34,7 +36,6 @@ def coerce_verification_authority_profile(
     return default
 
 
-
 def _coerce_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -42,16 +43,73 @@ def _coerce_bool(value: Any) -> bool:
     return text in {"1", "true", "yes", "y", "on", "passed", "pass", "success", "successful"}
 
 
-
 def _coerce_text(value: Any, default: str = "") -> str:
     text = str(value if value is not None else default).strip()
     return text or default
 
 
+def _coerce_required_check_names(value: Any) -> tuple[str, ...]:
+    if value is None:
+        raw_values: Sequence[object] = DEFAULT_REPO_REQUIRED_CHECKS
+    elif isinstance(value, str):
+        raw_values = [value]
+    elif isinstance(value, Mapping):
+        raw_values = list(value.keys())
+    else:
+        raw_values = list(value)
+    normalized = sorted({str(item).strip() for item in raw_values if str(item).strip()})
+    return tuple(normalized)
+
+
+def canonical_repo_check_contract(
+    payload: Mapping[str, Any] | None = None,
+    *,
+    required_checks: Any | None = None,
+    repo_check_contract_source: Any | None = None,
+    missing_required_checks_blocks_merge: Any | None = None,
+    hosted_checks_source: Any | None = None,
+) -> dict[str, object]:
+    data = payload or {}
+    names = _coerce_required_check_names(
+        required_checks
+        if required_checks is not None
+        else data.get("required_checks", data.get("repo_required_checks", DEFAULT_REPO_REQUIRED_CHECKS))
+    )
+    configured = bool(names)
+    source = _coerce_text(
+        repo_check_contract_source
+        if repo_check_contract_source is not None
+        else data.get("repo_check_contract_source"),
+        default=DEFAULT_REPO_CHECK_CONTRACT_SOURCE,
+    )
+    block_missing = _coerce_bool(
+        missing_required_checks_blocks_merge
+        if missing_required_checks_blocks_merge is not None
+        else data.get("missing_required_checks_blocks_merge", True)
+    )
+    hosted_source = _coerce_text(
+        hosted_checks_source if hosted_checks_source is not None else data.get("hosted_checks_source"),
+        default=DEFAULT_HOSTED_CHECKS_SOURCE,
+    )
+    if configured:
+        note = f"Repo check contract requires hosted checks: {', '.join(names)}."
+    else:
+        note = "Repo check contract does not declare required hosted checks."
+    return {
+        "repo_check_contract_source": source,
+        "repo_required_checks": names,
+        "repo_check_contract_configured": configured,
+        "missing_required_checks_blocks_merge": block_missing,
+        "hosted_checks_source": hosted_source,
+        "repo_check_contract_note": note,
+    }
+
 
 def _required_check_state(
     *,
     configured: bool,
+    unavailable: bool,
+    misconfigured: bool,
     missing: bool,
     pending: bool,
     timed_out: bool,
@@ -59,7 +117,11 @@ def _required_check_state(
     passed: bool,
 ) -> str:
     if not configured:
-        return "not_configured"
+        return "not_required"
+    if unavailable:
+        return "unavailable"
+    if misconfigured:
+        return "misconfigured"
     if missing:
         return "missing"
     if timed_out:
@@ -73,11 +135,13 @@ def _required_check_state(
     return "unknown"
 
 
-
 def canonical_required_check_truth(
     payload: Mapping[str, Any] | None = None,
     *,
     verification_authority_profile: Any = "local_only",
+    repo_check_contract: Mapping[str, Any] | None = None,
+    repo_required_checks: Any | None = None,
+    repo_check_contract_source: Any | None = None,
     required_checks_discovered: Any | None = None,
     required_checks_missing: Any | None = None,
     required_checks_pending: Any | None = None,
@@ -87,10 +151,26 @@ def canonical_required_check_truth(
     missing_required_checks_blocks_merge: Any | None = None,
     hosted_checks_source: Any | None = None,
     hosted_checks_reported: Any | None = None,
+    hosted_authority_probe_status: Any | None = None,
+    hosted_authority_probe_note: Any | None = None,
 ) -> dict[str, object]:
     data = payload or {}
     profile = coerce_verification_authority_profile(verification_authority_profile)
-    configured = profile != "local_only"
+    hosted_required = profile != "local_only"
+    contract = canonical_repo_check_contract(
+        repo_check_contract if repo_check_contract is not None else data.get("repo_check_contract"),
+        required_checks=repo_required_checks if repo_required_checks is not None else data.get("repo_required_checks"),
+        repo_check_contract_source=(
+            repo_check_contract_source if repo_check_contract_source is not None else data.get("repo_check_contract_source")
+        ),
+        missing_required_checks_blocks_merge=(
+            missing_required_checks_blocks_merge
+            if missing_required_checks_blocks_merge is not None
+            else data.get("missing_required_checks_blocks_merge")
+        ),
+        hosted_checks_source=hosted_checks_source if hosted_checks_source is not None else data.get("hosted_checks_source"),
+    )
+    contract_configured = bool(contract["repo_check_contract_configured"])
     discovered = _coerce_bool(
         required_checks_discovered if required_checks_discovered is not None else data.get("required_checks_discovered")
     )
@@ -100,57 +180,109 @@ def canonical_required_check_truth(
     )
     failed = _coerce_bool(required_checks_failed if required_checks_failed is not None else data.get("required_checks_failed"))
     explicit_missing = required_checks_missing if required_checks_missing is not None else data.get("required_checks_missing")
-    if explicit_missing is None:
-        missing = configured and not discovered and not pending and not timed_out and not failed and not _coerce_bool(
-            required_checks_passed if required_checks_passed is not None else data.get("required_checks_passed")
-        )
-    else:
-        missing = _coerce_bool(explicit_missing)
     explicit_passed = required_checks_passed if required_checks_passed is not None else data.get("required_checks_passed")
-    if explicit_passed is None:
-        passed = not configured
-    else:
-        passed = _coerce_bool(explicit_passed)
-    if missing or pending or timed_out or failed:
-        passed = False
-    block_missing = _coerce_bool(
-        missing_required_checks_blocks_merge
-        if missing_required_checks_blocks_merge is not None
-        else data.get("missing_required_checks_blocks_merge", configured)
-    )
-    hosted_source = _coerce_text(
-        hosted_checks_source if hosted_checks_source is not None else data.get("hosted_checks_source"),
-        default=("not_required" if not configured else "gh_pr_checks"),
-    )
     hosted_reported = _coerce_bool(
         hosted_checks_reported if hosted_checks_reported is not None else data.get("hosted_checks_reported", discovered)
     )
-    hosted_available = (not configured) or hosted_reported
-    hosted_satisfied = (not configured) or (hosted_reported and passed)
-    authority_satisfied = hosted_satisfied if configured else True
+    probe_status = _coerce_text(
+        hosted_authority_probe_status if hosted_authority_probe_status is not None else data.get("hosted_authority_probe_status")
+    )
+    probe_note = _coerce_text(
+        hosted_authority_probe_note if hosted_authority_probe_note is not None else data.get("hosted_authority_probe_note")
+    )
+
+    unavailable = False
+    misconfigured = False
+    missing = False
+    passed = False
+
+    if not hosted_required:
+        passed = True
+        probe_status = "not_required"
+        probe_note = probe_note or "Hosted authority is not required for the configured local-only verification profile."
+    else:
+        if probe_status == "unavailable":
+            unavailable = True
+            probe_note = probe_note or "Hosted authority probe could not be executed."
+        elif not contract_configured:
+            misconfigured = True
+            probe_status = "misconfigured"
+            probe_note = probe_note or str(contract["repo_check_contract_note"])
+        elif not hosted_reported or not discovered:
+            misconfigured = True
+            probe_status = "misconfigured"
+            missing = _coerce_bool(explicit_missing) if explicit_missing is not None else False
+            probe_note = probe_note or "Hosted checks did not report on the branch."
+        else:
+            if explicit_missing is None:
+                missing = False
+            else:
+                missing = _coerce_bool(explicit_missing)
+            if explicit_passed is None:
+                passed = not pending and not timed_out and not failed and not missing
+            else:
+                passed = _coerce_bool(explicit_passed)
+            if missing or pending or timed_out or failed:
+                passed = False
+            if passed:
+                probe_status = "satisfied"
+                probe_note = probe_note or "Hosted authority probe reported the required checks as satisfied."
+            else:
+                probe_status = probe_status or "reported_unsatisfied"
+                if pending:
+                    probe_note = probe_note or "Hosted authority probe reported pending required checks."
+                elif timed_out:
+                    probe_note = probe_note or "Hosted authority probe reported timed-out required checks."
+                elif failed:
+                    probe_note = probe_note or "Hosted authority probe reported failed required checks."
+                elif missing:
+                    probe_note = probe_note or "Hosted authority probe reported missing required checks."
+                else:
+                    probe_note = probe_note or "Hosted authority probe reported checks but did not confirm success."
+
+    if unavailable or misconfigured:
+        pending = False
+        timed_out = False
+        failed = False
+        passed = False
+
+    hosted_available = (not hosted_required) or probe_status not in {"unavailable", "misconfigured"}
+    hosted_satisfied = (not hosted_required) or probe_status == "satisfied"
+    authority_satisfied = (not hosted_required) or hosted_satisfied
+
     return {
         "verification_authority_profile": profile,
-        "required_checks_configured": configured,
+        "required_checks_configured": hosted_required,
+        "repo_check_contract_source": str(contract["repo_check_contract_source"]),
+        "repo_required_checks": tuple(contract["repo_required_checks"]),
+        "repo_check_contract_configured": contract_configured,
+        "repo_check_contract_note": str(contract["repo_check_contract_note"]),
         "required_checks_discovered": discovered,
         "required_checks_missing": missing,
         "required_checks_pending": pending,
         "required_checks_timed_out": timed_out,
         "required_checks_failed": failed,
         "required_checks_passed": passed,
-        "missing_required_checks_blocks_merge": block_missing,
+        "required_checks_unavailable": unavailable,
+        "required_checks_misconfigured": misconfigured,
+        "missing_required_checks_blocks_merge": bool(contract["missing_required_checks_blocks_merge"]),
         "verification_authority_satisfied": authority_satisfied,
         "required_check_state": _required_check_state(
-            configured=configured,
+            configured=hosted_required,
+            unavailable=unavailable,
+            misconfigured=misconfigured,
             missing=missing,
             pending=pending,
             timed_out=timed_out,
             failed=failed,
             passed=passed,
         ),
-        "hosted_checks_source": hosted_source,
+        "hosted_checks_source": str(contract["hosted_checks_source"]),
         "hosted_checks_reported": hosted_reported,
         "hosted_authority_available": hosted_available,
         "hosted_authority_satisfied": hosted_satisfied,
+        "hosted_authority_probe_status": probe_status or ("not_required" if not hosted_required else "reported_unsatisfied"),
+        "hosted_authority_probe_note": probe_note,
     }
 
 
@@ -187,25 +319,30 @@ def evaluate_verification_authority(
             "note": summary,
         }
     else:
-        state = str(truth["required_check_state"])
-        if not hosted_available:
-            summary = "Configured hosted verification authority is not available because required hosted CI checks were not reported."
-            blocking_reason = "hosted_required_checks_not_reported"
-        elif state == "missing":
-            summary = "Configured verification authority is not satisfied because required CI checks were not discovered."
-            blocking_reason = "required_checks_missing"
-        elif state == "pending":
-            summary = "Configured verification authority is not satisfied because required CI checks are still pending."
-            blocking_reason = "required_checks_pending"
-        elif state == "timed_out":
-            summary = "Configured verification authority is not satisfied because required CI checks timed out."
-            blocking_reason = "required_checks_timed_out"
-        elif state == "failed":
-            summary = "Configured verification authority is not satisfied because required CI checks failed."
-            blocking_reason = "required_checks_failed"
+        probe_status = str(truth["hosted_authority_probe_status"])
+        if probe_status == "unavailable":
+            summary = "Configured hosted verification authority is not available because the hosted check probe could not be executed."
+            blocking_reason = "hosted_probe_unavailable"
+        elif probe_status == "misconfigured":
+            summary = "Configured hosted verification authority is not satisfied because the repo check contract or branch reporting is misconfigured."
+            blocking_reason = "hosted_required_checks_misconfigured"
         else:
-            summary = "Configured verification authority is not satisfied because required CI checks did not report success."
-            blocking_reason = "required_checks_unsatisfied"
+            state = str(truth["required_check_state"])
+            if state == "pending":
+                summary = "Configured verification authority is not satisfied because required CI checks are still pending."
+                blocking_reason = "required_checks_pending"
+            elif state == "timed_out":
+                summary = "Configured verification authority is not satisfied because required CI checks timed out."
+                blocking_reason = "required_checks_timed_out"
+            elif state == "failed":
+                summary = "Configured verification authority is not satisfied because required CI checks failed."
+                blocking_reason = "required_checks_failed"
+            elif state == "missing":
+                summary = "Configured verification authority is not satisfied because required CI checks were reported as missing."
+                blocking_reason = "required_checks_missing"
+            else:
+                summary = "Configured verification authority is not satisfied because required CI checks did not report success."
+                blocking_reason = "required_checks_unsatisfied"
         controller_report = {
             "acceptance_decision": "blocked",
             "post_task_decision": "stop",
@@ -234,19 +371,20 @@ def _extract_stdout_stderr(result: object) -> tuple[str, str]:
     return str(getattr(result, "stdout", "") or ""), str(getattr(result, "stderr", "") or "")
 
 
-
-def _infer_required_check_truth_from_output(text: str, *, profile: VerificationAuthorityProfile) -> dict[str, object]:
+def _infer_required_check_truth_from_output(
+    text: str,
+    *,
+    profile: VerificationAuthorityProfile,
+    repo_check_contract: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
     lower = text.lower()
     discovered = "no checks reported" not in lower and bool(text.strip())
-    missing = False
     pending = False
     timed_out = False
     failed = False
     passed = False
 
-    if not discovered:
-        missing = profile != "local_only"
-    else:
+    if discovered:
         if "pending" in lower or "in progress" in lower or "queued" in lower:
             pending = True
         if "timed out" in lower or "timeout" in lower:
@@ -260,16 +398,47 @@ def _infer_required_check_truth_from_output(text: str, *, profile: VerificationA
 
     return canonical_required_check_truth(
         verification_authority_profile=profile,
+        repo_check_contract=repo_check_contract,
         required_checks_discovered=discovered,
-        required_checks_missing=missing,
         required_checks_pending=pending,
         required_checks_timed_out=timed_out,
         required_checks_failed=failed,
         required_checks_passed=passed,
-        hosted_checks_source="gh_pr_checks",
         hosted_checks_reported=discovered,
+        hosted_authority_probe_status=("misconfigured" if not discovered else None),
+        hosted_authority_probe_note=("Hosted checks did not report on the branch." if not discovered else ""),
     )
 
+
+def probe_hosted_authority(
+    runner: Runner,
+    *,
+    verification_authority_profile: Any = "local_plus_required_ci",
+    repo_check_contract: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    profile = coerce_verification_authority_profile(verification_authority_profile)
+    if profile == "local_only":
+        return canonical_required_check_truth(
+            verification_authority_profile=profile,
+            repo_check_contract=repo_check_contract,
+        )
+    try:
+        result = runner(["gh", "pr", "checks", "--watch"], True)
+    except Exception as exc:
+        return canonical_required_check_truth(
+            verification_authority_profile=profile,
+            repo_check_contract=repo_check_contract,
+            required_checks_discovered=False,
+            hosted_checks_reported=False,
+            hosted_authority_probe_status="unavailable",
+            hosted_authority_probe_note=str(exc),
+        )
+    stdout, stderr = _extract_stdout_stderr(result)
+    return _infer_required_check_truth_from_output(
+        "\n".join([stdout, stderr]).strip(),
+        profile=profile,
+        repo_check_contract=repo_check_contract,
+    )
 
 
 def create_pr(runner: Runner, *, title: str, body: str = "") -> GitWorkflowResult:
@@ -280,31 +449,30 @@ def create_pr(runner: Runner, *, title: str, body: str = "") -> GitWorkflowResul
     return GitWorkflowResult(True, "create_pr", "PR created")
 
 
-
 def wait_for_required_checks(
     runner: Runner,
     *,
     verification_authority_profile: Any = "local_plus_required_ci",
+    repo_check_contract: Mapping[str, Any] | None = None,
 ) -> GitWorkflowResult:
     profile = coerce_verification_authority_profile(verification_authority_profile)
+    evidence = probe_hosted_authority(
+        runner,
+        verification_authority_profile=profile,
+        repo_check_contract=repo_check_contract,
+    )
     if profile == "local_only":
-        evidence = canonical_required_check_truth(verification_authority_profile=profile)
         return GitWorkflowResult(True, "wait_for_required_checks", "required CI checks not configured", evidence=evidence)
-    try:
-        result = runner(["gh", "pr", "checks", "--watch"], True)
-    except Exception as exc:
-        evidence = canonical_required_check_truth(
-            verification_authority_profile=profile,
-            required_checks_discovered=False,
-            required_checks_missing=True,
-        )
-        return GitWorkflowResult(False, "wait_for_required_checks", f"required checks failed: {exc}", evidence=evidence)
-    stdout, stderr = _extract_stdout_stderr(result)
-    evidence = _infer_required_check_truth_from_output("\n".join([stdout, stderr]).strip(), profile=profile)
     if bool(evidence["verification_authority_satisfied"]):
         return GitWorkflowResult(True, "wait_for_required_checks", "required checks passed", evidence=evidence)
+
+    probe_status = str(evidence["hosted_authority_probe_status"])
     state = str(evidence["required_check_state"])
-    if state == "missing":
+    if probe_status == "unavailable":
+        message = "hosted authority probe unavailable"
+    elif probe_status == "misconfigured":
+        message = "required checks misconfigured"
+    elif state == "missing":
         message = "required checks missing"
     elif state == "pending":
         message = "required checks pending"
@@ -317,14 +485,12 @@ def wait_for_required_checks(
     return GitWorkflowResult(False, "wait_for_required_checks", message, evidence=evidence)
 
 
-
 def merge_pr(runner: Runner) -> GitWorkflowResult:
     try:
         runner(["gh", "pr", "merge", "--merge", "--auto", "--delete-branch"], True)
     except Exception as exc:
         return GitWorkflowResult(False, "merge_pr", f"PR merge failed: {exc}")
     return GitWorkflowResult(True, "merge_pr", "PR merged")
-
 
 
 def reset_main_clean(runner: Runner) -> GitWorkflowResult:
@@ -338,7 +504,6 @@ def reset_main_clean(runner: Runner) -> GitWorkflowResult:
     return GitWorkflowResult(True, "reset_main", "clean main reset complete")
 
 
-
 def accepted_task_pr_merge_flow(
     runner: Runner,
     *,
@@ -347,9 +512,13 @@ def accepted_task_pr_merge_flow(
     pr_title: str,
     pr_body: str = "",
     verification_authority_profile: Any = "local_plus_required_ci",
+    repo_check_contract: Mapping[str, Any] | None = None,
 ) -> Dict[str, object]:
     profile = coerce_verification_authority_profile(verification_authority_profile)
-    required_truth = canonical_required_check_truth(verification_authority_profile=profile)
+    required_truth = canonical_required_check_truth(
+        verification_authority_profile=profile,
+        repo_check_contract=repo_check_contract,
+    )
     result: Dict[str, object] = {
         "accepted": bool(accepted),
         "autonomous_merge_enabled": bool(autonomous_merge_enabled),
@@ -389,7 +558,11 @@ def accepted_task_pr_merge_flow(
         return result
     result["created_pr"] = True
 
-    checks = wait_for_required_checks(runner, verification_authority_profile=profile)
+    checks = wait_for_required_checks(
+        runner,
+        verification_authority_profile=profile,
+        repo_check_contract=repo_check_contract,
+    )
     result.update(dict(checks.evidence or {}))
     result["required_checks_passed"] = bool(result.get("required_checks_passed", False))
     if not checks.ok:
@@ -427,7 +600,6 @@ def accepted_task_pr_merge_flow(
     )
     result["next_task_may_proceed"] = True
     return result
-
 
 
 def report_branch_push_ready(branch: str, *, printer=print) -> None:
