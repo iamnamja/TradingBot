@@ -30,7 +30,7 @@ Recent tranche highlights include:
 
 ## Current state
 
-- **Tasks 090–098 foundation complete:** the repo now has a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), persisted role handoff truth, a sequential builder/verifier/controller loop with distinct machine-readable role artifacts and controller-owned final authority, explicit verification-authority truth for GitHub-required CI checks, a reusable Python-first project/workspace adapter contract for bootstrap and validation outside the current repo shape, and a deterministic second-project portability proof over a simple external Python project shape.
+- **Tasks 090–099 proof sync complete:** the repo now has synchronized deterministic proof for a canonical three-role multi-agent contract surface (`controller`, `builder`, `verifier`), dependency-aware short-manifest planning, explicit verification-authority truth, Python-only second-project portability, and extraction-prep boundary posture.
 
 The orchestrator now has an explicit per-task sequential controller loop that:
 
@@ -52,11 +52,9 @@ Accepted tasks continue only when all enabled gates pass.
 
 The workspace adapter contract keeps TradingBot as one consumer rather than the only implied consumer, and gives the controller explicit bootstrap truth (`not_started`, `succeeded`, `blocked`) so resume behavior can remain honest after setup failures in external Python workspaces.
 
+## Standalone package boundary and consumer bridge (098–099)
 
-
-## Standalone package boundary and consumer bridge (098)
-
-The orchestrator now has a clearer standalone product boundary without claiming that a full extraction is already complete.
+The orchestrator has a clearer standalone product boundary without claiming full extraction completion.
 
 This boundary is expressed through:
 
@@ -64,11 +62,11 @@ This boundary is expressed through:
 - a documented minimal consumer bridge for workspace adapters, validation commands, acceptance evidence hooks, protected paths, and optional consumer policies
 - TradingBot remaining a supported in-repo consumer while generic Python remains a second consumer shape
 
-The repo still operates as a monorepo, but the orchestrator product boundary is now clearer and more testable.
+The repo still operates as a monorepo, and posture remains extraction-prep only.
 
-## Second-project portability proof (097)
+## Second-project portability proof (097–099)
 
-A narrow deterministic proof now covers a simple external Python project shape and demonstrates:
+A narrow deterministic proof covers a simple external Python project shape and demonstrates:
 
 - workspace adapter selection between TradingBot and generic Python consumers
 - explicit bootstrap/setup truth and resumable failure signaling
@@ -78,106 +76,15 @@ A narrow deterministic proof now covers a simple external Python project shape a
 
 Scope remains intentionally Python-first and local-test deterministic.
 
-## Hardened autonomous short-manifest proof (089)
-
-A narrow, deterministic proof slice is now covered and synchronized across tests/docs.
-
-The current proof demonstrates:
-
-- short ordinary manifest progresses through task execution, authoritative validation, and final acceptance review
-- retryable acceptance failure can be self-healed within budget and then accepted without re-running raw execution attempts
-- accepted tasks can pass the PR/check/merge/reset gate before the next task proceeds
-- runner stops honestly for failed merge/check/reset posture
-- resume-after-merge only skips prior tasks when persisted checkpoint truth proves accepted + checks passed + merged + clean reset
-- controller-core proof-shaping tasks defer docs/README proof-complete claims until focused controller proof tests are green
-
-This remains an intentionally bounded capability proof, not a broad scheduler claim.
-
-## What 083–089 hardened
-
-The controller-contract hardening tranche stabilized:
-
-- one canonical controller contract across controller-facing modules
-- non-reexecuting retry/self-heal semantics with explicit repair-vs-execution audit truth in the proof surface
-- first-class merge/reset posture truth in persisted state and resume logic
-- controller-task semantic repair digest/context rather than raw failing logs alone
-- controller strict mode, focused proof tests, and proof-claim deferral for docs/README
-- further `agents/run_task.py` decomposition through dedicated helper modules
-
-## Next planned tranche (090–099)
-
-The next tranche should shift from controller-contract hardening to multi-agent portability and productization.
-
-Planned focus areas are:
-
-- canonical builder/verifier/controller role contract and handoff truth
-- sequential multi-agent execution loop with controller-owned role selection and distinct builder/verifier/controller evidence bundles
-- CI-required checks as first-class verification authority with explicit missing/pending/timed-out/failed/pass truth
-- repair-strategy routing instead of one generic remediation surface
-- reusable project/workspace bootstrap and validation contracts
-- dependency-aware manifests and task-family routing
-- a second-project Python portability proof
-- a stronger standalone product boundary while still remaining in the monorepo for this tranche
-
-## Canonical batch execution path
-
-Canonical path for sequential manifest execution is now:
-
-- `agents/lib/batch_executor.py`
-- `agents/lib/batch_state.py`
-- `agents/lib/task_queue.py`
-- `agents/lib/final_acceptance.py`
-- `agents/lib/git_workflow.py`
-
-`agents/run_task.py` remains the execution shell, but it is no longer the sole home of controller behavior.
-
-## Persisted per-task outcome expectations
-
-Persisted outcomes/checkpoints now intentionally include, through one canonical controller contract surface:
-
-- task path
-- terminal status
-- final acceptance decision
-- retry count
-- next-task proceed flag
-- post-task decision
-- accepted-task PR flow flags (created/checks/merged/reset where applicable)
-- resume reason/target/gate metadata
-
-## Near-term posture
-
-Execution remains intentionally sequential and deterministic.
-No concurrent scheduling is introduced.
-Acceptance before advance is part of the canonical controller contract, and when autonomous merge posture is enabled, clean-main reset before next-task progression is required.
-
-The next broadened product step should still keep role execution sequential at first:
-
-- controller chooses
-- builder acts
-- verifier acts
-- controller decides
-
 ## Scope honesty
 
 Current proof scope is explicitly limited to:
 
-- ordinary/non-protected task manifests
+- role-separated controller/builder/verifier contracts in sequential execution
+- dependency-aware short-manifest planning/routing truth
+- explicit verification-authority posture (`local_only` and required-check truth surfaces)
 - deterministic local tests and stubs
-- conservative stop-on-risk posture
-- controller-core proof-shaping tasks governed by strict-mode proof gates
 - simple external Python project/workspace shapes through the adapter contract
+- extraction preparation posture rather than completed standalone extraction
 
-It does **not** claim autonomy for arbitrary protected/controller/meta task lists or unattended broad production scheduling.
-It does **not** claim broad multi-language portability.
-
-## Canonical ordering source
-
-For all contributor and automation references, the canonical visible order is:
-
-1. `tasks/README.md`
-2. task markdown files under `tasks/` by exact numeric/alphanumeric filename
-3. supporting roadmap docs in `docs/`
-
-- task-family router and controller-owned agent selection are complete through **Task 096**
-- second-project multi-agent portability proof is added in **Task 097**
-- standalone package boundary and consumer bridge prep are added in **Task 098**
+It does **not** claim autonomy for arbitrary protected/controller/meta task lists, broad unattended production scheduling, or broad multi-language portability.

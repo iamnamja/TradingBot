@@ -13,6 +13,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from agents.lib import project_workspace_adapter  # noqa: E402
+from agents.lib import multi_agent_contract  # noqa: E402
 from agents.lib.multi_agent_loop import execute_multi_agent_loop  # noqa: E402
 
 
@@ -259,3 +260,15 @@ def test_multi_agent_controller_cycle_is_portable_for_generic_python_project() -
 
     assert processed_task_ids == ["alpha", "beta"]
     assert decision_log == ["builder:alpha", "verifier", "controller", "builder:beta", "verifier", "controller"]
+
+
+def test_workspace_boundary_snapshot_is_extraction_prep_not_full_extraction() -> None:
+    boundary = multi_agent_contract.orchestrator_package_boundary_snapshot()
+
+    assert boundary["product_name"] == "orchestrator"
+    assert boundary["operates_inside_monorepo"] is True
+    assert boundary["full_standalone_extraction_completed"] is False
+    assert "tradingbot" in boundary["supported_consumers"]
+    assert "generic_python" in boundary["supported_consumers"]
+    assert boundary["role_contract"]["sequential_role_execution_only"] is True
+    assert boundary["role_contract"]["controller_authority_over_next_role"] is True
