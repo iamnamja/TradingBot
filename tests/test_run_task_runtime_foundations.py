@@ -133,9 +133,7 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.build_controller_test_failure_appendix)
     assert callable(run_task.execute_batch_loop)
     assert callable(run_task.accepted_task_pr_merge_flow)
-    assert callable(run_task.canonical_repo_check_contract)
     assert callable(run_task.canonical_required_check_truth)
-    assert callable(run_task.probe_hosted_authority)
     assert callable(run_task.evaluate_verification_authority)
     assert callable(run_task.report_branch_push_ready)
     assert callable(run_task.build_controller_strict_mode_context)
@@ -144,11 +142,17 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.validate_proof_sync_contract)
     assert callable(run_task.task_admission_context)
     assert callable(run_task.build_bounded_decomposition_truth)
+    assert callable(run_task.build_ordinary_task_execution_plan)
+    assert callable(run_task.build_multi_role_ordinary_controller_decision)
+    assert callable(run_task.run_multi_agent_controller_cycle)
+    assert callable(run_task.run_multi_agent_task_cycle)
 
 
 def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
     run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, multi_agent_loop = _load_runtime_modules()
     assert callable(run_task.execute_multi_agent_loop)
+    assert callable(run_task.run_multi_agent_controller_cycle)
+    assert callable(run_task.run_multi_agent_task_cycle)
     assert hasattr(multi_agent_loop, "execute_multi_agent_loop")
     assert callable(multi_agent_loop.execute_multi_agent_loop)
 
@@ -182,6 +186,8 @@ def test_proof_sync_contract_snapshot_exposes_expected_guard_surface() -> None:
 
     assert snapshot["run_task_exports"]
     assert "execute_multi_agent_loop" in snapshot["run_task_exports"]
+    assert "run_multi_agent_controller_cycle" in snapshot["run_task_exports"]
+    assert "run_multi_agent_task_cycle" in snapshot["run_task_exports"]
     assert "run_multi_agent_controller_cycle" in snapshot["multi_agent_loop_exports"]
     assert "processed_task_ids" in snapshot["compatibility_result_fields"]
     assert "controller_decision" in snapshot["canonical_result_fields"]

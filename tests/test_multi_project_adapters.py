@@ -15,7 +15,11 @@ if str(root) not in sys.path:
 from agents import run_task  # noqa: E402
 from agents.lib import multi_agent_contract  # noqa: E402
 from agents.lib import project_workspace_adapter  # noqa: E402
-from agents.lib.multi_agent_loop import execute_external_workspace_bootstrap_recovery_proof, execute_multi_agent_loop  # noqa: E402
+from agents.lib.multi_agent_loop import (  # noqa: E402
+    execute_external_workspace_bootstrap_recovery_proof,
+    execute_multi_agent_loop,
+    run_multi_agent_task_cycle,
+)  # noqa: E402
 
 
 def _builder_exports():
@@ -283,6 +287,8 @@ def test_proof_sync_validator_accepts_current_bounded_multi_project_surface() ->
     result = run_task.validate_proof_sync_contract(
         run_task_exports=[
             'execute_multi_agent_loop',
+            'run_multi_agent_controller_cycle',
+            'run_multi_agent_task_cycle',
             'multi_agent_contract_snapshot',
             'orchestrator_package_boundary_snapshot',
             'proof_sync_contract_snapshot',
@@ -455,3 +461,62 @@ def test_multi_agent_loop_emits_tester_critique_bundle_for_targeted_replay() -> 
     assert critique["broad_replay_commands"] == ["pytest -q"]
     assert "agents/lib/multi_agent_loop.py" in critique["likely_touched_files"]
     assert result["failure_journal_context"]["tester_critique_summary"]["likely_failure_family"] == "import_contract"
+
+
+def test_run_multi_agent_task_cycle_executes_explicit_builder_tester_controller_sequence() -> None:
+    calls: list[str] = []
+
+    manifest = [
+        {"task_id": "alpha", "task_path": "tasks/alpha.md", "depends_on": []},
+        {"task_id": "beta", "task_path": "tasks/beta.md", "depends_on": ["alpha"]},
+    ]
+
+    def builder(ctx: dict[str, object]) -> dict[str, object]:
+        calls.append(f"builder:{Path(str(ctx['task_path'])).stem}")
+        return {"changed_files": [f"agents/lib/{Path(str(ctx['task_path'])).stem}.py"], "summary": "built"}
+
+    def verifier(ctx: dict[str, object]) -> dict[str, object]:
+        calls.append(f"verifier:{Path(str(ctx['task_path'])).stem}")
+        assert "builder_artifact" in ctx
+        return {
+            "validator_ok": True,
+            "validator_note": "local validation passed",
+            "focused_results": ["pytest -q tests/test_multi_project_adapters.py"],
+            "full_results": ["pytest -q"],
+            "acceptance_report": {
+                "acceptance_decision": "accepted",
+                "post_task_decision": "continue",
+                "next_task_may_proceed": True,
+                "note": "accepted",
+            },
+        }
+
+    def controller(ctx: dict[str, object], verifier_result: dict[str, object]) -> dict[str, object]:
+        calls.append(f"controller:{Path(str(ctx['task_path'])).stem}")
+        return {
+            "task_path": str(ctx["task_path"]),
+            "post_task_decision": "continue",
+            "next_task_may_proceed": True,
+            "summary": "accepted",
+            "action": "advance",
+        }
+
+    result = run_multi_agent_task_cycle(
+        manifest=manifest,
+        builder=builder,
+        verifier=verifier,
+        controller=controller,
+    )
+
+    assert result["processed_task_ids"] == ["alpha", "beta"]
+    assert result["controller_final_decision"] == "continue"
+    assert result["ordinary_task_execution_surface"] == "multi_role_ordinary_manifest"
+    assert calls == [
+        "builder:alpha",
+        "verifier:alpha",
+        "controller:alpha",
+        "builder:beta",
+        "verifier:beta",
+        "controller:beta",
+    ]
+
