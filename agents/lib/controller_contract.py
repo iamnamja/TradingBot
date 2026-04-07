@@ -160,6 +160,68 @@ CONTROLLER_RUNTIME_DELEGATE_SURFACES: tuple[str, ...] = (
     "multi_agent_task_context",
 )
 
+
+PROOF_SYNC_RUN_TASK_EXPORTS: tuple[str, ...] = (
+    "execute_multi_agent_loop",
+    "multi_agent_contract_snapshot",
+    "orchestrator_package_boundary_snapshot",
+    "proof_sync_contract_snapshot",
+    "validate_proof_sync_contract",
+)
+PROOF_SYNC_MULTI_AGENT_LOOP_EXPORTS: tuple[str, ...] = (
+    "execute_multi_agent_loop",
+    "run_multi_agent_controller_cycle",
+    "run_multi_agent_task_cycle",
+)
+PROOF_SYNC_COMPAT_RESULT_FIELDS: tuple[str, ...] = (
+    "processed_task_ids",
+    "verification_authority",
+    "controller_final_decision",
+    "runtime_portability_scope",
+)
+PROOF_SYNC_CANONICAL_RESULT_FIELDS: tuple[str, ...] = (
+    "builder_artifact",
+    "verifier_artifact",
+    "controller_decision",
+    "role_handoff_state",
+)
+PROOF_SYNC_ALLOWED_MANIFEST_ENTRY_KEYS: tuple[str, ...] = (
+    "path",
+    "task_path",
+    "task_id",
+    "depends_on",
+    "blocks",
+    "deferrable",
+    "skipped_by_policy",
+    "rerun_required",
+    "label",
+    "note",
+    "stop_policy",
+)
+PROOF_SYNC_REQUIRED_BOUNDARY_KEYS: tuple[str, ...] = (
+    "product_name",
+    "operates_inside_monorepo",
+    "full_standalone_extraction_completed",
+    "supported_consumers",
+)
+PROOF_SYNC_REQUIRED_ROLE_SNAPSHOT_KEYS: tuple[str, ...] = (
+    "roles",
+    "sequential_role_execution_only",
+    "controller_authority_over_next_role",
+)
+PROOF_SYNC_CLAIM_FORBIDDEN_PHRASES: tuple[str, ...] = (
+    "arbitrary project creation",
+    "broad unattended scheduler autonomy",
+    "full standalone extraction completion",
+    "broad arbitrary multi-language portability",
+    "arbitrary protected/controller task-list autonomy",
+)
+PROOF_SYNC_CLAIM_GUARD_HINTS: tuple[str, ...] = (
+    "bounded",
+    "python",
+    "does not",
+)
+
 _TERMINAL_FROM_ACCEPTANCE: dict[AcceptanceDecision, QueueTerminalStatus] = {
     "accepted": "completed",
     "retryable_failure": "failed",
@@ -325,4 +387,27 @@ def controller_contract_snapshot() -> dict[str, object]:
         "controller_family_files": list(CONTROLLER_FAMILY_FILES),
         "controller_failure_digest_fields": list(CONTROLLER_FAILURE_DIGEST_FIELDS),
         "controller_runtime_delegate_surfaces": list(CONTROLLER_RUNTIME_DELEGATE_SURFACES),
+        "proof_sync_run_task_exports": list(PROOF_SYNC_RUN_TASK_EXPORTS),
+        "proof_sync_multi_agent_loop_exports": list(PROOF_SYNC_MULTI_AGENT_LOOP_EXPORTS),
+        "proof_sync_compat_result_fields": list(PROOF_SYNC_COMPAT_RESULT_FIELDS),
+        "proof_sync_canonical_result_fields": list(PROOF_SYNC_CANONICAL_RESULT_FIELDS),
+        "proof_sync_allowed_manifest_entry_keys": list(PROOF_SYNC_ALLOWED_MANIFEST_ENTRY_KEYS),
+        "proof_sync_required_boundary_keys": list(PROOF_SYNC_REQUIRED_BOUNDARY_KEYS),
+        "proof_sync_required_role_snapshot_keys": list(PROOF_SYNC_REQUIRED_ROLE_SNAPSHOT_KEYS),
+        "proof_sync_claim_forbidden_phrases": list(PROOF_SYNC_CLAIM_FORBIDDEN_PHRASES),
+        "proof_sync_claim_guard_hints": list(PROOF_SYNC_CLAIM_GUARD_HINTS),
+    }
+
+
+def proof_sync_contract_snapshot() -> dict[str, object]:
+    return {
+        "run_task_exports": list(PROOF_SYNC_RUN_TASK_EXPORTS),
+        "multi_agent_loop_exports": list(PROOF_SYNC_MULTI_AGENT_LOOP_EXPORTS),
+        "compatibility_result_fields": list(PROOF_SYNC_COMPAT_RESULT_FIELDS),
+        "canonical_result_fields": list(PROOF_SYNC_CANONICAL_RESULT_FIELDS),
+        "allowed_manifest_entry_keys": list(PROOF_SYNC_ALLOWED_MANIFEST_ENTRY_KEYS),
+        "required_boundary_keys": list(PROOF_SYNC_REQUIRED_BOUNDARY_KEYS),
+        "required_role_snapshot_keys": list(PROOF_SYNC_REQUIRED_ROLE_SNAPSHOT_KEYS),
+        "claim_forbidden_phrases": list(PROOF_SYNC_CLAIM_FORBIDDEN_PHRASES),
+        "claim_guard_hints": list(PROOF_SYNC_CLAIM_GUARD_HINTS),
     }

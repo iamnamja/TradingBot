@@ -10,70 +10,98 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized proof checkpoint is now complete through **Task 099** for the post-089 multi-agent portability tranche.
+The reliability/autonomy tranche and backlog-execution continuation are complete through **Task 082**.
 
-The deterministic proof-backed slice currently covers:
+The active sequence covered by the current proof is:
 
-- role-separated **controller / builder / verifier** contract
-- sequential role loop with controller-owned final continue/stop authority
-- dependency-aware short-manifest planning/routing
-- explicit verification-authority truth posture
-- second-project **Python** portability proof
-- extraction-prep consumer boundary posture (not full extraction)
+- **076–082** — autonomous backlog progression and controller-thinning continuation
+  - final acceptance reviewer/report
+  - targeted self-heal for acceptance failures
+  - explicit batch executor/controller loop
+  - accepted-task PR/check/merge/reset flow
+  - resume-after-merge and manual-resolution behavior
+  - further `agents/run_task.py` decomposition
+  - autonomous backlog-runner proof for a short ordinary-task manifest
 
-Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for authoritative status narrative.
+The next planned hardening tranche is:
 
-## What the repo can honestly claim today
+- **083–089** — controller contract hardening and stricter controller-task discipline
+  - canonical controller contract
+  - non-reexecuting retry/self-heal channel
+  - merge-posture truth persistence and resume contract
+  - semantic failure digest and controller repair context
+  - controller-task strict mode and patch-quality gate
+  - further `agents/run_task.py` decomposition
+  - hardened autonomous short-manifest proof
 
-Today the repo has deterministic local proof for a bounded multi-agent portability slice:
+Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for status narrative.
 
-1. controller/builder/verifier role separation
-2. stable sequential role loop
-3. planner/routing/verification truth consistency
-4. Python-only second-project portability
-5. explicit consumer boundary and extraction-prep posture
+## Current batch posture
+
+The agent runner supports a conservative batch mode in addition to single-task mode.
+
+- Input: a task-list manifest (ordered task paths)
+- Behavior: sequential execution, acceptance-gated progression, deterministic retry/self-heal slice
+- Stop posture: stops honestly on blocking/manual/merge-posture failures
+- Goal: truthful, reviewable progression over a short ordinary manifest proof slice
+
+Single-task behavior remains available and unchanged for normal `agents/run_task.py <task.md>` usage.
+
+## Accepted-task autonomous PR/merge posture (optional)
+
+For tasks that have passed final acceptance review, the orchestrator can optionally run:
+
+1. PR creation
+2. required-check watch
+3. merge after successful checks
+4. clean reset to `main` (switch/fetch/reset/clean)
+5. only then unlock next-task progression
+
+Conservative limits:
+
+- no auto-merge for tasks that are not accepted
+- PR/CI/merge/reset failures stop honestly and persist non-proceed state
+- next task cannot proceed unless clean-main reset succeeds
+- operator-controlled mode remains available (autonomous merge is not hidden always-on)
+
+## What batch mode can honestly claim today
+
+Today the repo has:
+
+- a conservative batch runner CLI
+- machine-readable and human-readable batch summaries
+- deterministic local proofs for short ordinary-manifest autonomous progression
 
 It does **not** claim:
 
-- arbitrary project creation for any language or task family
-- broad unattended scheduler autonomy
-- full standalone extraction completion
+- arbitrary protected/controller task-list autonomy
+- broad unattended production scheduler autonomy across any task shape
 
-## Next planned tranche
+## What still needs hardening
 
-The next planned tranche is **100–107** — resilience, contract-stability, and hosted-authority hardening.
+The next tranche exists because Task 082 showed that controller-core autonomy still depends on stabilizing:
 
-Planned areas:
-
-- public-surface freeze and compatibility aliases for proof-facing helpers
-- first-class collection-error/import-error repair lane
-- proof-sync contract validation before full pytest
-- real hosted CI authority integration rather than local-only semantics
-- result-shape and manifest-schema normalization
-- targeted minimal-patch repair planning
-- external workspace bootstrap recovery proof
-- supervised mixed-manifest autonomy re-proof
-
-## Scope boundary
-
-The current proof remains intentionally narrow:
-
-- short dependency-aware manifests
-- deterministic local tests and stubs
-- explicit verification-authority constraints
-- Python-first portability only
-- monorepo operation with extraction preparation posture
+- one canonical controller contract across modules
+- non-reexecuting retry/self-heal semantics
+- persisted merge/reset truth and resume gates
+- semantic repair context for controller-task failures
+- strict controller-task patch discipline before apply
 
 ## Documentation entry points
 
 - `docs/README.md` — docs index and reading order
 - `docs/TRADINGBOT_PROJECT_STATE.md` — authoritative current state and tranche boundaries
-- `docs/ORCHESTRATOR_PRODUCT_SPEC.md` — product capability and boundary posture
-- `docs/ORCHESTRATOR_ROADMAP_090_099.md` — multi-agent portability/productization tranche
-- `docs/ORCHESTRATOR_ROADMAP_100_107.md` — resilience and hosted-authority hardening tranche after Task 099
+- `docs/ORCHESTRATOR_ROADMAP_069_075.md` — historical roadmap context for the first backlog-execution slice
+- `docs/ORCHESTRATOR_ROADMAP_076_082.md` — autonomy-and-controller-thinning tranche through Task 082
+- `docs/ORCHESTRATOR_ROADMAP_083_089.md` — controller-contract hardening tranche after Task 082
+- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md` — control gates and policy posture
 - `tasks/README.md` — canonical numbered task map
 
 ## Development
 
 - Lint: `ruff check .`
 - Tests: `pytest -q`
+
+## Documentation placement
+
+`README.md` is the canonical root-level entrypoint for the repo. Orchestrator and TradingBot narrative documents, product specs, controls/policies docs, and relationship documents should live under `docs/` rather than being duplicated at repo root.
