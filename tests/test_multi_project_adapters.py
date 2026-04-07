@@ -313,3 +313,36 @@ def test_proof_sync_validator_accepts_current_bounded_multi_project_surface() ->
 
     assert result['ok'] is True
     assert result['issues'] == []
+
+
+def test_execute_multi_agent_loop_normalizes_manifest_entry_aliases() -> None:
+    manifest = {
+        "tasks": [
+            {"task_id": "alpha", "task_path": "tasks/001_prepare.md"},
+            {"task_id": "beta", "path": "tasks/002_verify.md", "depends_on": ["tasks/001_prepare.md"]},
+        ]
+    }
+
+    role_calls: list[tuple[str, str]] = []
+
+    def choose_next_role(ctx: dict[str, object]) -> str:
+        role_calls.append((str(ctx["task_path"]), str(ctx["phase"])))
+        if ctx["phase"] == "build":
+            return "builder"
+        if ctx["phase"] == "verify":
+            return "verifier"
+        return "controller"
+
+    def run_role(role: str, ctx: dict[str, object]) -> dict[str, object]:
+        if role == "builder":
+            return {"status": "built", "changed_files": [str(ctx["task_path"]).replace(".md", ".py")]}
+        if role == "verifier":
+            return {"status": "verified", "verification_authority": "local_only", "ok": True}
+        return {"status": "accepted", "controller_final_decision": "continue"}
+
+    result = execute_multi_agent_loop(task_manifest=manifest, choose_next_role=choose_next_role, run_role=run_role)
+
+    assert result["processed_task_ids"] == ["alpha", "beta"]
+    assert result["count"] == 2
+    assert result["controller_final_decision"] == "continue"
+    assert result["runtime_portability_scope"] == "python_only"

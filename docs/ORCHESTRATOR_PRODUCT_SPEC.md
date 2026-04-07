@@ -69,3 +69,8 @@ The synchronized post-089 proof remains intentionally limited to deterministic l
 ## Boundary and claim discipline
 
 Public claims in docs/README must remain narrower than or equal to deterministic proof tests. This remains in force for the multi-agent portability tranche.
+
+
+## Result-shape and manifest-schema normalization
+
+The proof-facing portability surface now normalizes manifest entries through one canonical adapter and normalizes loop results through one bounded compatibility adapter. This keeps `path` vs `task_path` drift and proof-facing result-field drift from breaking otherwise valid tasks.

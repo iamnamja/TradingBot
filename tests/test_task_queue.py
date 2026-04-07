@@ -926,3 +926,20 @@ def test_planner_routing_and_verification_truth_stay_consistent_together(tmp_pat
         ("tasks/002_followup.md", "verify"),
         ("tasks/002_followup.md", "decide"),
     ]
+
+
+def test_manifest_entry_schema_normalizes_path_aliases_before_queue_build(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+
+    _write_task(tmp_path / "tasks" / "001.md")
+    _write_task(tmp_path / "tasks" / "002.md")
+    manifest = {
+        "tasks": [
+            {"task_path": "tasks/001.md"},
+            {"path": "tasks/002.md", "depends_on": ["tasks/001.md"]},
+        ]
+    }
+
+    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
+    assert [item.task_path for item in queue] == ["tasks/001.md", "tasks/002.md"]
+    assert queue[1].depends_on == ("tasks/001.md",)

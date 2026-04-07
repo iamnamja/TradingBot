@@ -10,6 +10,7 @@ from agents.lib.controller_contract import (
     is_merge_posture_decision,
     terminal_status_to_post_task_decision,
 )
+from agents.lib.manifest_planner import normalize_manifest_entry_schema
 
 QueueStatus = Literal["queued", "running", "completed", "blocked", "failed", "manual_patch"]
 
@@ -85,45 +86,23 @@ def _coerce_path_list(raw_value: Any, *, field_name: str, index: int) -> tuple[s
 
 
 def _coerce_manifest_task_entry(entry: Any, index: int) -> dict[str, object]:
-    if isinstance(entry, str):
-        path = _normalized_task_path(entry)
-        if not path:
-            raise TaskQueueManifestError(f"Task entry at index {index} is empty.")
-        return {
-            "path": path,
-            "label": "",
-            "note": "",
-            "stop_policy": "",
-            "depends_on": (),
-            "blocks": (),
-            "deferrable": False,
-            "skipped_by_policy": False,
-            "rerun_required": False,
-        }
-    if isinstance(entry, dict):
-        path = _normalized_task_path(str(entry.get("path", "")))
-        if not path:
-            raise TaskQueueManifestError(f"Task entry at index {index} is missing `path`.")
-        label = str(entry.get("label", "")).strip()
-        note = str(entry.get("note", "")).strip()
-        stop_policy = str(entry.get("stop_policy", "")).strip()
-        depends_on = _coerce_path_list(entry.get("depends_on"), field_name="depends_on", index=index)
-        blocks = _coerce_path_list(entry.get("blocks"), field_name="blocks", index=index)
-        deferrable = bool(entry.get("deferrable", entry.get("optional", False)))
-        skipped_by_policy = bool(entry.get("skipped_by_policy", entry.get("skip_by_policy", False)))
-        rerun_required = bool(entry.get("rerun_required", False))
-        return {
-            "path": path,
-            "label": label,
-            "note": note,
-            "stop_policy": stop_policy,
-            "depends_on": depends_on,
-            "blocks": blocks,
-            "deferrable": deferrable,
-            "skipped_by_policy": skipped_by_policy,
-            "rerun_required": rerun_required,
-        }
-    raise TaskQueueManifestError(f"Task entry at index {index} must be a string path or object with `path`.")
+    try:
+        normalized = normalize_manifest_entry_schema(entry, index=index)
+    except ValueError as exc:
+        raise TaskQueueManifestError(str(exc)) from exc
+    return {
+        "path": str(normalized["path"]),
+        "task_path": str(normalized["task_path"]),
+        "task_id": str(normalized["task_id"]),
+        "label": str(normalized["label"]),
+        "note": str(normalized["note"]),
+        "stop_policy": str(normalized["stop_policy"]),
+        "depends_on": tuple(str(p) for p in normalized["depends_on"]),
+        "blocks": tuple(str(p) for p in normalized["blocks"]),
+        "deferrable": bool(normalized["deferrable"]),
+        "skipped_by_policy": bool(normalized["skipped_by_policy"]),
+        "rerun_required": bool(normalized["rerun_required"]),
+    }
 
 
 
@@ -197,7 +176,7 @@ def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Pa
 
     return [
         TaskQueueItem(
-            task_path=str(entry["path"]),
+            task_path=str(entry.get("task_path") or entry["path"]),
             ordinal=i + 1,
             label=str(entry["label"]),
             note=str(entry["note"]),

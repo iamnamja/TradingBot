@@ -147,6 +147,8 @@ def test_public_surface_still_available() -> None:
 def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
     run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, multi_agent_loop = _load_runtime_modules()
     assert callable(run_task.execute_multi_agent_loop)
+    assert callable(run_task.normalize_manifest_entry_schema)
+    assert callable(run_task.normalize_multi_agent_loop_result)
     assert hasattr(multi_agent_loop, "execute_multi_agent_loop")
     assert callable(multi_agent_loop.execute_multi_agent_loop)
 
@@ -183,3 +185,15 @@ def test_collection_failure_helpers_expose_narrow_first_class_lane() -> None:
     route = run_task.choose_repair_strategy(kind="tests", message=message, category="collection_import_failure")
     assert route["repair_strategy"] == "collection_import_contract_repair"
     assert route["remediation_lane"] == "builder"
+
+
+def test_multi_agent_result_normalization_keeps_bounded_proof_fields() -> None:
+    run_task, *_ = _load_runtime_modules()
+    normalized = run_task.normalize_multi_agent_loop_result({
+        "processed_task_ids": ["alpha", "beta"],
+        "verification_authority": "local_only",
+        "controller_final_decision": "continue",
+    })
+    assert normalized["processed_task_ids"] == ["alpha", "beta"]
+    assert normalized["count"] == 2
+    assert normalized["runtime_portability_scope"] == "python_only"
