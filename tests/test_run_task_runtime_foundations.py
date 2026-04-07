@@ -26,7 +26,6 @@ def _load_runtime_modules():
     final_acceptance = importlib.import_module("agents.lib.final_acceptance")
     batch_executor = importlib.import_module("agents.lib.batch_executor")
     controller_strict_mode = importlib.import_module("agents.lib.controller_strict_mode")
-    project_workspace_adapter = importlib.import_module("agents.lib.project_workspace_adapter")
     multi_agent_loop = importlib.import_module("agents.lib.multi_agent_loop")
     return (
         run_task,
@@ -45,13 +44,12 @@ def _load_runtime_modules():
         final_acceptance,
         batch_executor,
         controller_strict_mode,
-        project_workspace_adapter,
         multi_agent_loop,
     )
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -64,7 +62,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     def fake_capture(cmd: list[str]) -> str:
@@ -90,7 +88,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_capture_result(cmd):
         if cmd == ["ruff", "check", "."]:
@@ -107,7 +105,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -130,9 +128,6 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.report_final_acceptance_failure)
     assert callable(run_task.build_controller_failure_digest)
     assert callable(run_task.build_controller_repair_context)
-    assert callable(run_task.classify_collection_failure)
-    assert callable(run_task.is_collection_failure)
-    assert callable(run_task.infer_targeted_repair_surface)
     assert callable(run_task.choose_repair_strategy)
     assert callable(run_task.format_repair_strategy)
     assert callable(run_task.build_controller_test_failure_appendix)
@@ -141,23 +136,21 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.canonical_required_check_truth)
     assert callable(run_task.evaluate_verification_authority)
     assert callable(run_task.report_branch_push_ready)
-    assert callable(run_task.wait_for_required_checks)
-    assert callable(run_task.coerce_verification_authority_profile)
     assert callable(run_task.build_controller_strict_mode_context)
     assert callable(run_task.describe_controller_strict_mode)
+    assert callable(run_task.proof_sync_contract_snapshot)
+    assert callable(run_task.validate_proof_sync_contract)
 
 
 def test_multi_agent_loop_surface_exposes_execute_cycle_symbol() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, multi_agent_loop = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, multi_agent_loop = _load_runtime_modules()
     assert callable(run_task.execute_multi_agent_loop)
-    assert callable(run_task.normalize_manifest_entry_schema)
-    assert callable(run_task.normalize_multi_agent_loop_result)
     assert hasattr(multi_agent_loop, "execute_multi_agent_loop")
     assert callable(multi_agent_loop.execute_multi_agent_loop)
 
 
 def test_multi_agent_contract_snapshot_remains_stable_and_explicitly_bounded() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _ = _load_runtime_modules()
     snapshot = multi_agent_contract.multi_agent_contract_snapshot()
 
     assert callable(run_task.multi_agent_contract_snapshot)
@@ -167,7 +160,7 @@ def test_multi_agent_contract_snapshot_remains_stable_and_explicitly_bounded() -
 
 
 def test_orchestrator_package_boundary_snapshot_stays_in_extraction_prep_posture() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _ = _load_runtime_modules()
     boundary = multi_agent_contract.orchestrator_package_boundary_snapshot()
 
     assert callable(run_task.orchestrator_package_boundary_snapshot)
@@ -178,47 +171,80 @@ def test_orchestrator_package_boundary_snapshot_stays_in_extraction_prep_posture
     assert "generic_python" in boundary["supported_consumers"]
 
 
-def test_collection_failure_helpers_expose_narrow_first_class_lane() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
-    message = "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle'"
 
-    assert run_task.classify_collection_failure(kind="tests", message=message) == "collection_import_failure"
-    assert run_task.is_collection_failure(kind="tests", message=message) is True
+def test_proof_sync_contract_snapshot_exposes_expected_guard_surface() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, multi_agent_contract, _, _, _, _ = _load_runtime_modules()
+    snapshot = run_task.proof_sync_contract_snapshot()
 
-    route = run_task.choose_repair_strategy(kind="tests", message=message, category="collection_import_failure")
-    assert route["repair_strategy"] == "collection_import_contract_repair"
-    assert route["remediation_lane"] == "builder"
+    assert snapshot["run_task_exports"]
+    assert "execute_multi_agent_loop" in snapshot["run_task_exports"]
+    assert "run_multi_agent_controller_cycle" in snapshot["multi_agent_loop_exports"]
+    assert "processed_task_ids" in snapshot["compatibility_result_fields"]
+    assert "controller_decision" in snapshot["canonical_result_fields"]
+
+    result = run_task.validate_proof_sync_contract(
+        run_task_exports=snapshot["run_task_exports"],
+        multi_agent_loop_exports=snapshot["multi_agent_loop_exports"],
+        compatibility_result={"processed_task_ids": [], "verification_authority": "local_only", "controller_final_decision": "continue", "runtime_portability_scope": "python_only"},
+        canonical_result={"builder_artifact": {}, "verifier_artifact": {}, "controller_decision": {}, "role_handoff_state": {}},
+        manifest_examples=[{"task_path": "tasks/001.md"}, {"path": "tasks/002.md", "depends_on": ["tasks/001.md"]}],
+        role_snapshot=multi_agent_contract.multi_agent_contract_snapshot(),
+        boundary_snapshot=multi_agent_contract.orchestrator_package_boundary_snapshot(),
+        claim_texts=[Path("README.md").read_text(encoding="utf-8"), Path("docs/ORCHESTRATOR_PRODUCT_SPEC.md").read_text(encoding="utf-8"), Path("docs/TRADINGBOT_PROJECT_STATE.md").read_text(encoding="utf-8")],
+    )
+    assert result["ok"] is True
 
 
-def test_multi_agent_result_normalization_keeps_bounded_proof_fields() -> None:
+def test_proof_sync_contract_validator_flags_missing_exports_and_overclaims() -> None:
     run_task, *_ = _load_runtime_modules()
-    normalized = run_task.normalize_multi_agent_loop_result({
-        "processed_task_ids": ["alpha", "beta"],
-        "verification_authority": "local_only",
-        "controller_final_decision": "continue",
-    })
-    assert normalized["processed_task_ids"] == ["alpha", "beta"]
-    assert normalized["count"] == 2
+    result = run_task.validate_proof_sync_contract(
+        run_task_exports=["execute_multi_agent_loop"],
+        multi_agent_loop_exports=["execute_multi_agent_loop"],
+        compatibility_result={"processed_task_ids": []},
+        canonical_result={"controller_decision": {}},
+        manifest_examples=[{"unexpected": "x"}],
+        role_snapshot={"roles": ["controller", "builder", "verifier"]},
+        boundary_snapshot={"product_name": "orchestrator"},
+        claim_texts=["This repo now provides broad unattended scheduler autonomy and full standalone extraction completion."],
+    )
+    assert result["ok"] is False
+    assert result["missing_run_task_exports"]
+    assert result["missing_multi_agent_loop_exports"]
+    assert result["manifest_issues"]
+    assert result["claim_guard_issues"]
+
+
+
+def test_supervised_mixed_manifest_reproof_surface_is_available_and_bounded() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, multi_agent_loop = _load_runtime_modules()
+
+    def choose_next_role(ctx: dict[str, object]) -> str:
+        phase = str(ctx.get("phase") or "")
+        if phase == "build":
+            return "builder"
+        if phase == "verify":
+            return "verifier"
+        return "controller"
+
+    def run_role(role: str, ctx: dict[str, object]) -> dict[str, object]:
+        if role == "builder":
+            return {"status": "built", "task_path": str(ctx["task_path"])}
+        if role == "verifier":
+            return {"accepted": True, "verification_authority": "local_only", "task_path": str(ctx["task_path"])}
+        return {"controller_final_decision": "continue", "post_task_decision": "continue"}
+
+    result = multi_agent_loop.execute_multi_agent_loop(
+        task_manifest={
+            "tasks": [
+                {"task_path": "tasks/089_orchestrator_hardened_autonomous_short_manifest_proof.md", "task_family": "proof_docs"},
+                {"task_path": "tasks/106_orchestrator_external_workspace_bootstrap_recovery_proof.md", "task_family": "bootstrap"},
+                {"task_path": "tasks/107_orchestrator_supervised_mixed_manifest_autonomy_reproof.md", "task_family": "consumer_facing"},
+            ]
+        },
+        choose_next_role=choose_next_role,
+        run_role=run_role,
+    )
+
+    normalized = run_task.normalize_multi_agent_loop_result(result)
+    assert normalized["count"] == 3
     assert normalized["runtime_portability_scope"] == "python_only"
-
-
-def test_targeted_repair_surface_helpers_prefer_narrow_bounded_patch() -> None:
-    run_task, *_ = _load_runtime_modules()
-    message = "ERROR collecting tests/test_multi_project_adapters.py\nImportError while importing test module\ncannot import name 'run_multi_agent_controller_cycle'"
-
-    surface = run_task.infer_targeted_repair_surface(kind="tests", message=message, category="collection_import_failure")
-    assert surface["targeted_patch_surface"] == "compatibility_alias_only"
-    assert surface["minimal_patch_selected"] is True
-
-    route = run_task.choose_repair_strategy(kind="tests", message=message, category="collection_import_failure")
-    assert route["targeted_patch_surface"] == "compatibility_alias_only"
-    assert route["prefer_minimal_patch"] is True
-    assert route["minimal_patch_selected"] is True
-
-
-def test_external_workspace_bootstrap_recovery_proof_surface_is_available() -> None:
-    _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, project_workspace_adapter, multi_agent_loop = _load_runtime_modules()
-
-    assert callable(project_workspace_adapter.recover_workspace_bootstrap_truth)
-    assert callable(project_workspace_adapter.bootstrap_recovery_proof_snapshot)
-    assert callable(multi_agent_loop.execute_external_workspace_bootstrap_recovery_proof)

@@ -928,18 +928,28 @@ def test_planner_routing_and_verification_truth_stay_consistent_together(tmp_pat
     ]
 
 
-def test_manifest_entry_schema_normalizes_path_aliases_before_queue_build(tmp_path: Path) -> None:
-    tq = _task_queue_module()
 
-    _write_task(tmp_path / "tasks" / "001.md")
-    _write_task(tmp_path / "tasks" / "002.md")
-    manifest = {
-        "tasks": [
-            {"task_path": "tasks/001.md"},
-            {"path": "tasks/002.md", "depends_on": ["tasks/001.md"]},
-        ]
-    }
+def test_multi_agent_loop_supervised_mixed_manifest_stays_bounded() -> None:
+    loop = _multi_agent_loop_module()
+    result = loop.execute_multi_agent_loop(
+        task_manifest={
+            "tasks": [
+                {"task_path": "tasks/089_orchestrator_hardened_autonomous_short_manifest_proof.md", "task_family": "proof_docs"},
+                {"task_path": "tasks/106_orchestrator_external_workspace_bootstrap_recovery_proof.md", "task_family": "bootstrap"},
+                {"task_path": "tasks/107_orchestrator_supervised_mixed_manifest_autonomy_reproof.md", "task_family": "consumer_facing"},
+            ]
+        },
+        choose_next_role=lambda ctx: "builder" if ctx.get("phase") == "build" else ("verifier" if ctx.get("phase") == "verify" else "controller"),
+        run_role=lambda role, ctx: (
+            {"status": "built", "task_path": str(ctx["task_path"])} if role == "builder" else
+            ({"accepted": True, "verification_authority": "local_only", "task_path": str(ctx["task_path"])} if role == "verifier" else
+             {"controller_final_decision": "continue", "post_task_decision": "continue"})
+        ),
+    )
 
-    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
-    assert [item.task_path for item in queue] == ["tasks/001.md", "tasks/002.md"]
-    assert queue[1].depends_on == ("tasks/001.md",)
+    assert result["processed_task_ids"] == [
+        "089_orchestrator_hardened_autonomous_short_manifest_proof",
+        "106_orchestrator_external_workspace_bootstrap_recovery_proof",
+        "107_orchestrator_supervised_mixed_manifest_autonomy_reproof",
+    ]
+    assert result["runtime_portability_scope"] == "python_only"

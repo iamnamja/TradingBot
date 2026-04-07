@@ -18,6 +18,8 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **083–088 harden the controller contract, retry/self-heal truth, merge/resume truth, controller repair context, strict mode, and further `run_task.py` decomposition**
 - **089 synchronizes the hardened short-manifest proof surface and docs**
 - **090–099 synchronize multi-agent contract + portability proof + extraction-prep boundary posture**
+- **100–106 harden resilience and add external bootstrap recovery proof**
+- **107 adds a supervised mixed-manifest local-first re-proof over multiple task families**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
@@ -30,6 +32,8 @@ The repo now has deterministic proof for:
 - explicit verification-authority posture in the decision truth
 - second-project Python portability proof for a simple generic Python workspace
 - explicit monorepo consumer-boundary snapshot as extraction preparation, not completed extraction
+- explicit external bootstrap blocked-then-recovered truth for a simple external Python workspace
+- supervised mixed-manifest progression and conservative stop when authority is unsatisfied
 
 The proof is intentionally bounded and does **not** claim:
 
@@ -40,13 +44,16 @@ The proof is intentionally bounded and does **not** claim:
 
 ## Hardened proof boundary
 
-The synchronized post-089 proof remains intentionally limited to deterministic local tests and demonstrates at most:
+The synchronized post-107 proof remains intentionally limited to deterministic local tests and demonstrates at most:
 
 1. controller/builder/verifier role separation
 2. dependency-aware short-manifest progression
 3. explicit verification-authority truth
 4. Python-only second-project portability
-5. extraction-prep consumer boundary posture without over-claiming full extraction
+5. truthful external bootstrap blocked-then-recovered recovery
+6. supervised mixed-manifest progression across proof/docs + bootstrap + consumer-facing task shapes
+7. conservative stop on unsatisfied authority
+8. extraction-prep consumer boundary posture without over-claiming full extraction
 
 ## Core capabilities
 
@@ -66,6 +73,7 @@ The synchronized post-089 proof remains intentionally limited to deterministic l
 - Python-first second-project workspace adapter selection and bootstrap truth tracking
 - Sequential multi-agent builder/verifier/controller proof loop over short dependency-aware manifests
 - Targeted repair planner that prefers the smallest plausible compatibility/docs adapter for bounded failures
+- Supervised local-first mixed-manifest re-proof lane with bounded max-task progression and authority stop guardrails
 
 ## Boundary and claim discipline
 
@@ -80,3 +88,12 @@ The proof-facing portability surface now normalizes manifest entries through one
 ## External workspace bootstrap recovery proof (106)
 
 The current bounded proof now also covers a simple external Python workspace that first enters a `blocked` bootstrap state and then recovers truthfully into `succeeded`, with resume-safe recovery semantics kept explicit and deterministic.
+
+
+## Supervised mixed-manifest autonomy re-proof (107)
+
+The current bounded proof also covers a short supervised mixed manifest that spans multiple task families (proof/docs, bootstrap, consumer-facing) and confirms:
+
+- planner/routing/bootstrap/verification/controller surfaces are used together in one deterministic slice
+- the loop remains local-first and bounded by explicit `max_tasks`
+- when verification authority is unsatisfied, controller decision is conservative `stop`
