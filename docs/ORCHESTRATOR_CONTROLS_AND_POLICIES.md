@@ -206,11 +206,6 @@ Current required behavior:
 The orchestrator now distinguishes between `autonomous_ordinary`, `supervised_autonomous`, and `manual_only` task-admission lanes. Protected/controller/meta task shapes remain conservative and manual-only. Larger mixed-surface ordinary tasks may still be admissible only under supervision and may require bounded decomposition before execution begins.
 
 
-## Project-scoped isolation posture
+## Project-aware validation and authority
 
-With Task 117, batch state, checkpoints, branch namespaces, and workspace metadata must remain project-scoped. A project identity must be explicit and deterministic before resume-safe autonomy may proceed. When project identity is missing or ambiguous, the orchestrator should remain conservative and avoid cross-project carry-forward or resume assumptions.
-
-
-## Dependency and decomposition planning posture
-
-With Task 119, backlog planning must preserve explicit dependency and decomposition truth. The orchestrator may split larger work into bounded child units only when the task shape is explicitly marked safe for bounded decomposition. Otherwise, large multi-surface work remains blocked for manual decomposition rather than being flattened implicitly.
+Validation and authority must be resolved from the active project contract rather than assuming monorepo defaults. Different projects may carry different focused checks, full checks, bootstrap requirements, and hosted-authority profiles, and the controller must remain truthful when hosted authority is weaker or stronger than local validation evidence.

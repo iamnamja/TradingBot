@@ -18,6 +18,16 @@ PROJECT_WORKSPACE_TYPES = (
     'monorepo_python',
     'external_python',
 )
+PROJECT_AUTHORITY_PROFILES = (
+    'local_only',
+    'local_plus_required_ci',
+    'required_ci_only',
+)
+VALIDATION_SCOPES = (
+    'focused',
+    'full',
+    'acceptance',
+)
 
 
 @dataclass(frozen=True)
@@ -39,10 +49,12 @@ class ProjectRegistryEntry:
 
 def _normalize_str_list(values: Sequence[object] | None) -> list[str]:
     result: list[str] = []
+    seen: set[str] = set()
     for value in values or ():
         text = str(value or '').strip()
-        if text:
+        if text and text not in seen:
             result.append(text)
+            seen.add(text)
     return result
 
 
@@ -64,15 +76,72 @@ def _normalize_validation_contract(payload: Mapping[str, object] | None, *, work
     acceptance_commands = _normalize_str_list(src.get('acceptance_evidence_commands')) or list(
         workspace_contract.get('acceptance_evidence_commands', [])
     )
+    bootstrap_commands = _normalize_str_list(src.get('bootstrap_commands')) or list(workspace_contract.get('bootstrap_commands', []))
     verification_authority_profile = str(
         src.get('verification_authority_profile')
         or workspace_contract.get('merge_policy_constraints', {}).get('verification_authority_profile', 'local_plus_required_ci')
     ).strip() or 'local_plus_required_ci'
+    if verification_authority_profile not in PROJECT_AUTHORITY_PROFILES:
+        verification_authority_profile = 'local_plus_required_ci'
+    repo_required_checks = _normalize_str_list(src.get('repo_required_checks'))
+    repo_check_contract_source = str(src.get('repo_check_contract_source') or 'project_registry').strip() or 'project_registry'
+    hosted_checks_source = str(src.get('hosted_checks_source') or 'gh_pr_checks').strip() or 'gh_pr_checks'
+    bootstrap_required = bool(src.get('bootstrap_required', bool(bootstrap_commands)))
     return {
         'focused_validation_commands': focused_commands,
         'full_validation_commands': full_commands,
         'acceptance_evidence_commands': acceptance_commands,
+        'bootstrap_required': bootstrap_required,
+        'bootstrap_commands': bootstrap_commands,
         'verification_authority_profile': verification_authority_profile,
+        'repo_required_checks': repo_required_checks,
+        'repo_check_contract_source': repo_check_contract_source,
+        'hosted_checks_source': hosted_checks_source,
+        'validation_matrix_serializable': True,
+    }
+
+
+def project_validation_matrix(project_contract: Mapping[str, object] | None = None) -> dict[str, object]:
+    contract = canonical_project_contract(project_contract)
+    matrix = dict(contract.get('validation_contract') or {})
+    return {
+        'project_id': str(contract['project_id']),
+        'focused_validation_commands': list(matrix.get('focused_validation_commands', [])),
+        'full_validation_commands': list(matrix.get('full_validation_commands', [])),
+        'acceptance_evidence_commands': list(matrix.get('acceptance_evidence_commands', [])),
+        'bootstrap_required': bool(matrix.get('bootstrap_required', False)),
+        'bootstrap_commands': list(matrix.get('bootstrap_commands', [])),
+        'verification_authority_profile': str(matrix.get('verification_authority_profile') or 'local_plus_required_ci'),
+        'repo_required_checks': list(matrix.get('repo_required_checks', [])),
+        'repo_check_contract_source': str(matrix.get('repo_check_contract_source') or 'project_registry'),
+        'hosted_checks_source': str(matrix.get('hosted_checks_source') or 'gh_pr_checks'),
+        'validation_matrix_serializable': bool(matrix.get('validation_matrix_serializable', True)),
+    }
+
+
+def resolve_project_validation_plan(project_id: str = 'tradingbot_monorepo', *, validation_scope: str = 'full') -> dict[str, object]:
+    contract = resolve_project_contract(project_id)
+    matrix = project_validation_matrix(contract)
+    scope = str(validation_scope or 'full').strip().lower()
+    if scope not in VALIDATION_SCOPES:
+        scope = 'full'
+    if scope == 'focused':
+        commands = list(matrix['focused_validation_commands'])
+    elif scope == 'acceptance':
+        commands = list(matrix['acceptance_evidence_commands'])
+    else:
+        scope = 'full'
+        commands = list(matrix['full_validation_commands'])
+    return {
+        'project_id': str(matrix['project_id']),
+        'validation_scope': scope,
+        'commands': commands,
+        'bootstrap_required': bool(matrix['bootstrap_required']),
+        'bootstrap_commands': list(matrix['bootstrap_commands']),
+        'verification_authority_profile': str(matrix['verification_authority_profile']),
+        'repo_required_checks': list(matrix['repo_required_checks']),
+        'repo_check_contract_source': str(matrix['repo_check_contract_source']),
+        'hosted_checks_source': str(matrix['hosted_checks_source']),
     }
 
 
@@ -140,7 +209,12 @@ def tradingbot_project_contract(repo_root: str = '.') -> dict[str, object]:
             'focused_validation_commands': ['pytest -q tests/test_run_task_runtime_foundations.py'],
             'full_validation_commands': ['ruff check .', 'pytest -q'],
             'acceptance_evidence_commands': ['pytest -q tests/test_run_task_runtime_foundations.py'],
+            'bootstrap_required': False,
+            'bootstrap_commands': [],
             'verification_authority_profile': 'local_plus_required_ci',
+            'repo_required_checks': ['ci'],
+            'repo_check_contract_source': 'project_registry',
+            'hosted_checks_source': 'gh_pr_checks',
         },
         branch_policy={
             'branch_naming_pattern': 'feature/*',
@@ -165,7 +239,12 @@ def generic_external_python_project_contract(project_id: str = 'generic_python_e
             'focused_validation_commands': ['pytest -q'],
             'full_validation_commands': ['ruff check .', 'pytest -q'],
             'acceptance_evidence_commands': ['pytest -q'],
-            'verification_authority_profile': 'local_plus_required_ci',
+            'bootstrap_required': True,
+            'bootstrap_commands': ['python -m pip install -r requirements.txt'],
+            'verification_authority_profile': 'local_only',
+            'repo_required_checks': [],
+            'repo_check_contract_source': 'project_registry',
+            'hosted_checks_source': 'gh_pr_checks',
         },
         branch_policy={
             'branch_naming_pattern': f'project/{project_id}/*',
@@ -173,7 +252,7 @@ def generic_external_python_project_contract(project_id: str = 'generic_python_e
             'require_clean_main_reset': True,
             'allow_autonomous_merge': False,
         },
-        notes='External Python contract remains bounded and supervised; not unattended-safe.',
+        notes='External Python contract remains bounded and supervised; hosted authority is weaker than local evidence for this project profile.',
     )
 
 
@@ -193,7 +272,9 @@ def project_registry_snapshot() -> dict[str, object]:
         'registered_projects': by_id,
         'supported_workspace_types': list(PROJECT_WORKSPACE_TYPES),
         'autonomy_lanes': list(PROJECT_AUTONOMY_LANES),
+        'supported_authority_profiles': list(PROJECT_AUTHORITY_PROFILES),
         'unattended_safe_project_ids': [project_id for project_id, entry in by_id.items() if bool(entry.get('allow_unattended_execution'))],
+        'validation_matrix_by_project': {project_id: project_validation_matrix(entry) for project_id, entry in by_id.items()},
     }
 
 
@@ -261,7 +342,6 @@ def project_workspace_metadata(project_contract: Mapping[str, object] | None) ->
         'project_checkpoint_namespace': str(identity['project_checkpoint_namespace']),
         'project_branch_namespace': str(identity['project_branch_namespace']),
     }
-
 
 
 def project_backlog_selection_contract(project_contract: Mapping[str, object] | None = None) -> dict[str, object]:

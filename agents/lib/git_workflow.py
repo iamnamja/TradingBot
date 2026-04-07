@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Literal, Mapping, Sequence
 
 from agents.lib.controller_contract import canonical_merge_posture_truth, merge_posture_decision_for_flow_stage
-from agents.lib.project_registry import project_scope_identity, project_scoped_branch_name as _project_scoped_branch_name, project_workspace_metadata as _project_workspace_metadata
 
 Runner = Callable[[list[str], bool], object]
 VerificationAuthorityProfile = Literal["local_only", "local_plus_required_ci", "required_ci_only"]
@@ -608,14 +607,84 @@ def report_branch_push_ready(branch: str, *, printer=print) -> None:
     printer("Create a PR on GitHub for this branch (repo rules require PR).")
 
 
-def project_scoped_branch_namespace(project_contract: Mapping[str, Any] | None) -> str:
-    identity = project_scope_identity(project_contract)
-    return str(identity['project_branch_namespace'])
+
+def project_verification_authority_profile(project_contract: Mapping[str, Any] | None = None) -> VerificationAuthorityProfile:
+    from agents.lib.project_registry import project_validation_matrix
+
+    matrix = project_validation_matrix(project_contract)
+    return coerce_verification_authority_profile(matrix.get('verification_authority_profile'), 'local_only')
 
 
-def project_scoped_branch_name(project_contract: Mapping[str, Any] | None, branch_slug: str) -> str:
-    return str(_project_scoped_branch_name(project_contract, branch_slug))
+def project_repo_check_contract(project_contract: Mapping[str, Any] | None = None) -> dict[str, object]:
+    from agents.lib.project_registry import project_validation_matrix
+
+    matrix = project_validation_matrix(project_contract)
+    return canonical_repo_check_contract(
+        required_checks=matrix.get('repo_required_checks'),
+        repo_check_contract_source=matrix.get('repo_check_contract_source'),
+        hosted_checks_source=matrix.get('hosted_checks_source'),
+    )
 
 
-def workspace_metadata_for_project(project_contract: Mapping[str, Any] | None) -> dict[str, object]:
-    return dict(_project_workspace_metadata(project_contract))
+def evaluate_project_verification_authority(
+    *,
+    project_contract: Mapping[str, Any] | None = None,
+    local_validation_passed: bool,
+    required_check_truth: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    from agents.lib.project_registry import project_validation_matrix
+
+    matrix = project_validation_matrix(project_contract)
+    profile = project_verification_authority_profile(project_contract)
+    repo_contract = project_repo_check_contract(project_contract)
+    result = evaluate_verification_authority(
+        verification_authority_profile=profile,
+        local_validation_passed=local_validation_passed,
+        required_check_truth=(
+            required_check_truth
+            if required_check_truth is not None
+            else canonical_required_check_truth(
+                verification_authority_profile=profile,
+                repo_check_contract=repo_contract,
+            )
+        ),
+    )
+    return {
+        **result,
+        'project_id': str(matrix['project_id']),
+        'validation_matrix': dict(matrix),
+        'repo_check_contract': dict(repo_contract),
+    }
+
+
+def workspace_metadata_for_project(
+    project_contract: dict[str, object] | None = None,
+    *,
+    workspace_root: str = "",
+    repo_root: str = "",
+) -> dict[str, object]:
+    contract = dict(project_contract or {})
+
+    resolved_workspace_root = (
+        workspace_root
+        or str(contract.get("project_workspace_root", "") or "")
+        or str(contract.get("workspace_root", "") or "")
+        or "."
+    )
+    resolved_repo_root = (
+        repo_root
+        or str(contract.get("project_repo_root", "") or "")
+        or str(contract.get("repo_root", "") or "")
+        or resolved_workspace_root
+    )
+
+    return {
+        "project_id": str(contract.get("project_id", "") or ""),
+        "project_workspace_root": resolved_workspace_root,
+        "project_repo_root": resolved_repo_root,
+        "workspace_root": resolved_workspace_root,
+        "repo_root": resolved_repo_root,
+        "workspace_type": str(contract.get("workspace_type", "") or ""),
+        "project_identity_ambiguous": bool(contract.get("project_identity_ambiguous", False)),
+    }
+

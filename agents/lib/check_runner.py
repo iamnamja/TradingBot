@@ -283,6 +283,69 @@ def build_tester_critique_bundle(
     }
 
 
+def build_ordinary_task_execution_plan(
+    payload: Mapping[str, object] | None = None,
+    *,
+    task_context: Mapping[str, object] | None = None,
+    changed_files: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    data = dict(payload or {})
+    context = dict(task_context or {})
+    critique_payload = data.get("tester_critique_bundle") if isinstance(data.get("tester_critique_bundle"), Mapping) else data.get("critique_bundle")
+    critique = build_tester_critique_bundle(
+        critique_payload if isinstance(critique_payload, Mapping) else None,
+        lint_ok=(data["lint_ok"] if "lint_ok" in data else None),
+        test_ok=(data["test_ok"] if "test_ok" in data else None),
+        output_text=str(data.get("output_text") or data.get("validator_note") or data.get("failure_message") or ""),
+        focused_results=_coerce_string_list(data.get("focused_results")),
+        full_results=_coerce_string_list(data.get("full_results")),
+        changed_files=_coerce_string_list(changed_files if changed_files is not None else data.get("changed_files")),
+        failure_category=str(data.get("failure_category") or ""),
+        failure_message=str(data.get("failure_message") or ""),
+    )
+    admission_lane = str(context.get("task_admission_lane") or data.get("task_admission_lane") or "autonomous_ordinary")
+    focused_commands = list(critique.get("focused_replay_commands") or [])
+    broad_commands = list(critique.get("broad_replay_commands") or [])
+
+    if admission_lane == "manual_only":
+        validation_mode = "manual_only"
+        should_run_broad_validation = False
+        controller_review_required = True
+        summary = "Ordinary task execution is not admitted for this task shape; keep controller/manual handling."
+    elif critique.get("likely_failure_family") == "pass":
+        validation_mode = "focused_then_broad" if broad_commands else "no_validation_required"
+        should_run_broad_validation = bool(broad_commands)
+        controller_review_required = True
+        summary = "Tester evidence is green; broader validation may still run, but controller authority remains final."
+    elif focused_commands:
+        validation_mode = "focused_then_broad"
+        should_run_broad_validation = True
+        controller_review_required = True
+        summary = "Tester should replay focused failures first, then widen to broader validation only if needed."
+    elif broad_commands:
+        validation_mode = "broad_only"
+        should_run_broad_validation = True
+        controller_review_required = True
+        summary = "Tester has no focused replay target and should fall back to broad validation."
+    else:
+        validation_mode = "controller_review"
+        should_run_broad_validation = False
+        controller_review_required = True
+        summary = "Tester evidence is incomplete; controller review is required before widening validation."
+
+    return {
+        "task_admission_lane": admission_lane,
+        "ordinary_task_execution": admission_lane in {"autonomous_ordinary", "supervised_autonomous"},
+        "validation_mode": validation_mode,
+        "focused_replay_commands": focused_commands,
+        "broad_replay_commands": broad_commands,
+        "should_run_broad_validation": should_run_broad_validation,
+        "controller_review_required": controller_review_required,
+        "summary": summary,
+        "likely_failure_family": str(critique.get("likely_failure_family") or ""),
+    }
+
+
 def summarize_tester_critique_bundle(payload: Mapping[str, object] | None = None, **overrides: object) -> dict[str, object]:
     bundle = build_tester_critique_bundle(payload, **overrides)
     return {
@@ -292,83 +355,6 @@ def summarize_tester_critique_bundle(payload: Mapping[str, object] | None = None
         "likely_touched_files": list(bundle["likely_touched_files"]),
         "focused_replay_commands": list(bundle["focused_replay_commands"]),
         "broad_replay_commands": list(bundle["broad_replay_commands"]),
-    }
-
-def build_validation_snapshot(
-    payload: Mapping[str, object] | None = None,
-    *,
-    lint_ok: bool | None = None,
-    test_ok: bool | None = None,
-    output_text: str | None = None,
-    validation_scope: str = "full",
-    branch_clean: bool | None = None,
-    required_checks_passed: bool | None = None,
-    executed_commands: list[str] | tuple[str, ...] | None = None,
-) -> dict[str, object]:
-    data = dict(payload or {})
-    lint_status = bool(lint_ok if lint_ok is not None else data.get("lint_ok", True))
-    test_status = bool(test_ok if test_ok is not None else data.get("test_ok", True))
-    branch_status = bool(branch_clean if branch_clean is not None else data.get("branch_clean", True))
-    required_status = True if required_checks_passed is None and "required_checks_passed" not in data else bool(required_checks_passed if required_checks_passed is not None else data.get("required_checks_passed", True))
-    commands = _coerce_string_list(executed_commands if executed_commands is not None else data.get("executed_commands"))
-    excerpt_source = str(output_text if output_text is not None else data.get("output_text") or "")
-
-    failing_dimensions: list[str] = []
-    if not lint_status:
-        failing_dimensions.append("lint")
-    if not test_status:
-        failing_dimensions.append("tests")
-    if not branch_status:
-        failing_dimensions.append("branch")
-    if not required_status:
-        failing_dimensions.append("required_checks")
-
-    return {
-        "lint_ok": lint_status,
-        "test_ok": test_status,
-        "branch_clean": branch_status,
-        "required_checks_passed": required_status,
-        "validation_scope": str(validation_scope or data.get("validation_scope") or "full"),
-        "executed_commands": commands,
-        "output_excerpt": _bounded_output_excerpt(excerpt_source),
-        "failing_dimensions": failing_dimensions,
-        "is_green": not failing_dimensions,
-    }
-
-
-def select_last_green_validation_snapshot(history: list[Mapping[str, object]] | tuple[Mapping[str, object], ...] | None) -> dict[str, object]:
-    for item in reversed(list(history or [])):
-        snapshot = dict(item or {})
-        if bool(snapshot.get("is_green", False)):
-            return snapshot
-    return {}
-
-
-def evaluate_validation_regression(
-    *,
-    current_snapshot: Mapping[str, object] | None,
-    last_green_snapshot: Mapping[str, object] | None,
-) -> dict[str, object]:
-    current = dict(current_snapshot or {})
-    last = dict(last_green_snapshot or {})
-    have_last_green = bool(last)
-    current_green = bool(current.get("is_green", False))
-    last_green = bool(last.get("is_green", False))
-    regressed_dimensions: list[str] = []
-    if have_last_green and last_green and not current_green:
-        for key, label in (("lint_ok", "lint"), ("test_ok", "tests"), ("branch_clean", "branch"), ("required_checks_passed", "required_checks")):
-            if bool(last.get(key, True)) and not bool(current.get(key, True)):
-                regressed_dimensions.append(label)
-    return {
-        "have_last_green": have_last_green,
-        "last_green_snapshot": last,
-        "current_snapshot": current,
-        "last_green_is_green": last_green,
-        "current_is_green": current_green,
-        "regressed_dimensions": regressed_dimensions,
-        "regressed_from_last_green": bool(regressed_dimensions),
-        "should_rollback_to_last_green": bool(regressed_dimensions),
-        "rollback_reason": "" if not regressed_dimensions else "Validation regressed from last-green truth in: " + ", ".join(regressed_dimensions),
     }
 
 
@@ -509,3 +495,201 @@ def run_checks() -> Dict[str, Any] | Tuple[bool, str]:
         "output_text": output_text,
         "critique_bundle": critique_bundle,
     }
+
+
+VALIDATION_SCOPES: tuple[str, ...] = ('focused', 'full', 'acceptance')
+
+
+def canonical_validation_plan(payload: Mapping[str, object] | None = None, **overrides: object) -> dict[str, object]:
+    src: dict[str, object] = dict(payload or {})
+    src.update(overrides)
+    project_id = str(src.get('project_id') or '').strip()
+    scope = str(src.get('validation_scope') or 'full').strip().lower()
+    if scope not in VALIDATION_SCOPES:
+        scope = 'full'
+    commands = _coerce_string_list(src.get('commands'))
+    bootstrap_required = bool(src.get('bootstrap_required', False))
+    bootstrap_commands = _coerce_string_list(src.get('bootstrap_commands'))
+    verification_authority_profile = str(src.get('verification_authority_profile') or 'local_plus_required_ci').strip() or 'local_plus_required_ci'
+    repo_required_checks = _coerce_string_list(src.get('repo_required_checks'))
+    return {
+        'project_id': project_id,
+        'validation_scope': scope,
+        'commands': commands,
+        'bootstrap_required': bootstrap_required,
+        'bootstrap_commands': bootstrap_commands,
+        'verification_authority_profile': verification_authority_profile,
+        'repo_required_checks': repo_required_checks,
+        'repo_check_contract_source': str(src.get('repo_check_contract_source') or 'project_registry'),
+        'hosted_checks_source': str(src.get('hosted_checks_source') or 'gh_pr_checks'),
+        'validation_plan_serializable': True,
+    }
+
+
+def build_project_validation_plan(project_contract: Mapping[str, object] | None = None, *, validation_scope: str = 'full') -> dict[str, object]:
+    from agents.lib.project_registry import project_validation_matrix
+
+    matrix = project_validation_matrix(project_contract)
+    scope = str(validation_scope or 'full').strip().lower()
+    if scope == 'focused':
+        commands = list(matrix['focused_validation_commands'])
+    elif scope == 'acceptance':
+        commands = list(matrix['acceptance_evidence_commands'])
+    else:
+        scope = 'full'
+        commands = list(matrix['full_validation_commands'])
+    return canonical_validation_plan(
+        project_id=str(matrix['project_id']),
+        validation_scope=scope,
+        commands=commands,
+        bootstrap_required=bool(matrix['bootstrap_required']),
+        bootstrap_commands=list(matrix['bootstrap_commands']),
+        verification_authority_profile=str(matrix['verification_authority_profile']),
+        repo_required_checks=list(matrix['repo_required_checks']),
+        repo_check_contract_source=str(matrix['repo_check_contract_source']),
+        hosted_checks_source=str(matrix['hosted_checks_source']),
+    )
+
+
+def build_validation_snapshot(
+    *,
+    command: str = "",
+    ok: bool | None = None,
+    exit_code: int | None = None,
+    stdout: str = "",
+    stderr: str = "",
+    result: dict[str, object] | None = None,
+    lint_ok: bool | None = None,
+    test_ok: bool | None = None,
+    branch_clean: bool | None = None,
+    required_checks_passed: bool | None = None,
+) -> dict[str, object]:
+    source = dict(result or {})
+
+    if any(value is not None for value in (lint_ok, test_ok, branch_clean, required_checks_passed)):
+        lint_truth = True if lint_ok is None else bool(lint_ok)
+        test_truth = True if test_ok is None else bool(test_ok)
+        branch_truth = True if branch_clean is None else bool(branch_clean)
+        required_truth = True if required_checks_passed is None else bool(required_checks_passed)
+        overall_ok = lint_truth and test_truth and branch_truth and required_truth
+
+        return {
+            "command": command,
+            "ok": overall_ok,
+            "exit_code": 0 if overall_ok else 1,
+            "stdout": stdout,
+            "stderr": stderr,
+            "lint_ok": lint_truth,
+            "test_ok": test_truth,
+            "branch_clean": branch_truth,
+            "required_checks_passed": required_truth,
+            "is_green": overall_ok,
+        }
+
+    if not command:
+        command = str(source.get("command", ""))
+
+    if ok is None:
+        raw_ok = source.get("ok")
+        if isinstance(raw_ok, bool):
+            ok = raw_ok
+
+    if exit_code is None:
+        raw_exit = source.get("exit_code")
+        if isinstance(raw_exit, int):
+            exit_code = raw_exit
+
+    if not stdout:
+        stdout = str(source.get("stdout", ""))
+
+    if not stderr:
+        stderr = str(source.get("stderr", ""))
+
+    if ok is None:
+        ok = (exit_code == 0) if isinstance(exit_code, int) else False
+
+    if exit_code is None:
+        exit_code = 0 if ok else 1
+
+    overall_ok = bool(ok)
+
+    return {
+        "command": command,
+        "ok": overall_ok,
+        "exit_code": int(exit_code),
+        "stdout": stdout,
+        "stderr": stderr,
+        "is_green": overall_ok,
+    }
+
+
+def evaluate_validation_regression(
+    *,
+    previous: dict[str, object] | None = None,
+    current: dict[str, object] | None = None,
+    last_green_snapshot: dict[str, object] | None = None,
+    current_snapshot: dict[str, object] | None = None,
+) -> dict[str, object]:
+    prev = dict(last_green_snapshot or previous or {})
+    curr = dict(current_snapshot or current or {})
+
+    def _truth(snapshot: dict[str, object]) -> bool:
+        return bool(
+            snapshot.get("ok", snapshot.get("is_green", False))
+            and snapshot.get("lint_ok", True)
+            and snapshot.get("test_ok", True)
+            and snapshot.get("branch_clean", True)
+            and snapshot.get("required_checks_passed", True)
+        )
+
+    prev_ok = _truth(prev)
+    curr_ok = _truth(curr)
+    regressed = prev_ok and not curr_ok
+
+    regressed_dimensions: list[str] = []
+    for key in ("lint_ok", "test_ok", "branch_clean", "required_checks_passed"):
+        if bool(prev.get(key, True)) and not bool(curr.get(key, True)):
+            regressed_dimensions.append(key)
+
+    if regressed and not regressed_dimensions:
+        regressed_dimensions.append("overall_validation")
+
+    have_last_green = bool(prev)
+    should_rollback = regressed and have_last_green
+    rollback_reason = "validation_regressed_from_last_green" if should_rollback else "no_regression"
+
+    return {
+        "previous_ok": prev_ok,
+        "current_ok": curr_ok,
+        "regressed": regressed,
+        "regressed_from_last_green": regressed,
+        "last_green_available": have_last_green,
+        "have_last_green": have_last_green,
+        "previous_exit_code": prev.get("exit_code"),
+        "current_exit_code": curr.get("exit_code"),
+        "regression_reason": "validation_regressed" if regressed else "none",
+        "regressed_dimensions": regressed_dimensions,
+        "should_rollback_to_last_green": should_rollback,
+        "rollback_reason": rollback_reason,
+        "last_green_snapshot": dict(prev),
+        "current_snapshot": dict(curr),
+    }
+
+def select_last_green_validation_snapshot(
+    snapshots: list[dict[str, object]] | tuple[dict[str, object], ...] | None = None,
+) -> dict[str, object] | None:
+    items = list(snapshots or [])
+
+    for snapshot in reversed(items):
+        snap = dict(snapshot)
+        is_green = bool(
+            snap.get("ok", snap.get("is_green", False))
+            and snap.get("lint_ok", True)
+            and snap.get("test_ok", True)
+            and snap.get("branch_clean", True)
+            and snap.get("required_checks_passed", True)
+        )
+        if is_green:
+            return snap
+
+    return None
