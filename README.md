@@ -39,6 +39,21 @@ It does **not** claim:
 - broad unattended scheduler autonomy
 - full standalone extraction completion
 
+## Next planned tranche
+
+The next planned tranche is **100–107** — resilience, contract-stability, and hosted-authority hardening.
+
+Planned areas:
+
+- public-surface freeze and compatibility aliases for proof-facing helpers
+- first-class collection-error/import-error repair lane
+- proof-sync contract validation before full pytest
+- real hosted CI authority integration rather than local-only semantics
+- result-shape and manifest-schema normalization
+- targeted minimal-patch repair planning
+- external workspace bootstrap recovery proof
+- supervised mixed-manifest autonomy re-proof
+
 ## Scope boundary
 
 The current proof remains intentionally narrow:
@@ -55,6 +70,7 @@ The current proof remains intentionally narrow:
 - `docs/TRADINGBOT_PROJECT_STATE.md` — authoritative current state and tranche boundaries
 - `docs/ORCHESTRATOR_PRODUCT_SPEC.md` — product capability and boundary posture
 - `docs/ORCHESTRATOR_ROADMAP_090_099.md` — multi-agent portability/productization tranche
+- `docs/ORCHESTRATOR_ROADMAP_100_107.md` — resilience and hosted-authority hardening tranche after Task 099
 - `tasks/README.md` — canonical numbered task map
 
 ## Development
