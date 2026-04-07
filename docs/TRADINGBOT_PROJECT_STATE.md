@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 090–116 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, a supervised ordinary-manifest re-proof, and a canonical project registry plus per-project contract surface for the monorepo and a generic external Python project.
+- **Tasks 090–118 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, a supervised ordinary-manifest re-proof, and a canonical project registry plus per-project contract surface for the monorepo and a generic external Python project, along with project-scoped isolation and deterministic backlog intake / next-task selection policy.
 
 The current deterministic proof slice now demonstrates:
 
@@ -23,7 +23,8 @@ The current deterministic proof slice now demonstrates:
 5. bounded cross-task carry-forward memory
 6. conservative stop behavior when authority or admission gates are unsatisfied
 7. deterministic project-registry resolution for the monorepo and a generic external Python project
-8. no broader claim than the deterministic local supervised proof covers
+8. deterministic next-task selection across a backlog using priority, readiness, blocked-state, authority, and carry-forward signals
+9. no broader claim than the deterministic local supervised proof covers
 
 ## Scope honesty
 
@@ -40,13 +41,12 @@ It still does **not** claim autonomy for arbitrary protected/controller/meta tas
 
 ## Next continuation target
 
-The next tranche should focus on moving from a canonical project-registry surface toward the first credible isolated multi-project portfolio operating mode.
+The next tranche should focus on moving from isolated project execution and explicit next-task selection toward dependency-aware planning, stronger repair ranking, and project-aware authority convergence.
 
 That means prioritizing:
 
-1. project-scoped isolation for state, branches, workspaces, and carry-forward memory
-2. explicit next-task selection policy driven by backlog readiness and dependency truth
-3. stronger repair planning with rollback-to-last-green
-4. project-aware validation and authority profiles
-5. hosted merge-eligibility convergence grounded in real repo contracts
-6. a bounded supervised multi-project portfolio re-proof
+1. explicit dependency graph and bounded decomposition planning
+2. stronger repair planning with rollback-to-last-green
+3. project-aware validation and authority profiles
+4. hosted merge-eligibility convergence grounded in real repo contracts
+5. a bounded supervised multi-project portfolio re-proof

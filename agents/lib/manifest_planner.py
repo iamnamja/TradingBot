@@ -14,6 +14,11 @@ class ManifestPlannerSnapshot:
     supports_rerun_required: bool = True
     supports_task_admission: bool = True
     supports_bounded_decomposition: bool = True
+    supports_backlog_intake: bool = True
+    supports_explicit_next_task_selection_policy: bool = True
+    supports_priority_signal: bool = True
+    supports_authority_prerequisite_signal: bool = True
+    supports_carry_forward_memory_input: bool = True
     conservative_reordering_only: bool = True
 
 
@@ -82,6 +87,51 @@ class RepoMemorySnapshot:
         }
 
 
+
+@dataclass(frozen=True)
+class BacklogSelectionTruth:
+    selected_task_path: str = ""
+    selected_reason: str = ""
+    reordered: bool = False
+    ready_task_paths: tuple[str, ...] = ()
+    blocked_task_paths: tuple[str, ...] = ()
+    deferred_task_paths: tuple[str, ...] = ()
+    skipped_task_paths: tuple[str, ...] = ()
+    rerun_required_task_paths: tuple[str, ...] = ()
+    ranked_candidate_paths: tuple[str, ...] = ()
+    ranked_candidates: tuple[dict[str, object], ...] = ()
+    blocking_reasons: tuple[tuple[str, str], ...] = ()
+    skip_reasons: tuple[tuple[str, str], ...] = ()
+    priority_by_task: tuple[tuple[str, int], ...] = ()
+    carry_forward_summary_used: str = ""
+    carry_forward_related_task_paths: tuple[str, ...] = ()
+    carry_forward_blocked_task_paths: tuple[str, ...] = ()
+    hosted_authority_ready: bool = False
+    selection_policy: dict[str, object] | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "selected_task_path": self.selected_task_path,
+            "selected_reason": self.selected_reason,
+            "reordered": self.reordered,
+            "ready_task_paths": list(self.ready_task_paths),
+            "blocked_task_paths": list(self.blocked_task_paths),
+            "deferred_task_paths": list(self.deferred_task_paths),
+            "skipped_task_paths": list(self.skipped_task_paths),
+            "rerun_required_task_paths": list(self.rerun_required_task_paths),
+            "ranked_candidate_paths": list(self.ranked_candidate_paths),
+            "ranked_candidates": [dict(item) for item in self.ranked_candidates],
+            "blocking_reasons": {task_path: reason for task_path, reason in self.blocking_reasons},
+            "skip_reasons": {task_path: reason for task_path, reason in self.skip_reasons},
+            "priority_by_task": {task_path: priority for task_path, priority in self.priority_by_task},
+            "carry_forward_summary_used": self.carry_forward_summary_used,
+            "carry_forward_related_task_paths": list(self.carry_forward_related_task_paths),
+            "carry_forward_blocked_task_paths": list(self.carry_forward_blocked_task_paths),
+            "hosted_authority_ready": self.hosted_authority_ready,
+            "selection_policy": dict(self.selection_policy or {}),
+        }
+
+
 def manifest_planner_snapshot() -> dict[str, object]:
     return asdict(ManifestPlannerSnapshot())
 
@@ -91,6 +141,22 @@ def manifest_planner_snapshot() -> dict[str, object]:
 
 def _normalized_path_value(raw: object) -> str:
     return str(raw or "").strip().replace("\\", "/")
+
+
+def _normalized_priority_value(raw: object) -> int:
+    try:
+        return int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalized_authority_prerequisite(raw: object) -> str:
+    value = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if value in {"", "none", "local", "local_only"}:
+        return "none"
+    if value in {"hosted", "required_ci", "local_plus_required_ci", "hosted_required"}:
+        return "hosted"
+    return value or "none"
 
 
 def normalize_manifest_entry_schema(entry: Any, *, index: int = 0) -> dict[str, object]:
@@ -111,6 +177,8 @@ def normalize_manifest_entry_schema(entry: Any, *, index: int = 0) -> dict[str, 
             "deferrable": False,
             "skipped_by_policy": False,
             "rerun_required": False,
+            "priority": 0,
+            "authority_prerequisite": "none",
         }
     if not isinstance(entry, Mapping):
         raise ValueError(f"Manifest entry at index {index} must be a string or mapping.")
@@ -136,6 +204,8 @@ def normalize_manifest_entry_schema(entry: Any, *, index: int = 0) -> dict[str, 
         "deferrable": bool(entry.get("deferrable", entry.get("optional", False))),
         "skipped_by_policy": bool(entry.get("skipped_by_policy", entry.get("skip_by_policy", False))),
         "rerun_required": bool(entry.get("rerun_required", False)),
+        "priority": _normalized_priority_value(entry.get("priority", 0)),
+        "authority_prerequisite": _normalized_authority_prerequisite(entry.get("authority_prerequisite", "none")),
     }
 
 
@@ -242,8 +312,136 @@ def plan_manifest_progress(queue: Sequence[Any]) -> dict[str, object]:
 
 
 
+def _carry_forward_related_and_blocked_paths(repo_memory: Mapping[str, object] | None) -> tuple[set[str], set[str], str]:
+    memory = dict(repo_memory or {})
+    related = {
+        _normalized_path_value(item.get("task_path"))
+        for item in list(memory.get("accepted_change_summaries") or [])
+        if isinstance(item, Mapping) and _normalized_path_value(item.get("task_path"))
+    }
+    blocked = set()
+    for bucket_name in ("unresolved_blockers", "deferred_issue_summaries"):
+        for item in list(memory.get(bucket_name) or []):
+            if isinstance(item, Mapping):
+                task_path = _normalized_path_value(item.get("task_path"))
+                if task_path:
+                    blocked.add(task_path)
+    summary = str(memory.get("carry_forward_summary") or "").strip()
+    return related, blocked, summary
+
+
+def select_next_backlog_task(
+    queue: Sequence[Any],
+    *,
+    project_contract: Mapping[str, object] | None = None,
+    repo_memory: Mapping[str, object] | None = None,
+    hosted_authority_ready: bool = False,
+) -> dict[str, object]:
+    from agents.lib.project_registry import project_backlog_selection_contract
+
+    planner_truth = dict(plan_manifest_progress(queue))
+    ready_paths = list(planner_truth["ready_task_paths"])
+    blocked_paths = list(planner_truth["blocked_task_paths"])
+    deferred_paths = list(planner_truth["deferred_task_paths"])
+    skipped_paths = list(planner_truth["skipped_task_paths"])
+    rerun_required_paths = list(planner_truth["rerun_required_task_paths"])
+    blocking_reasons = dict(planner_truth["blocking_reasons"])
+    skip_reasons = {task_path: "skipped_by_policy" for task_path in skipped_paths}
+    priority_by_task: dict[str, int] = {}
+    carry_forward_related, carry_forward_blocked, carry_forward_summary = _carry_forward_related_and_blocked_paths(repo_memory)
+    selection_policy = dict(project_backlog_selection_contract(project_contract))
+    ranked_candidates: list[dict[str, object]] = []
+
+    first_unresolved = next((item.task_path for item in queue if item.status != "completed" and not item.skipped_by_policy), "")
+
+    for item in queue:
+        if item.status == "completed":
+            continue
+        priority = int(getattr(item, "priority", 0) or 0)
+        priority_by_task[item.task_path] = priority
+        if item.skipped_by_policy:
+            continue
+        if item.task_path in carry_forward_blocked and item.task_path not in blocking_reasons:
+            blocking_reasons[item.task_path] = "carry_forward_blocked"
+            if item.task_path not in blocked_paths:
+                blocked_paths.append(item.task_path)
+            if item.deferrable and item.task_path not in deferred_paths:
+                deferred_paths.append(item.task_path)
+            continue
+        authority_prereq = _normalized_authority_prerequisite(getattr(item, "authority_prerequisite", "none"))
+        if authority_prereq == "hosted" and not hosted_authority_ready:
+            blocking_reasons[item.task_path] = "authority_prerequisite_unsatisfied:hosted"
+            if item.task_path not in blocked_paths:
+                blocked_paths.append(item.task_path)
+            if item.deferrable and item.task_path not in deferred_paths:
+                deferred_paths.append(item.task_path)
+            continue
+        if item.task_path not in ready_paths:
+            continue
+        carry_forward_related_candidate = bool(item.task_path in carry_forward_related or any(dep in carry_forward_related for dep in item.depends_on))
+        rerun_required = bool(item.task_path in rerun_required_paths or getattr(item, "rerun_required", False))
+        ranked_candidates.append(
+            {
+                "task_path": item.task_path,
+                "ordinal": int(getattr(item, "ordinal", 0) or 0),
+                "priority": priority,
+                "rerun_required": rerun_required,
+                "carry_forward_related": carry_forward_related_candidate,
+                "authority_prerequisite": authority_prereq,
+                "_sort_key": (-priority, -int(carry_forward_related_candidate), -int(rerun_required), int(getattr(item, "ordinal", 0) or 0), item.task_path),
+            }
+        )
+
+    ranked_candidates.sort(key=lambda item: item["_sort_key"])
+    cleaned_ranked_candidates = []
+    for item in ranked_candidates:
+        cleaned = dict(item)
+        cleaned.pop("_sort_key", None)
+        cleaned_ranked_candidates.append(cleaned)
+
+    selected_task_path = cleaned_ranked_candidates[0]["task_path"] if cleaned_ranked_candidates else ""
+    reordered = bool(selected_task_path and first_unresolved and selected_task_path != first_unresolved)
+    selected_reason = ""
+    if cleaned_ranked_candidates:
+        chosen = cleaned_ranked_candidates[0]
+        if bool(chosen["carry_forward_related"]) and int(chosen["priority"]) > 0:
+            selected_reason = "selected_by_priority_and_carry_forward"
+        elif bool(chosen["carry_forward_related"]):
+            selected_reason = "selected_by_carry_forward"
+        elif int(chosen["priority"]) > 0:
+            selected_reason = "selected_by_priority"
+        elif bool(chosen["rerun_required"]):
+            selected_reason = "selected_by_rerun_requirement"
+        elif reordered:
+            selected_reason = "selected_by_ready_reordering"
+        else:
+            selected_reason = "selected_by_manifest_order"
+
+    truth = BacklogSelectionTruth(
+        selected_task_path=selected_task_path,
+        selected_reason=selected_reason,
+        reordered=reordered,
+        ready_task_paths=tuple(ready_paths),
+        blocked_task_paths=tuple(dict.fromkeys(blocked_paths)),
+        deferred_task_paths=tuple(dict.fromkeys(deferred_paths)),
+        skipped_task_paths=tuple(skipped_paths),
+        rerun_required_task_paths=tuple(rerun_required_paths),
+        ranked_candidate_paths=tuple(item["task_path"] for item in cleaned_ranked_candidates),
+        ranked_candidates=tuple(dict(item) for item in cleaned_ranked_candidates),
+        blocking_reasons=tuple(sorted((str(k), str(v)) for k, v in blocking_reasons.items())),
+        skip_reasons=tuple(sorted((str(k), str(v)) for k, v in skip_reasons.items())),
+        priority_by_task=tuple(sorted((str(k), int(v)) for k, v in priority_by_task.items())),
+        carry_forward_summary_used=carry_forward_summary,
+        carry_forward_related_task_paths=tuple(sorted(path for path in {item["task_path"] for item in cleaned_ranked_candidates if bool(item["carry_forward_related"]) })),
+        carry_forward_blocked_task_paths=tuple(sorted(carry_forward_blocked)),
+        hosted_authority_ready=bool(hosted_authority_ready),
+        selection_policy=selection_policy,
+    )
+    return truth.to_dict()
+
+
 def choose_next_manifest_task(queue: Sequence[Any]) -> str:
-    return str(plan_manifest_progress(queue)["selected_task_path"])
+    return str(select_next_backlog_task(queue)["selected_task_path"])
 
 
 

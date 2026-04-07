@@ -48,6 +48,8 @@ def test_controller_contract_snapshot_is_canonical() -> None:
     ]
     assert "acceptance_decision" in snapshot["checkpoint_truth_fields"]
     assert "resume_target_task_path" in snapshot["resume_metadata_fields"]
+    assert "selected_task_path" in snapshot["backlog_selection_truth_fields"]
+    assert "selection_policy" in snapshot["backlog_selection_truth_fields"]
 
     assert snapshot["controller_strict_mode_paths"] == [
         "agents/run_task.py",
