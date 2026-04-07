@@ -16,6 +16,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **100–107 harden resilience, hosted-authority truth, bootstrap recovery, and supervised mixed-manifest proof**
 - **108–114 harden ordinary-task autonomy operating mode (artifact envelopes, tester critique/replay, repair memory, admission gates, authority contracts, multi-role ordinary execution, cross-task carry-forward)**
 - **115 adds a fresh supervised local-first ordinary-manifest end-to-end re-proof**
+- **116 adds a canonical project registry and per-project contract surface for the monorepo plus a generic external Python project**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
@@ -39,11 +40,10 @@ The proof is intentionally bounded and does **not** claim:
 
 ## Next product-stage focus
 
-The next continuation after Task 115 should focus on converting the current bounded ordinary-manifest proof into a portfolio-capable operating mode.
+The next continuation after Task 116 should focus on converting the new canonical project-registry surface into stronger isolated portfolio execution.
 
 The main product gaps are:
 
-- no canonical multi-project registry and contract surface yet
 - insufficient project-scoped isolation for state, branches, and workspaces
 - weak next-task selection across a real backlog
 - dependency and decomposition planning that is still too manifest-shaped

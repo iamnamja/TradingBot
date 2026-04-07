@@ -22,6 +22,7 @@ def _load_runtime_modules():
     task_queue = importlib.import_module("agents.lib.task_queue")
     controller_contract = importlib.import_module("agents.lib.controller_contract")
     multi_agent_contract = importlib.import_module("agents.lib.multi_agent_contract")
+    project_registry = importlib.import_module("agents.lib.project_registry")
     final_acceptance = importlib.import_module("agents.lib.final_acceptance")
     batch_executor = importlib.import_module("agents.lib.batch_executor")
     controller_strict_mode = importlib.import_module("agents.lib.controller_strict_mode")
@@ -40,6 +41,7 @@ def _load_runtime_modules():
         task_queue,
         controller_contract,
         multi_agent_contract,
+        project_registry,
         final_acceptance,
         batch_executor,
         controller_strict_mode,
@@ -48,7 +50,7 @@ def _load_runtime_modules():
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -61,7 +63,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     class _Result:
@@ -93,7 +95,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     class _CP:
         def __init__(self, returncode: int, stdout: str, stderr: str):
@@ -116,7 +118,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -149,3 +151,9 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.report_branch_push_ready)
     assert callable(run_task.build_controller_strict_mode_context)
     assert callable(run_task.describe_controller_strict_mode)
+    assert callable(run_task.project_registry_snapshot)
+    assert callable(run_task.resolve_project_contract)
+    assert callable(run_task.canonical_project_contract)
+    assert callable(run_task.workspace_contract_from_project_contract)
+    assert callable(run_task.project_validation_contract)
+    assert callable(run_task.project_registry_task_context)

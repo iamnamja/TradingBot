@@ -349,6 +349,30 @@ def committed_state_parity_issues(
 
 
 
+def project_registry_task_context(
+    required_paths: Sequence[str] | None,
+) -> dict[str, object]:
+    from agents.lib.project_registry import project_registry_snapshot
+
+    required = normalize_paths(required_paths)
+    registry_paths = {
+        'agents/lib/project_registry.py',
+        'agents/lib/project_workspace_adapter.py',
+        'tests/test_project_registry.py',
+        'tests/test_multi_project_adapters.py',
+    }
+    touched = [path for path in required if path in registry_paths]
+    snapshot = project_registry_snapshot()
+    return {
+        'touches_project_registry_contract': bool(touched),
+        'project_registry_required_paths': list(touched),
+        'registered_project_ids': list(snapshot['registered_project_ids']),
+        'supported_project_workspace_types': list(snapshot['supported_workspace_types']),
+        'project_registry_autonomy_lanes': list(snapshot['autonomy_lanes']),
+    }
+
+
+
 def project_workspace_task_context(
     required_paths: Sequence[str] | None,
 ) -> dict[str, object]:
@@ -379,6 +403,7 @@ def task_admission_context(
 
     required = normalize_paths(required_paths)
     controller_context = controller_core_task_context(required, controller_paths=controller_paths)
+    registry_context = project_registry_task_context(required)
     workspace_context = project_workspace_task_context(required)
     task_file_text = str(task_file or "").lower()
 
@@ -393,6 +418,7 @@ def task_admission_context(
         or path == "agents/run_task.py"
     ]
     protected_meta_task = bool(controller_context["touches_controller_core"] or protected_meta_paths or any(hint in task_file_text for hint in PROTECTED_META_TASK_HINTS))
+    registry_like = bool(registry_context["touches_project_registry_contract"]) or "project registry" in task_file_text or "per-project contract" in task_file_text
     bootstrap_like = bool(workspace_context["touches_project_workspace_contract"]) or "bootstrap" in task_file_text or "workspace" in task_file_text
     proof_like = (bool(required) and len(doc_like) == len(required)) or "proof" in task_file_text or "sync" in task_file_text
     verifier_only = bool(required) and len(test_like) == len(required)
@@ -406,9 +432,9 @@ def task_admission_context(
         decomposition_status = "manual_only"
         decomposition_required = False
         decomposition_summary = "Manual-only task shape; do not auto-decompose into autonomous work units."
-    elif bootstrap_like or proof_like:
+    elif registry_like or bootstrap_like or proof_like:
         lane = "supervised_autonomous"
-        rationale = "Task shape remains supervised because bootstrap/proof work is broader than ordinary autonomous scope."
+        rationale = "Task shape remains supervised because project-registry/bootstrap/proof work is broader than ordinary autonomous scope."
         decomposition_status = str(decomposition["decomposition_status"])
         decomposition_required = bool(decomposition["bounded_decomposition_required"])
         decomposition_summary = str(decomposition["decomposition_summary"])
@@ -427,6 +453,7 @@ def task_admission_context(
 
     return {
         **controller_context,
+        **registry_context,
         **workspace_context,
         "task_admission_lane": lane,
         "task_admission_rationale": rationale,
@@ -442,6 +469,7 @@ def task_admission_context(
         "verifier_only_task_shape": verifier_only,
         "proof_like_task_shape": proof_like,
         "bootstrap_like_task_shape": bootstrap_like,
+        "project_registry_like_task_shape": registry_like,
     }
 
 

@@ -258,3 +258,29 @@ def orchestrator_package_boundary_snapshot() -> dict[str, object]:
     from agents.lib.multi_agent_contract import orchestrator_package_boundary_snapshot as _impl
 
     return dict(_impl())
+
+
+def workspace_contract_from_project_contract(project_contract: Mapping[str, object] | None) -> dict[str, object]:
+    payload = dict(project_contract or {})
+    return canonical_workspace_contract(payload.get('workspace_contract'))
+
+
+def project_validation_contract(project_contract: Mapping[str, object] | None) -> dict[str, object]:
+    payload = dict(project_contract or {})
+    validation = dict(payload.get('validation_contract') or {})
+    workspace = workspace_contract_from_project_contract(payload)
+    focused = _normalize_str_list(validation.get('focused_validation_commands'))
+    full_commands = _normalize_str_list(validation.get('full_validation_commands')) or list(workspace.get('validation_commands', []))
+    acceptance = _normalize_str_list(validation.get('acceptance_evidence_commands')) or list(workspace.get('acceptance_evidence_commands', []))
+    authority = str(
+        validation.get('verification_authority_profile')
+        or workspace.get('merge_policy_constraints', {}).get('verification_authority_profile', 'local_plus_required_ci')
+    ).strip() or 'local_plus_required_ci'
+    if not focused:
+        focused = [full_commands[-1]] if full_commands else []
+    return {
+        'focused_validation_commands': focused,
+        'full_validation_commands': full_commands,
+        'acceptance_evidence_commands': acceptance,
+        'verification_authority_profile': authority,
+    }
