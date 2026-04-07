@@ -109,6 +109,9 @@ def test_merge_flow_can_succeed_with_required_ci_authority() -> None:
     assert result["verification_authority_profile"] == "required_ci_only"
     assert result["required_checks_discovered"] is True
     assert result["required_checks_passed"] is True
+    assert result["hosted_checks_source"] == "gh_pr_checks"
+    assert result["hosted_authority_available"] is True
+    assert result["hosted_authority_satisfied"] is True
     assert result["verification_authority_satisfied"] is True
     assert result["merged_to_main"] is True
     assert result["clean_main_reset_completed"] is True

@@ -64,6 +64,14 @@ class BatchTaskCheckpoint:
     required_checks_failed: bool = False
     missing_required_checks_blocks_merge: bool = False
     verification_authority_satisfied: bool = True
+    hosted_checks_source: str = "not_required"
+    hosted_checks_reported: bool = False
+    hosted_authority_available: bool = True
+    hosted_authority_satisfied: bool = True
+    hosted_checks_source: str = ""
+    hosted_checks_reported: bool = False
+    hosted_authority_available: bool = True
+    hosted_authority_satisfied: bool = True
     active_role: str = "controller"
     prior_role: str = ""
     role_attempt_count: int = 0
@@ -112,6 +120,10 @@ class BatchTaskCheckpoint:
             "required_checks_failed": self.required_checks_failed,
             "missing_required_checks_blocks_merge": self.missing_required_checks_blocks_merge,
             "verification_authority_satisfied": self.verification_authority_satisfied,
+            "hosted_checks_source": self.hosted_checks_source,
+            "hosted_checks_reported": self.hosted_checks_reported,
+            "hosted_authority_available": self.hosted_authority_available,
+            "hosted_authority_satisfied": self.hosted_authority_satisfied,
             "active_role": self.active_role,
             "prior_role": self.prior_role,
             "role_attempt_count": self.role_attempt_count,
@@ -174,6 +186,10 @@ class BatchState:
     required_checks_failed: bool = False
     missing_required_checks_blocks_merge: bool = False
     verification_authority_satisfied: bool = True
+    hosted_checks_source: str = "not_required"
+    hosted_checks_reported: bool = False
+    hosted_authority_available: bool = True
+    hosted_authority_satisfied: bool = True
     active_role: str = "controller"
     prior_role: str = ""
     role_attempt_count: int = 0
@@ -362,6 +378,10 @@ def initialize_batch_state(
         required_checks_failed=False,
         missing_required_checks_blocks_merge=False,
         verification_authority_satisfied=True,
+        hosted_checks_source="not_required",
+        hosted_checks_reported=False,
+        hosted_authority_available=True,
+        hosted_authority_satisfied=True,
         active_role=str(handoff["active_role"]),
         prior_role=str(handoff["prior_role"]),
         role_attempt_count=int(handoff["role_attempt_count"]),
@@ -565,6 +585,10 @@ def apply_task_result(
         required_checks_failed=bool(authority_truth["required_checks_failed"]),
         missing_required_checks_blocks_merge=bool(authority_truth["missing_required_checks_blocks_merge"]),
         verification_authority_satisfied=bool(authority_truth["verification_authority_satisfied"]),
+        hosted_checks_source=str(authority_truth["hosted_checks_source"]),
+        hosted_checks_reported=bool(authority_truth["hosted_checks_reported"]),
+        hosted_authority_available=bool(authority_truth["hosted_authority_available"]),
+        hosted_authority_satisfied=bool(authority_truth["hosted_authority_satisfied"]),
         active_role=str(role_state["active_role"]),
         prior_role=str(role_state["prior_role"]),
         role_attempt_count=int(role_state["role_attempt_count"]),
@@ -740,6 +764,10 @@ def mark_resume_plan(
         required_checks_failed=state.required_checks_failed,
         missing_required_checks_blocks_merge=state.missing_required_checks_blocks_merge,
         verification_authority_satisfied=state.verification_authority_satisfied,
+        hosted_checks_source=state.hosted_checks_source,
+        hosted_checks_reported=state.hosted_checks_reported,
+        hosted_authority_available=state.hosted_authority_available,
+        hosted_authority_satisfied=state.hosted_authority_satisfied,
         planner_selected_task_path=state.planner_selected_task_path,
         planner_reordered=state.planner_reordered,
         planner_ready_task_paths=state.planner_ready_task_paths,
