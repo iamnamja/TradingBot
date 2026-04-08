@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 124–136 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, and reports hosted-authority operational convergence / unattended-readiness truth against the real required-check contract, and re-proves that these known failure classes remain bounded inside the supervised local-first slice.
+- **Tasks 124–136 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, and re-proves the bounded supervised resilience corpus over the concrete failure classes from Tasks 130–135.
 
 The current bounded deterministic slice now demonstrates:
 
@@ -23,8 +23,8 @@ The current bounded deterministic slice now demonstrates:
 5. green-gated proof-claim discipline
 6. targeted retry planning around missing deliverables and coupled compatibility surfaces
 7. bounded subset preservation so targeted retries do not unnecessarily widen the changed-file set
-8. explicit operational-convergence truth for hosted authority, including blocking `no checks reported` posture
-9. fresh resilience re-proof over admission, bundle handling, missing-deliverable retry, coupled compatibility repair planning, subset preservation, no-ready-task stop, and hosted-authority-unsatisfied evidence
+8. explicit hosted-authority operational-readiness truth, including blocking `no checks reported` posture
+9. a fresh supervised resilience re-proof over the recent failure corpus
 
 ## Scope honesty
 
@@ -35,12 +35,16 @@ Current proof scope remains explicitly limited to:
 - conservative stop-on-risk / stop-on-authority-unsatisfied posture
 - compatibility-preserving self-heal and schema alias normalization contracts
 - extraction preparation posture rather than completed standalone extraction
+- safe-lane autonomy only after real operational enforcement is converged
 
 It still does **not** claim autonomy for arbitrary protected/controller/meta task lists, broad unattended production scheduling, or broad multi-language portability.
 
 ## Next continuation target
 
-The next tranche should focus on:
+The next tranche should focus on moving from resilience hardening toward a **safe autonomous single-task lane**:
 
-1. complete the real GitHub branch-protection / required-check alignment around the stable `ci-required` context
-2. only claim stronger unattended readiness after GitHub-side enforcement and a broader supervised proof both stay green
+1. operationally converge hosted required-check / branch-protection truth with the real GitHub setup
+2. introduce an allowlisted task-family admission lane for autonomous single-task runs
+3. add a dedicated single-task runner, run ledger, and canary metrics
+4. produce explicit escalation artifacts for self-hosting control-plane tasks that still require supervised/manual handling
+5. re-prove autonomous single-task execution only after the above lane is green

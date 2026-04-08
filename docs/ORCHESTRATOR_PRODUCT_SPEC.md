@@ -7,8 +7,8 @@ Build a reusable orchestration engine that can execute constrained implementatio
 ## Current product stage
 
 - **124–129** freeze compatibility/public-contract posture and re-prove the bounded supervised portfolio slice
-- **130–136** harden convergence around proof-task admission, bundle failure classification, missing-deliverable retry compilation, assertion-to-compatibility repair planning, last-green subset preservation/rollback, hosted-authority operational convergence, and the supervised resilience re-proof
-- Product scope remains bounded and truthful; it is not yet claiming unattended broad autonomy
+- **130–136** harden convergence around proof-task admission, bundle failure classification, missing-deliverable retry compilation, assertion-to-compatibility repair planning, last-green subset preservation/rollback, hosted-authority operational convergence, and a bounded supervised resilience re-proof
+- Product scope remains bounded and truthful; it is still not claiming broad unattended autonomy
 
 ## What the product can honestly claim today
 
@@ -22,7 +22,7 @@ The repo has deterministic proof for a bounded supervised portfolio slice plus c
 - targeted retry prompts around missing deliverables
 - coupled compatibility-surface planning from assertion evidence
 - last-green subset preservation so retries can roll back only the failing subset
-- a fresh bounded supervised resilience re-proof over the concrete known failure corpus
+- explicit operational-readiness truth that blocks unattended claims when required checks are absent or not reported
 
 The proof is intentionally bounded and does **not** claim:
 
@@ -33,8 +33,10 @@ The proof is intentionally bounded and does **not** claim:
 
 ## Next product-stage focus
 
-Continue toward:
+Continue toward a **safe autonomous single-task lane**:
 
-- real hosted required-check / branch-protection convergence is now modeled and check-name aligned (`ci-required`)
-- keep the real GitHub required-check / branch-protection alignment synchronized to the stable `ci-required` contract
-- claim stronger unattended readiness only after GitHub-side enforcement and a broader supervised proof both stay green
+- real hosted required-check / branch-protection convergence
+- allowlisted autonomous task-family admission instead of broad self-hosting autonomy
+- a dedicated single-task runner plus persisted run ledger and canary metrics
+- explicit escalation / handoff artifacts for unsafe self-hosting work
+- supervised one-task autonomous proof only after the safe lane is operationally green

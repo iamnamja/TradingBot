@@ -18,3 +18,12 @@
 - **134** `orchestrator_last_green_subset_preservation_and_rollback`
 - **135** `orchestrator_hosted_authority_operational_convergence_probe`
 - **136** `orchestrator_supervised_resilience_reproof`
+
+## Safe autonomy lane tranche
+
+- **137** `orchestrator_real_github_required_check_convergence`
+- **138** `orchestrator_safe_task_family_autonomy_allowlist`
+- **139** `orchestrator_autonomous_single_task_runner_and_ledger`
+- **140** `orchestrator_single_task_canary_metrics_and_reporting`
+- **141** `orchestrator_escalation_artifact_and_supervised_handoff_lane`
+- **142** `orchestrator_supervised_safe_lane_single_task_reproof`

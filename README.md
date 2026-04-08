@@ -48,4 +48,9 @@ It does **not** claim:
 
 ## Next continuation target
 
-Complete the real GitHub branch-protection / required-check enforcement around the stable `ci-required` context, then only broaden unattended-readiness claims after that enforcement is truly green.
+Move from bounded resilience hardening to a **safe autonomous single-task lane**:
+
+- finish real GitHub branch-protection / required-check enforcement around the stable `ci-required` context
+- add a safe-task-family autonomy allowlist and explicit escalation posture for self-hosting control-plane work
+- introduce a dedicated autonomous single-task runner plus run ledger and canary metrics
+- re-prove one-task autonomous execution only after the safe lane and operational enforcement are truly green

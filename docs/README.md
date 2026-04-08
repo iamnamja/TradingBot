@@ -2,13 +2,12 @@
 
 ## Current roadmap slice
 
-- `ORCHESTRATOR_ROADMAP_130_136.md` — convergence hardening after the bounded supervised portfolio re-proof
+- `ORCHESTRATOR_ROADMAP_137_142.md` — safe autonomous single-task lane after bounded resilience re-proof
 
-## Current convergence note
+## Current continuation note
 
-Tasks 130–135 now tighten proof-task admission, bundle failure classification, missing-deliverable retry compilation, assertion-to-compatibility repair planning, last-green subset preservation during retries, and hosted-authority operational convergence reporting.
+Tasks 124–136 hardened the orchestrator against the known self-hosting failure corpus, but the repo still does not claim broad unattended autonomy.
 
+## Current next-step note
 
-## GitHub setup note
-
-- `ORCHESTRATOR_GITHUB_REQUIRED_CHECK_SETUP.md` — manual checklist for aligning the repo contract with actual GitHub required-check and branch-protection settings
+The next tranche is about making **autonomous single-task runs** reliable inside a narrow safe lane, with real GitHub required-check enforcement and explicit escalation for unsafe self-hosting work.
