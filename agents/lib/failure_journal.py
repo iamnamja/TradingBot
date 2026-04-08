@@ -144,6 +144,7 @@ def build_failure_remediation_plan(
         "bounded": True,
         "max_repair_attempts": attempt_budget,
         "repair_attempt_budget": attempt_budget,
+        "should_escalate": retry_count >= attempt_budget or bool(route["manual_lane_recommended"]),
     }
 
     repair_attempt = build_repair_attempt_record(
@@ -178,6 +179,7 @@ def build_failure_remediation_plan(
             prefer_minimal_patch=False,
             minimal_patch_selected=False,
             max_files_to_edit=0,
+            should_escalate=True,
         )
 
     return plan

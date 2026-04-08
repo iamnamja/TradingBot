@@ -705,6 +705,8 @@ def evaluate_merge_eligibility(
         'merge_eligible_now': eligible,
         'merge_eligibility_reason': reason,
         'next_task_may_proceed': bool(eligible),
+        'verification_authority_satisfied': bool(authority['verification_authority_satisfied']),
+        'verification_authority_blocking_reason': str(authority.get('blocking_reason') or ''),
         'verification_authority': dict(authority),
         'hosted_authority_convergence': dict(convergence),
     }

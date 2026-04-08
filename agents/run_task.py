@@ -138,6 +138,11 @@ def filter_claim_updates_for_validation(*, focused_validation_green: bool, full_
             proposed_updates=proposed_updates,
         )
     )
+def project_registry_snapshot() -> dict[str, object]:
+    from agents.lib.project_registry import project_registry_snapshot as _project_registry_snapshot
+    return dict(_project_registry_snapshot())
+
+
 def resolve_project_contract(project_id: str) -> dict[str, object]:
     from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
     return dict(_resolve_project_contract(project_id))

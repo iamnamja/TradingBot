@@ -273,6 +273,7 @@ def project_registry_snapshot() -> dict[str, object]:
         'portfolio_scheduler_mode': 'supervised_local_first',
         'portfolio_slice_bounded': True,
         'portfolio_reproof_claim': 'deterministic_local_supervised_only',
+        'portfolio_reproof_retry_task': 129,
         'registered_project_ids': list(by_id.keys()),
         'registered_projects': by_id,
         'supported_workspace_types': list(PROJECT_WORKSPACE_TYPES),
