@@ -184,3 +184,34 @@ def test_bundle_failure_classification_and_remediation_plans_are_distinct() -> N
     assert markerless_plan["repair_strategy"] == "bundle_transport_format_retry"
     assert underfilled_plan["targeted_patch_surface"] == "bundle_missing_deliverables"
     assert markerless_plan["targeted_patch_surface"] == "bundle_transport_format"
+
+
+def test_task_136_failure_corpus_reproof_remains_bounded_and_distinct() -> None:
+    fj = _load_failure_journal_module()
+
+    empty_plan = fj.build_failure_remediation_plan(
+        kind="bundle_empty_response",
+        message="Bundle transport was present but contained zero FILE blocks.",
+        retry_count=1,
+        max_repair_attempts=3,
+    )
+    underfilled_plan = fj.build_failure_remediation_plan(
+        kind="bundle_underfilled_response",
+        message="Missing FILE blocks from the requested scope: docs/TRADINGBOT_PROJECT_STATE.md",
+        retry_count=1,
+        max_repair_attempts=3,
+    )
+    no_ready_plan = fj.build_failure_remediation_plan(
+        kind="portfolio_scheduler",
+        message="no dependency-ready task available",
+        retry_count=1,
+        max_repair_attempts=3,
+    )
+
+    assert empty_plan["bounded"] is True
+    assert underfilled_plan["bounded"] is True
+    assert no_ready_plan["bounded"] is True
+    assert empty_plan["repair_strategy"] == "bundle_empty_response_retry"
+    assert underfilled_plan["repair_strategy"] == "missing_deliverable_retry"
+    assert no_ready_plan["repair_strategy"] == "manual_stop"
+    assert no_ready_plan["continue_autonomously"] is False

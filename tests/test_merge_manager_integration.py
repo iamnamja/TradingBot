@@ -292,3 +292,33 @@ def test_operational_convergence_reports_green_required_checks_as_ready() -> Non
     assert operational["unattended_execution_ready"] is True
     assert operational["operational_convergence_ready"] is True
     assert operational["operational_convergence_reason"] == "ready"
+
+
+def test_task_136_operational_convergence_reproof_blocks_progress_when_checks_do_not_report() -> None:
+    from agents.lib import project_registry  # noqa: E402
+
+    tradingbot = project_registry.resolve_project_contract("tradingbot_monorepo")
+    truth = git_workflow.canonical_required_check_truth(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=git_workflow.project_repo_check_contract(tradingbot),
+        required_checks_discovered=False,
+        hosted_checks_reported=False,
+        hosted_authority_probe_status="misconfigured",
+    )
+    operational = git_workflow.evaluate_hosted_authority_operational_convergence(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=git_workflow.project_repo_check_contract(tradingbot),
+        required_check_truth=truth,
+    )
+    eligibility = git_workflow.evaluate_project_merge_eligibility(
+        project_contract=tradingbot,
+        accepted=True,
+        autonomous_merge_enabled=True,
+        local_validation_passed=True,
+        required_check_truth=truth,
+    )
+
+    assert operational["unattended_execution_ready"] is False
+    assert operational["operational_convergence_reason"] == "hosted_checks_not_reporting"
+    assert eligibility["merge_eligible_now"] is False
+    assert eligibility["next_task_may_proceed"] is False

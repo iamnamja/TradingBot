@@ -7,7 +7,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 ## Current product stage
 
 - **124–129** freeze compatibility/public-contract posture and re-prove the bounded supervised portfolio slice
-- **130–135** harden convergence around proof-task admission, bundle failure classification, missing-deliverable retry compilation, assertion-to-compatibility repair planning, last-green subset preservation/rollback, and hosted-authority operational convergence
+- **130–136** harden convergence around proof-task admission, bundle failure classification, missing-deliverable retry compilation, assertion-to-compatibility repair planning, last-green subset preservation/rollback, hosted-authority operational convergence, and the supervised resilience re-proof
 - Product scope remains bounded and truthful; it is not yet claiming unattended broad autonomy
 
 ## What the product can honestly claim today
@@ -22,6 +22,7 @@ The repo has deterministic proof for a bounded supervised portfolio slice plus c
 - targeted retry prompts around missing deliverables
 - coupled compatibility-surface planning from assertion evidence
 - last-green subset preservation so retries can roll back only the failing subset
+- a fresh bounded supervised resilience re-proof over the concrete known failure corpus
 
 The proof is intentionally bounded and does **not** claim:
 
@@ -35,5 +36,5 @@ The proof is intentionally bounded and does **not** claim:
 Continue toward:
 
 - real hosted required-check / branch-protection convergence is now modeled and check-name aligned (`ci-required`)
-- complete the resilience re-proof against the concrete failure corpus
-- claim stronger unattended readiness only after the resilience re-proof and GitHub-side enforcement are both green
+- keep the real GitHub required-check / branch-protection alignment synchronized to the stable `ci-required` contract
+- claim stronger unattended readiness only after GitHub-side enforcement and a broader supervised proof both stay green

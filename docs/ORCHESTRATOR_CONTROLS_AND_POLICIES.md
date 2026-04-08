@@ -221,3 +221,18 @@ Current required behavior:
 - narrow truthful recovery wording may still be written while recovery is in progress
 - docs overclaim should route to the existing `docs_overclaim` repair target instead of broad rewrites
 - proof-claim updates must remain explicitly separate from ordinary narrow doc clarifications
+
+
+## Supervised resilience re-proof (Task 136)
+
+The current bounded resilience re-proof covers only a supervised local-first slice. It verifies that:
+
+- under-specified proof tasks are rejected before model execution
+- empty, underfilled, markerless, and malformed bundle failures remain distinct classes
+- underfilled bundles retry against the exact missing required FILE blocks rather than a generic malformed-bundle prompt
+- assertion-shaped failures may infer a coupled compatibility repair surface instead of symptom-chasing one file at a time
+- last-known-good subsets are preserved while only the failing subset is rolled back
+- controller stop posture remains conservative when no dependency-ready tasks are available
+- hosted-authority absence, misconfiguration, or unsatisfied status remains a blocking signal for unattended readiness
+
+This re-proof does not widen the scope claim beyond deterministic supervised local execution.
