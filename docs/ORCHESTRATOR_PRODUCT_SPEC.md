@@ -19,6 +19,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **116–123 establish bounded supervised multi-project portfolio baseline**
 - **124–128 harden compatibility contracts, schema aliases, stop vocabulary, assertion-targeted self-heal, and green-gated claim discipline**
 - **129 reruns supervised bounded portfolio re-proof after 124–128 without widening scope claims**
+- **130–133 harden proof-task admission, bundle-failure classification, missing-deliverable retry compilation, and coupled compatibility-surface planning**
 
 ## What the product can honestly claim today
 
@@ -47,6 +48,5 @@ The main product gaps now are:
 - proof/re-proof tasks can still be under-specified enough to invite empty or zero-delta model responses
 - bundle transport failures are still grouped too broadly, which wastes retries
 - retries still lean too hard on generic “fix the bundle” reminders instead of missing-deliverable evidence
-- failing assertions do not yet consistently expand into the full set of coupled compatibility/public-surface seams that need repair together
 - localized repair needs a stronger last-known-good preservation contract
 - hosted-authority truth exists, but actual repo-check convergence is not yet strong enough for low-babysitting unattended execution
