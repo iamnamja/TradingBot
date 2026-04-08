@@ -197,3 +197,26 @@ def test_parser_policy_exports_include_bundle_failure_classifier() -> None:
 
     assert "classify_bundle_transport_failure" in exports
     assert callable(exports["classify_bundle_transport_failure"])
+
+
+def test_parser_policy_exports_include_missing_deliverable_retry_helpers() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    exports = run_task._parser_policy_exports()
+
+    assert "classify_bundle_transport_failure" in exports
+    assert callable(run_task.extract_missing_deliverable_evidence)
+    assert callable(run_task.build_missing_deliverable_retry_feedback)
+
+
+def test_controller_repair_context_includes_missing_deliverable_evidence() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    context = run_task.build_controller_repair_context(
+        kind="deliverables",
+        message="Required deliverables were included but not materially updated: README.md",
+        category="task_shape_mismatch",
+        touched_files=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+        task_file="tasks/132_orchestrator_missing_deliverable_retry_compiler.md",
+    )
+    prompt = context["repair_prompt"]
+    assert "Missing-deliverable evidence:" in prompt
+    assert "README.md" in prompt
