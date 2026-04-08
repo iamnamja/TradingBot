@@ -14,6 +14,7 @@ from agents.lib.controller_contract import (
     POLICY_BLOCKED_FAILURE_CATEGORY,
     RESUME_METADATA_FIELDS,
 )
+from agents.lib.public_compat import coerce_failure_record_fields
 
 _KNOWN_DECISION_STRINGS = {
     "accepted",
@@ -80,9 +81,17 @@ def build_repair_attempt_record(
     outcome: str = "",
 ) -> dict[str, Any]:
     normalized_files = _stable_unique(_normalize_path(path) for path in (target_files or ()) if str(path or "").strip())
-    resolved_kind = str(failure_kind or kind or "").strip()
-    resolved_message = str(failure_message or message or "").strip()
-    resolved_category = str(failure_category or category or "").strip()
+    resolved = coerce_failure_record_fields(
+        failure_kind=failure_kind,
+        failure_message=failure_message,
+        failure_category=failure_category,
+        kind=kind,
+        message=message,
+        category=category,
+    )
+    resolved_kind = str(resolved["failure_kind"])
+    resolved_message = str(resolved["failure_message"])
+    resolved_category = str(resolved["failure_category"])
     payload = {
         "task_path": str(task_path or "").strip(),
         "repair_strategy": str(repair_strategy or "manual_stop").strip() or "manual_stop",

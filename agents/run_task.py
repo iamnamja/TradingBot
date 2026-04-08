@@ -85,6 +85,59 @@ def _ensure_repo_root_on_sys_path() -> None:
 _ensure_repo_root_on_sys_path()
 
 
+def resolve_project_contract(project_id: str) -> dict[str, object]:
+    from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
+    return dict(_resolve_project_contract(project_id))
+
+
+def project_validation_matrix(project_contract: Mapping[str, Any] | str) -> dict[str, object]:
+    from agents.lib.project_registry import project_validation_matrix as _project_validation_matrix, resolve_project_contract as _resolve_project_contract
+    contract = _resolve_project_contract(project_contract) if isinstance(project_contract, str) else project_contract
+    return dict(_project_validation_matrix(contract))
+
+
+def build_project_validation_plan(project_id: str, *, validation_scope: str = "focused") -> dict[str, object]:
+    from agents.lib.project_registry import resolve_project_validation_plan as _resolve_project_validation_plan
+    return dict(_resolve_project_validation_plan(project_id, validation_scope=validation_scope))
+
+
+def project_verification_authority_profile(project_contract: Mapping[str, Any] | str) -> str:
+    from agents.lib.project_registry import project_verification_authority_profile as _project_verification_authority_profile, resolve_project_contract as _resolve_project_contract
+    contract = _resolve_project_contract(project_contract) if isinstance(project_contract, str) else project_contract
+    return str(_project_verification_authority_profile(contract))
+
+
+def project_repo_check_contract(project_contract: Mapping[str, Any] | str) -> dict[str, object]:
+    from agents.lib.project_registry import project_repo_check_contract as _project_repo_check_contract, resolve_project_contract as _resolve_project_contract
+    contract = _resolve_project_contract(project_contract) if isinstance(project_contract, str) else project_contract
+    return dict(_project_repo_check_contract(contract))
+
+
+def evaluate_project_verification_authority(*, project_contract: Mapping[str, Any] | str, local_validation_passed: bool, required_check_truth: Mapping[str, Any] | None = None) -> dict[str, object]:
+    from agents.lib.git_workflow import evaluate_project_verification_authority as _evaluate_project_verification_authority
+    from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
+    contract = _resolve_project_contract(project_contract) if isinstance(project_contract, str) else project_contract
+    return dict(_evaluate_project_verification_authority(project_contract=contract, local_validation_passed=local_validation_passed, required_check_truth=required_check_truth))
+
+
+def project_merge_eligibility_contract(project_contract: Mapping[str, Any] | str) -> dict[str, object]:
+    from agents.lib.project_registry import project_merge_eligibility_contract as _project_merge_eligibility_contract, resolve_project_contract as _resolve_project_contract
+    contract = _resolve_project_contract(project_contract) if isinstance(project_contract, str) else project_contract
+    return dict(_project_merge_eligibility_contract(contract))
+
+
+def evaluate_hosted_authority_convergence(*, verification_authority_profile: Any, repo_check_contract: Mapping[str, Any] | None = None, required_check_truth: Mapping[str, Any] | None = None) -> dict[str, object]:
+    from agents.lib.git_workflow import evaluate_hosted_authority_convergence as _evaluate_hosted_authority_convergence
+    return dict(_evaluate_hosted_authority_convergence(verification_authority_profile=verification_authority_profile, repo_check_contract=repo_check_contract, required_check_truth=required_check_truth))
+
+
+def evaluate_project_merge_eligibility(*, project_contract: Mapping[str, Any] | str, accepted: bool, autonomous_merge_enabled: bool, local_validation_passed: bool, required_check_truth: Mapping[str, Any] | None = None) -> dict[str, object]:
+    from agents.lib.git_workflow import evaluate_project_merge_eligibility as _evaluate_project_merge_eligibility
+    from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
+    contract = _resolve_project_contract(project_contract) if isinstance(project_contract, str) else project_contract
+    return dict(_evaluate_project_merge_eligibility(project_contract=contract, accepted=accepted, autonomous_merge_enabled=autonomous_merge_enabled, local_validation_passed=local_validation_passed, required_check_truth=required_check_truth))
+
+
 class NormalizedLLMResponse:
     __slots__ = (
         "text",
@@ -472,66 +525,6 @@ def evaluate_verification_authority(**kwargs: Any) -> Dict[str, object]:
     return dict(_impl(**kwargs))
 
 
-def resolve_project_contract(project_id: str = "tradingbot_monorepo") -> Dict[str, object]:
-    from agents.lib.project_registry import resolve_project_contract as _impl  # type: ignore
-
-    return dict(_impl(project_id))
-
-
-def project_validation_matrix(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
-    from agents.lib.project_registry import project_validation_matrix as _impl  # type: ignore
-
-    return dict(_impl(project_contract))
-
-
-def build_project_validation_plan(project_contract: Mapping[str, object] | None = None, *, validation_scope: str = "full") -> Dict[str, object]:
-    from agents.lib.check_runner import build_project_validation_plan as _impl  # type: ignore
-
-    return dict(_impl(project_contract, validation_scope=validation_scope))
-
-
-def project_verification_authority_profile(project_contract: Mapping[str, object] | None = None) -> str:
-    from agents.lib.git_workflow import project_verification_authority_profile as _impl  # type: ignore
-
-    return str(_impl(project_contract))
-
-
-def project_repo_check_contract(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
-    from agents.lib.git_workflow import project_repo_check_contract as _impl  # type: ignore
-
-    return dict(_impl(project_contract))
-
-
-def evaluate_project_verification_authority(**kwargs: Any) -> Dict[str, object]:
-    from agents.lib.git_workflow import evaluate_project_verification_authority as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
-
-
-def project_merge_eligibility_contract(project_contract: Mapping[str, object] | None = None) -> Dict[str, object]:
-    from agents.lib.project_registry import project_merge_eligibility_contract as _impl  # type: ignore
-
-    return dict(_impl(project_contract))
-
-
-def evaluate_hosted_authority_convergence(**kwargs: Any) -> Dict[str, object]:
-    from agents.lib.git_workflow import evaluate_hosted_authority_convergence as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
-
-
-def evaluate_merge_eligibility(**kwargs: Any) -> Dict[str, object]:
-    from agents.lib.git_workflow import evaluate_merge_eligibility as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
-
-
-def evaluate_project_merge_eligibility(**kwargs: Any) -> Dict[str, object]:
-    from agents.lib.git_workflow import evaluate_project_merge_eligibility as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
-
-
 def report_branch_push_ready(branch: str) -> None:
     from agents.lib.git_workflow import report_branch_push_ready as _impl  # type: ignore
 
@@ -722,35 +715,11 @@ def resume_role_handoff_state(payload: Mapping[str, object] | None = None) -> Di
     return dict(_impl(payload))
 
 
-def canonical_role_artifact_envelope(
-    payload: Mapping[str, object] | None = None,
-    **overrides: object,
-) -> Dict[str, object]:
-    from agents.lib.multi_agent_contract import canonical_role_artifact_envelope as _impl  # type: ignore
-
-    return dict(_impl(payload, **overrides))
-
-
-def summarize_role_artifact_envelope(
-    payload: Mapping[str, object] | None = None,
-    **overrides: object,
-) -> Dict[str, object]:
-    from agents.lib.multi_agent_contract import summarize_role_artifact_envelope as _impl  # type: ignore
-
-    return dict(_impl(payload, **overrides))
-
-
 def controller_decides_next_role(*, current_role: str, proposed_next_role: str, proposed_by_role: str) -> str:
     from agents.lib.multi_agent_contract import controller_decides_next_role as _impl  # type: ignore
 
     return str(_impl(current_role=current_role, proposed_next_role=proposed_next_role, proposed_by_role=proposed_by_role))
 
-
-
-def task_admission_context(required_paths: Sequence[str] | None, *, task_file: str = "") -> Dict[str, object]:
-    from agents.lib.task_contracts import task_admission_context as _impl  # type: ignore
-
-    return dict(_impl(required_paths, task_file=task_file))
 
 
 def task_family_task_context(required_paths: Sequence[str] | None, *, task_file: str = "") -> Dict[str, object]:
@@ -810,17 +779,6 @@ def build_verifier_evidence_bundle(
     return dict(_impl(task_path=task_path, builder_artifact=builder_artifact, verification=verification))
 
 
-def build_ordinary_task_execution_plan(
-    payload: Mapping[str, object] | None = None,
-    *,
-    task_context: Mapping[str, object] | None = None,
-    changed_files: Sequence[str] | None = None,
-) -> Dict[str, object]:
-    from agents.lib.check_runner import build_ordinary_task_execution_plan as _impl  # type: ignore
-
-    return dict(_impl(payload, task_context=task_context, changed_files=list(changed_files or [])))
-
-
 def build_multi_agent_controller_decision(
     *,
     verifier_artifact: Mapping[str, object],
@@ -828,17 +786,6 @@ def build_multi_agent_controller_decision(
     role_state: Mapping[str, object] | None = None,
 ) -> Dict[str, object]:
     from agents.lib.final_acceptance import build_multi_agent_controller_decision as _impl  # type: ignore
-
-    return dict(_impl(verifier_artifact=verifier_artifact, builder_artifact=builder_artifact, role_state=role_state))
-
-
-def build_multi_role_ordinary_controller_decision(
-    *,
-    verifier_artifact: Mapping[str, object],
-    builder_artifact: Mapping[str, object] | None = None,
-    role_state: Mapping[str, object] | None = None,
-) -> Dict[str, object]:
-    from agents.lib.final_acceptance import build_multi_role_ordinary_controller_decision as _impl  # type: ignore
 
     return dict(_impl(verifier_artifact=verifier_artifact, builder_artifact=builder_artifact, role_state=role_state))
 
@@ -868,27 +815,6 @@ def execute_multi_agent_loop(
     )
 
 
-
-
-def run_multi_agent_controller_cycle(*, manifest, builder, verifier, controller) -> Dict[str, object]:
-    from agents.lib.multi_agent_loop import run_multi_agent_controller_cycle as _impl  # type: ignore
-
-    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
-
-
-
-def run_multi_agent_task_cycle(*, manifest, builder, verifier, controller) -> Dict[str, object]:
-    from agents.lib.multi_agent_loop import run_multi_agent_task_cycle as _impl  # type: ignore
-
-    return dict(_impl(manifest=manifest, builder=builder, verifier=verifier, controller=controller))
-
-
-
-
-def build_bounded_decomposition_truth(required_paths: Sequence[str] | None) -> Dict[str, object]:
-    from agents.lib.manifest_planner import build_bounded_decomposition_truth as _impl  # type: ignore
-
-    return dict(_impl(required_paths))
 
 
 def normalize_manifest_entry_schema(entry: object, *, index: int = 0) -> Dict[str, object]:
@@ -5321,8 +5247,6 @@ def _failure_journal_exports() -> Dict[str, object]:
         "build_repair_attempt_record": None,
         "repair_attempt_fingerprint": None,
         "evaluate_repair_attempt_memory": None,
-        "summarize_cross_task_repo_memory": None,
-        "build_cross_task_failure_context": None,
         "build_semantic_failure_digest": None,
         "build_semantic_repair_context": None,
         "choose_repair_strategy": None,
@@ -5344,8 +5268,6 @@ def _failure_journal_exports() -> Dict[str, object]:
             "build_repair_attempt_record",
             "repair_attempt_fingerprint",
             "evaluate_repair_attempt_memory",
-            "summarize_cross_task_repo_memory",
-            "build_cross_task_failure_context",
             "build_semantic_failure_digest",
             "build_semantic_repair_context",
             "choose_repair_strategy",
@@ -5431,4 +5353,3 @@ def autonomous_backlog_runner_proof_capabilities() -> dict[str, object]:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -214,3 +214,15 @@ The new portfolio re-proof is intentionally narrow:
 - next-task selection must remain dependency-truth aware
 - authority or merge ineligibility forces conservative stop (`next_task_may_proceed == False`)
 - no claim of unattended broad portfolio autonomy
+
+
+## Public compatibility contract posture (Task 124)
+
+Public/tested compatibility aliases are now frozen through one canonical compatibility contract. Controller/repair code should coerce through that contract for:
+
+- failure helper argument aliases
+- project contract convenience keys
+- manifest entry path aliases
+- manual-patch batch stop status normalization
+
+Future repairs should preserve these spellings rather than reintroducing scattered per-file alias handling.

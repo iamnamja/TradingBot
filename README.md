@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized proof checkpoint is now complete through **Task 123**.
+The synchronized proof checkpoint is now complete through **Task 124**.
 
 The deterministic proof-backed slice currently covers:
 
@@ -47,4 +47,4 @@ It does **not** claim:
 
 ## Next continuation target
 
-The next tranche should continue tightening bounded portfolio scheduling evidence without widening claims beyond deterministic supervised local proof.
+Task 124 freezes the public/tested compatibility surface so future orchestrator repairs preserve aliases and stable payload keys instead of renaming seams ad hoc.
