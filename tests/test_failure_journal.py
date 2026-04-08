@@ -215,3 +215,57 @@ def test_task_136_failure_corpus_reproof_remains_bounded_and_distinct() -> None:
     assert underfilled_plan["repair_strategy"] == "missing_deliverable_retry"
     assert no_ready_plan["repair_strategy"] == "manual_stop"
     assert no_ready_plan["continue_autonomously"] is False
+
+
+def test_build_autonomous_single_task_recovery_report_aggregates_stop_reasons_and_hosted_authority() -> None:
+    fj = _load_failure_journal_module()
+    report = fj.build_autonomous_single_task_recovery_report(
+        entries=[
+            {
+                "final_decision": "completed",
+                "escalation": {"required": False, "reason": ""},
+                "validation": {"no_checks_reported_observed": True},
+            },
+            {
+                "final_decision": "execution_failed",
+                "escalation": {"required": True, "reason": "Admitted single-task run failed and should be handed back to supervised recovery."},
+                "validation": {"no_checks_reported_observed": False},
+            },
+            {
+                "final_decision": "escalation_required",
+                "escalation": {"required": True, "reason": "Task touches self-hosting control-plane or harness surfaces and must be escalated for supervised/manual handling."},
+                "validation": {"no_checks_reported_observed": False},
+            },
+        ],
+        ledger_path="artifacts/autonomous_single_task/run_ledger.jsonl",
+        generated_at="2026-04-08T18:00:00Z",
+    )
+
+    assert report["total_runs"] == 3
+    assert report["handoff_required_count"] == 2
+    assert report["recovery_required_count"] == 1
+    assert report["escalation_required_count"] == 2
+    assert report["hosted_authority_blocked_runs"] == 1
+    assert report["hosted_authority_blocking_frequency"] == 0.3333
+    assert report["stop_reason_counts"]["completed"] == 1
+    assert report["stop_reason_counts"]["execution_failed"] == 1
+    assert report["stop_reason_counts"]["escalation_required"] == 1
+    assert len(report["escalation_reason_counts"]) == 2
+
+
+
+def test_write_autonomous_single_task_recovery_report_persists_json_artifact(tmp_path: Path) -> None:
+    fj = _load_failure_journal_module()
+    target = tmp_path / "artifacts" / "autonomous_single_task" / "recovery_report.json"
+    report = {
+        "schema_version": 1,
+        "report_type": "autonomous_single_task_recovery_report",
+        "total_runs": 2,
+    }
+
+    written = fj.write_autonomous_single_task_recovery_report(report, report_path=target)
+
+    assert Path(written) == target
+    assert target.exists()
+    loaded = target.read_text(encoding="utf-8")
+    assert '"total_runs": 2' in loaded
