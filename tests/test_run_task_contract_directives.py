@@ -242,3 +242,66 @@ def test_task_136_resilience_reproof_keeps_proof_task_admission_exact_and_bounde
     assert allowed["proof_task_detected"] is True
     assert allowed["proof_task_admission_allowed"] is True
     assert allowed["strict_exact_deliverable_contract_issues"] == []
+
+
+def test_task_138_safe_task_family_allowlist_admits_ordinary_tests_only():
+    admission = run_task.evaluate_autonomous_single_task_admission(
+        ["tests/test_risk_gate.py"],
+        task_file="tasks/138_orchestrator_safe_task_family_autonomy_allowlist.md",
+    )
+
+    assert admission["autonomous_single_task_lane"] == "autonomous_safe"
+    assert admission["autonomous_single_task_allowed"] is True
+    assert admission["task_family_allowlisted"] is True
+    assert admission["autonomy_allowlist_family"] == "tests_only"
+
+
+def test_task_138_safe_task_family_allowlist_escalates_self_hosting_control_plane_work():
+    task_text = """
+# Task 138 — Orchestrator safe task-family autonomy allowlist
+
+## Create or update these exact files
+- `agents/lib/task_contracts.py`
+- `agents/lib/controller_contract.py`
+- `agents/run_task.py`
+- `docs/TRADINGBOT_PROJECT_STATE.md`
+""".strip()
+
+    admission = run_task.evaluate_autonomous_single_task_admission(
+        [
+            "agents/lib/task_contracts.py",
+            "agents/lib/controller_contract.py",
+            "agents/run_task.py",
+            "docs/TRADINGBOT_PROJECT_STATE.md",
+        ],
+        task_file="tasks/138_orchestrator_safe_task_family_autonomy_allowlist.md",
+        task_text=task_text,
+    )
+
+    assert admission["autonomous_single_task_lane"] == "escalation_required"
+    assert admission["autonomous_single_task_allowed"] is False
+    assert admission["self_hosting_control_plane_task"] is True
+    assert "agents/run_task.py" in admission["self_hosting_control_plane_required_paths"]
+
+
+def test_task_138_safe_task_family_allowlist_keeps_proof_tasks_supervised():
+    task_text = """
+# Task 142 — Orchestrator supervised safe-lane single-task re-proof
+
+## Create or update these exact files
+- `docs/TRADINGBOT_PROJECT_STATE.md`
+- `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
+""".strip()
+
+    admission = run_task.evaluate_autonomous_single_task_admission(
+        [
+            "docs/TRADINGBOT_PROJECT_STATE.md",
+            "docs/ORCHESTRATOR_PRODUCT_SPEC.md",
+        ],
+        task_file="tasks/142_orchestrator_supervised_safe_lane_single_task_reproof.md",
+        task_text=task_text,
+    )
+
+    assert admission["autonomous_single_task_lane"] == "supervised_only"
+    assert admission["autonomous_single_task_allowed"] is False
+    assert admission["task_family_allowlisted"] is True

@@ -5,6 +5,27 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Pattern, Sequence, Tuple
 
 PROTECTED_META_TASK_HINTS = ("protected", "meta", "controller core", "controller-core", "strict mode")
+SAFE_TASK_AUTONOMY_ALLOWLIST_PREFIXES = ("docs/", "tests/", "src/tradingbot/")
+SAFE_TASK_AUTONOMY_ALLOWLIST_ROOT_FILES = ("README.md",)
+SAFE_TASK_AUTONOMY_ALLOWLIST_FAMILIES = (
+    "docs_only",
+    "tests_only",
+    "docs_and_tests",
+    "tradingbot_code_only",
+    "tradingbot_code_with_docs_or_tests",
+)
+SELF_HOSTING_CONTROL_PLANE_PREFIXES = ("agents/", "src/builder/orchestrator/")
+SELF_HOSTING_CONTROL_PLANE_HINTS = (
+    "self-hosting",
+    "control-plane",
+    "controller core",
+    "controller-core",
+    "task-family autonomy",
+    "autonomous single-task runner",
+    "run ledger",
+    "canary metrics",
+    "escalation artifact",
+)
 
 
 def parse_task_contract_directives(
@@ -308,68 +329,146 @@ def normalize_paths(paths: Sequence[str] | None) -> List[str]:
     return out
 
 
-def classify_branch_diff_paths(
-    branch_diff_paths: Sequence[str] | None,
-    required_paths: Sequence[str] | None,
-) -> dict[str, List[str]]:
-    required = set(normalize_paths(required_paths))
-    diff = normalize_paths(branch_diff_paths)
 
-    required_present: List[str] = []
-    unexpected: List[str] = []
-    for path in diff:
-        if path in required:
-            required_present.append(path)
-        else:
-            unexpected.append(path)
-
-    missing_required = sorted(path for path in required if path not in required_present)
-
+def safe_task_family_allowlist_snapshot() -> dict[str, object]:
     return {
-        "required_present": required_present,
-        "missing_required": missing_required,
-        "unexpected": unexpected,
+        "safe_lane_enabled": True,
+        "autonomous_single_task_lanes": [
+            "autonomous_safe",
+            "supervised_only",
+            "escalation_required",
+        ],
+        "allowlisted_prefixes": list(SAFE_TASK_AUTONOMY_ALLOWLIST_PREFIXES),
+        "allowlisted_root_files": list(SAFE_TASK_AUTONOMY_ALLOWLIST_ROOT_FILES),
+        "allowlisted_families": list(SAFE_TASK_AUTONOMY_ALLOWLIST_FAMILIES),
+        "self_hosting_control_plane_prefixes": list(SELF_HOSTING_CONTROL_PLANE_PREFIXES),
+        "escalation_first_hints": list(SELF_HOSTING_CONTROL_PLANE_HINTS),
     }
 
 
-def committed_state_parity_issues(
+def self_hosting_control_plane_required_paths(required_paths: Sequence[str] | None) -> List[str]:
+    required = normalize_paths(required_paths)
+    touched: List[str] = []
+    for path in required:
+        if path in touched:
+            continue
+        if any(path.startswith(prefix) for prefix in SELF_HOSTING_CONTROL_PLANE_PREFIXES):
+            touched.append(path)
+    return touched
+
+
+def classify_allowlisted_safe_task_family(required_paths: Sequence[str] | None) -> dict[str, object]:
+    required = normalize_paths(required_paths)
+    if not required:
+        return {
+            "task_family_allowlisted": False,
+            "autonomy_allowlist_family": "",
+            "allowlisted_required_paths": [],
+        }
+
+    docs_or_root = all(path == "README.md" or path.startswith("docs/") for path in required)
+    tests_only = all(path.startswith("tests/") for path in required)
+    docs_and_tests = all(
+        path == "README.md" or path.startswith("docs/") or path.startswith("tests/")
+        for path in required
+    )
+    tradingbot_code_only = all(path.startswith("src/tradingbot/") for path in required)
+    tradingbot_code_with_docs_or_tests = any(path.startswith("src/tradingbot/") for path in required) and all(
+        path == "README.md"
+        or path.startswith("docs/")
+        or path.startswith("tests/")
+        or path.startswith("src/tradingbot/")
+        for path in required
+    )
+
+    family = ""
+    if docs_or_root:
+        family = "docs_only"
+    elif tests_only:
+        family = "tests_only"
+    elif docs_and_tests:
+        family = "docs_and_tests"
+    elif tradingbot_code_only:
+        family = "tradingbot_code_only"
+    elif tradingbot_code_with_docs_or_tests:
+        family = "tradingbot_code_with_docs_or_tests"
+
+    return {
+        "task_family_allowlisted": bool(family),
+        "autonomy_allowlist_family": family,
+        "allowlisted_required_paths": list(required) if family else [],
+    }
+
+
+def evaluate_autonomous_single_task_admission(
+    required_paths: Sequence[str] | None,
     *,
-    validated_required_paths: Sequence[str] | None,
-    head_diff_paths: Sequence[str] | None,
-    working_tree_paths: Sequence[str] | None,
-    strict_required_worktree_only: bool = True,
-) -> List[str]:
-    issues: List[str] = []
+    task_file: str = "",
+    task_text: str = "",
+    admission_context: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    required = normalize_paths(required_paths)
+    base = dict(admission_context or {})
+    allowlist_context = classify_allowlisted_safe_task_family(required)
+    control_plane_paths = self_hosting_control_plane_required_paths(required)
+    combined_text = f"{task_file}\n{task_text}".lower()
+    explicit_control_plane_hint = any(hint in combined_text for hint in SELF_HOSTING_CONTROL_PLANE_HINTS)
 
-    required = set(normalize_paths(validated_required_paths))
-    head = set(normalize_paths(head_diff_paths))
-    worktree = set(normalize_paths(working_tree_paths))
-
-    missing_in_head = sorted(path for path in required if path not in head)
-    if missing_in_head:
-        issues.append(
-            "Required deliverables are not present in committed HEAD diff: "
-            + ", ".join(missing_in_head)
+    doc_like = [path for path in required if path == "README.md" or path.startswith("docs/")]
+    test_like = [path for path in required if path.startswith("tests/")]
+    code_like = [path for path in required if path.startswith("agents/") or path.startswith("src/")]
+    mixed_surface_groups = sum(bool(group) for group in (code_like, test_like, doc_like))
+    proof_like = bool(base.get("proof_like_task_shape")) or any(hint in combined_text for hint in PROOF_STYLE_TASK_HINTS)
+    bootstrap_like = bool(base.get("bootstrap_like_task_shape")) or "bootstrap" in combined_text or "workspace" in combined_text
+    registry_like = bool(base.get("project_registry_like_task_shape")) or "project registry" in combined_text or "per-project contract" in combined_text
+    protected_meta = bool(base.get("protected_or_meta_task"))
+    ordinary_candidate = bool(
+        base.get(
+            "ordinary_task_candidate",
+            bool(required) and not protected_meta and not bootstrap_like and not proof_like and not registry_like,
         )
-
-    if strict_required_worktree_only:
-        worktree_only_required = sorted(path for path in required if path in worktree and path not in head)
-        if worktree_only_required:
-            issues.append(
-                "Required deliverables exist only in working tree (validated but uncommitted): "
-                + ", ".join(worktree_only_required)
-            )
-
-    unexpected_head = sorted(path for path in head if path not in required)
-    if unexpected_head:
-        issues.append(
-            "Unexpected tracked files remain in committed HEAD diff (outside exact required deliverables): "
-            + ", ".join(unexpected_head)
+    )
+    ambiguous_task_shape = bool(
+        base.get(
+            "ambiguous_task_shape",
+            not bool(required) or mixed_surface_groups >= 3 or (len(required) >= 4 and doc_like and code_like),
         )
+    )
+    bounded_decomposition_required = bool(base.get("bounded_decomposition_required", False))
 
-    return issues
+    if control_plane_paths or explicit_control_plane_hint:
+        lane = "escalation_required"
+        rationale = (
+            "Task touches self-hosting control-plane or harness surfaces and must be escalated "
+            "for supervised/manual handling."
+        )
+    elif protected_meta:
+        lane = "escalation_required"
+        rationale = "Protected/meta task shapes remain escalation-first and are outside the safe autonomous lane."
+    elif not ordinary_candidate:
+        lane = "supervised_only"
+        rationale = (
+            "Task remains supervised because it is proof/bootstrap/registry shaped or otherwise outside "
+            "the bounded ordinary-autonomy slice."
+        )
+    elif ambiguous_task_shape or bounded_decomposition_required:
+        lane = "supervised_only"
+        rationale = "Task remains supervised because its shape is ambiguous or still needs bounded decomposition."
+    elif not bool(allowlist_context["task_family_allowlisted"]):
+        lane = "supervised_only"
+        rationale = "Task is ordinary but falls outside the current safe task-family allowlist."
+    else:
+        lane = "autonomous_safe"
+        rationale = "Task fits the bounded safe autonomous single-task allowlist."
 
-
+    return {
+        **allowlist_context,
+        "autonomous_single_task_lane": lane,
+        "autonomous_single_task_rationale": rationale,
+        "autonomous_single_task_allowed": lane == "autonomous_safe",
+        "self_hosting_control_plane_task": bool(control_plane_paths or explicit_control_plane_hint),
+        "self_hosting_control_plane_required_paths": list(control_plane_paths),
+    }
 
 
 
@@ -380,21 +479,20 @@ def project_registry_task_context(
 
     required = normalize_paths(required_paths)
     registry_paths = {
-        'agents/lib/project_registry.py',
-        'agents/lib/project_workspace_adapter.py',
-        'tests/test_project_registry.py',
-        'tests/test_multi_project_adapters.py',
+        "agents/lib/project_registry.py",
+        "agents/lib/project_workspace_adapter.py",
+        "tests/test_project_registry.py",
+        "tests/test_multi_project_adapters.py",
     }
     touched = [path for path in required if path in registry_paths]
     snapshot = project_registry_snapshot()
     return {
-        'touches_project_registry_contract': bool(touched),
-        'project_registry_required_paths': list(touched),
-        'registered_project_ids': list(snapshot['registered_project_ids']),
-        'supported_project_workspace_types': list(snapshot['supported_workspace_types']),
-        'project_registry_autonomy_lanes': list(snapshot['autonomy_lanes']),
+        "touches_project_registry_contract": bool(touched),
+        "project_registry_required_paths": list(touched),
+        "registered_project_ids": list(snapshot["registered_project_ids"]),
+        "supported_project_workspace_types": list(snapshot["supported_workspace_types"]),
+        "project_registry_autonomy_lanes": list(snapshot["autonomy_lanes"]),
     }
-
 
 
 def project_workspace_task_context(
@@ -404,23 +502,24 @@ def project_workspace_task_context(
 
     required = normalize_paths(required_paths)
     workspace_paths = {
-        'agents/lib/project_workspace_adapter.py',
-        'tests/test_multi_project_adapters.py',
-        'tests/test_project_bootstrap_adapter.py',
+        "agents/lib/project_workspace_adapter.py",
+        "tests/test_multi_project_adapters.py",
+        "tests/test_project_bootstrap_adapter.py",
     }
     touched = [path for path in required if path in workspace_paths]
     snapshot = workspace_adapter_snapshot()
     return {
-        'touches_project_workspace_contract': bool(touched),
-        'project_workspace_required_paths': list(touched),
-        'python_first_scope_only': bool(snapshot['python_first_scope_only']),
-        'supported_workspace_consumers': list(snapshot['supported_consumers']),
+        "touches_project_workspace_contract": bool(touched),
+        "project_workspace_required_paths": list(touched),
+        "python_first_scope_only": bool(snapshot["python_first_scope_only"]),
+        "supported_workspace_consumers": list(snapshot["supported_consumers"]),
     }
 
 def task_admission_context(
     required_paths: Sequence[str] | None,
     *,
     task_file: str = "",
+    task_text: str = "",
     controller_paths: Sequence[str] | None = None,
 ) -> dict[str, object]:
     from agents.lib.manifest_planner import build_bounded_decomposition_truth
@@ -475,7 +574,7 @@ def task_admission_context(
         decomposition_required = bool(decomposition["bounded_decomposition_required"])
         decomposition_summary = str(decomposition["decomposition_summary"])
 
-    return {
+    base_context = {
         **controller_context,
         **registry_context,
         **workspace_context,
@@ -495,6 +594,16 @@ def task_admission_context(
         "bootstrap_like_task_shape": bootstrap_like,
         "project_registry_like_task_shape": registry_like,
     }
+    autonomous_admission = evaluate_autonomous_single_task_admission(
+        required,
+        task_file=task_file,
+        task_text=task_text,
+        admission_context=base_context,
+    )
+    return {
+        **base_context,
+        **autonomous_admission,
+    }
 
 
 def evaluate_proof_task_admission(
@@ -507,7 +616,7 @@ def evaluate_proof_task_admission(
     required = normalize_paths(required_paths) or parse_required_files_from_task_text(task_text)
     task_file_text = str(task_file or "").lower()
     task_text_lower = str(task_text or "").lower()
-    admission_context = task_admission_context(required, task_file=task_file, controller_paths=controller_paths)
+    admission_context = task_admission_context(required, task_file=task_file, task_text=task_text, controller_paths=controller_paths)
     proof_like = bool(admission_context["proof_like_task_shape"]) or any(
         hint in task_file_text or hint in task_text_lower for hint in PROOF_STYLE_TASK_HINTS
     )
@@ -581,7 +690,7 @@ def task_family_task_context(
     controller_paths: Sequence[str] | None = None,
 ) -> dict[str, object]:
     required = normalize_paths(required_paths)
-    admission_context = task_admission_context(required, task_file=task_file, controller_paths=controller_paths)
+    admission_context = task_admission_context(required, task_file=task_file, task_text="", controller_paths=controller_paths)
     bootstrap_like = bool(admission_context["bootstrap_like_task_shape"])
     proof_like = bool(admission_context["proof_like_task_shape"])
     verifier_only = bool(admission_context["verifier_only_task_shape"])

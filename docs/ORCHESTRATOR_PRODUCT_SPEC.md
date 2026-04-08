@@ -38,6 +38,7 @@ The proof is intentionally bounded and does **not** claim:
 Continue toward a **safe autonomous single-task lane**:
 
 - allowlisted autonomous task-family admission instead of broad self-hosting autonomy
+- explicit classification into `autonomous_safe`, `supervised_only`, or `escalation_required` for one-task runs
 - a dedicated single-task runner plus persisted run ledger and canary metrics
 - explicit escalation / handoff artifacts for unsafe self-hosting work
 - supervised one-task autonomous proof only after the safe lane is operationally green

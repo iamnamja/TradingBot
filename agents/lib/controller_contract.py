@@ -31,6 +31,7 @@ ResumeMode = Literal[
 ]
 QueueTerminalStatus = Literal["completed", "failed", "manual_patch", "blocked"]
 TaskAdmissionLane = Literal["autonomous_ordinary", "supervised_autonomous", "manual_only"]
+AutonomousSingleTaskLane = Literal["autonomous_safe", "supervised_only", "escalation_required"]
 DecompositionStatus = Literal["not_required", "suggested", "required", "manual_only"]
 
 ACCEPTANCE_DECISIONS: tuple[AcceptanceDecision, ...] = (
@@ -43,6 +44,11 @@ TASK_ADMISSION_LANES: tuple[TaskAdmissionLane, ...] = (
     "autonomous_ordinary",
     "supervised_autonomous",
     "manual_only",
+)
+AUTONOMOUS_SINGLE_TASK_LANES: tuple[AutonomousSingleTaskLane, ...] = (
+    "autonomous_safe",
+    "supervised_only",
+    "escalation_required",
 )
 DECOMPOSITION_STATUSES: tuple[DecompositionStatus, ...] = (
     "not_required",
@@ -152,6 +158,13 @@ CHECKPOINT_TRUTH_FIELDS: tuple[str, ...] = (
 ADMISSION_TRUTH_FIELDS: tuple[str, ...] = (
     "task_admission_lane",
     "task_admission_rationale",
+    "autonomous_single_task_lane",
+    "autonomous_single_task_rationale",
+    "autonomous_single_task_allowed",
+    "task_family_allowlisted",
+    "autonomy_allowlist_family",
+    "self_hosting_control_plane_task",
+    "self_hosting_control_plane_required_paths",
     "protected_or_meta_task",
     "ambiguous_task_shape",
     "bounded_decomposition_required",
@@ -329,6 +342,27 @@ def coerce_task_admission_lane(value: Any, default: TaskAdmissionLane = "supervi
     return default
 
 
+AUTONOMOUS_SINGLE_TASK_LANE_ALIASES: dict[str, AutonomousSingleTaskLane] = {
+    "autonomous_ordinary": "autonomous_safe",
+    "supervised_autonomous": "supervised_only",
+    "manual_only": "escalation_required",
+    "manual": "escalation_required",
+    "blocked": "escalation_required",
+}
+
+
+def coerce_autonomous_single_task_lane(
+    value: Any,
+    default: AutonomousSingleTaskLane = "supervised_only",
+) -> AutonomousSingleTaskLane:
+    text = str(value or "").strip()
+    if text in AUTONOMOUS_SINGLE_TASK_LANES:
+        return cast(AutonomousSingleTaskLane, text)
+    if text in AUTONOMOUS_SINGLE_TASK_LANE_ALIASES:
+        return AUTONOMOUS_SINGLE_TASK_LANE_ALIASES[text]
+    return default
+
+
 def coerce_decomposition_status(value: Any, default: DecompositionStatus = "not_required") -> DecompositionStatus:
     text = str(value or "").strip()
     if text in DECOMPOSITION_STATUSES:
@@ -501,6 +535,7 @@ def controller_contract_snapshot() -> dict[str, object]:
     return {
         "acceptance_decisions": list(ACCEPTANCE_DECISIONS),
         "task_admission_lanes": list(TASK_ADMISSION_LANES),
+        "autonomous_single_task_lanes": list(AUTONOMOUS_SINGLE_TASK_LANES),
         "decomposition_statuses": list(DECOMPOSITION_STATUSES),
         "post_task_decisions": list(POST_TASK_DECISIONS),
         "batch_statuses": list(BATCH_STATUSES),

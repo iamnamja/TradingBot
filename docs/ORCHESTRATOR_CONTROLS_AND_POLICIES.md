@@ -42,6 +42,7 @@ After Tasks 124–136, the orchestrator now has bounded deterministic defenses a
 The next tranche should **not** broaden into arbitrary autonomy. It should narrow into a safe lane:
 
 - autonomous execution is allowed only for explicitly allowlisted ordinary task families
+- the safe lane admits narrow docs/tests/`src/tradingbot` work only, while `agents/` and `src/builder/orchestrator/` remain escalation-first by default
 - self-hosting control-plane edits remain escalation-first unless separately proven safe
 - unattended readiness remains blocked unless real GitHub required-check enforcement is converged
 - a dedicated single-task runner should emit a run ledger, canary metrics, and explicit escalation artifacts

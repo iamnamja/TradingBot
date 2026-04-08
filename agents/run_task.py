@@ -1059,6 +1059,34 @@ def task_family_task_context(required_paths: Sequence[str] | None, *, task_file:
     return dict(_impl(required_paths, task_file=task_file))
 
 
+def safe_task_family_allowlist_snapshot() -> Dict[str, object]:
+    from agents.lib.task_contracts import safe_task_family_allowlist_snapshot as _impl  # type: ignore
+
+    return dict(_impl())
+
+
+def evaluate_autonomous_single_task_admission(
+    required_paths: Sequence[str] | None,
+    *,
+    task_file: str = "",
+    task_text: str = "",
+) -> Dict[str, object]:
+    from agents.lib.task_contracts import evaluate_autonomous_single_task_admission as _impl  # type: ignore
+
+    return dict(_impl(required_paths, task_file=task_file, task_text=task_text))
+
+
+def task_admission_context(
+    required_paths: Sequence[str] | None,
+    *,
+    task_file: str = "",
+    task_text: str = "",
+) -> Dict[str, object]:
+    from agents.lib.task_contracts import task_admission_context as _impl  # type: ignore
+
+    return dict(_impl(required_paths, task_file=task_file, task_text=task_text))
+
+
 def recommend_task_family_route(
     *,
     task_context: Mapping[str, object] | None = None,

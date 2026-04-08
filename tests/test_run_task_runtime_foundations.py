@@ -162,6 +162,9 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.project_verification_authority_profile)
     assert callable(run_task.project_repo_check_contract)
     assert callable(run_task.evaluate_project_verification_authority)
+    assert callable(run_task.safe_task_family_allowlist_snapshot)
+    assert callable(run_task.evaluate_autonomous_single_task_admission)
+    assert callable(run_task.task_admission_context)
 
 
 def test_project_merge_helpers_are_available() -> None:
@@ -251,3 +254,18 @@ def test_task_137_github_enforcement_helpers_are_available() -> None:
     assert repo_contract["repo_default_branch"] == "main"
     assert convergence["repo_required_check_enforcement_reason"] == "required_check_context_missing"
     assert operational["operational_convergence_reason"] == "required_check_enforcement_context_mismatch"
+
+
+def test_task_138_safe_task_family_autonomy_helpers_are_available() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    snapshot = run_task.safe_task_family_allowlist_snapshot()
+    admission = run_task.task_admission_context(
+        ["src/tradingbot/strategy.py", "tests/test_strategy_v1.py"],
+        task_file="tasks/138_orchestrator_safe_task_family_autonomy_allowlist.md",
+    )
+
+    assert "autonomous_safe" in snapshot["autonomous_single_task_lanes"]
+    assert "src/tradingbot/" in snapshot["allowlisted_prefixes"]
+    assert admission["autonomous_single_task_lane"] == "autonomous_safe"
+    assert admission["autonomy_allowlist_family"] == "tradingbot_code_with_docs_or_tests"
