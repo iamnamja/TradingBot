@@ -209,7 +209,7 @@ def select_next_task(
     queue: Sequence[TaskQueueItem],
     *,
     completed_task_paths: Sequence[str] | None = None,
-) -> TaskQueueItem:
+) -> TaskQueueItem | None:
     completed = {_normalized_task_path(path) for path in (completed_task_paths or ())}
     blocking_edges: dict[str, tuple[str, ...]] = {}
     for item in queue:
@@ -230,7 +230,7 @@ def select_next_task(
         if missing or active_blockers:
             continue
         return item
-    raise TaskQueueManifestError("No dependency-ready task available.")
+    return None
 
 def plan_manifest_progress(queue: Sequence[TaskQueueItem]) -> dict[str, object]:
     from agents.lib.manifest_planner import plan_manifest_progress as _impl

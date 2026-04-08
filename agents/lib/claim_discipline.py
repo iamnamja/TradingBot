@@ -6,6 +6,7 @@ CLAIM_DISCIPLINE_VERSION = 1
 
 PROOF_COMPLETE_PATTERNS: tuple[str, ...] = (
     " are complete",
+    " is complete",
     "proof complete",
     "proof-complete",
     "synchronized proof checkpoint is now complete through",
