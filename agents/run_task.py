@@ -1115,6 +1115,36 @@ def format_task_family_route(route: Mapping[str, object] | None) -> str:
     return str(_impl(route))
 
 
+def default_single_task_ledger_path() -> str:
+    from agents.run_single_task import default_single_task_ledger_path as _impl  # type: ignore
+
+    return str(_impl())
+
+
+def summarize_single_task_execution(*, execution_result: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.run_single_task import summarize_single_task_execution as _impl  # type: ignore
+
+    return dict(_impl(execution_result=execution_result))
+
+
+def canonical_single_task_run_ledger_entry(**kwargs: Any) -> Dict[str, object]:
+    from agents.run_single_task import canonical_single_task_run_ledger_entry as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
+def append_single_task_run_ledger_entry(entry: Mapping[str, object], *, ledger_path: str | Path | None = None) -> str:
+    from agents.run_single_task import append_single_task_run_ledger_entry as _impl  # type: ignore
+
+    return str(_impl(entry, ledger_path=ledger_path))
+
+
+def run_autonomous_single_task(task_path: str, **kwargs: Any) -> Dict[str, object]:
+    from agents.run_single_task import run_autonomous_single_task as _impl  # type: ignore
+
+    return dict(_impl(task_path, **kwargs))
+
+
 def multi_agent_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
     from agents.lib.task_contracts import multi_agent_task_context as _impl  # type: ignore
 
