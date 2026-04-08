@@ -209,3 +209,15 @@ The orchestrator now distinguishes between `autonomous_ordinary`, `supervised_au
 ## Assertion-driven self-heal targeting (Task 127)
 
 When failing evidence is primarily an assertion shape rather than a broad runtime fault, the repair planner should classify the failure into a narrow seam category before selecting a builder patch surface. Current narrow categories are missing alias, missing exported key, wrong canonical enum/value, missing project contract field, and docs overclaim. These categories should prefer the smallest compatible repair target first and surface the chosen repair target explicitly in failure-remediation artifacts.
+
+
+## Green-gated claim discipline (Task 128)
+
+Proof-complete wording for README, project-state, product-spec, and roadmap/status text must be green-gated.
+
+Current required behavior:
+
+- proof-complete wording is blocked unless both focused validation and full validation are green
+- narrow truthful recovery wording may still be written while recovery is in progress
+- docs overclaim should route to the existing `docs_overclaim` repair target instead of broad rewrites
+- proof-claim updates must remain explicitly separate from ordinary narrow doc clarifications
