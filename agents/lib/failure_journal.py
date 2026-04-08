@@ -25,11 +25,22 @@ DEFAULT_RAW_SNIPPET_LIMIT = 400
 DEFAULT_JOURNAL_PATH = Path("artifacts/failure_journal.jsonl")
 _FAILURE_COUNTS: Dict[str, int] = {}
 
+BUNDLE_FAILURE_CATEGORIES = {
+    "bundle_transport",
+    "bundle_empty_response",
+    "bundle_underfilled_response",
+    "bundle_markerless_transport",
+    "bundle_malformed_transport",
+}
+
 
 def classify_failure(kind: str, message: str) -> str:
     collection_category = classify_collection_failure(kind=kind, message=message)
     if collection_category:
         return collection_category
+    if str(kind or "").strip() in BUNDLE_FAILURE_CATEGORIES:
+        if str(kind or "").strip() != "bundle_transport":
+            return str(kind).strip()
     text = f"{kind}\n{message}".lower()
     if "modulenotfounderror" in text or "imports" in text:
         return "imports"
@@ -54,6 +65,15 @@ def classify_failure(kind: str, message: str) -> str:
     if "ruff" in text or "lint" in text:
         return "lint"
     if "bundle" in text or "end_file" in text or "begin_file_bundle" in text:
+        try:
+            from agents.lib.bundle_parser import classify_bundle_transport_failure
+        except Exception:
+            classify_bundle_transport_failure = None
+        if callable(classify_bundle_transport_failure):
+            decision = classify_bundle_transport_failure(raw_text="", error_message=message)
+            category = str(decision.get("failure_category") or "").strip()
+            if category:
+                return category
         return "bundle_transport"
     if "policy" in text:
         return "policy_violation"
@@ -120,6 +140,50 @@ def build_failure_remediation_plan(
 
     attempt_budget = int(normalized["max_repair_attempts"])
 
+    if category == "bundle_empty_response":
+        route.update(
+            repair_strategy="bundle_empty_response_retry",
+            remediation_lane="builder",
+            continue_autonomously=True,
+            manual_lane_recommended=False,
+            route_rationale="Zero-file bundle responses should trigger a targeted builder retry rather than a generic malformed-transport reminder.",
+            targeted_patch_surface="bundle_empty_response",
+            chosen_repair_target="bundle_empty_response",
+            target_files=[],
+            prefer_minimal_patch=True,
+            minimal_patch_selected=True,
+            max_files_to_edit=0,
+        )
+        recommended = "retry_with_targeted_fix"
+    elif category == "bundle_underfilled_response":
+        route.update(
+            repair_strategy="missing_deliverable_retry",
+            remediation_lane="builder",
+            continue_autonomously=True,
+            manual_lane_recommended=False,
+            route_rationale="Underfilled bundles should retry against the missing requested FILE blocks instead of a generic transport repair prompt.",
+            targeted_patch_surface="bundle_missing_deliverables",
+            chosen_repair_target="bundle_missing_deliverables",
+            prefer_minimal_patch=True,
+            minimal_patch_selected=True,
+            max_files_to_edit=2,
+        )
+        recommended = "retry_with_targeted_fix"
+    elif category in {"bundle_markerless_transport", "bundle_malformed_transport"}:
+        route.update(
+            repair_strategy="bundle_transport_format_retry",
+            remediation_lane="builder",
+            continue_autonomously=True,
+            manual_lane_recommended=False,
+            route_rationale="Markerless or malformed bundle transport should retry with strict transport formatting guidance.",
+            targeted_patch_surface="bundle_transport_format",
+            chosen_repair_target="bundle_transport_format",
+            prefer_minimal_patch=True,
+            minimal_patch_selected=True,
+            max_files_to_edit=0,
+        )
+        recommended = "retry_with_targeted_fix"
+
     plan = {
         "recommended_next_action": recommended,
         "chosen_remediation_path": str(route["repair_strategy"]),
@@ -144,7 +208,6 @@ def build_failure_remediation_plan(
         "bounded": True,
         "max_repair_attempts": attempt_budget,
         "repair_attempt_budget": attempt_budget,
-        "should_escalate": retry_count >= attempt_budget or bool(route["manual_lane_recommended"]),
     }
 
     repair_attempt = build_repair_attempt_record(
@@ -179,7 +242,6 @@ def build_failure_remediation_plan(
             prefer_minimal_patch=False,
             minimal_patch_selected=False,
             max_files_to_edit=0,
-            should_escalate=True,
         )
 
     return plan

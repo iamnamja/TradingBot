@@ -197,11 +197,21 @@ def infer_targeted_repair_surface(
             rationale = "Collection/import drift points to a narrow import or symbol-surface repair."
             prefer_minimal = True
             max_files_to_edit = 2
-    elif normalized_category in {"imports", "python_syntax", "lint", "bundle_transport"}:
-        surface = "import_line_only"
-        rationale = "Import/lint/syntax failures should start with the smallest plausible import or syntax repair."
+    elif normalized_category == "bundle_empty_response":
+        surface = "bundle_empty_response"
+        rationale = "Zero-file bundle responses should retry with a narrow empty-bundle recovery prompt before broader edits."
+        prefer_minimal = True
+        max_files_to_edit = 0
+    elif normalized_category == "bundle_underfilled_response":
+        surface = "bundle_missing_deliverables"
+        rationale = "Underfilled bundles should retry against the missing requested deliverables rather than broad builder rewrites."
         prefer_minimal = True
         max_files_to_edit = 2
+    elif normalized_category in {"bundle_markerless_transport", "bundle_malformed_transport", "imports", "python_syntax", "lint", "bundle_transport"}:
+        surface = "bundle_transport_format" if normalized_category in {"bundle_markerless_transport", "bundle_malformed_transport", "bundle_transport"} else "import_line_only"
+        rationale = "Import/lint/syntax and malformed transport failures should start with the smallest plausible repair surface."
+        prefer_minimal = True
+        max_files_to_edit = 2 if surface == "import_line_only" else 0
     elif normalized_category in {"tests", "behavioral_regression"} and any(token in text for token in ("processed_task_ids", "verification_authority", "controller_final_decision", "runtime_portability_scope", "count", "unexpected keyword argument", "task_path", "path")):
         if any(token in text for token in ("task_path", "missing `path`", "path")):
             surface = "manifest_schema_adapter"
@@ -675,18 +685,46 @@ def choose_repair_strategy(
         )
         return route
 
-    if normalized_category in {"python_syntax", "imports", "lint", "bundle_transport"} or any(
-        token in text for token in ("syntaxerror", "modulenotfounderror", "ruff", "lint", "importerror", "begin_file_bundle")
-    ):
+    if normalized_category == "bundle_empty_response":
         route.update(
-            repair_strategy="syntax_import_lint_repair",
+            repair_strategy="bundle_empty_response_retry",
             remediation_lane="builder",
             next_role="builder",
             continue_autonomously=True,
             stop_after_failure=False,
             manual_lane_recommended=False,
-            rationale="Syntax, import, lint, and transport failures should route back to the builder for targeted repair.",
-            route_rationale="Syntax, import, lint, and transport failures should route back to the builder for targeted repair.",
+            rationale="Zero-file bundle responses should route back to the builder with explicit empty-bundle recovery guidance.",
+            route_rationale="Zero-file bundle responses should route back to the builder with explicit empty-bundle recovery guidance.",
+        )
+        return route
+
+    if normalized_category == "bundle_underfilled_response":
+        route.update(
+            repair_strategy="missing_deliverable_retry",
+            remediation_lane="builder",
+            next_role="builder",
+            continue_autonomously=True,
+            stop_after_failure=False,
+            manual_lane_recommended=False,
+            rationale="Underfilled bundles should route back to the builder with exact missing-deliverable evidence.",
+            route_rationale="Underfilled bundles should route back to the builder with exact missing-deliverable evidence.",
+        )
+        return route
+
+    if normalized_category in {"bundle_markerless_transport", "bundle_malformed_transport", "python_syntax", "imports", "lint", "bundle_transport"} or any(
+        token in text for token in ("syntaxerror", "modulenotfounderror", "ruff", "lint", "importerror", "begin_file_bundle")
+    ):
+        repair_strategy = "bundle_transport_format_retry" if normalized_category in {"bundle_markerless_transport", "bundle_malformed_transport", "bundle_transport"} else "syntax_import_lint_repair"
+        rationale = "Markerless/malformed transport failures should route back to the builder with strict transport guidance." if normalized_category in {"bundle_markerless_transport", "bundle_malformed_transport", "bundle_transport"} else "Syntax, import, lint, and transport failures should route back to the builder for targeted repair."
+        route.update(
+            repair_strategy=repair_strategy,
+            remediation_lane="builder",
+            next_role="builder",
+            continue_autonomously=True,
+            stop_after_failure=False,
+            manual_lane_recommended=False,
+            rationale=rationale,
+            route_rationale=rationale,
         )
         return route
 
