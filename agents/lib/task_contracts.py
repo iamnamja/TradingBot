@@ -85,6 +85,18 @@ EXACT_DELIVERABLE_SECTION_TITLES = {
     "deliverables",
     "create or update these exact files",
 }
+STRICT_EXACT_DELIVERABLE_SECTION_TITLES = {
+    "create or update these exact files",
+}
+PROOF_STYLE_TASK_HINTS = (
+    "proof",
+    "re-proof",
+    "reproof",
+    "portfolio proof",
+    "proof sync",
+    "synchronized proof",
+    "proof checkpoint",
+)
 REPO_REQUIRED_PATH_PREFIXES = ("agents/", "src/", "tests/", "docs/", "tasks/")
 MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$")
 LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]\s+|\d+\.\s+)(.+?)\s*$")
@@ -128,6 +140,18 @@ def _iter_exact_deliverable_lines(task_text: str) -> List[str]:
         if collecting:
             collected.append(line)
     return collected
+
+
+def has_strict_exact_deliverable_section(task_text: str) -> bool:
+    lines = task_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    for line in lines:
+        heading = MARKDOWN_HEADING_RE.match(line.strip())
+        if not heading:
+            continue
+        title = heading.group(1).strip().lower()
+        if title in STRICT_EXACT_DELIVERABLE_SECTION_TITLES:
+            return True
+    return False
 
 
 def _validate_exact_deliverable_path(candidate: str) -> tuple[str | None, str | None]:
@@ -470,6 +494,83 @@ def task_admission_context(
         "proof_like_task_shape": proof_like,
         "bootstrap_like_task_shape": bootstrap_like,
         "project_registry_like_task_shape": registry_like,
+    }
+
+
+def evaluate_proof_task_admission(
+    task_text: str,
+    *,
+    task_file: str = "",
+    required_paths: Sequence[str] | None = None,
+    controller_paths: Sequence[str] | None = None,
+) -> dict[str, object]:
+    required = normalize_paths(required_paths) or parse_required_files_from_task_text(task_text)
+    task_file_text = str(task_file or "").lower()
+    task_text_lower = str(task_text or "").lower()
+    admission_context = task_admission_context(required, task_file=task_file, controller_paths=controller_paths)
+    proof_like = bool(admission_context["proof_like_task_shape"]) or any(
+        hint in task_file_text or hint in task_text_lower for hint in PROOF_STYLE_TASK_HINTS
+    )
+    strict_contract_present = has_strict_exact_deliverable_section(task_text)
+    exact_issues = list(exact_deliverable_contract_issues(task_text))
+
+    if not proof_like:
+        return {
+            **admission_context,
+            "proof_task_admission_required": False,
+            "proof_task_admission_allowed": True,
+            "proof_task_admission_failure_kind": "",
+            "proof_task_admission_reason": "Task is not proof-style; no strict proof-task admission gate applied.",
+            "strict_exact_deliverable_contract_present": strict_contract_present,
+            "strict_exact_deliverable_paths": list(required),
+            "strict_exact_deliverable_contract_issues": exact_issues,
+        }
+
+    if not strict_contract_present:
+        return {
+            **admission_context,
+            "proof_task_admission_required": True,
+            "proof_task_admission_allowed": False,
+            "proof_task_admission_failure_kind": "missing_strict_exact_deliverable_contract",
+            "proof_task_admission_reason": "Proof-style tasks must include a `Create or update these exact files` section before model execution.",
+            "strict_exact_deliverable_contract_present": False,
+            "strict_exact_deliverable_paths": list(required),
+            "strict_exact_deliverable_contract_issues": exact_issues,
+        }
+
+    if exact_issues:
+        return {
+            **admission_context,
+            "proof_task_admission_required": True,
+            "proof_task_admission_allowed": False,
+            "proof_task_admission_failure_kind": "invalid_strict_exact_deliverable_contract",
+            "proof_task_admission_reason": "Proof-style task exact deliverable contract is invalid.",
+            "strict_exact_deliverable_contract_present": True,
+            "strict_exact_deliverable_paths": list(required),
+            "strict_exact_deliverable_contract_issues": exact_issues,
+        }
+
+    if not required:
+        return {
+            **admission_context,
+            "proof_task_admission_required": True,
+            "proof_task_admission_allowed": False,
+            "proof_task_admission_failure_kind": "missing_strict_exact_deliverable_paths",
+            "proof_task_admission_reason": "Proof-style tasks must declare at least one exact repo-relative deliverable before model execution.",
+            "strict_exact_deliverable_contract_present": True,
+            "strict_exact_deliverable_paths": [],
+            "strict_exact_deliverable_contract_issues": [],
+        }
+
+    return {
+        **admission_context,
+        "proof_task_admission_required": True,
+        "proof_task_admission_allowed": True,
+        "proof_task_admission_failure_kind": "",
+        "proof_task_admission_reason": "Proof-style task declares an exact deliverable contract and may proceed to model execution.",
+        "strict_exact_deliverable_contract_present": True,
+        "strict_exact_deliverable_paths": list(required),
+        "strict_exact_deliverable_contract_issues": [],
     }
 
 

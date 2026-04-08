@@ -19,6 +19,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **116–123 establish bounded supervised multi-project portfolio baseline**
 - **124–128 harden compatibility contracts, schema aliases, stop vocabulary, assertion-targeted self-heal, and green-gated claim discipline**
 - **129 reruns supervised bounded portfolio re-proof after 124–128 without widening scope claims**
+- **130 adds a proof-task admission gate requiring exact deliverables before model execution**
 
 ## What the product can honestly claim today
 
@@ -30,6 +31,7 @@ The repo has deterministic proof for a bounded supervised portfolio slice:
 - compatibility-preserving hosted-authority truth and merge-eligibility truth
 - green-gated claim discipline for proof-complete wording
 - explicit claim discipline that does not exceed tested deterministic scope
+- proof-style task admission blocked unless exact deliverables are declared
 
 The proof is intentionally bounded and does **not** claim:
 

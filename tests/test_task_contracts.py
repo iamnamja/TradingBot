@@ -56,3 +56,64 @@ def test_exact_deliverable_contract_rejects_noncanonical_prefixes() -> None:
 """
     issues = task_contracts.exact_deliverable_contract_issues(task_text)
     assert issues == ["`notes/plan.md` is not under an allowed repo-relative path prefix."]
+
+
+def test_proof_task_admission_blocks_missing_strict_exact_section() -> None:
+    task_text = """
+# Task 999 — supervised portfolio re-proof
+
+## Goal
+Re-run the bounded proof.
+
+## Deliverables
+- `README.md`
+- `docs/TRADINGBOT_PROJECT_STATE.md`
+"""
+    decision = task_contracts.evaluate_proof_task_admission(
+        task_text,
+        task_file="tasks/999_supervised_portfolio_reproof.md",
+    )
+
+    assert decision["proof_task_admission_required"] is True
+    assert decision["proof_task_admission_allowed"] is False
+    assert decision["proof_task_admission_failure_kind"] == "missing_strict_exact_deliverable_contract"
+
+
+def test_proof_task_admission_allows_strict_exact_section() -> None:
+    task_text = """
+# Task 999 — supervised portfolio re-proof
+
+## Create or update these exact files
+- `README.md`
+- `docs/TRADINGBOT_PROJECT_STATE.md`
+- `tests/test_project_registry.py`
+"""
+    decision = task_contracts.evaluate_proof_task_admission(
+        task_text,
+        task_file="tasks/999_supervised_portfolio_reproof.md",
+    )
+
+    assert decision["proof_task_admission_required"] is True
+    assert decision["proof_task_admission_allowed"] is True
+    assert decision["strict_exact_deliverable_paths"] == [
+        "README.md",
+        "docs/TRADINGBOT_PROJECT_STATE.md",
+        "tests/test_project_registry.py",
+    ]
+
+
+def test_non_proof_task_is_not_blocked_by_strict_exact_deliverable_gate() -> None:
+    task_text = """
+# Task 999 — ordinary builder change
+
+## Deliverables
+- `src/tradingbot/run.py`
+- `tests/test_smoke.py`
+"""
+    decision = task_contracts.evaluate_proof_task_admission(
+        task_text,
+        task_file="tasks/999_ordinary_builder_change.md",
+    )
+
+    assert decision["proof_task_admission_required"] is False
+    assert decision["proof_task_admission_allowed"] is True

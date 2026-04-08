@@ -138,11 +138,6 @@ def filter_claim_updates_for_validation(*, focused_validation_green: bool, full_
             proposed_updates=proposed_updates,
         )
     )
-def project_registry_snapshot() -> dict[str, object]:
-    from agents.lib.project_registry import project_registry_snapshot as _project_registry_snapshot
-    return dict(_project_registry_snapshot())
-
-
 def resolve_project_contract(project_id: str) -> dict[str, object]:
     from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
     return dict(_resolve_project_contract(project_id))
@@ -501,6 +496,52 @@ def validate_exact_deliverable_contract(task_text: str) -> Tuple[bool, str]:
     if not issues:
         return True, ""
     return False, "Invalid exact deliverable contract entries detected:\n" + "\n".join(f"- {issue}" for issue in issues)
+
+
+def proof_task_admission_snapshot() -> Dict[str, object]:
+    return {
+        "proof_task_gate_enabled": True,
+        "required_heading": "Create or update these exact files",
+        "blocked_failure_kinds": [
+            "missing_strict_exact_deliverable_contract",
+            "invalid_strict_exact_deliverable_contract",
+            "missing_strict_exact_deliverable_paths",
+        ],
+    }
+
+
+def evaluate_proof_task_admission(
+    *,
+    task_text: str,
+    task_file: str = "",
+    required_paths: Sequence[str] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.task_contracts import evaluate_proof_task_admission as _impl  # type: ignore
+
+    return dict(_impl(task_text, task_file=task_file, required_paths=required_paths))
+
+
+def report_proof_task_admission_failure(
+    decision: Mapping[str, object],
+    *,
+    task_file: str,
+    last_output_path: Path,
+    last_bundle_path: Path,
+) -> None:
+    reason = str(decision.get("proof_task_admission_reason", "") or "Proof-task admission blocked before model execution.")
+    failure_kind = str(decision.get("proof_task_admission_failure_kind", "proof_task_admission_blocked") or "proof_task_admission_blocked")
+    required_paths = [str(path) for path in (decision.get("strict_exact_deliverable_paths", []) or []) if str(path).strip()]
+    _emit_failure_artifact_messages(
+        last_output_path,
+        last_bundle_path,
+        create_placeholders=True,
+        task_file=task_file,
+        failure_category=failure_kind,
+        before_model_output=True,
+        normal_bundle_attempted=False,
+        reason=reason,
+        protected_files=required_paths,
+    )
 
 
 
@@ -4805,6 +4846,29 @@ def main() -> int:
     if not ok_required_contract:
         print(f"\n❌ {required_contract_msg}")
         return 1
+
+    last_output_path = Path("_last_agent_model_output.txt")
+    last_bundle_path = Path("_last_agent_file_bundle.txt")
+    proof_task_admission = evaluate_proof_task_admission(
+        task_text=task_text,
+        task_file=task_path.as_posix(),
+        required_paths=required,
+    )
+    if not bool(proof_task_admission.get("proof_task_admission_allowed", True)):
+        reason = str(proof_task_admission.get("proof_task_admission_reason", "") or "Proof-task admission blocked before model execution.")
+        print(f"\n❌ [task_admission] {reason}")
+        issues = list(proof_task_admission.get("strict_exact_deliverable_contract_issues", []) or [])
+        if issues:
+            print("   Issues:")
+            for issue in issues:
+                print(f"   - {issue}")
+        report_proof_task_admission_failure(
+            proof_task_admission,
+            task_file=task_path.as_posix(),
+            last_output_path=last_output_path,
+            last_bundle_path=last_bundle_path,
+        )
+        return 1
     require_material_update = task_requires_material_update(task_text)
     allow_unchanged_cli = task_allows_unchanged_cli(task_text)
     harness_policies = parse_harness_file_policies(task_text)
@@ -4820,9 +4884,6 @@ def main() -> int:
     print(f"Using provider: {args.provider}")
     print(f"Using model: {args.model}")
     ensure_branch(branch)
-
-    last_output_path = Path("_last_agent_model_output.txt")
-    last_bundle_path = Path("_last_agent_file_bundle.txt")
 
     strict_mode = describe_controller_strict_mode(
         required_paths=required,

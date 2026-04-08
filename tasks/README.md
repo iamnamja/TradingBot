@@ -18,3 +18,7 @@
 - **134** `orchestrator_last_green_subset_preservation_and_rollback`
 - **135** `orchestrator_hosted_authority_operational_convergence_probe`
 - **136** `orchestrator_supervised_resilience_reproof`
+
+## Current continuation target
+
+- **131** `orchestrator_empty_underfilled_bundle_failure_classification`

@@ -32,6 +32,9 @@ def build_shell_seam_registry() -> dict[str, tuple[str, ...]]:
         ),
         "parser_policy": (
             "parse_required_files",
+            "validate_exact_deliverable_contract",
+            "evaluate_proof_task_admission",
+            "report_proof_task_admission_failure",
             "task_requires_material_update",
             "task_allows_unchanged_cli",
             "parse_harness_file_policies",
@@ -507,6 +510,34 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     shell_globals["ensure_clean_worktree"]()
 
     required = shell_globals["parse_required_files"](task_text)
+    ok_required_contract, required_contract_msg = shell_globals["validate_exact_deliverable_contract"](task_text)
+    if not ok_required_contract:
+        print(f"\n❌ {required_contract_msg}")
+        return 1
+
+    last_output_path = Path("_last_agent_model_output.txt")
+    last_bundle_path = Path("_last_agent_file_bundle.txt")
+    proof_task_admission = shell_globals["evaluate_proof_task_admission"](
+        task_text=task_text,
+        task_file=task_path.as_posix(),
+        required_paths=required,
+    )
+    if not bool(proof_task_admission.get("proof_task_admission_allowed", True)):
+        reason = str(proof_task_admission.get("proof_task_admission_reason", "") or "Proof-task admission blocked before model execution.")
+        print(f"\n❌ [task_admission] {reason}")
+        issues = list(proof_task_admission.get("strict_exact_deliverable_contract_issues", []) or [])
+        if issues:
+            print("   Issues:")
+            for issue in issues:
+                print(f"   - {issue}")
+        shell_globals["report_proof_task_admission_failure"](
+            proof_task_admission,
+            task_file=task_path.as_posix(),
+            last_output_path=last_output_path,
+            last_bundle_path=last_bundle_path,
+        )
+        return 1
+
     require_material_update = shell_globals["task_requires_material_update"](task_text)
     allow_unchanged_cli = shell_globals["task_allows_unchanged_cli"](task_text)
     harness_policies = shell_globals["parse_harness_file_policies"](task_text)
@@ -606,9 +637,6 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
     print(f"Using provider: {args.provider}")
     print(f"Using model: {args.model}")
     shell_globals["ensure_branch"](branch)
-
-    last_output_path = Path("_last_agent_model_output.txt")
-    last_bundle_path = Path("_last_agent_file_bundle.txt")
 
     prev_files: dict[str, str] | None = None
     extra_directives = ""

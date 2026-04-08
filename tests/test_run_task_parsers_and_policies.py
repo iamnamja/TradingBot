@@ -135,3 +135,40 @@ def test_parse_file_bundle_transport_resilient_nested_raw_marker_lines() -> None
         "tests/test_orchestrator_public_surface.py": "def test_ok():\n    assert True\n",
     }
     assert all("ignored unexpected FILE header outside FILE block" not in warning for warning in warnings)
+
+
+def test_evaluate_proof_task_admission_parity() -> None:
+    task = (
+        "# Task 130 — supervised proof re-proof\n\n"
+        "## Create or update these exact files\n"
+        "- `README.md`\n"
+        "- `docs/TRADINGBOT_PROJECT_STATE.md`\n"
+    )
+    decision = run_task.evaluate_proof_task_admission(
+        task_text=task,
+        task_file="tasks/130_supervised_proof_reproof.md",
+    )
+    assert decision["proof_task_admission_allowed"] is True
+    assert decision["strict_exact_deliverable_paths"] == ["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"]
+
+
+
+def test_report_proof_task_admission_failure_writes_truthful_placeholders(tmp_path) -> None:
+    output_path = tmp_path / "_last_agent_model_output.txt"
+    bundle_path = tmp_path / "_last_agent_file_bundle.txt"
+    decision = {
+        "proof_task_admission_failure_kind": "missing_strict_exact_deliverable_contract",
+        "proof_task_admission_reason": "Proof-style tasks must include a `Create or update these exact files` section before model execution.",
+        "strict_exact_deliverable_paths": ["README.md"],
+    }
+    run_task.report_proof_task_admission_failure(
+        decision,
+        task_file="tasks/130.md",
+        last_output_path=output_path,
+        last_bundle_path=bundle_path,
+    )
+    output_text = output_path.read_text(encoding="utf-8")
+    bundle_text = bundle_path.read_text(encoding="utf-8")
+    assert "missing_strict_exact_deliverable_contract" in output_text
+    assert "failed_before_model_output" in output_text
+    assert '"files": []' in bundle_text

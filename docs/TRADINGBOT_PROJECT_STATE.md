@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 090–129 are complete in deterministic supervised scope:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, supervised ordinary-manifest re-proof, project registry/isolation/selection/authority/merge-eligibility proof, and post-123 compatibility/self-heal/claim-discipline hardening with Task 129 supervised portfolio re-proof retry.
+- **Tasks 090–130 are complete in deterministic supervised scope:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, supervised ordinary-manifest re-proof, project registry/isolation/selection/authority/merge-eligibility proof, post-123 compatibility/self-heal/claim-discipline hardening with Task 129 supervised portfolio re-proof retry, and Task 130 proof-task admission gating for exact deliverable contracts.
 
 The current deterministic proof slice now demonstrates:
 
@@ -21,7 +21,8 @@ The current deterministic proof slice now demonstrates:
 3. dependency-aware next-task selection and conservative stop behavior when no dependency-ready task is available
 4. compatibility-preserving hosted-authority truth and merge-eligibility truth after Tasks 124–128
 5. green-gated docs/spec/status claim discipline for proof-complete wording
-6. no broader claim than deterministic local supervised proof coverage
+6. proof/re-proof task admission blocked when the exact deliverable contract is missing or ambiguous
+7. no broader claim than deterministic local supervised proof coverage
 
 ## Scope honesty
 
@@ -37,7 +38,7 @@ It still does **not** claim autonomy for arbitrary protected/controller/meta tas
 
 ## Next continuation target
 
-The next tranche should focus on reducing manual recovery frequency without widening autonomy claims.
+Task 131 is the next continuation target, focused on reducing manual recovery frequency without widening autonomy claims.
 
 That means prioritizing:
 
