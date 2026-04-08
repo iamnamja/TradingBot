@@ -147,6 +147,9 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.canonical_required_check_truth)
     assert callable(run_task.evaluate_verification_authority)
     assert callable(run_task.evaluate_hosted_authority_operational_convergence)
+    assert callable(run_task.canonical_repo_enforcement_truth)
+    assert callable(run_task.probe_repo_required_check_enforcement)
+    assert callable(run_task.evaluate_repo_required_check_convergence)
     assert callable(run_task.report_branch_push_ready)
     assert callable(run_task.restore_file_snapshot_subset)
     assert callable(run_task.build_last_green_subset_preservation_plan)
@@ -213,3 +216,38 @@ def test_task_136_resilience_public_surface_remains_available() -> None:
     assert callable(run_task.restore_file_snapshot_subset)
     assert callable(run_task.build_last_green_subset_preservation_plan)
     assert callable(run_task.write_last_green_subset_artifact)
+
+
+def test_task_137_github_enforcement_helpers_are_available() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    repo_contract = run_task.project_repo_check_contract(run_task.resolve_project_contract("tradingbot_monorepo"))
+    enforcement_truth = run_task.canonical_repo_enforcement_truth(
+        repo_check_contract=repo_contract,
+        enforcement_probe_available=True,
+        enforcement_probe_status="required_check_context_missing",
+        enforcement_source="github_branch_rules",
+        required_status_checks_rule_present=True,
+        required_status_check_contexts=("wrong-check",),
+    )
+    convergence = run_task.evaluate_repo_required_check_convergence(
+        repo_check_contract=repo_contract,
+        repo_enforcement_truth=enforcement_truth,
+    )
+    operational = run_task.evaluate_hosted_authority_operational_convergence(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=repo_contract,
+        required_check_truth=run_task.canonical_required_check_truth(
+            verification_authority_profile="local_plus_required_ci",
+            repo_check_contract=repo_contract,
+            required_checks_discovered=True,
+            hosted_checks_reported=True,
+            required_checks_passed=True,
+            hosted_authority_probe_status="satisfied",
+        ),
+        repo_enforcement_truth=enforcement_truth,
+    )
+
+    assert repo_contract["repo_default_branch"] == "main"
+    assert convergence["repo_required_check_enforcement_reason"] == "required_check_context_missing"
+    assert operational["operational_convergence_reason"] == "required_check_enforcement_context_mismatch"

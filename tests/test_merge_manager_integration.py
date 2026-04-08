@@ -130,6 +130,12 @@ def test_merge_flow_can_succeed_with_required_ci_authority() -> None:
             return SimpleNamespace(returncode=0, stdout="created", stderr="")
         if cmd[:3] == ["gh", "pr", "checks"]:
             return SimpleNamespace(returncode=0, stdout="all checks passed", stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/rules/branches/main"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci-required"}],"strict_required_status_checks_policy":true}}]',
+                stderr="",
+            )
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     result = git_workflow.accepted_task_pr_merge_flow(
@@ -322,3 +328,121 @@ def test_task_136_operational_convergence_reproof_blocks_progress_when_checks_do
     assert operational["operational_convergence_reason"] == "hosted_checks_not_reporting"
     assert eligibility["merge_eligible_now"] is False
     assert eligibility["next_task_may_proceed"] is False
+
+
+def test_probe_repo_required_check_enforcement_parses_branch_rules_required_context() -> None:
+    def runner(cmd: list[str], check: bool = True):
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/rules/branches/main"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='[{"type":"required_status_checks","ruleset_id":42,"ruleset_source":"repo:TradingBot","parameters":{"required_status_checks":[{"context":"ci-required"}],"strict_required_status_checks_policy":true}}]',
+                stderr="",
+            )
+        raise AssertionError(cmd)
+
+    truth = git_workflow.probe_repo_required_check_enforcement(
+        runner,
+        repo_check_contract=REPO_CHECK_CONTRACT,
+    )
+    convergence = git_workflow.evaluate_repo_required_check_convergence(
+        repo_check_contract=REPO_CHECK_CONTRACT,
+        repo_enforcement_truth=truth,
+    )
+
+    assert truth["enforcement_source"] == "github_branch_rules"
+    assert truth["required_status_check_contexts"] == ("ci-required",)
+    assert truth["repo_required_check_enforcement_converged"] is True
+    assert convergence["repo_required_check_enforcement_reason"] == "converged"
+
+
+def test_probe_repo_required_check_enforcement_falls_back_to_branch_protection() -> None:
+    calls: list[list[str]] = []
+
+    def runner(cmd: list[str], check: bool = True):
+        calls.append(cmd)
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/rules/branches/main"]:
+            return SimpleNamespace(returncode=0, stdout='[]', stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/branches/main/protection"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='{"required_status_checks":{"strict":true,"contexts":["ci-required"]}}',
+                stderr="",
+            )
+        raise AssertionError(cmd)
+
+    truth = git_workflow.probe_repo_required_check_enforcement(
+        runner,
+        repo_check_contract=REPO_CHECK_CONTRACT,
+    )
+
+    assert truth["enforcement_source"] == "github_branch_protection"
+    assert truth["branch_protection_enabled"] is True
+    assert truth["required_status_check_contexts"] == ("ci-required",)
+    assert truth["repo_required_check_enforcement_converged"] is True
+    assert calls == [
+        ["gh", "api", "repos/{owner}/{repo}/rules/branches/main"],
+        ["gh", "api", "repos/{owner}/{repo}/branches/main/protection"],
+    ]
+
+
+def test_operational_convergence_blocks_when_github_is_not_enforcing_ci_required() -> None:
+    required_truth = git_workflow.canonical_required_check_truth(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=REPO_CHECK_CONTRACT,
+        required_checks_discovered=True,
+        hosted_checks_reported=True,
+        required_checks_passed=True,
+        hosted_authority_probe_status="satisfied",
+    )
+    enforcement_truth = git_workflow.canonical_repo_enforcement_truth(
+        repo_check_contract=REPO_CHECK_CONTRACT,
+        enforcement_probe_available=True,
+        enforcement_probe_status="required_check_context_missing",
+        enforcement_source="github_branch_rules",
+        required_status_checks_rule_present=True,
+        required_status_check_contexts=("different-check",),
+    )
+    operational = git_workflow.evaluate_hosted_authority_operational_convergence(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=REPO_CHECK_CONTRACT,
+        required_check_truth=required_truth,
+        repo_enforcement_truth=enforcement_truth,
+    )
+
+    assert operational["required_checks_discovered"] is True
+    assert operational["repo_required_check_enforcement_converged"] is False
+    assert operational["unattended_execution_ready"] is False
+    assert operational["operational_convergence_reason"] == "required_check_enforcement_context_mismatch"
+
+
+def test_merge_flow_stops_when_required_checks_pass_but_enforcement_is_not_converged() -> None:
+    calls: list[list[str]] = []
+
+    def runner(cmd: list[str], check: bool = True):
+        calls.append(cmd)
+        if cmd[:3] == ["gh", "pr", "create"]:
+            return SimpleNamespace(returncode=0, stdout="created", stderr="")
+        if cmd[:3] == ["gh", "pr", "checks"]:
+            return SimpleNamespace(returncode=0, stdout="all checks passed", stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/rules/branches/main"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"wrong-check"}]}}]',
+                stderr="",
+            )
+        raise AssertionError(cmd)
+
+    result = git_workflow.accepted_task_pr_merge_flow(
+        runner,
+        accepted=True,
+        autonomous_merge_enabled=True,
+        pr_title="x",
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=REPO_CHECK_CONTRACT,
+    )
+
+    assert result["required_checks_passed"] is True
+    assert result["repo_required_check_enforcement"]["repo_required_check_enforcement_converged"] is False
+    assert result["operational_convergence_reason"] == "required_check_enforcement_context_mismatch"
+    assert result["merged_to_main"] is False
+    assert result["next_task_may_proceed"] is False
