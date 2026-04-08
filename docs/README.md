@@ -10,4 +10,4 @@ Tasks 124–136 hardened the orchestrator against the known self-hosting failure
 
 ## Current next-step note
 
-The current tranche is about making **autonomous single-task runs** measurable and reliable inside a narrow safe lane, with real GitHub required-check truth, a persisted one-task ledger, canary metrics, and explicit escalation for unsafe self-hosting work.
+The current tranche is about making **autonomous single-task runs** measurable and reliable inside a narrow safe lane, with real GitHub required-check truth, a persisted one-task ledger, canary metrics, recovery reporting, and deterministic supervised handoff artifacts for unsafe self-hosting work.

@@ -110,6 +110,45 @@ def test_build_single_task_canary_metrics_aggregates_retry_and_hosted_authority_
 
 
 
+def test_build_single_task_supervised_handoff_artifact_captures_reason_implicated_files_and_next_action() -> None:
+    runner = _load_run_single_task_module()
+
+    artifact = runner.build_single_task_supervised_handoff_artifact(
+        entry={
+            "task_path": "tasks/141_control_plane_task.md",
+            "task_name": "141_control_plane_task.md",
+            "ledger_path": "artifacts/autonomous_single_task/run_ledger.jsonl",
+            "required_paths": ["agents/run_task.py", "tests/test_run_task_runtime_foundations.py"],
+            "completed_at": "2026-04-08T18:30:00Z",
+            "admission": {
+                "autonomous_single_task_lane": "escalation_required",
+                "autonomy_allowlist_family": "",
+                "self_hosting_control_plane_task": True,
+                "self_hosting_control_plane_required_paths": ["agents/run_task.py"],
+                "proof_task_detected": True,
+                "proof_task_admission_allowed": False,
+            },
+            "validation": {
+                "execution_invoked": False,
+                "returncode": None,
+                "no_checks_reported_observed": False,
+            },
+            "escalation": {
+                "required": True,
+                "reason": "Task touches self-hosting control-plane or harness surfaces and must be escalated for supervised/manual handling.",
+            },
+            "final_decision": "escalation_required",
+        },
+        generated_at="2026-04-08T18:30:00Z",
+    )
+
+    assert artifact["handoff_required"] is True
+    assert artifact["handoff_kind"] == "escalation_required"
+    assert artifact["implicated_paths"] == ["agents/run_task.py"]
+    assert "self-hosting control-plane" in artifact["handoff_reason"]
+    assert "supervised/manual lane" in artifact["next_supervised_action"]
+
+
 def test_run_autonomous_single_task_persists_ledger_and_reporting_artifacts(tmp_path: Path) -> None:
     runner = _load_run_single_task_module()
     task_path = tmp_path / "139_safe_tests_only_task.md"
@@ -149,11 +188,14 @@ def test_run_autonomous_single_task_persists_ledger_and_reporting_artifacts(tmp_
 
     canary_metrics_path = Path(result["canary_metrics_path"])
     recovery_report_path = Path(result["recovery_report_path"])
+    supervised_handoff_path = Path(result["supervised_handoff_path"])
     assert canary_metrics_path.exists()
     assert recovery_report_path.exists()
+    assert supervised_handoff_path.exists()
 
     metrics = json.loads(canary_metrics_path.read_text(encoding="utf-8"))
     recovery = json.loads(recovery_report_path.read_text(encoding="utf-8"))
+    handoff = json.loads(supervised_handoff_path.read_text(encoding="utf-8"))
 
     assert metrics["total_runs"] == 1
     assert metrics["completed_runs"] == 1
@@ -161,6 +203,8 @@ def test_run_autonomous_single_task_persists_ledger_and_reporting_artifacts(tmp_
     assert recovery["total_runs"] == 1
     assert recovery["handoff_required_count"] == 0
     assert recovery["hosted_authority_blocked_runs"] == 1
+    assert handoff["handoff_required"] is False
+    assert handoff["handoff_kind"] == "none"
 
 
 
@@ -181,6 +225,11 @@ def test_run_autonomous_single_task_reports_escalation_without_execution(tmp_pat
     assert result["entry"]["validation"]["execution_invoked"] is False
     metrics = result["canary_metrics"]
     recovery = result["recovery_report"]
+    handoff = result["supervised_handoff"]
     assert metrics["stop_reason_counts"]["escalation_required"] == 1
     assert recovery["escalation_required_count"] == 1
     assert recovery["handoff_required_count"] == 1
+    assert handoff["handoff_required"] is True
+    assert handoff["handoff_kind"] == "escalation_required"
+    assert handoff["implicated_paths"] == ["agents/run_task.py"]
+    assert "supervised/manual lane" in handoff["next_supervised_action"]
