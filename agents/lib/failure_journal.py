@@ -86,7 +86,7 @@ def bounded_failure_snippet(message: str, max_chars: int = DEFAULT_RAW_SNIPPET_L
     return f"{head}{suffix}"
 
 
-def build_failure_remediation_plan(*, kind: str, message: str, category: str = "", retry_count: int, fingerprint: str = "", raw_failure_snippet: str = "", max_repair_attempts: int = 3) -> Dict[str, Any]:
+def build_failure_remediation_plan(*, kind: str, message: str, category: str = "", retry_count: int, fingerprint: str = "", raw_failure_snippet: str = "", max_repair_attempts: int = 3, repair_attempt_budget: int | None = None) -> Dict[str, Any]:
     category = category or classify_failure(kind, message)
     fingerprint = fingerprint or failure_fingerprint(kind=kind, message=message, category=category)
     raw_failure_snippet = raw_failure_snippet or bounded_failure_snippet(message)
@@ -96,6 +96,7 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
         recommended = "retry_with_targeted_fix"
     elif route["remediation_lane"] == "verifier":
         recommended = "rerun_verifier_lane"
+    attempt_budget = max(1, int(repair_attempt_budget if repair_attempt_budget is not None else max_repair_attempts))
     plan = {
         "recommended_next_action": recommended,
         "chosen_remediation_path": str(route["repair_strategy"]),
@@ -115,7 +116,7 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
         "minimal_patch_selected": bool(route.get("minimal_patch_selected", False)),
         "max_files_to_edit": int(route.get("max_files_to_edit", 0)),
         "bounded": True,
-        "max_repair_attempts": max(1, int(max_repair_attempts)),
+        "max_repair_attempts": attempt_budget,
     }
     repair_attempt = build_repair_attempt_record(
         task_path="",
@@ -132,7 +133,7 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
         plan["autonomy_confidence"] = 0.8 if retry_count <= 2 else 0.35
     elif plan["remediation_lane"] == "verifier":
         plan["autonomy_confidence"] = 0.7 if retry_count <= 2 else 0.25
-    if retry_count >= max(1, int(max_repair_attempts)) and plan["remediation_lane"] != "verifier":
+    if retry_count >= attempt_budget and plan["remediation_lane"] != "verifier":
         plan.update(
             recommended_next_action="manual_patch",
             chosen_remediation_path="manual_stop",

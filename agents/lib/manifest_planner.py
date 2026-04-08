@@ -1,8 +1,12 @@
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+
+from agents.lib.public_compat import coerce_manifest_entry_path
+
 
 @dataclass(frozen=True)
 class ManifestPlannerSnapshot:
@@ -114,7 +118,7 @@ def normalize_manifest_entry_schema(entry: Any, *, index: int = 0) -> dict[str, 
         }
     if not isinstance(entry, Mapping):
         raise ValueError(f"Manifest entry at index {index} must be a string or mapping.")
-    task_path = _normalized_path_value(entry.get("path") or entry.get("task_path") or entry.get("task"))
+    task_path = _normalized_path_value(coerce_manifest_entry_path(entry))
     if not task_path:
         raise ValueError(f"Manifest entry at index {index} is missing `path` or `task_path`.")
     task_id = str(entry.get("task_id") or Path(task_path).stem or f"task_{index+1}").strip()

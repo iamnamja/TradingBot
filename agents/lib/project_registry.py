@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Mapping, Sequence
 
+from agents.lib.public_compat import apply_project_contract_convenience_keys, compatibility_contract_snapshot
 from agents.lib.project_workspace_adapter import (
     canonical_workspace_contract,
     generic_python_workspace_contract,
@@ -268,6 +269,7 @@ def project_registry_snapshot() -> dict[str, object]:
     by_id = {str(entry['project_id']): dict(entry) for entry in entries}
     return {
         'deterministic_and_serializable': True,
+        'compatibility_contract': compatibility_contract_snapshot(),
         'portfolio_scheduler_mode': 'supervised_local_first',
         'portfolio_slice_bounded': True,
         'portfolio_reproof_claim': 'deterministic_local_supervised_only',
@@ -311,7 +313,8 @@ def resolve_project_contract(project_id: str = 'tradingbot_monorepo') -> dict[st
     workspace_root = _normalize_repo_root(
         workspace_contract.get('workspace_root') or identity['project_workspace_root'] or contract.get('repo_root', '.')
     )
-    contract.update(
+    contract = apply_project_contract_convenience_keys(
+        contract,
         workspace_root=workspace_root,
         branch_namespace=str(identity['project_branch_namespace']),
         state_namespace=str(identity['project_state_namespace']),
@@ -397,4 +400,13 @@ def project_backlog_selection_contract(project_contract: Mapping[str, object] | 
         'supports_carry_forward_memory_input': True,
         'supported_authority_prerequisites': ['none', 'hosted'],
         'hosted_authority_ready_default': False,
+    }
+
+def project_repo_check_contract(project_contract: Mapping[str, object]) -> dict[str, object]:
+    matrix = project_validation_matrix(project_contract)
+    required_checks = list(matrix.get("repo_required_checks", []) or [])
+
+    return {
+        "required_checks": required_checks,
+        "repo_check_contract_source": str(project_contract.get("project_id", "") or "project_registry"),
     }

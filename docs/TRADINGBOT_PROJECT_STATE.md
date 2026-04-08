@@ -12,12 +12,13 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 090–123 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, supervised ordinary-manifest re-proof, project registry and isolation namespaces, backlog policy + dependency truth, bounded repair planning + rollback posture, project-aware validation/authority, hosted-authority convergence, and a supervised multi-project portfolio slice re-proof.
+- **Tasks 090–124 are complete:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, supervised ordinary-manifest re-proof, project registry and isolation namespaces, backlog policy + dependency truth, bounded repair planning + rollback posture, project-aware validation/authority, hosted-authority convergence, and a supervised multi-project portfolio slice re-proof.
 
 The current deterministic proof slice now demonstrates:
 
 1. project selection across more than one registered project
 2. isolated per-project state, branch, workspace, and carry-forward memory namespaces
+3. frozen public/tested compatibility aliases for failure helpers, project contract convenience keys, manifest entry spellings, and manual-patch stop posture
 3. next-task choice driven by explicit backlog policy and dependency truth
 4. stronger self-heal with bounded repair planning and rollback where relevant
 5. project-aware validation and authority evaluation
