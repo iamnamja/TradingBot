@@ -268,6 +268,9 @@ def project_registry_snapshot() -> dict[str, object]:
     by_id = {str(entry['project_id']): dict(entry) for entry in entries}
     return {
         'deterministic_and_serializable': True,
+        'portfolio_scheduler_mode': 'supervised_local_first',
+        'portfolio_slice_bounded': True,
+        'portfolio_reproof_claim': 'deterministic_local_supervised_only',
         'registered_project_ids': list(by_id.keys()),
         'registered_projects': by_id,
         'supported_workspace_types': list(PROJECT_WORKSPACE_TYPES),
@@ -299,9 +302,28 @@ def project_merge_eligibility_contract(project_contract: Mapping[str, object] | 
 def resolve_project_contract(project_id: str = 'tradingbot_monorepo') -> dict[str, object]:
     registry = project_registry_snapshot()['registered_projects']
     try:
-        return dict(registry[str(project_id)])
+        contract = dict(registry[str(project_id)])
     except KeyError as exc:
         raise KeyError(f'Unknown project id: {project_id}') from exc
+
+    identity = project_scope_identity(contract)
+    workspace_contract = canonical_workspace_contract(contract.get('workspace_contract'))
+    workspace_root = _normalize_repo_root(
+        workspace_contract.get('workspace_root') or identity['project_workspace_root'] or contract.get('repo_root', '.')
+    )
+    contract.update(
+        workspace_root=workspace_root,
+        branch_namespace=str(identity['project_branch_namespace']),
+        state_namespace=str(identity['project_state_namespace']),
+        checkpoint_namespace=str(identity['project_checkpoint_namespace']),
+        carry_forward_memory_namespace=f"carry_forward/{identity['project_id']}",
+        project_workspace_root=workspace_root,
+        project_repo_root=str(identity['project_repo_root']),
+        project_branch_namespace=str(identity['project_branch_namespace']),
+        project_state_namespace=str(identity['project_state_namespace']),
+        project_checkpoint_namespace=str(identity['project_checkpoint_namespace']),
+    )
+    return contract
 
 
 PROJECT_SCOPE_AMBIGUOUS_ID = 'ambiguous_project'

@@ -229,3 +229,27 @@ def test_project_merge_eligibility_succeeds_for_local_only_project_without_hoste
     assert eligibility['merge_eligible_now'] is True
     assert eligibility['merge_eligibility_reason'] == 'eligible'
     assert eligibility['hosted_authority_convergence']['hosted_authority_converged'] is True
+
+
+
+def test_portfolio_scheduler_conservatively_stops_when_authority_unsatisfied() -> None:
+    from agents.lib import project_registry  # noqa: E402
+
+    tradingbot = project_registry.resolve_project_contract("tradingbot_monorepo")
+    blocked_truth = git_workflow.canonical_required_check_truth(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=git_workflow.project_repo_check_contract(tradingbot),
+        required_checks_discovered=False,
+        hosted_checks_reported=False,
+        hosted_authority_probe_status="misconfigured",
+    )
+    eligibility = git_workflow.evaluate_project_merge_eligibility(
+        project_contract=tradingbot,
+        accepted=True,
+        autonomous_merge_enabled=True,
+        local_validation_passed=True,
+        required_check_truth=blocked_truth,
+    )
+
+    assert eligibility["merge_eligible_now"] is False
+    assert eligibility["next_task_may_proceed"] is False
