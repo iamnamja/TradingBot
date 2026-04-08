@@ -7,7 +7,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 ## Current product stage
 
 - **124–129** freeze compatibility/public-contract posture and re-prove the bounded supervised portfolio slice
-- **130–134** harden convergence around proof-task admission, bundle failure classification, missing-deliverable retry compilation, assertion-to-compatibility repair planning, and last-green subset preservation/rollback
+- **130–135** harden convergence around proof-task admission, bundle failure classification, missing-deliverable retry compilation, assertion-to-compatibility repair planning, last-green subset preservation/rollback, and hosted-authority operational convergence
 - Product scope remains bounded and truthful; it is not yet claiming unattended broad autonomy
 
 ## What the product can honestly claim today
@@ -34,6 +34,6 @@ The proof is intentionally bounded and does **not** claim:
 
 Continue toward:
 
-- real hosted required-check / branch-protection convergence
-- resilience re-proof against the concrete failure corpus
-- stronger unattended readiness only after those operational proofs are green
+- real hosted required-check / branch-protection convergence is now modeled and check-name aligned (`ci-required`)
+- complete the resilience re-proof against the concrete failure corpus
+- claim stronger unattended readiness only after the resilience re-proof and GitHub-side enforcement are both green

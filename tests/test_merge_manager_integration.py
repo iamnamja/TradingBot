@@ -12,7 +12,7 @@ from agents.lib import git_workflow  # noqa: E402
 
 
 REPO_CHECK_CONTRACT = {
-    "required_checks": ["ci"],
+    "required_checks": ["ci-required"],
     "repo_check_contract_source": "tests",
 }
 
@@ -143,7 +143,7 @@ def test_merge_flow_can_succeed_with_required_ci_authority() -> None:
 
     assert result["verification_authority_profile"] == "required_ci_only"
     assert result["repo_check_contract_configured"] is True
-    assert result["repo_required_checks"] == ("ci",)
+    assert result["repo_required_checks"] == ("ci-required",)
     assert result["required_checks_discovered"] is True
     assert result["required_checks_passed"] is True
     assert result["hosted_checks_source"] == "gh_pr_checks"
@@ -253,3 +253,42 @@ def test_portfolio_scheduler_conservatively_stops_when_authority_unsatisfied() -
 
     assert eligibility["merge_eligible_now"] is False
     assert eligibility["next_task_may_proceed"] is False
+
+
+
+def test_operational_convergence_reports_no_checks_reported_as_not_ready() -> None:
+    truth = git_workflow.canonical_required_check_truth(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=REPO_CHECK_CONTRACT,
+        required_checks_discovered=False,
+        hosted_checks_reported=False,
+        hosted_authority_probe_status="misconfigured",
+    )
+    operational = git_workflow.evaluate_hosted_authority_operational_convergence(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=REPO_CHECK_CONTRACT,
+        required_check_truth=truth,
+    )
+
+    assert operational["unattended_execution_ready"] is False
+    assert operational["operational_convergence_ready"] is False
+    assert operational["operational_convergence_reason"] == "hosted_checks_not_reporting"
+
+
+def test_operational_convergence_reports_green_required_checks_as_ready() -> None:
+    truth = git_workflow.canonical_required_check_truth(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=REPO_CHECK_CONTRACT,
+        required_checks_discovered=True,
+        hosted_checks_reported=True,
+        hosted_authority_probe_status="satisfied",
+    )
+    operational = git_workflow.evaluate_hosted_authority_operational_convergence(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=REPO_CHECK_CONTRACT,
+        required_check_truth=truth,
+    )
+
+    assert operational["unattended_execution_ready"] is True
+    assert operational["operational_convergence_ready"] is True
+    assert operational["operational_convergence_reason"] == "ready"

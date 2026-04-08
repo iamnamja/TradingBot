@@ -525,6 +525,11 @@ def accepted_task_pr_merge_flow(
         verification_authority_profile=profile,
         repo_check_contract=repo_contract,
     )
+    operational = evaluate_hosted_authority_operational_convergence(
+        verification_authority_profile=profile,
+        repo_check_contract=repo_contract,
+        required_check_truth=required_truth,
+    )
     result: Dict[str, object] = {
         "accepted": bool(accepted),
         "autonomous_merge_enabled": bool(autonomous_merge_enabled),
@@ -540,6 +545,10 @@ def accepted_task_pr_merge_flow(
         "merged_to_main": False,
         "clean_main_reset_completed": False,
         "next_task_may_proceed": False,
+        "unattended_execution_ready": bool(operational["unattended_execution_ready"]),
+        "operational_convergence_ready": bool(operational["operational_convergence_ready"]),
+        "operational_convergence_reason": str(operational["operational_convergence_reason"]),
+        "hosted_authority_operational_convergence": dict(operational),
         **required_truth,
         'project_id': str((project_contract or {}).get('project_id', '')),
         'repo_check_contract': dict(repo_contract),
@@ -573,6 +582,15 @@ def accepted_task_pr_merge_flow(
     )
     result.update(dict(checks.evidence or {}))
     result["required_checks_passed"] = bool(result.get("required_checks_passed", False))
+    operational = evaluate_hosted_authority_operational_convergence(
+        verification_authority_profile=profile,
+        repo_check_contract=repo_contract,
+        required_check_truth=result,
+    )
+    result["unattended_execution_ready"] = bool(operational["unattended_execution_ready"])
+    result["operational_convergence_ready"] = bool(operational["operational_convergence_ready"])
+    result["operational_convergence_reason"] = str(operational["operational_convergence_reason"])
+    result["hosted_authority_operational_convergence"] = dict(operational)
     if not checks.ok:
         result["stopped_honestly"] = True
         result["stop_reason"] = checks.message
@@ -660,6 +678,66 @@ def evaluate_hosted_authority_convergence(
     }
 
 
+def evaluate_hosted_authority_operational_convergence(
+    *,
+    verification_authority_profile: Any,
+    repo_check_contract: Mapping[str, Any] | None = None,
+    required_check_truth: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    profile = coerce_verification_authority_profile(verification_authority_profile)
+    contract = canonical_repo_check_contract(repo_check_contract)
+    truth = canonical_required_check_truth(
+        required_check_truth,
+        verification_authority_profile=profile,
+        repo_check_contract=contract,
+    )
+    hosted_required = profile != 'local_only'
+    discovered = bool(truth['required_checks_discovered'])
+    hosted_reported = bool(truth['hosted_checks_reported'])
+    probe_status = str(truth['hosted_authority_probe_status'])
+    state = str(truth['required_check_state'])
+
+    if not hosted_required:
+        ready = True
+        reason = 'hosted_authority_not_required'
+        summary = 'Hosted authority is not required, so unattended readiness is not blocked by GitHub check reporting.'
+    elif not bool(contract['repo_check_contract_configured']):
+        ready = False
+        reason = 'repo_check_contract_not_configured'
+        summary = 'Repo check contract is not configured, so unattended GitHub readiness is not established.'
+    elif not discovered or not hosted_reported:
+        ready = False
+        reason = 'hosted_checks_not_reporting'
+        summary = 'Hosted checks are not reporting on the branch, so unattended GitHub readiness is not established.'
+    elif probe_status == 'unavailable':
+        ready = False
+        reason = 'hosted_authority_probe_unavailable'
+        summary = 'Hosted authority could not be probed, so unattended GitHub readiness is not established.'
+    elif probe_status == 'misconfigured':
+        ready = False
+        reason = 'hosted_checks_misconfigured'
+        summary = 'Hosted required checks are misconfigured, so unattended GitHub readiness is not established.'
+    elif state != 'passed' or not bool(truth['required_checks_passed']):
+        ready = False
+        reason = 'required_checks_not_green'
+        summary = 'Required hosted checks are reporting but not green, so unattended GitHub readiness is not established.'
+    else:
+        ready = True
+        reason = 'ready'
+        summary = 'Hosted required checks are configured, reporting, and green for unattended GitHub readiness.'
+
+    return {
+        'verification_authority_profile': profile,
+        'repo_check_contract': dict(contract),
+        'required_check_truth': dict(truth),
+        'operational_convergence_ready': bool(ready),
+        'unattended_execution_ready': bool(ready),
+        'operational_convergence_reason': reason,
+        'operational_convergence_summary': summary,
+        'hosted_authority_required': hosted_required,
+    }
+
+
 def evaluate_merge_eligibility(
     *,
     accepted: bool,
@@ -705,8 +783,6 @@ def evaluate_merge_eligibility(
         'merge_eligible_now': eligible,
         'merge_eligibility_reason': reason,
         'next_task_may_proceed': bool(eligible),
-        'verification_authority_satisfied': bool(authority['verification_authority_satisfied']),
-        'verification_authority_blocking_reason': str(authority.get('blocking_reason') or ''),
         'verification_authority': dict(authority),
         'hosted_authority_convergence': dict(convergence),
     }

@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 124–134 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, and preserves the last-known-good subset while rolling back only the failing subset during retries.
+- **Tasks 124–135 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, and reports hosted-authority operational convergence / unattended-readiness truth against the real required-check contract.
 
 The current bounded deterministic slice now demonstrates:
 
@@ -23,6 +23,7 @@ The current bounded deterministic slice now demonstrates:
 5. green-gated proof-claim discipline
 6. targeted retry planning around missing deliverables and coupled compatibility surfaces
 7. bounded subset preservation so targeted retries do not unnecessarily widen the changed-file set
+8. explicit operational-convergence truth for hosted authority, including blocking `no checks reported` posture
 
 ## Scope honesty
 
@@ -40,5 +41,5 @@ It still does **not** claim autonomy for arbitrary protected/controller/meta tas
 
 The next tranche should focus on:
 
-1. operationally converging hosted required-check / branch-protection truth with the real GitHub setup
-2. resilience re-proof against the actual failure corpus after Tasks 130–135 land
+1. complete the real GitHub branch-protection / required-check alignment around the stable `ci-required` context
+2. run the resilience re-proof against the actual failure corpus after Tasks 130–135 land

@@ -37,7 +37,7 @@ def test_project_validation_matrix_differs_across_projects() -> None:
     assert generic["bootstrap_required"] is True
     assert tradingbot["verification_authority_profile"] == "local_plus_required_ci"
     assert generic["verification_authority_profile"] == "local_only"
-    assert tradingbot["repo_required_checks"] == ["ci"]
+    assert tradingbot["repo_required_checks"] == ["ci-required"]
     assert generic["repo_required_checks"] == []
 
 
@@ -63,7 +63,7 @@ def test_project_merge_eligibility_contract_is_project_aware() -> None:
     generic = registry.project_merge_eligibility_contract(registry.resolve_project_contract('generic_python_external'))
 
     assert tradingbot['merge_requires_hosted_authority'] is True
-    assert tradingbot['repo_required_checks'] == ['ci']
+    assert tradingbot['repo_required_checks'] == ['ci-required']
     assert generic['merge_requires_hosted_authority'] is False
     assert generic['repo_required_checks'] == []
 
