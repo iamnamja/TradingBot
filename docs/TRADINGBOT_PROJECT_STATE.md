@@ -12,18 +12,17 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 090–133 are complete in deterministic supervised scope:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, supervised ordinary-manifest re-proof, project registry/isolation/selection/authority/merge-eligibility proof, and post-123 compatibility/self-heal/claim-discipline hardening with Task 129 supervised portfolio re-proof retry, Task 130 proof-task admission gating, Task 131 empty/underfilled bundle classification, Task 132 missing-deliverable retry compilation, and Task 133 coupled compatibility-surface repair planning.
+- **Tasks 124–134 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, and preserves the last-known-good subset while rolling back only the failing subset during retries.
 
-The current deterministic proof slice now demonstrates:
+The current bounded deterministic slice now demonstrates:
 
 1. supervised local-first portfolio progression across more than one registered project
-2. preserved project-scoped state, branch, workspace, and carry-forward isolation
-3. dependency-aware next-task selection and conservative stop behavior when no dependency-ready task is available
-4. compatibility-preserving hosted-authority truth and merge-eligibility truth after Tasks 124–128
-5. targeted retries around exact missing/unchanged deliverables instead of broad transport restatement
-6. assertion-driven inference of coupled compatibility/public-surface repair sets
-7. green-gated docs/spec/status claim discipline for proof-complete wording
-8. no broader claim than deterministic local supervised proof coverage
+2. project-scoped isolation for state, branches, workspaces, and carry-forward memory
+3. dependency-aware next-task selection with conservative stop posture
+4. compatibility-preserving hosted-authority truth and merge-eligibility truth
+5. green-gated proof-claim discipline
+6. targeted retry planning around missing deliverables and coupled compatibility surfaces
+7. bounded subset preservation so targeted retries do not unnecessarily widen the changed-file set
 
 ## Scope honesty
 
@@ -39,13 +38,7 @@ It still does **not** claim autonomy for arbitrary protected/controller/meta tas
 
 ## Next continuation target
 
-The next tranche should focus on reducing manual recovery frequency without widening autonomy claims.
+The next tranche should focus on:
 
-That means prioritizing:
-
-1. task admission rules that reject under-specified proof/re-proof tasks before the model is invoked
-2. explicit failure classification for empty and underfilled bundles rather than treating them as generic malformed transport
-3. targeted retry compilation around exact missing/unchanged required deliverables instead of broad transport reminders
-4. preservation of last-known-good files while repairing only the failing subset
-5. tighter operational convergence between local truth, hosted checks, and real branch-protection expectations
-6. a bounded supervised re-proof over the historical failure classes that still cause babysitting today
+1. operationally converging hosted required-check / branch-protection truth with the real GitHub setup
+2. resilience re-proof against the actual failure corpus after Tasks 130–135 land

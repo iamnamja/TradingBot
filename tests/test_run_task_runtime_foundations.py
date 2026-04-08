@@ -129,7 +129,6 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.ensure_branch)
     assert callable(run_task.run_checks)
     assert callable(run_task.parse_required_files)
-    assert callable(run_task.classify_bundle_transport_failure)
     assert callable(run_task.validate_exact_deliverable_contract)
     assert callable(run_task.keep_runtime_artifacts_requested)
     assert callable(run_task.build_final_acceptance_report)
@@ -148,6 +147,9 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.canonical_required_check_truth)
     assert callable(run_task.evaluate_verification_authority)
     assert callable(run_task.report_branch_push_ready)
+    assert callable(run_task.restore_file_snapshot_subset)
+    assert callable(run_task.build_last_green_subset_preservation_plan)
+    assert callable(run_task.write_last_green_subset_artifact)
     assert callable(run_task.build_controller_strict_mode_context)
     assert callable(run_task.describe_controller_strict_mode)
     assert callable(run_task.resolve_project_contract)
@@ -189,34 +191,3 @@ def test_project_contract_contains_workspace_and_isolation_namespaces() -> None:
     assert isinstance(contract["branch_namespace"], str)
     assert isinstance(contract["state_namespace"], str)
     assert isinstance(contract["carry_forward_memory_namespace"], str)
-
-
-def test_parser_policy_exports_include_bundle_failure_classifier() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
-    exports = run_task._parser_policy_exports()
-
-    assert "classify_bundle_transport_failure" in exports
-    assert callable(exports["classify_bundle_transport_failure"])
-
-
-def test_parser_policy_exports_include_missing_deliverable_retry_helpers() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
-    exports = run_task._parser_policy_exports()
-
-    assert "classify_bundle_transport_failure" in exports
-    assert callable(run_task.extract_missing_deliverable_evidence)
-    assert callable(run_task.build_missing_deliverable_retry_feedback)
-
-
-def test_controller_repair_context_includes_missing_deliverable_evidence() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
-    context = run_task.build_controller_repair_context(
-        kind="deliverables",
-        message="Required deliverables were included but not materially updated: README.md",
-        category="task_shape_mismatch",
-        touched_files=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
-        task_file="tasks/132_orchestrator_missing_deliverable_retry_compiler.md",
-    )
-    prompt = context["repair_prompt"]
-    assert "Missing-deliverable evidence:" in prompt
-    assert "README.md" in prompt

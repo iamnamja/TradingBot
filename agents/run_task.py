@@ -65,6 +65,7 @@ RUNTIME_ARTIFACT_NAMES = (
     "last_output.txt",
     "_last_agent_model_output.txt",
     "_last_agent_file_bundle.txt",
+    "_last_subset_preservation.json",
 )
 
 
@@ -640,15 +641,64 @@ def classify_bundle_transport_failure(
     return {"failure_category": "bundle_malformed_transport", "bundle_markers_present": markers_present, "bundle_structurally_valid": False}
 
 
+
+def _stable_unique_paths(paths: Iterable[str] | None = None) -> List[str]:
+    out: List[str] = []
+    seen: set[str] = set()
+    for raw in paths or ():
+        text = str(raw or "").strip().replace("\\", "/")
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
 def extract_missing_deliverable_evidence(
     message: str,
     *,
     required_paths: Sequence[str] | None = None,
     parsed_paths: Sequence[str] | None = None,
 ) -> Dict[str, object]:
-    from agents.lib.controller_repair import extract_missing_deliverable_evidence as _impl  # type: ignore
+    required = _stable_unique_paths(required_paths)
+    parsed = _stable_unique_paths(parsed_paths)
+    text = str(message or "")
+    lower = text.lower()
 
-    return dict(_impl(message=message, required_paths=required_paths, parsed_paths=parsed_paths))
+    missing_paths: List[str] = []
+    unchanged_paths: List[str] = []
+    evidence_kind = ""
+
+    marker = "missing from final accepted result after lane reconciliation:"
+    if marker in lower:
+        suffix = text[lower.index(marker) + len(marker):]
+        missing_paths = _stable_unique_paths(item.strip() for item in suffix.split(","))
+        evidence_kind = "missing_required_paths"
+    elif "missing file blocks from the requested scope:" in lower:
+        suffix = text[lower.index("missing file blocks from the requested scope:") + len("missing file blocks from the requested scope:"):]
+        missing_paths = _stable_unique_paths(item.strip() for item in suffix.split(","))
+        evidence_kind = "missing_required_paths"
+    elif "required deliverables were included but not materially updated:" in lower:
+        suffix = text[lower.index("required deliverables were included but not materially updated:") + len("required deliverables were included but not materially updated:"):]
+        unchanged_paths = _stable_unique_paths(item.strip() for item in suffix.split(","))
+        evidence_kind = "unchanged_required_paths"
+
+    if not missing_paths and required and parsed and set(parsed) < set(required):
+        missing_paths = sorted(set(required) - set(parsed))
+        evidence_kind = evidence_kind or "missing_required_paths"
+
+    retry_targets = missing_paths or unchanged_paths
+    accepted_paths = [path for path in parsed if path not in retry_targets]
+    return {
+        "required_paths": required,
+        "parsed_paths": parsed,
+        "missing_required_paths": missing_paths,
+        "unchanged_required_paths": unchanged_paths,
+        "accepted_paths": accepted_paths,
+        "retry_target_paths": retry_targets,
+        "deliverable_retry_kind": evidence_kind,
+        "has_missing_deliverable_evidence": bool(retry_targets),
+    }
 
 
 def build_missing_deliverable_retry_feedback(
@@ -659,17 +709,52 @@ def build_missing_deliverable_retry_feedback(
     unchanged_required_paths: Sequence[str] | None = None,
     accepted_paths: Sequence[str] | None = None,
 ) -> Dict[str, object]:
-    from agents.lib.controller_repair import build_missing_deliverable_retry_feedback as _impl  # type: ignore
+    required = _stable_unique_paths(required_paths)
+    missing = _stable_unique_paths(missing_required_paths)
+    unchanged = _stable_unique_paths(unchanged_required_paths)
+    accepted = [path for path in _stable_unique_paths(accepted_paths) if path not in set(missing) | set(unchanged)]
+    retry_targets = missing or unchanged
+    evidence_kind = "missing_required_paths" if missing else "unchanged_required_paths" if unchanged else ""
 
-    return dict(
-        _impl(
-            task_file=task_file,
-            required_paths=required_paths,
-            missing_required_paths=missing_required_paths,
-            unchanged_required_paths=unchanged_required_paths,
-            accepted_paths=accepted_paths,
-        )
-    )
+    lines: List[str] = []
+    if task_file:
+        lines.append(f"Task file: {task_file}")
+    lines.append("Your previous response was structurally valid but incomplete for the required deliverables.")
+    if missing:
+        lines.append("Return ONLY a valid file bundle containing FILE blocks for EXACTLY these missing required paths and no others:")
+        lines.extend(f"- {path}" for path in missing)
+    elif unchanged:
+        lines.append("Return ONLY a valid file bundle containing FILE blocks for EXACTLY these required paths and materially update them:")
+        lines.extend(f"- {path}" for path in unchanged)
+    else:
+        lines.append("Return ONLY a valid file bundle for the smallest remaining required deliverable subset.")
+        lines.extend(f"- {path}" for path in required)
+    if accepted:
+        lines.extend(["", "Already accepted required paths that should remain implicitly unchanged:"])
+        lines.extend(f"- {path}" for path in accepted)
+    lines.extend([
+        "",
+        "Do not restate unrelated files or the whole task.",
+        "Every FILE block must be closed by a literal END_FILE line.",
+        "Do not emit unexpected FILE blocks outside the named retry subset.",
+    ])
+    if unchanged:
+        lines.append("Do not resend byte-identical copies of the named required files; materially update them.")
+
+    summary_parts: List[str] = []
+    if missing:
+        summary_parts.append("missing required paths: " + ", ".join(missing))
+    if unchanged:
+        summary_parts.append("unchanged required paths: " + ", ".join(unchanged))
+    evidence_summary = "; ".join(summary_parts)
+
+    return {
+        "deliverable_retry_kind": evidence_kind,
+        "retry_target_paths": retry_targets,
+        "accepted_paths": accepted,
+        "evidence_summary": evidence_summary,
+        "retry_feedback": "\n".join(lines).strip() + "\n",
+    }
 
 
 def build_final_acceptance_report(
@@ -2282,6 +2367,114 @@ def restore_file_snapshot(snapshot: Dict[str, str | None]) -> None:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(previous, encoding="utf-8", newline="\n")
+
+
+def restore_file_snapshot_subset(snapshot: Dict[str, str | None], subset_paths: Sequence[str] | None = None) -> List[str]:
+    requested = {
+        str(path).strip().replace("\\", "/")
+        for path in (subset_paths or ())
+        if str(path).strip()
+    }
+    if not requested:
+        restore_file_snapshot(snapshot)
+        return sorted(snapshot)
+
+    narrowed = {rel: previous for rel, previous in snapshot.items() if str(rel).strip().replace("\\", "/") in requested}
+    restore_file_snapshot(narrowed)
+    return sorted(narrowed)
+
+
+def build_last_green_subset_preservation_plan(
+    *,
+    applied_files: Mapping[str, str] | Sequence[str],
+    repair_route: Mapping[str, object] | None = None,
+    kind: str = "",
+    message: str = "",
+    category: str = "",
+    touched_files: Iterable[str] | None = None,
+    task_file: str = "",
+) -> Dict[str, object]:
+    if isinstance(applied_files, Mapping):
+        applied_paths_raw = list(applied_files.keys())
+    else:
+        applied_paths_raw = list(applied_files)
+
+    applied_paths = []
+    seen_applied: set[str] = set()
+    for raw in applied_paths_raw:
+        text = str(raw).strip().replace("\\", "/")
+        if not text or text in seen_applied:
+            continue
+        seen_applied.add(text)
+        applied_paths.append(text)
+
+    route = dict(
+        repair_route
+        or choose_repair_strategy(
+            kind=kind,
+            message=message,
+            category=category,
+            touched_files=list(touched_files or ()),
+            task_file=task_file,
+        )
+    )
+
+    target_files = []
+    seen_targets: set[str] = set()
+    for raw in route.get("target_files") or []:
+        text = str(raw).strip().replace("\\", "/")
+        if not text or text in seen_targets:
+            continue
+        seen_targets.add(text)
+        target_files.append(text)
+
+    touched = []
+    seen_touched: set[str] = set()
+    for raw in touched_files or ():
+        text = str(raw).strip().replace("\\", "/")
+        if not text or text in seen_touched:
+            continue
+        seen_touched.add(text)
+        touched.append(text)
+
+    rollback_subset = [path for path in applied_paths if path in target_files]
+    if not rollback_subset and target_files:
+        rollback_subset = [path for path in applied_paths if path in touched]
+    if not rollback_subset:
+        rollback_subset = list(applied_paths)
+
+    rollback_set = set(rollback_subset)
+    preserved_subset = [path for path in applied_paths if path not in rollback_set]
+
+    return {
+        "repair_strategy": str(route.get("repair_strategy") or ""),
+        "chosen_repair_target": str(route.get("chosen_repair_target") or route.get("targeted_patch_surface") or ""),
+        "assertion_target_category": str(route.get("assertion_target_category") or ""),
+        "target_files": target_files,
+        "applied_subset_paths": list(applied_paths),
+        "preserved_subset_paths": preserved_subset,
+        "last_known_good_subset_paths": preserved_subset,
+        "rollback_subset_paths": rollback_subset,
+        "rollback_scope_limited": bool(preserved_subset) and len(rollback_subset) < len(applied_paths),
+        "bounded": True,
+        "task_file": str(task_file or "").strip(),
+    }
+
+
+def write_last_green_subset_artifact(path: Path, plan: Mapping[str, object]) -> None:
+    artifact = {
+        "bounded": bool(plan.get("bounded", True)),
+        "task_file": str(plan.get("task_file") or ""),
+        "repair_strategy": str(plan.get("repair_strategy") or ""),
+        "chosen_repair_target": str(plan.get("chosen_repair_target") or ""),
+        "assertion_target_category": str(plan.get("assertion_target_category") or ""),
+        "applied_subset_paths": [str(item) for item in plan.get("applied_subset_paths") or []],
+        "preserved_subset_paths": [str(item) for item in plan.get("preserved_subset_paths") or []],
+        "last_known_good_subset_paths": [str(item) for item in plan.get("last_known_good_subset_paths") or []],
+        "rollback_subset_paths": [str(item) for item in plan.get("rollback_subset_paths") or []],
+        "rollback_scope_limited": bool(plan.get("rollback_scope_limited", False)),
+    }
+    path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
 
 def _task_baseline_paths(
@@ -4054,9 +4247,10 @@ def request_and_parse_bundle(
                 str(e),
                 expected_paths=allowed_paths,
             )
+            parsed_subset: Dict[str, str] = {}
+            retry_feedback: Dict[str, object] = {}
             reminder = ""
             if str(classification.get("failure_category") or "") == "bundle_underfilled_response":
-                parsed_subset: Dict[str, str] = {}
                 try:
                     parsed_subset = _parse_validate_or_salvage(out, allowed_paths, require_all=False)
                 except Exception:
@@ -4100,11 +4294,8 @@ def request_and_parse_bundle(
             last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
             try:
                 if str(classification.get("failure_category") or "") == "bundle_underfilled_response":
-                    repaired_subset = _parse_validate_or_salvage(
-                        out2,
-                        [str(path) for path in (retry_feedback.get("retry_target_paths", []) or []) if str(path).strip()],
-                        require_all=True,
-                    )
+                    retry_target_paths = [str(path) for path in (retry_feedback.get("retry_target_paths", []) or []) if str(path).strip()]
+                    repaired_subset = _parse_validate_or_salvage(out2, retry_target_paths, require_all=True)
                     merged = dict(parsed_subset)
                     merged.update(repaired_subset)
                     parsed = _validate_transport(merged, allowed_paths, require_all=bool(allowed_paths))
@@ -4118,7 +4309,6 @@ def request_and_parse_bundle(
                         raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {duplicate_exc}") from duplicate_exc
                 else:
                     raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {e2}") from e2
-
     localized_issues = _localized_bundle_issues(parsed, baseline)
     if localized_issues:
         parsed = _attempt_localized_bundle_repair(
@@ -5011,6 +5201,7 @@ def main() -> int:
 
     last_output_path = Path("_last_agent_model_output.txt")
     last_bundle_path = Path("_last_agent_file_bundle.txt")
+    subset_artifact_path = Path("_last_subset_preservation.json")
     proof_task_admission = evaluate_proof_task_admission(
         task_text=task_text,
         task_file=task_path.as_posix(),
@@ -5199,25 +5390,8 @@ def main() -> int:
             allow_unchanged_cli=allow_unchanged_cli,
         )
         if not ok_req:
-            evidence = extract_missing_deliverable_evidence(
-                req_msg,
-                required_paths=required,
-                parsed_paths=sorted(files),
-            )
-            retry_feedback = build_missing_deliverable_retry_feedback(
-                task_file=task_path.as_posix(),
-                required_paths=required,
-                missing_required_paths=evidence.get("missing_required_paths", []),
-                unchanged_required_paths=evidence.get("unchanged_required_paths", []),
-                accepted_paths=sorted(files),
-            )
-            _report_failure(
-                "deliverables",
-                req_msg,
-                touched_files=list(retry_feedback.get("retry_target_paths", []) or required),
-                task_file=task_path.as_posix(),
-            )
-            task_text = _append_task_feedback(task_text, str(retry_feedback.get("retry_feedback") or req_msg))
+            _report_failure("deliverables", req_msg, touched_files=required, task_file=task_path.as_posix())
+            task_text = _append_task_feedback(task_text, req_msg)
             if _repeat_limit_exceeded(violation_counts, "deliverables", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated deliverable violations. Recommended action: manual_patch")
                 print("Model output saved to: _last_agent_model_output.txt")
@@ -5225,7 +5399,6 @@ def main() -> int:
                 return 1
             prev_files = files
             continue
-
 
         ok_policy, policy_msg = enforce_harness_file_policies(task_text, files, baseline)
         if not ok_policy:
@@ -5311,12 +5484,21 @@ def main() -> int:
                 validation_profile=validation_profile,
             )
             if str(acceptance_report.get("acceptance_decision", "retryable_failure")) != "accepted":
-                if args.push:
-                    run(["git", "reset"], check=True)
-                restore_file_snapshot(pre_write_snapshot)
-                _report_final_acceptance_failure(acceptance_report)
                 acceptance_feedback = build_final_acceptance_retry_feedback(acceptance_report)
                 issues_text = str(acceptance_feedback.get("issues_text", "")).strip()
+                preservation_plan = build_last_green_subset_preservation_plan(
+                    applied_files=files,
+                    kind="final_acceptance",
+                    message=issues_text or str(acceptance_feedback.get("acceptance_decision", "retryable_failure")),
+                    category="final_acceptance",
+                    touched_files=list({*required, *staged_paths, *working_tree_paths}),
+                    task_file=task_path.as_posix(),
+                )
+                write_last_green_subset_artifact(subset_artifact_path, preservation_plan)
+                if args.push:
+                    run(["git", "reset"], check=True)
+                restore_file_snapshot_subset(pre_write_snapshot, preservation_plan.get("rollback_subset_paths"))
+                _report_final_acceptance_failure(acceptance_report)
                 _report_failure("final_acceptance", issues_text or str(acceptance_feedback.get("acceptance_decision", "retryable_failure")), touched_files=list({*required, *staged_paths, *working_tree_paths}), task_file=task_path.as_posix())
                 task_text = _append_task_feedback(task_text, str(acceptance_feedback.get("feedback_text", "")).strip())
                 if bool(acceptance_feedback.get("should_stop")):
@@ -5342,7 +5524,16 @@ def main() -> int:
                 report_branch_push_ready(branch)
             return 0
 
-        restore_file_snapshot(pre_write_snapshot)
+        preservation_plan = build_last_green_subset_preservation_plan(
+            applied_files=files,
+            kind="tests",
+            message=details,
+            category="tests",
+            touched_files=list(files.keys()),
+            task_file=task_path.as_posix(),
+        )
+        write_last_green_subset_artifact(subset_artifact_path, preservation_plan)
+        restore_file_snapshot_subset(pre_write_snapshot, preservation_plan.get("rollback_subset_paths"))
 
         print("❌ Checks failed after applying changes:")
         print(details)
