@@ -185,6 +185,11 @@ def evaluate_hosted_authority_convergence(*, verification_authority_profile: Any
     return dict(_evaluate_hosted_authority_convergence(verification_authority_profile=verification_authority_profile, repo_check_contract=repo_check_contract, required_check_truth=required_check_truth))
 
 
+
+def evaluate_hosted_authority_operational_convergence(*, verification_authority_profile: Any, repo_check_contract: Mapping[str, Any] | None = None, required_check_truth: Mapping[str, Any] | None = None) -> dict[str, object]:
+    from agents.lib.git_workflow import evaluate_hosted_authority_operational_convergence as _impl
+    return dict(_impl(verification_authority_profile=verification_authority_profile, repo_check_contract=repo_check_contract, required_check_truth=required_check_truth))
+
 def evaluate_project_merge_eligibility(*, project_contract: Mapping[str, Any] | str, accepted: bool, autonomous_merge_enabled: bool, local_validation_passed: bool, required_check_truth: Mapping[str, Any] | None = None) -> dict[str, object]:
     from agents.lib.git_workflow import evaluate_project_merge_eligibility as _evaluate_project_merge_eligibility
     from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
