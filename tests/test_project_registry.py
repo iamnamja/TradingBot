@@ -66,3 +66,13 @@ def test_project_merge_eligibility_contract_is_project_aware() -> None:
     assert tradingbot['repo_required_checks'] == ['ci']
     assert generic['merge_requires_hosted_authority'] is False
     assert generic['repo_required_checks'] == []
+
+
+
+def test_project_registry_portfolio_slice_is_explicitly_bounded_and_supervised() -> None:
+    registry = _load_project_registry_module()
+    snapshot = registry.project_registry_snapshot()
+
+    assert snapshot["portfolio_scheduler_mode"] == "supervised_local_first"
+    assert snapshot["portfolio_slice_bounded"] is True
+    assert snapshot["portfolio_reproof_claim"] == "deterministic_local_supervised_only"

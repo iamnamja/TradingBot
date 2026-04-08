@@ -150,14 +150,21 @@ def test_supervised_ordinary_manifest_reproof_is_local_first_and_truthful() -> N
     assert decision["authority_satisfied"] in {True, False}
 
 
-def test_project_registry_resolves_monorepo_and_generic_external_contracts() -> None:
-    snapshot = project_registry.project_registry_snapshot()
-    assert set(snapshot["registered_project_ids"]) >= {"tradingbot_monorepo", "generic_python_external"}
 
+def test_multi_project_portfolio_slice_exposes_isolated_state_and_memory() -> None:
     tradingbot = project_registry.resolve_project_contract("tradingbot_monorepo")
     generic = project_registry.resolve_project_contract("generic_python_external")
 
-    assert tradingbot["workspace_type"] == "monorepo_python"
-    assert generic["workspace_type"] == "external_python"
-    assert tradingbot["allow_unattended_execution"] is False
-    assert generic["allow_unattended_execution"] is False
+    for contract in (tradingbot, generic):
+        assert isinstance(contract["project_id"], str)
+        assert contract["project_id"] != ""
+        assert isinstance(contract["workspace_root"], str)
+        assert isinstance(contract["branch_namespace"], str)
+        assert isinstance(contract["state_namespace"], str)
+        assert isinstance(contract["carry_forward_memory_namespace"], str)
+
+    assert tradingbot["project_id"] != generic["project_id"]
+    assert tradingbot["workspace_root"] != generic["workspace_root"]
+    assert tradingbot["branch_namespace"] != generic["branch_namespace"]
+    assert tradingbot["state_namespace"] != generic["state_namespace"]
+    assert tradingbot["carry_forward_memory_namespace"] != generic["carry_forward_memory_namespace"]

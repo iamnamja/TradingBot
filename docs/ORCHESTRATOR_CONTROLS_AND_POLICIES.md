@@ -134,7 +134,6 @@ At minimum, controller strict mode should:
 
 The current strict-mode pre-apply gate is intentionally heuristic and narrow. It looks for deterministic bad-patch signals in touched controller files such as clustered semicolon statements, compressed multi-imports, suspicious minified formatting, and concentrated unused-import churn.
 
-
 ## Canonical controller contract fields
 
 The controller contract now defines the canonical persisted checkpoint truth fields and resume metadata fields.
@@ -162,7 +161,6 @@ Merge-posture failures must map through one canonical decision surface:
 - `failed_checks`
 - `failed_reset`
 
-
 ## Sequential multi-agent loop posture
 
 Task 091 adds the first canonical builder/verifier/controller loop on top of the existing controller surfaces.
@@ -184,9 +182,7 @@ Guardrails:
 - passing verifier evidence does not auto-advance by itself
 - controller decision remains explicit and machine-readable
 - acceptance and merge/reset truth rules from earlier controller tranches remain in force
-
 - task-family routing remains controller-owned; the router may recommend builder, verifier, proof/docs, bootstrap, or constrained/manual lanes, but it may not bypass controller authority
-
 
 ## Hosted CI authority posture
 
@@ -200,13 +196,21 @@ Current required behavior:
 - persisted batch/checkpoint truth must distinguish hosted probe `unavailable`, `misconfigured`, and `reported_unsatisfied` states
 - controller stop posture remains conservative whenever hosted authority is absent or unsatisfied
 
-
 ## Task admission gate
 
 The orchestrator now distinguishes between `autonomous_ordinary`, `supervised_autonomous`, and `manual_only` task-admission lanes. Protected/controller/meta task shapes remain conservative and manual-only. Larger mixed-surface ordinary tasks may still be admissible only under supervision and may require bounded decomposition before execution begins.
 
-
 ## Project-aware validation and authority
 
 Validation and authority must be resolved from the active project contract rather than assuming monorepo defaults. Different projects may carry different focused checks, full checks, bootstrap requirements, and hosted-authority profiles, and the controller must remain truthful when hosted authority is weaker or stronger than local validation evidence.
-- Task 122 requires hosted merge eligibility to be evaluated against the project's declared validation matrix and repo check contract before autonomous merge posture can be treated as satisfied.
+
+## Bounded multi-project portfolio scheduler posture (Task 123)
+
+The new portfolio re-proof is intentionally narrow:
+
+- mode: `supervised_local_first`
+- bounded slice only across more than one registered project
+- per-project isolation for workspace root, branch namespace, state namespace, and carry-forward memory namespace
+- next-task selection must remain dependency-truth aware
+- authority or merge ineligibility forces conservative stop (`next_task_may_proceed == False`)
+- no claim of unattended broad portfolio autonomy

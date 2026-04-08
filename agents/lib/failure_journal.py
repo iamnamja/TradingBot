@@ -8,12 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from agents.lib.controller_contract import POLICY_BLOCKED_FAILURE_CATEGORY
-from agents.lib.check_runner import (
-    build_validation_snapshot,
-    evaluate_validation_regression,
-    select_last_green_validation_snapshot,
-    summarize_tester_critique_bundle,
-)
+from agents.lib.check_runner import summarize_tester_critique_bundle
 from agents.lib.multi_agent_contract import summarize_role_artifact_envelope
 from agents.lib.controller_repair import (
     build_controller_failure_digest,
@@ -22,8 +17,6 @@ from agents.lib.controller_repair import (
     choose_repair_strategy,
     classify_collection_failure,
     evaluate_repair_attempt_memory,
-    evaluate_rollback_to_last_green,
-    rank_repair_candidates,
     repair_attempt_fingerprint,
 )
 
@@ -93,7 +86,10 @@ def bounded_failure_snippet(message: str, max_chars: int = DEFAULT_RAW_SNIPPET_L
     return f"{head}{suffix}"
 
 
-def build_failure_remediation_plan(*, kind: str, message: str, category: str, retry_count: int, fingerprint: str, raw_failure_snippet: str) -> Dict[str, Any]:
+def build_failure_remediation_plan(*, kind: str, message: str, category: str = "", retry_count: int, fingerprint: str = "", raw_failure_snippet: str = "", max_repair_attempts: int = 3) -> Dict[str, Any]:
+    category = category or classify_failure(kind, message)
+    fingerprint = fingerprint or failure_fingerprint(kind=kind, message=message, category=category)
+    raw_failure_snippet = raw_failure_snippet or bounded_failure_snippet(message)
     route = choose_repair_strategy(kind=kind, message=message, category=category)
     recommended = "manual_patch"
     if route["remediation_lane"] == "builder":
@@ -118,6 +114,8 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str, re
         "prefer_minimal_patch": bool(route.get("prefer_minimal_patch", False)),
         "minimal_patch_selected": bool(route.get("minimal_patch_selected", False)),
         "max_files_to_edit": int(route.get("max_files_to_edit", 0)),
+        "bounded": True,
+        "max_repair_attempts": max(1, int(max_repair_attempts)),
     }
     repair_attempt = build_repair_attempt_record(
         task_path="",
@@ -134,7 +132,7 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str, re
         plan["autonomy_confidence"] = 0.8 if retry_count <= 2 else 0.35
     elif plan["remediation_lane"] == "verifier":
         plan["autonomy_confidence"] = 0.7 if retry_count <= 2 else 0.25
-    if retry_count >= 3 and plan["remediation_lane"] != "verifier":
+    if retry_count >= max(1, int(max_repair_attempts)) and plan["remediation_lane"] != "verifier":
         plan.update(
             recommended_next_action="manual_patch",
             chosen_remediation_path="manual_stop",
@@ -269,11 +267,32 @@ def build_multi_agent_failure_context(
     }
 
 __all__ = [
-    "build_validation_snapshot",
-    "select_last_green_validation_snapshot",
-    "evaluate_validation_regression",
     "evaluate_repair_attempt_memory",
-    "evaluate_rollback_to_last_green",
-    "rank_repair_candidates",
     "repair_attempt_fingerprint",
+    "summarize_cross_task_repo_memory",
+    "build_cross_task_failure_context",
 ]
+
+
+def summarize_cross_task_repo_memory(repo_memory: Dict[str, Any] | dict[str, Any] | None) -> Dict[str, Any]:
+    payload = dict(repo_memory or {})
+    accepted = [dict(item) for item in payload.get("accepted_change_summaries") or []]
+    blockers = [dict(item) for item in payload.get("unresolved_blockers") or []]
+    deferred = [dict(item) for item in payload.get("deferred_issue_summaries") or []]
+    entries = [dict(item) for item in payload.get("repo_memory_entries") or []]
+    return {
+        "accepted_change_count": len(accepted),
+        "unresolved_blocker_count": len(blockers),
+        "deferred_issue_count": len(deferred),
+        "carry_forward_summary": str(payload.get("carry_forward_summary") or ""),
+        "accepted_change_summaries": accepted,
+        "unresolved_blockers": blockers,
+        "deferred_issue_summaries": deferred,
+        "repo_memory_entries": entries,
+    }
+
+
+def build_cross_task_failure_context(*, task_path: str, repo_memory: Dict[str, Any] | dict[str, Any] | None) -> Dict[str, Any]:
+    summary = summarize_cross_task_repo_memory(repo_memory)
+    summary["task_path"] = str(task_path or "")
+    return summary

@@ -16,19 +16,21 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **100–107 harden resilience, hosted-authority truth, bootstrap recovery, and supervised mixed-manifest proof**
 - **108–114 harden ordinary-task autonomy operating mode (artifact envelopes, tester critique/replay, repair memory, admission gates, authority contracts, multi-role ordinary execution, cross-task carry-forward)**
 - **115 adds a fresh supervised local-first ordinary-manifest end-to-end re-proof**
+- **116–122 add project registry, project isolation, backlog/dependency policy, bounded repair/rollback posture, and hosted-authority convergence**
+- **123 adds a fresh supervised local-first bounded multi-project portfolio scheduler re-proof**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
 
 The repo now has deterministic proof for a bounded supervised slice:
 
-- short ordinary-manifest progression across multiple ordinary tasks
-- combined builder/verifier/controller execution surfaces
-- tester critique with focused replay lane before broader validation
-- repair-memory suppression of repeated no-progress retries
-- bounded cross-task carry-forward memory
-- conservative authority/admission gate stop posture
-- explicit claim discipline that does not exceed tested deterministic scope
+- project selection across more than one registered project
+- isolated project workspace/branch/state/carry-forward memory namespaces
+- next-task selection that respects explicit dependency truth
+- stronger bounded self-heal planning with conservative rollback posture
+- project-aware validation and authority evaluation
+- conservative stop behavior when merge/authority posture is unsatisfied
+- explicit claim discipline that does not exceed tested deterministic local-supervised scope
 
 The proof is intentionally bounded and does **not** claim:
 
@@ -36,9 +38,3 @@ The proof is intentionally bounded and does **not** claim:
 - broad unattended production scheduling across arbitrary task families
 - broad arbitrary multi-language portability
 - full standalone extraction is complete
-
-
-## Post-120 continuation note
-
-Task 121 adds a project-aware validation matrix and authority-profile contract derived from the project registry so validation plans can differ by project while staying serializable and inspectable.
-- Task 122 adds project-aware hosted authority convergence and explicit merge-eligibility truth so merge posture can be evaluated against each project's validation contract instead of a repo-shaped default.

@@ -704,6 +704,7 @@ def evaluate_merge_eligibility(
         'local_validation_passed': bool(local_validation_passed),
         'merge_eligible_now': eligible,
         'merge_eligibility_reason': reason,
+        'next_task_may_proceed': bool(eligible),
         'verification_authority': dict(authority),
         'hosted_authority_convergence': dict(convergence),
     }

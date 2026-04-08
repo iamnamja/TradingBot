@@ -177,3 +177,14 @@ def test_project_merge_helpers_are_available() -> None:
     assert merge_contract['project_id'] == 'tradingbot_monorepo'
     assert merge_contract['merge_requires_hosted_authority'] is True
     assert convergence['hosted_authority_converged'] is False
+
+
+
+def test_project_contract_contains_workspace_and_isolation_namespaces() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    contract = run_task.resolve_project_contract("generic_python_external")
+
+    assert isinstance(contract["workspace_root"], str)
+    assert isinstance(contract["branch_namespace"], str)
+    assert isinstance(contract["state_namespace"], str)
+    assert isinstance(contract["carry_forward_memory_namespace"], str)

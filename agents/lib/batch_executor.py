@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 from agents.lib import batch_state as bs
@@ -18,7 +18,6 @@ from agents.lib.controller_contract import (
     should_next_task_proceed,
     terminal_status_to_post_task_decision,
 )
-from agents.lib.controller_repair import build_repair_attempt_record, evaluate_repair_attempt_memory
 from agents.lib.task_queue import QueueStatus, TaskQueueItem
 
 
@@ -35,9 +34,6 @@ class BatchTaskOutcome:
     required_checks_passed: bool = False
     merged_to_main: bool = False
     clean_main_reset_completed: bool = False
-    repair_memory_signal: str = ""
-    duplicate_attempt_suppressed: bool = False
-    no_progress_detected: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -52,9 +48,6 @@ class BatchTaskOutcome:
             "required_checks_passed": self.required_checks_passed,
             "merged_to_main": self.merged_to_main,
             "clean_main_reset_completed": self.clean_main_reset_completed,
-            "repair_memory_signal": self.repair_memory_signal,
-            "duplicate_attempt_suppressed": self.duplicate_attempt_suppressed,
-            "no_progress_detected": self.no_progress_detected,
         }
 
 
@@ -131,59 +124,6 @@ def _blocking_resume_decision(state: bs.BatchState) -> BatchPostTaskDecision:
             return coerce_post_task_decision(checkpoint.post_task_decision, default="manual_patch")
     return "manual_patch"
 
-def choose_ranked_repair_action(
-    *,
-    repair_candidates: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None,
-    validation_history: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
-    current_validation_snapshot: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    from agents.lib.check_runner import select_last_green_validation_snapshot
-    from agents.lib.controller_repair import evaluate_rollback_to_last_green, rank_repair_candidates
-
-    last_green_snapshot = select_last_green_validation_snapshot(validation_history)
-    rollback_truth = evaluate_rollback_to_last_green(
-        current_validation_snapshot=current_validation_snapshot,
-        last_green_snapshot=last_green_snapshot,
-    )
-    ranked_candidates = rank_repair_candidates(
-        repair_candidates,
-        current_validation_snapshot=current_validation_snapshot,
-        last_green_snapshot=last_green_snapshot,
-    )
-    if rollback_truth["should_rollback_to_last_green"]:
-        return {
-            "selected_action": "rollback_to_last_green",
-            "selected_candidate": {},
-            "ranked_candidates": ranked_candidates,
-            "rollback_truth": rollback_truth,
-            "last_green_snapshot": last_green_snapshot,
-        }
-    return {
-        "selected_action": "repair" if ranked_candidates else "manual_patch",
-        "selected_candidate": dict(ranked_candidates[0]) if ranked_candidates else {},
-        "ranked_candidates": ranked_candidates,
-        "rollback_truth": rollback_truth,
-        "last_green_snapshot": last_green_snapshot,
-    }
-
-
-def _repair_attempt_from_acceptance(
-    *,
-    item: TaskQueueItem,
-    acceptance_payload: dict[str, Any],
-    result: dict[str, Any],
-    retry_count: int,
-) -> dict[str, Any]:
-    target_files = acceptance_payload.get("target_files") or acceptance_payload.get("likely_touched_files") or result.get("changed_files") or ()
-    return build_repair_attempt_record(
-        task_path=item.task_path,
-        repair_strategy=str(acceptance_payload.get("repair_strategy") or "manual_stop"),
-        targeted_patch_surface=str(acceptance_payload.get("targeted_patch_surface") or "manual_stop"),
-        target_files=target_files,
-        failure_fingerprint=str(acceptance_payload.get("failure_fingerprint") or result.get("failure_fingerprint") or ""),
-        retry_count=retry_count,
-    )
-
 
 def execute_batch_loop(
     *,
@@ -231,9 +171,6 @@ def execute_batch_loop(
 
         retry_count = 0
         accepted = False
-        repair_memory_signal = ""
-        duplicate_attempt_suppressed = False
-        no_progress_detected = False
         acceptance_payload: dict[str, Any] = {
             "acceptance_decision": "retryable_failure",
             "note": "",
@@ -261,40 +198,7 @@ def execute_batch_loop(
                 break
 
             if decision == "retryable_failure" and retry_count < max(0, int(retry_budget)):
-                next_retry_count = retry_count + 1
-                attempt = _repair_attempt_from_acceptance(
-                    item=item,
-                    acceptance_payload=acceptance_payload,
-                    result=result,
-                    retry_count=next_retry_count,
-                )
-                memory = evaluate_repair_attempt_memory(
-                    current_attempt=attempt,
-                    prior_attempts=bs.repair_attempt_history_for_task(state, item.task_path),
-                    retry_budget=max(0, int(retry_budget)),
-                )
-                repair_memory_signal = str(memory.get("repair_memory_signal") or "")
-                duplicate_attempt_suppressed = bool(memory.get("duplicate_attempt_suppressed", False))
-                no_progress_detected = bool(memory.get("no_progress_detected", False))
-                state = bs.record_repair_attempt(
-                    state,
-                    repair_attempt=attempt,
-                    repair_memory_signal=repair_memory_signal,
-                    duplicate_attempt_suppressed=duplicate_attempt_suppressed,
-                    no_progress_detected=no_progress_detected,
-                    updated_ts=state.updated_ts + 1,
-                )
-                persist_state(state)
-                if duplicate_attempt_suppressed:
-                    acceptance_payload = dict(acceptance_payload)
-                    acceptance_payload.update(
-                        acceptance_decision="manual_patch",
-                        post_task_decision="manual_patch",
-                        next_task_may_proceed=False,
-                        note=(str(acceptance_payload.get("note") or "").strip() + " [duplicate_no_progress_repair_plan]").strip(),
-                    )
-                    break
-                retry_count = next_retry_count
+                retry_count += 1
                 result = self_heal_and_retry(item, result, retry_count)
                 continue
 
@@ -325,10 +229,6 @@ def execute_batch_loop(
             acceptance_decision=acceptance_payload["acceptance_decision"],
             retry_count=retry_count,
             next_task_may_proceed=may_proceed,
-            repair_attempt_history=state.repair_attempt_history,
-            repair_memory_signal=repair_memory_signal,
-            duplicate_attempt_suppressed=duplicate_attempt_suppressed,
-            no_progress_detected=no_progress_detected,
             **pr_flow_kwargs,
         )
         persist_state(state)
@@ -345,9 +245,6 @@ def execute_batch_loop(
             required_checks_passed=pr_flow_kwargs["required_checks_passed"],
             merged_to_main=pr_flow_kwargs["merged_to_main"],
             clean_main_reset_completed=pr_flow_kwargs["clean_main_reset_completed"],
-            repair_memory_signal=repair_memory_signal,
-            duplicate_attempt_suppressed=duplicate_attempt_suppressed,
-            no_progress_detected=no_progress_detected,
         )
         outcomes.append(outcome.to_dict())
 
@@ -357,4 +254,8 @@ def execute_batch_loop(
 
     if final_decision == "stop" and state.batch_status == "completed":
         final_decision = "continue"
+    if final_decision == "manual_patch" and state.batch_status == "manual_patch":
+        state = replace(state, batch_status="manual_patch_required")
+    elif final_decision in {"manual_patch", "blocked"} and state.batch_status in {"blocked"}:
+        state = replace(state, batch_status="blocked")
     return state, outcomes, final_decision
