@@ -11,6 +11,7 @@ from agents.lib.controller_contract import (
     BatchStatus,
     ResumeMode,
     batch_status_for_post_task_decision,
+    coerce_batch_status,
     canonical_merge_posture_truth,
     canonical_resume_metadata,
     checkpoint_allows_resume_after_merge,
@@ -451,8 +452,8 @@ def _derive_batch_status(queue: tuple[BatchTaskState, ...]) -> BatchStatus:
         return "active"
     if any(status == "blocked" for status in statuses):
         return "blocked"
-    if any(status == "manual_patch" for status in statuses):
-        return "manual_patch"
+    if any(status in {"manual_patch", "manual_patch_required"} for status in statuses):
+        return "manual_patch_required"
     if any(status == "failed" for status in statuses):
         return "failed"
     if statuses and all(status == "completed" for status in statuses):
@@ -611,7 +612,7 @@ def advance_task_status(
         current_index=next_index,
         event_seq=new_seq,
         updated_ts=event_ts or state.updated_ts,
-        batch_status=_derive_batch_status(queue_state),
+        batch_status=coerce_batch_status(_derive_batch_status(queue_state), default="active"),
         planner_selected_task_path=str(planner["selected_task_path"]),
         planner_reordered=bool(planner["reordered"]),
         planner_ready_task_paths=tuple(str(p) for p in planner["ready_task_paths"]),

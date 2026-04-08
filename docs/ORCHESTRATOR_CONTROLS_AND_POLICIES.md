@@ -226,3 +226,8 @@ Public/tested compatibility aliases are now frozen through one canonical compati
 - manual-patch batch stop status normalization
 
 Future repairs should preserve these spellings rather than reintroducing scattered per-file alias handling.
+
+
+## Canonical stop vocabulary (Task 126)
+
+Batch status, post-task decision, acceptance decision, and merge-posture failure vocabulary now resolve through one canonical controller-contract mapping layer. Near-synonyms must normalize to the public tested values rather than leaking raw string drift across batch state, batch executor, and merge helpers.
