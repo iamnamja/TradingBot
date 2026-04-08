@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from agents.lib.public_compat import coerce_manifest_entry_path
+from agents.lib.public_compat import normalize_manifest_entry_payload, normalize_manifest_entries_payload
 
 
 @dataclass(frozen=True)
@@ -98,54 +97,11 @@ def _normalized_path_value(raw: object) -> str:
 
 
 def normalize_manifest_entry_schema(entry: Any, *, index: int = 0) -> dict[str, object]:
-    if isinstance(entry, str):
-        task_path = _normalized_path_value(entry)
-        if not task_path:
-            raise ValueError(f"Manifest entry at index {index} is empty.")
-        task_id = Path(task_path).stem or f"task_{index+1}"
-        return {
-            "task_id": task_id,
-            "path": task_path,
-            "task_path": task_path,
-            "label": "",
-            "note": "",
-            "stop_policy": "",
-            "depends_on": [],
-            "blocks": [],
-            "deferrable": False,
-            "skipped_by_policy": False,
-            "rerun_required": False,
-        }
-    if not isinstance(entry, Mapping):
-        raise ValueError(f"Manifest entry at index {index} must be a string or mapping.")
-    task_path = _normalized_path_value(coerce_manifest_entry_path(entry))
-    if not task_path:
-        raise ValueError(f"Manifest entry at index {index} is missing `path` or `task_path`.")
-    task_id = str(entry.get("task_id") or Path(task_path).stem or f"task_{index+1}").strip()
-    def _path_list(v: object) -> list[str]:
-        if v in (None, ""):
-            return []
-        if not isinstance(v, (list, tuple)):
-            raise ValueError(f"Manifest entry at index {index} dependency field must be a list.")
-        return [_normalized_path_value(x) for x in v if _normalized_path_value(x)]
-    return {
-        "task_id": task_id,
-        "path": task_path,
-        "task_path": task_path,
-        "label": str(entry.get("label") or "").strip(),
-        "note": str(entry.get("note") or "").strip(),
-        "stop_policy": str(entry.get("stop_policy") or "").strip(),
-        "depends_on": _path_list(entry.get("depends_on")),
-        "blocks": _path_list(entry.get("blocks")),
-        "deferrable": bool(entry.get("deferrable", entry.get("optional", False))),
-        "skipped_by_policy": bool(entry.get("skipped_by_policy", entry.get("skip_by_policy", False))),
-        "rerun_required": bool(entry.get("rerun_required", False)),
-    }
+    return normalize_manifest_entry_payload(entry, index=index)
 
 
 def normalize_manifest_entries_schema(task_manifest: Mapping[str, Any] | Sequence[Any]) -> list[dict[str, object]]:
-    raw_tasks = task_manifest.get("tasks", []) if isinstance(task_manifest, Mapping) else task_manifest
-    return [normalize_manifest_entry_schema(raw, index=i) for i, raw in enumerate(raw_tasks)]
+    return normalize_manifest_entries_payload(task_manifest)
 
 
 

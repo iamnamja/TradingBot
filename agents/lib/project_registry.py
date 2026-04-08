@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Mapping, Sequence
 
-from agents.lib.public_compat import apply_project_contract_convenience_keys, compatibility_contract_snapshot
+from agents.lib.public_compat import compatibility_contract_snapshot, normalize_project_contract_payload
 from agents.lib.project_workspace_adapter import (
     canonical_workspace_contract,
     generic_python_workspace_contract,
@@ -281,6 +281,7 @@ def project_registry_snapshot() -> dict[str, object]:
         'unattended_safe_project_ids': [project_id for project_id, entry in by_id.items() if bool(entry.get('allow_unattended_execution'))],
         'validation_matrix_by_project': {project_id: project_validation_matrix(entry) for project_id, entry in by_id.items()},
         'merge_eligibility_by_project': {project_id: project_merge_eligibility_contract(entry) for project_id, entry in by_id.items()},
+        'schema_alias_normalization_enabled': bool(compatibility_contract_snapshot().get('schema_alias_normalization_enabled', False)),
     }
 
 
@@ -313,7 +314,7 @@ def resolve_project_contract(project_id: str = 'tradingbot_monorepo') -> dict[st
     workspace_root = _normalize_repo_root(
         workspace_contract.get('workspace_root') or identity['project_workspace_root'] or contract.get('repo_root', '.')
     )
-    contract = apply_project_contract_convenience_keys(
+    contract = normalize_project_contract_payload(
         contract,
         workspace_root=workspace_root,
         branch_namespace=str(identity['project_branch_namespace']),

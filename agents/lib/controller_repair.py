@@ -14,7 +14,7 @@ from agents.lib.controller_contract import (
     POLICY_BLOCKED_FAILURE_CATEGORY,
     RESUME_METADATA_FIELDS,
 )
-from agents.lib.public_compat import coerce_failure_record_fields
+from agents.lib.public_compat import normalize_failure_record_payload
 
 _KNOWN_DECISION_STRINGS = {
     "accepted",
@@ -81,7 +81,7 @@ def build_repair_attempt_record(
     outcome: str = "",
 ) -> dict[str, Any]:
     normalized_files = _stable_unique(_normalize_path(path) for path in (target_files or ()) if str(path or "").strip())
-    resolved = coerce_failure_record_fields(
+    resolved = normalize_failure_record_payload(
         failure_kind=failure_kind,
         failure_message=failure_message,
         failure_category=failure_category,

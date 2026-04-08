@@ -85,6 +85,27 @@ def _ensure_repo_root_on_sys_path() -> None:
 _ensure_repo_root_on_sys_path()
 
 
+
+
+def normalize_manifest_entry_payload(entry: Any, *, index: int = 0) -> dict[str, object]:
+    from agents.lib.public_compat import normalize_manifest_entry_payload as _normalize_manifest_entry_payload
+    return dict(_normalize_manifest_entry_payload(entry, index=index))
+
+
+def normalize_project_contract_payload(contract: Mapping[str, Any] | None = None, **overrides: Any) -> dict[str, object]:
+    from agents.lib.public_compat import normalize_project_contract_payload as _normalize_project_contract_payload
+    return dict(_normalize_project_contract_payload(contract, **overrides))
+
+
+def normalize_failure_record_payload(payload: Mapping[str, Any] | None = None, **overrides: Any) -> dict[str, str]:
+    from agents.lib.public_compat import normalize_failure_record_payload as _normalize_failure_record_payload
+    return dict(_normalize_failure_record_payload(payload, **overrides))
+
+
+def normalize_failure_remediation_payload(payload: Mapping[str, Any] | None = None, **overrides: Any) -> dict[str, object]:
+    from agents.lib.public_compat import normalize_failure_remediation_payload as _normalize_failure_remediation_payload
+    return dict(_normalize_failure_remediation_payload(payload, **overrides))
+
 def resolve_project_contract(project_id: str) -> dict[str, object]:
     from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
     return dict(_resolve_project_contract(project_id))
