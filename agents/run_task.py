@@ -1121,6 +1121,12 @@ def default_single_task_ledger_path() -> str:
     return str(_impl())
 
 
+def default_single_task_supervised_handoff_path(*, ledger_path: str | Path | None = None) -> str:
+    from agents.run_single_task import default_single_task_supervised_handoff_path as _impl  # type: ignore
+
+    return str(_impl(ledger_path=ledger_path))
+
+
 def summarize_single_task_execution(*, execution_result: Mapping[str, object] | None = None) -> Dict[str, object]:
     from agents.run_single_task import summarize_single_task_execution as _impl  # type: ignore
 
@@ -1137,6 +1143,27 @@ def append_single_task_run_ledger_entry(entry: Mapping[str, object], *, ledger_p
     from agents.run_single_task import append_single_task_run_ledger_entry as _impl  # type: ignore
 
     return str(_impl(entry, ledger_path=ledger_path))
+
+
+def build_single_task_supervised_handoff_artifact(
+    *,
+    entry: Mapping[str, object] | None,
+    handoff_path: str | Path | None = None,
+    generated_at: str = "",
+) -> Dict[str, object]:
+    from agents.run_single_task import build_single_task_supervised_handoff_artifact as _impl  # type: ignore
+
+    return dict(_impl(entry=entry, handoff_path=handoff_path, generated_at=generated_at))
+
+
+def write_single_task_supervised_handoff_artifact(
+    artifact: Mapping[str, object],
+    *,
+    handoff_path: str | Path | None = None,
+) -> str:
+    from agents.run_single_task import write_single_task_supervised_handoff_artifact as _impl  # type: ignore
+
+    return str(_impl(artifact, handoff_path=handoff_path))
 
 
 def run_autonomous_single_task(task_path: str, **kwargs: Any) -> Dict[str, object]:

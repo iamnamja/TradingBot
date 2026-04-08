@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 124–139 are complete in bounded supervised scope plus a narrow safe-lane canary:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, adds a safe task-family autonomy allowlist, and introduces a dedicated autonomous single-task runner with a persisted run ledger.
+- **Tasks 124–141 are complete in bounded supervised scope plus a narrow safe-lane canary:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, adds a safe task-family autonomy allowlist, and introduces a dedicated autonomous single-task runner with a persisted run ledger.
 
 The current bounded deterministic slice now demonstrates:
 
@@ -27,6 +27,7 @@ The current bounded deterministic slice now demonstrates:
 9. a fresh supervised resilience re-proof over the recent failure corpus
 10. a bounded autonomous single-task canary runner with persisted ledger artifacts
 11. durable canary metrics and recovery reporting artifacts so single-task convergence can be measured without claiming a broad dashboard or unattended scheduler
+12. deterministic supervised handoff artifacts when a blocked or escalated single-task run must stop honestly and return to supervision
 
 ## Scope honesty
 
@@ -49,4 +50,5 @@ The next tranche should focus on moving from resilience hardening toward a **saf
 2. introduce an allowlisted task-family admission lane for autonomous single-task runs
 3. extend the single-task runner ledger into durable canary metrics and recovery reporting artifacts
 4. produce explicit escalation artifacts for self-hosting control-plane tasks that still require supervised/manual handling
-5. re-prove autonomous single-task execution only after the above lane is green
+5. keep supervised handoff artifacts stable so blocked or failed one-task runs return cleanly to manual oversight
+6. re-prove autonomous single-task execution only after the above lane is green

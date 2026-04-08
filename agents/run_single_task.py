@@ -11,8 +11,10 @@ from typing import Callable, Mapping, Sequence
 DEFAULT_SINGLE_TASK_LEDGER_PATH = "artifacts/autonomous_single_task/run_ledger.jsonl"
 DEFAULT_SINGLE_TASK_CANARY_METRICS_PATH = "artifacts/autonomous_single_task/canary_metrics.json"
 DEFAULT_SINGLE_TASK_RECOVERY_REPORT_PATH = "artifacts/autonomous_single_task/recovery_report.json"
+DEFAULT_SINGLE_TASK_SUPERVISED_HANDOFF_PATH = "artifacts/autonomous_single_task/supervised_handoff.json"
 LEDGER_SCHEMA_VERSION = 1
 CANARY_METRICS_SCHEMA_VERSION = 1
+SUPERVISED_HANDOFF_SCHEMA_VERSION = 1
 ITERATION_RE = re.compile(r"=== Iteration\s+(\d+)/(\d+)\s+===")
 
 
@@ -28,6 +30,11 @@ def default_single_task_canary_metrics_path(*, ledger_path: str | Path | None = 
 def default_single_task_recovery_report_path(*, ledger_path: str | Path | None = None) -> str:
     path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
     return path.with_name("recovery_report.json").as_posix()
+
+
+def default_single_task_supervised_handoff_path(*, ledger_path: str | Path | None = None) -> str:
+    path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    return path.with_name("supervised_handoff.json").as_posix()
 
 
 def _tail_text(text: str, *, limit: int = 1200) -> str:
@@ -336,11 +343,157 @@ def write_single_task_canary_metrics(
 
 
 
+def _dedupe_paths(paths: Sequence[str] | None) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for raw in paths or []:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        ordered.append(value)
+        seen.add(value)
+    return ordered
+
+
+
+def _single_task_handoff_kind(final_decision: str) -> str:
+    if final_decision == "escalation_required":
+        return "escalation_required"
+    if final_decision == "blocked_supervised_only":
+        return "supervised_only"
+    if final_decision == "execution_failed":
+        return "supervised_recovery"
+    return "none"
+
+
+
+def _single_task_handoff_implicated_paths(entry: Mapping[str, object] | None) -> list[str]:
+    payload = dict(entry or {})
+    admission = dict(payload.get("admission", {}) or {})
+    control_plane_paths = _dedupe_paths(admission.get("self_hosting_control_plane_required_paths", []) or [])
+    if control_plane_paths:
+        return control_plane_paths
+    return _dedupe_paths(payload.get("required_paths", []) or [])
+
+
+
+def _single_task_handoff_reason(entry: Mapping[str, object] | None) -> str:
+    payload = dict(entry or {})
+    escalation = dict(payload.get("escalation", {}) or {})
+    admission = dict(payload.get("admission", {}) or {})
+    final_decision = str(payload.get("final_decision", "") or "")
+    reason = str(escalation.get("reason", "") or "").strip()
+    if reason:
+        return reason
+    if final_decision == "blocked_supervised_only":
+        return str(
+            admission.get("proof_task_admission_reason")
+            or admission.get("autonomous_single_task_rationale")
+            or "Task was not admitted to the bounded safe autonomous single-task lane."
+        )
+    if final_decision == "execution_failed":
+        return "Admitted single-task run failed and should be handed back to supervised recovery."
+    return ""
+
+
+
+def _single_task_next_supervised_action(entry: Mapping[str, object] | None) -> str:
+    payload = dict(entry or {})
+    final_decision = str(payload.get("final_decision", "") or "")
+    admission = dict(payload.get("admission", {}) or {})
+    if final_decision == "escalation_required":
+        if bool(admission.get("self_hosting_control_plane_task", False)):
+            return (
+                "Run this task in a supervised/manual lane and keep self-hosting control-plane edits escalation-first; "
+                "review the implicated harness files before attempting any targeted change."
+            )
+        return (
+            "Run this task in a supervised/manual lane because it remains outside the bounded safe autonomous slice."
+        )
+    if final_decision == "blocked_supervised_only":
+        return (
+            "Run this task through the supervised run_task lane, then revisit task decomposition or allowlist policy only "
+            "after the bounded task shape is clearer."
+        )
+    if final_decision == "execution_failed":
+        return (
+            "Inspect the console output, _last_agent_model_output.txt, and _last_agent_file_bundle.txt, then apply the "
+            "smallest targeted supervised recovery on the implicated files."
+        )
+    return ""
+
+
+
+def build_single_task_supervised_handoff_artifact(
+    *,
+    entry: Mapping[str, object] | None,
+    handoff_path: str | Path | None = None,
+    generated_at: str = "",
+) -> dict[str, object]:
+    payload = dict(entry or {})
+    admission = dict(payload.get("admission", {}) or {})
+    validation = dict(payload.get("validation", {}) or {})
+    final_decision = str(payload.get("final_decision", "") or "")
+    artifact_path = str(handoff_path or default_single_task_supervised_handoff_path(ledger_path=payload.get("ledger_path")))
+    implicated_paths = _single_task_handoff_implicated_paths(payload)
+    handoff_required = final_decision != "completed"
+    suggested_inputs = []
+    if final_decision == "execution_failed":
+        suggested_inputs = [
+            "console output",
+            "_last_agent_model_output.txt",
+            "_last_agent_file_bundle.txt",
+        ]
+
+    return {
+        "schema_version": SUPERVISED_HANDOFF_SCHEMA_VERSION,
+        "artifact_type": "autonomous_single_task_supervised_handoff",
+        "generated_at": str(generated_at or payload.get("completed_at") or payload.get("started_at") or ""),
+        "handoff_path": artifact_path,
+        "task_path": str(payload.get("task_path", "") or ""),
+        "task_name": str(payload.get("task_name", "") or Path(str(payload.get("task_path", "") or "")).name),
+        "final_decision": final_decision,
+        "handoff_required": handoff_required,
+        "handoff_kind": _single_task_handoff_kind(final_decision),
+        "handoff_reason": _single_task_handoff_reason(payload),
+        "next_supervised_action": _single_task_next_supervised_action(payload),
+        "implicated_paths": implicated_paths,
+        "suggested_inputs": suggested_inputs,
+        "admission_surface": {
+            "autonomous_single_task_lane": str(admission.get("autonomous_single_task_lane", "") or ""),
+            "autonomy_allowlist_family": str(admission.get("autonomy_allowlist_family", "") or ""),
+            "self_hosting_control_plane_task": bool(admission.get("self_hosting_control_plane_task", False)),
+            "proof_task_detected": bool(admission.get("proof_task_detected", False)),
+            "proof_task_admission_allowed": bool(admission.get("proof_task_admission_allowed", False)),
+        },
+        "validation_surface": {
+            "execution_invoked": bool(validation.get("execution_invoked", False)),
+            "returncode": validation.get("returncode"),
+            "no_checks_reported_observed": bool(validation.get("no_checks_reported_observed", False)),
+        },
+    }
+
+
+
+def write_single_task_supervised_handoff_artifact(
+    artifact: Mapping[str, object],
+    *,
+    handoff_path: str | Path | None = None,
+) -> str:
+    target = Path(handoff_path or artifact.get("handoff_path") or DEFAULT_SINGLE_TASK_SUPERVISED_HANDOFF_PATH)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(dict(artifact), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target.as_posix()
+
+
+
 def refresh_single_task_reporting_artifacts(
     *,
     ledger_path: str | Path | None = None,
     metrics_path: str | Path | None = None,
     recovery_report_path: str | Path | None = None,
+    supervised_handoff_path: str | Path | None = None,
+    current_entry: Mapping[str, object] | None = None,
     generated_at: str = "",
 ) -> dict[str, object]:
     from agents.lib.failure_journal import (  # type: ignore
@@ -365,12 +518,24 @@ def refresh_single_task_reporting_artifacts(
         recovery_report,
         report_path=recovery_report_path or default_single_task_recovery_report_path(ledger_path=source_ledger_path),
     )
+    active_entry = dict(current_entry or (entries[-1] if entries else {}))
+    supervised_handoff = build_single_task_supervised_handoff_artifact(
+        entry=active_entry,
+        handoff_path=supervised_handoff_path or default_single_task_supervised_handoff_path(ledger_path=source_ledger_path),
+        generated_at=generated_at,
+    )
+    supervised_handoff_artifact_path = write_single_task_supervised_handoff_artifact(
+        supervised_handoff,
+        handoff_path=supervised_handoff_path or default_single_task_supervised_handoff_path(ledger_path=source_ledger_path),
+    )
     return {
         "ledger_entries": entries,
         "canary_metrics": metrics,
         "canary_metrics_path": metrics_artifact_path,
         "recovery_report": recovery_report,
         "recovery_report_path": recovery_artifact_path,
+        "supervised_handoff": supervised_handoff,
+        "supervised_handoff_path": supervised_handoff_artifact_path,
     }
 
 
@@ -408,6 +573,7 @@ def run_autonomous_single_task(
     ledger_path: str | Path | None = None,
     metrics_path: str | Path | None = None,
     recovery_report_path: str | Path | None = None,
+    supervised_handoff_path: str | Path | None = None,
     now: Callable[[], str] | None = None,
     executor: Callable[[Sequence[str]], Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
@@ -470,6 +636,8 @@ def run_autonomous_single_task(
         ledger_path=ledger_location,
         metrics_path=metrics_path,
         recovery_report_path=recovery_report_path,
+        supervised_handoff_path=supervised_handoff_path,
+        current_entry=entry,
         generated_at=str(completed_at or started_at),
     )
     return {
@@ -480,6 +648,8 @@ def run_autonomous_single_task(
         "canary_metrics": reporting["canary_metrics"],
         "recovery_report_path": reporting["recovery_report_path"],
         "recovery_report": reporting["recovery_report"],
+        "supervised_handoff_path": reporting["supervised_handoff_path"],
+        "supervised_handoff": reporting["supervised_handoff"],
     }
 
 
@@ -495,6 +665,7 @@ def main() -> int:
     ap.add_argument("--ledger-path", default=DEFAULT_SINGLE_TASK_LEDGER_PATH)
     ap.add_argument("--metrics-path", default=None)
     ap.add_argument("--recovery-report-path", default=None)
+    ap.add_argument("--supervised-handoff-path", default=None)
     args = ap.parse_args()
 
     result = run_autonomous_single_task(
@@ -507,6 +678,7 @@ def main() -> int:
         ledger_path=args.ledger_path,
         metrics_path=args.metrics_path,
         recovery_report_path=args.recovery_report_path,
+        supervised_handoff_path=args.supervised_handoff_path,
     )
     entry = dict(result["entry"])
     print(json.dumps(result, indent=2, sort_keys=True))

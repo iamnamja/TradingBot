@@ -45,5 +45,5 @@ The next tranche should **not** broaden into arbitrary autonomy. It should narro
 - the safe lane admits narrow docs/tests/`src/tradingbot` work only, while `agents/` and `src/builder/orchestrator/` remain escalation-first by default
 - self-hosting control-plane edits remain escalation-first unless separately proven safe
 - unattended readiness remains blocked unless real GitHub required-check enforcement is converged
-- a dedicated single-task runner should emit a run ledger, canary metrics, and explicit escalation artifacts
+- a dedicated single-task runner should emit a run ledger, canary metrics, recovery reporting, and deterministic supervised handoff artifacts
 - broader autonomy claims should remain blocked until the safe lane is re-proven green
