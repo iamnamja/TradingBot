@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 from agents.lib.controller_contract import POLICY_BLOCKED_FAILURE_CATEGORY
 from agents.lib.check_runner import summarize_tester_critique_bundle
 from agents.lib.multi_agent_contract import summarize_role_artifact_envelope
+from agents.lib.public_compat import normalize_failure_remediation_payload
 from agents.lib.controller_repair import (
     build_controller_failure_digest,
     build_controller_repair_context,
@@ -87,7 +88,18 @@ def bounded_failure_snippet(message: str, max_chars: int = DEFAULT_RAW_SNIPPET_L
 
 
 def build_failure_remediation_plan(*, kind: str, message: str, category: str = "", retry_count: int, fingerprint: str = "", raw_failure_snippet: str = "", max_repair_attempts: int = 3, repair_attempt_budget: int | None = None) -> Dict[str, Any]:
-    category = category or classify_failure(kind, message)
+    normalized = normalize_failure_remediation_payload(
+        kind=kind,
+        message=message,
+        category=category,
+        retry_count=retry_count,
+        max_repair_attempts=max_repair_attempts,
+        repair_attempt_budget=repair_attempt_budget if repair_attempt_budget is not None else max_repair_attempts,
+    )
+    kind = str(normalized["failure_kind"])
+    message = str(normalized["failure_message"])
+    category = str(normalized["failure_category"]) or classify_failure(kind, message)
+    retry_count = int(normalized["retry_count"])
     fingerprint = fingerprint or failure_fingerprint(kind=kind, message=message, category=category)
     raw_failure_snippet = raw_failure_snippet or bounded_failure_snippet(message)
     route = choose_repair_strategy(kind=kind, message=message, category=category)
@@ -96,7 +108,7 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
         recommended = "retry_with_targeted_fix"
     elif route["remediation_lane"] == "verifier":
         recommended = "rerun_verifier_lane"
-    attempt_budget = max(1, int(repair_attempt_budget if repair_attempt_budget is not None else max_repair_attempts))
+    attempt_budget = int(normalized["max_repair_attempts"])
     plan = {
         "recommended_next_action": recommended,
         "chosen_remediation_path": str(route["repair_strategy"]),
@@ -117,6 +129,7 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
         "max_files_to_edit": int(route.get("max_files_to_edit", 0)),
         "bounded": True,
         "max_repair_attempts": attempt_budget,
+        "repair_attempt_budget": attempt_budget,
     }
     repair_attempt = build_repair_attempt_record(
         task_path="",
