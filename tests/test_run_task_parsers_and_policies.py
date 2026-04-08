@@ -90,7 +90,7 @@ def test_extract_protected_method_targets_parity() -> None:
     assert {
         "path": "agents/run_task.py",
         "mode": "append",
-        "anchor": "if __name__ == \"__main__\":",
+        "anchor": 'if __name__ == "__main__":',
         "method_name": "_parser_policy_exports",
         "max_changed_lines": None,
     } in targets
@@ -169,3 +169,63 @@ def test_classify_bundle_transport_failure_distinguishes_empty_underfilled_marke
     )
     assert malformed["failure_category"] == "bundle_malformed_transport"
     assert malformed["bundle_malformed"] is True
+
+
+def test_extract_missing_deliverable_evidence_and_feedback_name_exact_paths() -> None:
+    evidence = run_task.extract_missing_deliverable_evidence(
+        "Missing required deliverables parsed from task contract: README.md, docs/TRADINGBOT_PROJECT_STATE.md; missing from final accepted result after lane reconciliation: docs/TRADINGBOT_PROJECT_STATE.md",
+        required_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+        parsed_paths=["README.md"],
+    )
+    assert evidence["missing_required_paths"] == ["docs/TRADINGBOT_PROJECT_STATE.md"]
+    feedback = run_task.build_missing_deliverable_retry_feedback(
+        required_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+        missing_required_paths=evidence["missing_required_paths"],
+        accepted_paths=evidence["accepted_paths"],
+    )
+    assert feedback["retry_target_paths"] == ["docs/TRADINGBOT_PROJECT_STATE.md"]
+    assert "EXACTLY these missing required paths" in feedback["retry_feedback"]
+    assert "docs/TRADINGBOT_PROJECT_STATE.md" in feedback["retry_feedback"]
+    assert "Already accepted required paths" in feedback["retry_feedback"]
+    assert "README.md" in feedback["retry_feedback"]
+
+
+def test_request_and_parse_bundle_underfilled_response_uses_missing_deliverable_retry(tmp_path, monkeypatch) -> None:
+    prompts: list[str] = []
+    responses = iter([
+        (
+            "BEGIN_" + "FILE_BUNDLE\n"
+            "FI" + "LE: a.py\n"
+            "x = 1\n"
+            "END_" + "FILE\n"
+            "END_" + "FILE_BUNDLE\n"
+        ),
+        (
+            "BEGIN_" + "FILE_BUNDLE\n"
+            "FI" + "LE: b.py\n"
+            "y = 2\n"
+            "END_" + "FILE\n"
+            "END_" + "FILE_BUNDLE\n"
+        ),
+    ])
+
+    def fake_chat(messages, model, provider=None):
+        if len(messages) > 1:
+            prompts.append(messages[-1]["content"])
+        return next(responses)
+
+    monkeypatch.setattr(run_task, "chat", fake_chat)
+    out = run_task.request_and_parse_bundle(
+        messages=[{"role": "user", "content": "do task"}],
+        model="m",
+        provider="openai",
+        last_output_path=tmp_path / "last.txt",
+        expected_paths=["a.py", "b.py"],
+    )
+    assert out == {"a.py": "x = 1\n", "b.py": "y = 2\n"}
+    assert len(prompts) == 1
+    assert "EXACTLY these missing required paths" in prompts[0]
+    assert "b.py" in prompts[0]
+    assert "Already accepted required paths" in prompts[0]
+    assert "a.py" in prompts[0]
+    assert "Your previous response was INVALID" not in prompts[0]

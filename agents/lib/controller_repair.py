@@ -494,6 +494,116 @@ def is_collection_failure(*, kind: str, message: str, category: str = "") -> boo
 
 
 
+_DELIVERABLE_LIST_RE = re.compile(r"(?::\s*)(.+)$")
+
+
+def _split_path_csv(value: str) -> list[str]:
+    return [item.strip().replace('\\', '/') for item in str(value or '').split(',') if item.strip()]
+
+
+def extract_missing_deliverable_evidence(
+    *,
+    message: str,
+    required_paths: Iterable[str] | None = None,
+    parsed_paths: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    required = _stable_unique(_normalize_path(path) for path in (required_paths or ()) if str(path or '').strip())
+    parsed = _stable_unique(_normalize_path(path) for path in (parsed_paths or ()) if str(path or '').strip())
+    text = str(message or '')
+    lower = text.lower()
+
+    missing_paths: list[str] = []
+    unchanged_paths: list[str] = []
+    evidence_kind = ''
+
+    marker = 'missing from final accepted result after lane reconciliation:'
+    if marker in lower:
+        suffix = text[lower.index(marker) + len(marker):]
+        missing_paths = _split_path_csv(suffix)
+        evidence_kind = 'missing_required_paths'
+    elif 'missing file blocks from the requested scope:' in lower:
+        suffix = text[lower.index('missing file blocks from the requested scope:') + len('missing file blocks from the requested scope:'):]
+        missing_paths = _split_path_csv(suffix)
+        evidence_kind = 'missing_required_paths'
+    elif 'required deliverables were included but not materially updated:' in lower:
+        suffix = text[lower.index('required deliverables were included but not materially updated:') + len('required deliverables were included but not materially updated:'):]
+        unchanged_paths = _split_path_csv(suffix)
+        evidence_kind = 'unchanged_required_paths'
+
+    if not missing_paths and required and parsed and set(parsed) < set(required):
+        missing_paths = sorted(set(required) - set(parsed))
+        evidence_kind = evidence_kind or 'missing_required_paths'
+
+    retry_targets = missing_paths or unchanged_paths
+    accepted_paths = [path for path in parsed if path not in retry_targets]
+    return {
+        'required_paths': required,
+        'parsed_paths': parsed,
+        'missing_required_paths': missing_paths,
+        'unchanged_required_paths': unchanged_paths,
+        'accepted_paths': accepted_paths,
+        'retry_target_paths': retry_targets,
+        'deliverable_retry_kind': evidence_kind,
+        'has_missing_deliverable_evidence': bool(retry_targets),
+    }
+
+
+def build_missing_deliverable_retry_feedback(
+    *,
+    task_file: str = '',
+    required_paths: Iterable[str] | None = None,
+    missing_required_paths: Iterable[str] | None = None,
+    unchanged_required_paths: Iterable[str] | None = None,
+    accepted_paths: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    required = _stable_unique(_normalize_path(path) for path in (required_paths or ()) if str(path or '').strip())
+    missing = _stable_unique(_normalize_path(path) for path in (missing_required_paths or ()) if str(path or '').strip())
+    unchanged = _stable_unique(_normalize_path(path) for path in (unchanged_required_paths or ()) if str(path or '').strip())
+    accepted = [path for path in _stable_unique(_normalize_path(path) for path in (accepted_paths or ()) if str(path or '').strip()) if path not in set(missing) | set(unchanged)]
+    retry_targets = missing or unchanged
+    evidence_kind = 'missing_required_paths' if missing else 'unchanged_required_paths' if unchanged else ''
+
+    lines: list[str] = []
+    if task_file:
+        lines.append(f'Task file: {task_file}')
+    lines.append('Your previous response was structurally valid but incomplete for the required deliverables.')
+    if missing:
+        lines.append('Return ONLY a valid file bundle containing FILE blocks for EXACTLY these missing required paths and no others:')
+        lines.extend(f'- {path}' for path in missing)
+    elif unchanged:
+        lines.append('Return ONLY a valid file bundle containing FILE blocks for EXACTLY these required paths and materially update them:')
+        lines.extend(f'- {path}' for path in unchanged)
+    else:
+        lines.append('Return ONLY a valid file bundle for the smallest remaining required deliverable subset.')
+        lines.extend(f'- {path}' for path in required)
+    if accepted:
+        lines.extend(['', 'Already accepted required paths that should remain implicitly unchanged:'])
+        lines.extend(f'- {path}' for path in accepted)
+    lines.extend([
+        '',
+        'Do not restate unrelated files or the whole task.',
+        'Every FILE block must be closed by a literal END_FILE line.',
+        'Do not emit unexpected FILE blocks outside the named retry subset.',
+    ])
+    if unchanged:
+        lines.append('Do not resend byte-identical copies of the named required files; materially update them.')
+
+    summary_parts: list[str] = []
+    if missing:
+        summary_parts.append('missing required paths: ' + ', '.join(missing))
+    if unchanged:
+        summary_parts.append('unchanged required paths: ' + ', '.join(unchanged))
+    evidence_summary = '; '.join(summary_parts)
+
+    return {
+        'deliverable_retry_kind': evidence_kind,
+        'retry_target_paths': retry_targets,
+        'accepted_paths': accepted,
+        'evidence_summary': evidence_summary,
+        'retry_feedback': "\n".join(lines).strip() + "\n",
+    }
+
+
 
 def classify_assertion_repair_target(
     *,
@@ -820,6 +930,10 @@ def build_controller_repair_context(
         touched_files=touched_files,
         task_file=task_file,
     )
+    deliverable_evidence = extract_missing_deliverable_evidence(
+        message=message,
+        required_paths=touched_files,
+    )
     lines = [
         "Focused controller repair required.",
         "Use the semantic failure digest and explicit repair strategy below in addition to the raw failing output.",
@@ -833,12 +947,18 @@ def build_controller_repair_context(
     formatted_route = format_repair_strategy(route)
     if formatted_route:
         lines.append(formatted_route)
+    if deliverable_evidence.get("has_missing_deliverable_evidence"):
+        lines.append("Missing-deliverable evidence:")
+        if deliverable_evidence.get("missing_required_paths"):
+            lines.append("- missing_required_paths: " + ", ".join(str(item) for item in deliverable_evidence["missing_required_paths"]))
+        if deliverable_evidence.get("unchanged_required_paths"):
+            lines.append("- unchanged_required_paths: " + ", ".join(str(item) for item in deliverable_evidence["unchanged_required_paths"]))
     return {
         "semantic_failure_digest": digest,
         "repair_strategy": route,
+        "missing_deliverable_evidence": deliverable_evidence,
         "repair_prompt": "\n".join(lines),
     }
-
 
 def build_controller_test_failure_appendix(
     *,

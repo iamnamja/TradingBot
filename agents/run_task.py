@@ -640,6 +640,38 @@ def classify_bundle_transport_failure(
     return {"failure_category": "bundle_malformed_transport", "bundle_markers_present": markers_present, "bundle_structurally_valid": False}
 
 
+def extract_missing_deliverable_evidence(
+    message: str,
+    *,
+    required_paths: Sequence[str] | None = None,
+    parsed_paths: Sequence[str] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.controller_repair import extract_missing_deliverable_evidence as _impl  # type: ignore
+
+    return dict(_impl(message=message, required_paths=required_paths, parsed_paths=parsed_paths))
+
+
+def build_missing_deliverable_retry_feedback(
+    *,
+    task_file: str = "",
+    required_paths: Sequence[str] | None = None,
+    missing_required_paths: Sequence[str] | None = None,
+    unchanged_required_paths: Sequence[str] | None = None,
+    accepted_paths: Sequence[str] | None = None,
+) -> Dict[str, object]:
+    from agents.lib.controller_repair import build_missing_deliverable_retry_feedback as _impl  # type: ignore
+
+    return dict(
+        _impl(
+            task_file=task_file,
+            required_paths=required_paths,
+            missing_required_paths=missing_required_paths,
+            unchanged_required_paths=unchanged_required_paths,
+            accepted_paths=accepted_paths,
+        )
+    )
+
+
 def build_final_acceptance_report(
     *,
     task_file: str,
@@ -4017,32 +4049,67 @@ def request_and_parse_bundle(
             except Exception as duplicate_exc:
                 raise FileBundleError(f"Model returned malformed or policy-violating file bundle after retry: {duplicate_exc}") from duplicate_exc
         else:
-            reminder = (
-                "Your previous response was INVALID.\n"
-                "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
-                "Do NOT use commented headers like '# FILE:'.\n"
-                "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n"
-                "There must be an END_FILE before any later FILE header.\n"
-                "Do not open a new FILE block until the previous FILE block is closed.\n"
-                "If generated source or tests need literal bundle markers, do not place raw BEGIN_FILE_BUNDLE, FILE:, END_FILE, or END_FILE_BUNDLE at the start of a source line.\n"
-                "Instead use split string tokens such as 'FI' + 'LE:' and 'END_' + 'FILE'.\n"
-                "Do not rewrite protected meta harness files such as agents/run_task.py as miniature replacements.\n"
-                + forbidden_hint
-                + "\nRequired structure:\n"
-                "BEGIN_FILE_BUNDLE\n"
-                "FILE: path/to/file.ext\n"
-                "<full file contents>\n"
-                "END_FILE\n"
-                "FILE: another/path.py\n"
-                "<full file contents>\n"
-                "END_FILE\n"
-                "END_FILE_BUNDLE\n\n"
-                f"Parser/policy error: {e}"
+            classification = classify_bundle_transport_failure(
+                out,
+                str(e),
+                expected_paths=allowed_paths,
             )
+            reminder = ""
+            if str(classification.get("failure_category") or "") == "bundle_underfilled_response":
+                parsed_subset: Dict[str, str] = {}
+                try:
+                    parsed_subset = _parse_validate_or_salvage(out, allowed_paths, require_all=False)
+                except Exception:
+                    parsed_subset = {}
+                evidence = extract_missing_deliverable_evidence(
+                    str(e),
+                    required_paths=allowed_paths,
+                    parsed_paths=sorted(parsed_subset),
+                )
+                retry_feedback = build_missing_deliverable_retry_feedback(
+                    required_paths=allowed_paths,
+                    missing_required_paths=evidence.get("missing_required_paths", []),
+                    unchanged_required_paths=evidence.get("unchanged_required_paths", []),
+                    accepted_paths=sorted(parsed_subset),
+                )
+                reminder = str(retry_feedback.get("retry_feedback") or "")
+            if not reminder:
+                reminder = (
+                    "Your previous response was INVALID.\n"
+                    "You MUST output ONLY a valid file bundle using literal lines starting with 'FILE: '.\n"
+                    "Do NOT use commented headers like '# FILE:'.\n"
+                    "Every FILE block MUST be terminated by a literal END_FILE line before the next FILE header.\n"
+                    "There must be an END_FILE before any later FILE header.\n"
+                    "Do not open a new FILE block until the previous FILE block is closed.\n"
+                    "If generated source or tests need literal bundle markers, do not place raw BEGIN_FILE_BUNDLE, FILE:, END_FILE, or END_FILE_BUNDLE at the start of a source line.\n"
+                    "Instead use split string tokens such as 'FI' + 'LE:' and 'END_' + 'FILE'.\n"
+                    "Do not rewrite protected meta harness files such as agents/run_task.py as miniature replacements.\n"
+                    + forbidden_hint
+                    + "\nRequired structure:\n"
+                    "BEGIN_FILE_BUNDLE\n"
+                    "FILE: path/to/file.ext\n"
+                    "<full file contents>\n"
+                    "END_FILE\n"
+                    "FILE: another/path.py\n"
+                    "<full file contents>\n"
+                    "END_FILE\n"
+                    "END_FILE_BUNDLE\n\n"
+                    f"Parser/policy error: {e}"
+                )
             out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
             last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
             try:
-                parsed = _parse_validate_or_salvage(out2, allowed_paths, require_all=bool(allowed_paths))
+                if str(classification.get("failure_category") or "") == "bundle_underfilled_response":
+                    repaired_subset = _parse_validate_or_salvage(
+                        out2,
+                        [str(path) for path in (retry_feedback.get("retry_target_paths", []) or []) if str(path).strip()],
+                        require_all=True,
+                    )
+                    merged = dict(parsed_subset)
+                    merged.update(repaired_subset)
+                    parsed = _validate_transport(merged, allowed_paths, require_all=bool(allowed_paths))
+                else:
+                    parsed = _parse_validate_or_salvage(out2, allowed_paths, require_all=bool(allowed_paths))
             except Exception as e2:
                 if _is_duplicate_bundle_error(e2):
                     try:
@@ -5132,8 +5199,25 @@ def main() -> int:
             allow_unchanged_cli=allow_unchanged_cli,
         )
         if not ok_req:
-            _report_failure("deliverables", req_msg, touched_files=required, task_file=task_path.as_posix())
-            task_text = _append_task_feedback(task_text, req_msg)
+            evidence = extract_missing_deliverable_evidence(
+                req_msg,
+                required_paths=required,
+                parsed_paths=sorted(files),
+            )
+            retry_feedback = build_missing_deliverable_retry_feedback(
+                task_file=task_path.as_posix(),
+                required_paths=required,
+                missing_required_paths=evidence.get("missing_required_paths", []),
+                unchanged_required_paths=evidence.get("unchanged_required_paths", []),
+                accepted_paths=sorted(files),
+            )
+            _report_failure(
+                "deliverables",
+                req_msg,
+                touched_files=list(retry_feedback.get("retry_target_paths", []) or required),
+                task_file=task_path.as_posix(),
+            )
+            task_text = _append_task_feedback(task_text, str(retry_feedback.get("retry_feedback") or req_msg))
             if _repeat_limit_exceeded(violation_counts, "deliverables", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated deliverable violations. Recommended action: manual_patch")
                 print("Model output saved to: _last_agent_model_output.txt")
@@ -5141,6 +5225,7 @@ def main() -> int:
                 return 1
             prev_files = files
             continue
+
 
         ok_policy, policy_msg = enforce_harness_file_policies(task_text, files, baseline)
         if not ok_policy:
@@ -5328,6 +5413,9 @@ def _parser_policy_exports() -> Dict[str, object]:
         exports["parse_file_bundle"] = None
         exports["parse_method_insertion_bundle"] = None
         exports["classify_bundle_transport_failure"] = None
+
+    exports["extract_missing_deliverable_evidence"] = extract_missing_deliverable_evidence
+    exports["build_missing_deliverable_retry_feedback"] = build_missing_deliverable_retry_feedback
 
     if _task_contracts is not None:
         exports["parse_task_contract_directives"] = getattr(_task_contracts, "parse_task_contract_directives", None)

@@ -16,18 +16,19 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **100–107 harden resilience, hosted-authority truth, bootstrap recovery, and supervised mixed-manifest proof**
 - **108–114 harden ordinary-task autonomy operating mode (artifact envelopes, tester critique/replay, repair memory, admission gates, authority contracts, multi-role ordinary execution, cross-task carry-forward)**
 - **115 adds a fresh supervised local-first ordinary-manifest end-to-end re-proof**
-- Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
+- **116–123 establish bounded supervised multi-project portfolio baseline**
+- **124–128 harden compatibility contracts, schema aliases, stop vocabulary, assertion-targeted self-heal, and green-gated claim discipline**
+- **129 reruns supervised bounded portfolio re-proof after 124–128 without widening scope claims**
 
 ## What the product can honestly claim today
 
-The repo now has deterministic proof for a bounded supervised slice:
+The repo has deterministic proof for a bounded supervised portfolio slice:
 
-- short ordinary-manifest progression across multiple ordinary tasks
-- combined builder/verifier/controller execution surfaces
-- tester critique with focused replay lane before broader validation
-- repair-memory suppression of repeated no-progress retries
-- bounded cross-task carry-forward memory
-- conservative authority/admission gate stop posture
+- supervised local-first progression across more than one registered project
+- project-scoped workspace/branch/state/carry-forward memory isolation
+- dependency-aware next-task selection with conservative no-ready-task stop posture
+- compatibility-preserving hosted-authority truth and merge-eligibility truth
+- green-gated claim discipline for proof-complete wording
 - explicit claim discipline that does not exceed tested deterministic scope
 
 The proof is intentionally bounded and does **not** claim:
@@ -39,14 +40,13 @@ The proof is intentionally bounded and does **not** claim:
 
 ## Next product-stage focus
 
-The next continuation after Task 115 should focus on converting the current bounded ordinary-manifest proof into a portfolio-capable operating mode.
+Continue strengthening reliability and convergence while preserving truthful bounded supervised scope and compatibility guarantees.
 
-The main product gaps are:
+The main product gaps now are:
 
-- no canonical multi-project registry and contract surface yet
-- insufficient project-scoped isolation for state, branches, and workspaces
-- weak next-task selection across a real backlog
-- dependency and decomposition planning that is still too manifest-shaped
-- self-heal that still needs stronger repair-plan ranking and rollback behavior
-- validation and authority that are not yet fully project-aware
-- hosted authority that is still truthful but not yet operationally converged enough for low-babysitting portfolio execution
+- proof/re-proof tasks can still be under-specified enough to invite empty or zero-delta model responses
+- bundle transport failures are still grouped too broadly, which wastes retries
+- retries still lean too hard on generic “fix the bundle” reminders instead of missing-deliverable evidence
+- failing assertions do not yet consistently expand into the full set of coupled compatibility/public-surface seams that need repair together
+- localized repair needs a stronger last-known-good preservation contract
+- hosted-authority truth exists, but actual repo-check convergence is not yet strong enough for low-babysitting unattended execution
