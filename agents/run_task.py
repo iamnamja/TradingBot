@@ -106,6 +106,38 @@ def normalize_failure_remediation_payload(payload: Mapping[str, Any] | None = No
     from agents.lib.public_compat import normalize_failure_remediation_payload as _normalize_failure_remediation_payload
     return dict(_normalize_failure_remediation_payload(payload, **overrides))
 
+
+
+def claim_discipline_snapshot() -> dict[str, object]:
+    from agents.lib.claim_discipline import claim_discipline_snapshot as _claim_discipline_snapshot
+    return dict(_claim_discipline_snapshot())
+
+
+def contains_proof_complete_claim(text: str) -> bool:
+    from agents.lib.claim_discipline import contains_proof_complete_claim as _contains_proof_complete_claim
+    return bool(_contains_proof_complete_claim(text))
+
+
+def evaluate_claim_discipline(*, focused_validation_green: bool, full_validation_green: bool, proposed_updates: Mapping[str, str] | None = None) -> dict[str, object]:
+    from agents.lib.claim_discipline import evaluate_claim_discipline as _evaluate_claim_discipline
+    return dict(
+        _evaluate_claim_discipline(
+            focused_validation_green=focused_validation_green,
+            full_validation_green=full_validation_green,
+            proposed_updates=proposed_updates,
+        )
+    )
+
+
+def filter_claim_updates_for_validation(*, focused_validation_green: bool, full_validation_green: bool, proposed_updates: Mapping[str, str] | None = None) -> dict[str, object]:
+    from agents.lib.claim_discipline import filter_claim_updates_for_validation as _filter_claim_updates_for_validation
+    return dict(
+        _filter_claim_updates_for_validation(
+            focused_validation_green=focused_validation_green,
+            full_validation_green=full_validation_green,
+            proposed_updates=proposed_updates,
+        )
+    )
 def resolve_project_contract(project_id: str) -> dict[str, object]:
     from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
     return dict(_resolve_project_contract(project_id))
