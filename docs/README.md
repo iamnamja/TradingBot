@@ -11,4 +11,4 @@ Task 128 adds green-gated claim discipline so proof-complete wording stays block
 
 ## Current recovery note
 
-Task 129 completed the bounded supervised portfolio re-proof, but the next tranche focuses on reducing babysitting by improving task admission, bundle-failure classification, targeted retry compilation, compatibility-surface inference, last-green preservation, and hosted-authority convergence.
+Task 129 completed the bounded supervised portfolio re-proof, and Tasks 130–133 now harden proof-task admission, bundle-failure classification, targeted retry compilation, and coupled compatibility-surface inference. The remaining focus is last-green preservation, hosted-authority convergence, and the bounded resilience re-proof.

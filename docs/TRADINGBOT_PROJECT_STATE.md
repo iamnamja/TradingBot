@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 090–132 are complete in deterministic supervised scope:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, supervised ordinary-manifest re-proof, project registry/isolation/selection/authority/merge-eligibility proof, and post-123 compatibility/self-heal/claim-discipline hardening with Task 129 supervised portfolio re-proof retry, Task 130 proof-task admission gating, Task 131 empty/underfilled bundle classification, and Task 132 missing-deliverable retry compilation.
+- **Tasks 090–133 are complete in deterministic supervised scope:** the repo now has a canonical three-role multi-agent contract surface, persisted role handoff truth, stable typed coder/tester/controller artifact envelopes, a sequential builder/verifier/controller loop with controller-owned final authority, explicit verification-authority truth, a reusable Python-first project/workspace adapter contract, dependency-aware manifest planning/routing, a second-project Python portability proof, extraction-prep consumer boundary posture, targeted resilience hardening, external bootstrap recovery proof, supervised mixed-manifest re-proof, autonomy operating-mode hardening, supervised ordinary-manifest re-proof, project registry/isolation/selection/authority/merge-eligibility proof, and post-123 compatibility/self-heal/claim-discipline hardening with Task 129 supervised portfolio re-proof retry, Task 130 proof-task admission gating, Task 131 empty/underfilled bundle classification, Task 132 missing-deliverable retry compilation, and Task 133 coupled compatibility-surface repair planning.
 
 The current deterministic proof slice now demonstrates:
 
@@ -20,8 +20,10 @@ The current deterministic proof slice now demonstrates:
 2. preserved project-scoped state, branch, workspace, and carry-forward isolation
 3. dependency-aware next-task selection and conservative stop behavior when no dependency-ready task is available
 4. compatibility-preserving hosted-authority truth and merge-eligibility truth after Tasks 124–128
-5. green-gated docs/spec/status claim discipline for proof-complete wording
-6. no broader claim than deterministic local supervised proof coverage
+5. targeted retries around exact missing/unchanged deliverables instead of broad transport restatement
+6. assertion-driven inference of coupled compatibility/public-surface repair sets
+7. green-gated docs/spec/status claim discipline for proof-complete wording
+8. no broader claim than deterministic local supervised proof coverage
 
 ## Scope honesty
 
@@ -44,7 +46,6 @@ That means prioritizing:
 1. task admission rules that reject under-specified proof/re-proof tasks before the model is invoked
 2. explicit failure classification for empty and underfilled bundles rather than treating them as generic malformed transport
 3. targeted retry compilation around exact missing/unchanged required deliverables instead of broad transport reminders
-4. better inference from failing assertions into the exact compatibility/public-surface seams that must be repaired together
-5. preservation of last-known-good files while repairing only the failing subset
-6. tighter operational convergence between local truth, hosted checks, and real branch-protection expectations
-7. a bounded supervised re-proof over the historical failure classes that still cause babysitting today
+4. preservation of last-known-good files while repairing only the failing subset
+5. tighter operational convergence between local truth, hosted checks, and real branch-protection expectations
+6. a bounded supervised re-proof over the historical failure classes that still cause babysitting today

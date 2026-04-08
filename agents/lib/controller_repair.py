@@ -497,6 +497,110 @@ def is_collection_failure(*, kind: str, message: str, category: str = "") -> boo
 _DELIVERABLE_LIST_RE = re.compile(r"(?::\s*)(.+)$")
 
 
+_PUBLIC_SURFACE_PROVIDER_FILES = {
+    "resolve_project_contract": ["agents/run_task.py", "agents/lib/project_registry.py"],
+    "project_validation_matrix": ["agents/run_task.py", "agents/lib/project_registry.py"],
+    "build_project_validation_plan": ["agents/run_task.py", "agents/lib/project_registry.py"],
+    "project_verification_authority_profile": ["agents/run_task.py", "agents/lib/project_registry.py"],
+    "project_repo_check_contract": ["agents/run_task.py", "agents/lib/project_registry.py"],
+    "project_merge_eligibility_contract": ["agents/run_task.py", "agents/lib/project_registry.py"],
+    "project_registry_snapshot": ["agents/run_task.py", "agents/lib/project_registry.py"],
+    "canonical_required_check_truth": ["agents/run_task.py", "agents/lib/git_workflow.py"],
+    "evaluate_project_verification_authority": ["agents/run_task.py", "agents/lib/git_workflow.py"],
+    "evaluate_project_merge_eligibility": ["agents/run_task.py", "agents/lib/git_workflow.py"],
+    "evaluate_hosted_authority_convergence": ["agents/run_task.py", "agents/lib/git_workflow.py"],
+    "build_failure_remediation_plan": ["agents/run_task.py", "agents/lib/failure_journal.py"],
+    "recommended_next_action": ["agents/run_task.py", "agents/lib/failure_journal.py"],
+    "chosen_remediation_path": ["agents/run_task.py", "agents/lib/failure_journal.py"],
+    "autonomy_confidence": ["agents/run_task.py", "agents/lib/failure_journal.py"],
+    "continue_autonomously": ["agents/run_task.py", "agents/lib/failure_journal.py"],
+    "extract_missing_deliverable_evidence": ["agents/run_task.py", "agents/lib/controller_repair.py"],
+    "build_missing_deliverable_retry_feedback": ["agents/run_task.py", "agents/lib/controller_repair.py"],
+    "build_controller_failure_digest": ["agents/run_task.py", "agents/lib/controller_repair.py"],
+    "build_controller_repair_context": ["agents/run_task.py", "agents/lib/controller_repair.py"],
+    "choose_repair_strategy": ["agents/run_task.py", "agents/lib/controller_repair.py"],
+    "format_repair_strategy": ["agents/run_task.py", "agents/lib/controller_repair.py"],
+    "build_controller_test_failure_appendix": ["agents/run_task.py", "agents/lib/controller_repair.py"],
+    "classify_bundle_transport_failure": ["agents/run_task.py", "agents/lib/bundle_parser.py"],
+    "validate_exact_deliverable_contract": ["agents/run_task.py", "agents/lib/task_contracts.py"],
+}
+
+_SNAPSHOT_FIELD_PROVIDER_FILES = {
+    "portfolio_reproof_retry_task": ["agents/run_task.py", "agents/lib/project_registry.py"],
+    "verification_authority_satisfied": ["agents/run_task.py", "agents/lib/git_workflow.py"],
+    "should_escalate": ["agents/run_task.py", "agents/lib/failure_journal.py"],
+}
+
+_ENUM_CONSUMER_FILES = {
+    "manual_patch_required": ["agents/lib/controller_contract.py", "agents/lib/batch_executor.py"],
+    "failed_checks": ["agents/lib/controller_contract.py", "agents/lib/git_workflow.py"],
+    "failed_merge": ["agents/lib/controller_contract.py", "agents/lib/git_workflow.py"],
+    "failed_reset": ["agents/lib/controller_contract.py", "agents/lib/git_workflow.py"],
+    "next_task_may_proceed": ["agents/lib/controller_contract.py", "agents/lib/git_workflow.py"],
+    "stopped": ["agents/lib/controller_contract.py", "agents/lib/batch_executor.py"],
+}
+
+
+def infer_coupled_compatibility_surface(
+    *,
+    raw_message: str,
+    task_file: str = "",
+    touched_files: Iterable[str] | None = None,
+    fallback_files: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    text = str(raw_message or "")
+    lowered = text.lower()
+    hinted = controller_family_files_touched([*(touched_files or ()), task_file], details=text)
+    fallback = [path for path in _stable_unique(_normalize_path(path) for path in (fallback_files or ()) if str(path or "").strip()) if path]
+
+    symbol = ""
+    if "has no attribute" in lowered:
+        match = re.search(r"has no attribute ['`\"]([^'`\"]+)['`\"]", text)
+        if match:
+            symbol = str(match.group(1) or "").strip()
+    if not symbol and "cannot import name" in lowered:
+        match = re.search(r"cannot import name ['`\"]([^'`\"]+)['`\"]", text)
+        if match:
+            symbol = str(match.group(1) or "").strip()
+    if not symbol and "unexpected keyword argument" in lowered and "build_failure_remediation_plan" in lowered:
+        symbol = "build_failure_remediation_plan"
+
+    if symbol and symbol in _PUBLIC_SURFACE_PROVIDER_FILES:
+        files = _stable_unique([*_PUBLIC_SURFACE_PROVIDER_FILES[symbol], *hinted])
+        return {
+            "compatibility_surface_kind": "export_plus_provider",
+            "coupled_repair_set_inferred": True,
+            "compatibility_surface_symbol": symbol,
+            "compatibility_surface_files": files,
+        }
+
+    for field, files in _SNAPSHOT_FIELD_PROVIDER_FILES.items():
+        needle = f"'{field}'"
+        if needle in text or field.lower() in lowered:
+            return {
+                "compatibility_surface_kind": "snapshot_plus_provider",
+                "coupled_repair_set_inferred": True,
+                "compatibility_surface_symbol": field,
+                "compatibility_surface_files": _stable_unique([*files, *hinted]),
+            }
+
+    for token, files in _ENUM_CONSUMER_FILES.items():
+        if token.lower() in lowered:
+            return {
+                "compatibility_surface_kind": "enum_contract_plus_consumer",
+                "coupled_repair_set_inferred": True,
+                "compatibility_surface_symbol": token,
+                "compatibility_surface_files": _stable_unique([*files, *hinted]),
+            }
+
+    return {
+        "compatibility_surface_kind": "",
+        "coupled_repair_set_inferred": False,
+        "compatibility_surface_symbol": "",
+        "compatibility_surface_files": fallback,
+    }
+
+
 def _split_path_csv(value: str) -> list[str]:
     return [item.strip().replace('\\', '/') for item in str(value or '').split(',') if item.strip()]
 
@@ -623,14 +727,26 @@ def classify_assertion_repair_target(
             task_file=task_file,
             touched_files=hinted_files or touched_files,
         )
+        coupled = infer_coupled_compatibility_surface(
+            raw_message=raw_message,
+            task_file=task_file,
+            touched_files=hinted_files or touched_files,
+            fallback_files=target_files,
+        )
+        coupled_files = [str(path) for path in coupled.get("compatibility_surface_files") or [] if str(path)]
+        final_targets = coupled_files or target_files
         return {
             "assertion_target_category": category_name,
             "chosen_repair_target": surface,
             "targeted_patch_surface": surface,
-            "target_files": target_files,
+            "target_files": final_targets,
+            "compatibility_surface_kind": str(coupled.get("compatibility_surface_kind") or ""),
+            "compatibility_surface_symbol": str(coupled.get("compatibility_surface_symbol") or ""),
+            "coupled_repair_set_inferred": bool(coupled.get("coupled_repair_set_inferred", False)),
+            "compatibility_surface_files": final_targets,
             "prefer_minimal_patch": surface != "broad_builder_repair",
             "minimal_patch_selected": surface != "broad_builder_repair",
-            "max_files_to_edit": 0 if surface == "manual_stop" else (2 if surface in {"compatibility_alias_only", "import_line_only"} else 3),
+            "max_files_to_edit": 0 if surface == "manual_stop" else max(2 if surface in {"compatibility_alias_only", "import_line_only", "controller_contract_surface"} else 3, len(final_targets) or 0),
             "assertion_target_rationale": rationale,
             "assertion_target_confidence": confidence,
             "narrow_repair_selected": surface in {"compatibility_alias_only", "result_shape_adapter", "manifest_schema_adapter", "controller_contract_surface", "docs_claim_sync"},
@@ -646,6 +762,14 @@ def classify_assertion_repair_target(
             rationale="Assertion evidence points to docs/status overclaim while validation is still red.",
             confidence=0.98,
             explicit_targets=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md", "docs/ORCHESTRATOR_PRODUCT_SPEC.md"],
+        )
+
+    if any(field.lower() in text for field in _SNAPSHOT_FIELD_PROVIDER_FILES):
+        return _target(
+            "compatibility_alias_only",
+            category_name="missing_project_contract_field",
+            rationale="Assertion evidence points to a missing compatibility snapshot field that should be repaired with the owning provider surface together with any exported wrapper seam.",
+            confidence=0.95,
         )
 
     if any(field in text for field in _PROJECT_CONTRACT_FIELD_TOKENS) and any(token in text for token in ("keyerror", "missing", "assert isinstance(contract")):
@@ -743,6 +867,10 @@ def choose_repair_strategy(
         "assertion_target_rationale": str(assertion_target.get("assertion_target_rationale") or ""),
         "narrow_repair_selected": bool(assertion_target.get("narrow_repair_selected", False)),
         "repair_target_priority": str(assertion_target.get("repair_target_priority") or "broad_fallback"),
+        "compatibility_surface_kind": str(assertion_target.get("compatibility_surface_kind") or ""),
+        "compatibility_surface_symbol": str(assertion_target.get("compatibility_surface_symbol") or ""),
+        "coupled_repair_set_inferred": bool(assertion_target.get("coupled_repair_set_inferred", False)),
+        "compatibility_surface_files": [str(item) for item in assertion_target.get("compatibility_surface_files") or [] if str(item)],
         **targeted,
     }
 
@@ -902,6 +1030,10 @@ def format_repair_strategy(route: dict[str, Any] | None) -> str:
             f"- chosen_repair_target: {payload.get('chosen_repair_target', '')}",
             f"- assertion_target_category: {payload.get('assertion_target_category', '')}",
             f"- target_files: {', '.join(str(item) for item in payload.get('target_files', []))}",
+            f"- compatibility_surface_kind: {payload.get('compatibility_surface_kind', '')}",
+            f"- compatibility_surface_symbol: {payload.get('compatibility_surface_symbol', '')}",
+            f"- coupled_repair_set_inferred: {bool(payload.get('coupled_repair_set_inferred', False))}",
+            f"- compatibility_surface_files: {', '.join(str(item) for item in payload.get('compatibility_surface_files', []))}",
             f"- minimal_patch_selected: {bool(payload.get('minimal_patch_selected', False))}",
             f"- rationale: {payload.get('rationale', '')}",
         ]
@@ -953,6 +1085,13 @@ def build_controller_repair_context(
             lines.append("- missing_required_paths: " + ", ".join(str(item) for item in deliverable_evidence["missing_required_paths"]))
         if deliverable_evidence.get("unchanged_required_paths"):
             lines.append("- unchanged_required_paths: " + ", ".join(str(item) for item in deliverable_evidence["unchanged_required_paths"]))
+    if route.get("coupled_repair_set_inferred"):
+        lines.append("Coupled compatibility surface:")
+        lines.append("- compatibility_surface_kind: " + str(route.get("compatibility_surface_kind") or ""))
+        if route.get("compatibility_surface_symbol"):
+            lines.append("- compatibility_surface_symbol: " + str(route.get("compatibility_surface_symbol") or ""))
+        if route.get("compatibility_surface_files"):
+            lines.append("- compatibility_surface_files: " + ", ".join(str(item) for item in route.get("compatibility_surface_files") or []))
     return {
         "semantic_failure_digest": digest,
         "repair_strategy": route,
