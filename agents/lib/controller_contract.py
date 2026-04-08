@@ -17,7 +17,7 @@ BatchStatus = Literal[
     "completed",
     "blocked",
     "failed",
-    "manual_patch",
+    "manual_patch_required",
     "failed_merge",
     "failed_checks",
     "failed_reset",
@@ -59,6 +59,16 @@ POST_TASK_DECISIONS: tuple[BatchPostTaskDecision, ...] = (
     "failed_checks",
     "failed_reset",
 )
+BATCH_STATUSES: tuple[BatchStatus, ...] = (
+    "active",
+    "completed",
+    "blocked",
+    "failed",
+    "manual_patch_required",
+    "failed_merge",
+    "failed_checks",
+    "failed_reset",
+)
 RESUME_MODES: tuple[ResumeMode, ...] = (
     "default",
     "resume_same_task",
@@ -71,6 +81,41 @@ MERGE_POSTURE_POST_TASK_DECISIONS: tuple[BatchPostTaskDecision, ...] = (
     "failed_checks",
     "failed_reset",
 )
+
+ACCEPTANCE_DECISION_ALIASES: dict[str, AcceptanceDecision] = {
+    "retryable": "retryable_failure",
+    "retry": "retryable_failure",
+    "manual": "manual_patch",
+    "manual_required": "manual_patch",
+    "blocked_failure": "blocked",
+}
+POST_TASK_DECISION_ALIASES: dict[str, BatchPostTaskDecision] = {
+    "stopped": "stop",
+    "manual": "manual_patch",
+    "manual_patch_required": "manual_patch",
+    "blocked_failure": "blocked",
+    "failed_ci": "failed_checks",
+    "ci_failed": "failed_checks",
+    "checks_failed": "failed_checks",
+    "merge_failed": "failed_merge",
+    "reset_failed": "failed_reset",
+}
+BATCH_STATUS_ALIASES: dict[str, BatchStatus] = {
+    "queued": "active",
+    "running": "active",
+    "manual_patch": "manual_patch_required",
+    "stopped": "blocked",
+    "stop": "blocked",
+    "blocked_failure": "blocked",
+    "failed_ci": "failed_checks",
+    "checks_failed": "failed_checks",
+    "merge_failed": "failed_merge",
+    "reset_failed": "failed_reset",
+}
+QUEUE_TERMINAL_STATUS_ALIASES: dict[str, QueueTerminalStatus] = {
+    "manual_patch_required": "manual_patch",
+    "stopped": "blocked",
+}
 CHECKPOINT_TRUTH_FIELDS: tuple[str, ...] = (
     "task_path",
     "ordinal",
@@ -295,6 +340,8 @@ def coerce_acceptance_decision(value: Any, default: AcceptanceDecision = "retrya
     text = str(value or "").strip()
     if text in ACCEPTANCE_DECISIONS:
         return cast(AcceptanceDecision, text)
+    if text in ACCEPTANCE_DECISION_ALIASES:
+        return ACCEPTANCE_DECISION_ALIASES[text]
     return default
 
 
@@ -302,6 +349,17 @@ def coerce_post_task_decision(value: Any, default: BatchPostTaskDecision = "stop
     text = str(value or "").strip()
     if text in POST_TASK_DECISIONS:
         return cast(BatchPostTaskDecision, text)
+    if text in POST_TASK_DECISION_ALIASES:
+        return POST_TASK_DECISION_ALIASES[text]
+    return default
+
+
+def coerce_batch_status(value: Any, default: BatchStatus = "failed") -> BatchStatus:
+    text = str(value or "").strip()
+    if text in BATCH_STATUSES:
+        return cast(BatchStatus, text)
+    if text in BATCH_STATUS_ALIASES:
+        return BATCH_STATUS_ALIASES[text]
     return default
 
 
@@ -331,6 +389,8 @@ def acceptance_decision_to_terminal_status(decision: AcceptanceDecision) -> Queu
 
 def terminal_status_to_post_task_decision(status: str) -> BatchPostTaskDecision:
     text = str(status or "").strip()
+    if text in QUEUE_TERMINAL_STATUS_ALIASES:
+        text = QUEUE_TERMINAL_STATUS_ALIASES[text]
     if text in _POST_TASK_FROM_TERMINAL:
         return _POST_TASK_FROM_TERMINAL[cast(QueueTerminalStatus, text)]
     return "stop"
@@ -346,9 +406,17 @@ def is_merge_posture_decision(value: Any) -> bool:
 
 def batch_status_for_post_task_decision(*, default_status: BatchStatus, post_task_decision: Any) -> BatchStatus:
     decision = coerce_post_task_decision(post_task_decision, default="stop")
+    if decision == "continue":
+        return coerce_batch_status(default_status, default="active")
+    if decision == "manual_patch":
+        return "manual_patch_required"
+    if decision == "blocked":
+        return "blocked"
+    if decision == "stop":
+        return "failed"
     if decision in MERGE_POSTURE_POST_TASK_DECISIONS:
         return cast(BatchStatus, decision)
-    return default_status
+    return coerce_batch_status(default_status, default="failed")
 
 
 def merge_posture_decision_for_flow_stage(stage: str) -> BatchPostTaskDecision:
@@ -435,6 +503,10 @@ def controller_contract_snapshot() -> dict[str, object]:
         "task_admission_lanes": list(TASK_ADMISSION_LANES),
         "decomposition_statuses": list(DECOMPOSITION_STATUSES),
         "post_task_decisions": list(POST_TASK_DECISIONS),
+        "batch_statuses": list(BATCH_STATUSES),
+        "acceptance_decision_aliases": dict(ACCEPTANCE_DECISION_ALIASES),
+        "post_task_decision_aliases": dict(POST_TASK_DECISION_ALIASES),
+        "batch_status_aliases": dict(BATCH_STATUS_ALIASES),
         "resume_modes": list(RESUME_MODES),
         "checkpoint_truth_fields": list(CHECKPOINT_TRUTH_FIELDS),
         "resume_metadata_fields": list(RESUME_METADATA_FIELDS),

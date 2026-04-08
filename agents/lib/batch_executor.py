@@ -17,9 +17,9 @@ from agents.lib.controller_contract import (
     resume_mode_allows_execution,
     should_next_task_proceed,
     terminal_status_to_post_task_decision,
+    coerce_batch_status,
 )
 from agents.lib.task_queue import QueueStatus, TaskQueueItem
-from agents.lib.public_compat import canonical_manual_patch_batch_status
 
 
 @dataclass(frozen=True)
@@ -255,11 +255,7 @@ def execute_batch_loop(
 
     if final_decision == "stop" and state.batch_status == "completed":
         final_decision = "continue"
-    normalized_status = canonical_manual_patch_batch_status(state.batch_status)
+    normalized_status = coerce_batch_status(state.batch_status, default="failed")
     if normalized_status != state.batch_status:
         state = replace(state, batch_status=normalized_status)
-    if final_decision == "manual_patch" and state.batch_status == "manual_patch_required":
-        state = replace(state, batch_status="manual_patch_required")
-    elif final_decision in {"manual_patch", "blocked"} and state.batch_status in {"blocked"}:
-        state = replace(state, batch_status="blocked")
     return state, outcomes, final_decision

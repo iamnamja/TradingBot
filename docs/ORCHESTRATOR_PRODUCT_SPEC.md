@@ -19,6 +19,8 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **116–122 add project registry, project isolation, backlog/dependency policy, bounded repair/rollback posture, and hosted-authority convergence**
 - **123 adds a fresh supervised local-first bounded multi-project portfolio scheduler re-proof**
 - **124 freezes the public/tested compatibility contract for key alias-driven seams**
+- **125 adds a shared schema alias normalization layer**
+- **126 unifies canonical stop-status and decision vocabulary**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
@@ -31,6 +33,8 @@ The repo now has deterministic proof for a bounded supervised slice:
 - stronger bounded self-heal planning with conservative rollback posture
 - project-aware validation and authority evaluation
 - frozen public/tested compatibility aliases across key seam families
+- schema alias normalization through one shared normalization layer
+- canonical stop-status and decision vocabulary across controller, batch, and merge helpers
 - conservative stop behavior when merge/authority posture is unsatisfied
 - explicit claim discipline that does not exceed tested deterministic local-supervised scope
 
