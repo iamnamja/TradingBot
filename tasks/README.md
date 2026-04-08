@@ -9,7 +9,7 @@
 - **128** `orchestrator_green_gated_claim_discipline`
 - **129** `orchestrator_supervised_portfolio_reproof_retry`
 
-## Post-129 contracted-recovery tranche
+## Convergence hardening tranche
 
 - **130** `orchestrator_proof_task_admission_and_exact_deliverable_gate`
 - **131** `orchestrator_empty_underfilled_bundle_failure_classification`

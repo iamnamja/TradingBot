@@ -28,6 +28,9 @@ def build_shell_seam_registry() -> dict[str, tuple[str, ...]]:
             "ensure_branch",
             "existing_file_contents",
             "snapshot_file_contents",
+            "restore_file_snapshot_subset",
+            "build_last_green_subset_preservation_plan",
+            "write_last_green_subset_artifact",
             "write_files",
         ),
         "parser_policy": (
@@ -518,6 +521,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
 
     last_output_path = Path("_last_agent_model_output.txt")
     last_bundle_path = Path("_last_agent_file_bundle.txt")
+    subset_artifact_path = Path("_last_subset_preservation.json")
     proof_task_admission = shell_globals["evaluate_proof_task_admission"](
         task_text=task_text,
         task_file=task_path.as_posix(),
@@ -852,7 +856,16 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
                 print("Create a PR on GitHub for this branch (repo rules require PR).")
             return 0
 
-        shell_globals["restore_file_snapshot"](pre_write_snapshot)
+        preservation_plan = shell_globals["build_last_green_subset_preservation_plan"](
+            applied_files=files,
+            kind="tests",
+            message=details,
+            category="tests",
+            touched_files=list(files.keys()),
+            task_file=task_path.as_posix(),
+        )
+        shell_globals["write_last_green_subset_artifact"](subset_artifact_path, preservation_plan)
+        shell_globals["restore_file_snapshot_subset"](pre_write_snapshot, preservation_plan.get("rollback_subset_paths"))
 
         print("❌ Checks failed after applying changes:")
         print(details)
