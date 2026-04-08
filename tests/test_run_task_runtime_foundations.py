@@ -165,6 +165,11 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.safe_task_family_allowlist_snapshot)
     assert callable(run_task.evaluate_autonomous_single_task_admission)
     assert callable(run_task.task_admission_context)
+    assert callable(run_task.default_single_task_ledger_path)
+    assert callable(run_task.summarize_single_task_execution)
+    assert callable(run_task.canonical_single_task_run_ledger_entry)
+    assert callable(run_task.append_single_task_run_ledger_entry)
+    assert callable(run_task.run_autonomous_single_task)
 
 
 def test_project_merge_helpers_are_available() -> None:
