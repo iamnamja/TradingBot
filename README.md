@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized proof checkpoint is now complete through **Task 124**.
+The synchronized proof checkpoint is now complete through **Task 129**.
 
 The deterministic proof-backed slice currently covers:
 
@@ -19,9 +19,11 @@ The deterministic proof-backed slice currently covers:
 - bounded supervised local-first **multi-project portfolio slice** across more than one registered project
 - project-scoped workspace/branch/state/carry-forward memory isolation
 - explicit backlog + dependency-truth next-task selection posture
+- conservative stop behavior when no dependency-ready task is available
 - bounded self-heal/repair planning with conservative rollback posture
 - project-aware validation matrices and authority profiles
-- hosted-authority convergence + merge-eligibility truth with conservative stop gating
+- compatibility-preserving hosted-authority convergence + merge-eligibility truth
+- green-gated docs/status/spec claim discipline for proof-complete wording
 - extraction-prep consumer boundary posture (not full extraction)
 
 Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for authoritative status narrative.
@@ -36,7 +38,8 @@ Today the repo has deterministic local proof for a bounded supervised multi-proj
 4. dependency-aware next-task choice
 5. bounded repair planning and rollback-conservative posture
 6. project-aware authority evaluation with conservative stop when unsatisfied
-7. explicit claim discipline bound to local deterministic tests
+7. compatibility-preserving hosted-authority truth and merge-eligibility truth
+8. explicit claim discipline bound to local deterministic tests
 
 It does **not** claim:
 
@@ -47,4 +50,14 @@ It does **not** claim:
 
 ## Next continuation target
 
-Task 124 freezes the public/tested compatibility surface so future orchestrator repairs preserve aliases and stable payload keys instead of renaming seams ad hoc.
+The next tranche focuses on **contracted recovery and convergence quality**.
+
+That means:
+
+- rejecting under-specified proof/re-proof tasks before execution
+- separating empty/underfilled bundle failures from generic malformed transport
+- compiling targeted retry prompts around missing deliverables instead of broad reminders
+- inferring compatibility-surface repair targets from failing assertions and missing exports
+- preserving last-known-good files while repairing the smallest failing subset
+- tightening hosted-authority / required-check convergence so unattended claims stay truthful
+- re-proving the orchestrator on the exact failure classes that have repeatedly required babysitting
