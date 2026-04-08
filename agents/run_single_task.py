@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
 DEFAULT_SINGLE_TASK_LEDGER_PATH = "artifacts/autonomous_single_task/run_ledger.jsonl"
+DEFAULT_SINGLE_TASK_CANARY_METRICS_PATH = "artifacts/autonomous_single_task/canary_metrics.json"
+DEFAULT_SINGLE_TASK_RECOVERY_REPORT_PATH = "artifacts/autonomous_single_task/recovery_report.json"
 LEDGER_SCHEMA_VERSION = 1
+CANARY_METRICS_SCHEMA_VERSION = 1
 ITERATION_RE = re.compile(r"=== Iteration\s+(\d+)/(\d+)\s+===")
 
 
@@ -17,11 +20,29 @@ def default_single_task_ledger_path() -> str:
     return DEFAULT_SINGLE_TASK_LEDGER_PATH
 
 
+def default_single_task_canary_metrics_path(*, ledger_path: str | Path | None = None) -> str:
+    path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    return path.with_name("canary_metrics.json").as_posix()
+
+
+def default_single_task_recovery_report_path(*, ledger_path: str | Path | None = None) -> str:
+    path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    return path.with_name("recovery_report.json").as_posix()
+
+
 def _tail_text(text: str, *, limit: int = 1200) -> str:
     value = str(text or "")
     if len(value) <= limit:
         return value
     return value[-limit:]
+
+
+
+def _safe_ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(float(numerator) / float(denominator), 4)
+
 
 
 def _default_executor(command: Sequence[str]) -> dict[str, object]:
@@ -32,6 +53,7 @@ def _default_executor(command: Sequence[str]) -> dict[str, object]:
         "stdout": completed.stdout,
         "stderr": completed.stderr,
     }
+
 
 
 def summarize_single_task_execution(*, execution_result: Mapping[str, object] | None = None) -> dict[str, object]:
@@ -60,6 +82,7 @@ def summarize_single_task_execution(*, execution_result: Mapping[str, object] | 
         "stdout_tail": _tail_text(stdout),
         "stderr_tail": _tail_text(stderr),
     }
+
 
 
 def canonical_single_task_run_ledger_entry(
@@ -162,12 +185,194 @@ def canonical_single_task_run_ledger_entry(
     }
 
 
+
 def append_single_task_run_ledger_entry(entry: Mapping[str, object], *, ledger_path: str | Path | None = None) -> str:
     path = Path(ledger_path or entry.get("ledger_path") or DEFAULT_SINGLE_TASK_LEDGER_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(dict(entry), sort_keys=True) + "\n")
     return path.as_posix()
+
+
+
+def read_single_task_run_ledger(*, ledger_path: str | Path | None = None) -> list[dict[str, object]]:
+    path = Path(ledger_path or DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    if not path.exists():
+        return []
+    rows: list[dict[str, object]] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        payload = json.loads(line)
+        if isinstance(payload, dict):
+            rows.append(dict(payload))
+    return rows
+
+
+
+def build_single_task_canary_metrics(
+    *,
+    entries: Sequence[Mapping[str, object]] | None = None,
+    ledger_path: str | Path | None = None,
+    generated_at: str = "",
+) -> dict[str, object]:
+    rows = [dict(entry) for entry in (entries or read_single_task_run_ledger(ledger_path=ledger_path))]
+    source_ledger_path = str(ledger_path or DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    total_runs = len(rows)
+
+    stop_reason_counts = {
+        "completed": 0,
+        "blocked_supervised_only": 0,
+        "escalation_required": 0,
+        "execution_failed": 0,
+    }
+    lane_counts = {
+        "autonomous_safe": 0,
+        "supervised_only": 0,
+        "escalation_required": 0,
+    }
+    allowlist_family_counts: dict[str, int] = {}
+    admitted_runs = 0
+    executed_runs = 0
+    completed_runs = 0
+    execution_failed_runs = 0
+    blocked_runs = 0
+    hosted_authority_blocked_runs = 0
+    runs_with_retry_observed = 0
+    completed_after_retry_runs = 0
+    total_retry_count_observed = 0
+    max_retry_count_observed = 0
+    missing_deliverable_retry_runs = 0
+    coupled_compatibility_repair_runs = 0
+    last_green_subset_preserved_runs = 0
+
+    for row in rows:
+        admission = dict(row.get("admission", {}) or {})
+        retry = dict(row.get("retry", {}) or {})
+        validation = dict(row.get("validation", {}) or {})
+        final_decision = str(row.get("final_decision", "") or "")
+        lane = str(admission.get("autonomous_single_task_lane", "") or "")
+        allowlist_family = str(admission.get("autonomy_allowlist_family", "") or "")
+
+        if final_decision in stop_reason_counts:
+            stop_reason_counts[final_decision] += 1
+        if lane in lane_counts:
+            lane_counts[lane] += 1
+        if allowlist_family:
+            allowlist_family_counts[allowlist_family] = allowlist_family_counts.get(allowlist_family, 0) + 1
+
+        proof_allowed = bool(admission.get("proof_task_admission_allowed", False))
+        autonomous_allowed = bool(admission.get("autonomous_single_task_allowed", False))
+        if autonomous_allowed and proof_allowed:
+            admitted_runs += 1
+        if bool(validation.get("execution_invoked", False)):
+            executed_runs += 1
+        if final_decision == "completed":
+            completed_runs += 1
+        elif final_decision == "execution_failed":
+            execution_failed_runs += 1
+            blocked_runs += 1
+        elif final_decision in {"blocked_supervised_only", "escalation_required"}:
+            blocked_runs += 1
+
+        if bool(validation.get("no_checks_reported_observed", False)):
+            hosted_authority_blocked_runs += 1
+
+        retry_count = int(retry.get("retry_count_observed", 0) or 0)
+        total_retry_count_observed += retry_count
+        max_retry_count_observed = max(max_retry_count_observed, retry_count)
+        if retry_count > 0:
+            runs_with_retry_observed += 1
+            if final_decision == "completed":
+                completed_after_retry_runs += 1
+        if bool(retry.get("missing_deliverable_retry_observed", False)):
+            missing_deliverable_retry_runs += 1
+        if bool(retry.get("coupled_compatibility_repair_observed", False)):
+            coupled_compatibility_repair_runs += 1
+        if bool(retry.get("last_green_subset_preserved_observed", False)):
+            last_green_subset_preserved_runs += 1
+
+    return {
+        "schema_version": CANARY_METRICS_SCHEMA_VERSION,
+        "report_type": "autonomous_single_task_canary_metrics",
+        "generated_at": str(generated_at or ""),
+        "ledger_path": source_ledger_path,
+        "total_runs": total_runs,
+        "admitted_runs": admitted_runs,
+        "executed_runs": executed_runs,
+        "completed_runs": completed_runs,
+        "blocked_runs": blocked_runs,
+        "execution_failed_runs": execution_failed_runs,
+        "completion_rate": _safe_ratio(completed_runs, admitted_runs),
+        "hosted_authority_blocked_runs": hosted_authority_blocked_runs,
+        "hosted_authority_blocking_frequency": _safe_ratio(hosted_authority_blocked_runs, total_runs),
+        "retry_metrics": {
+            "runs_with_retry_observed": runs_with_retry_observed,
+            "completed_after_retry_runs": completed_after_retry_runs,
+            "retry_convergence_rate": _safe_ratio(completed_after_retry_runs, runs_with_retry_observed),
+            "average_retry_count_per_admitted_run": _safe_ratio(total_retry_count_observed, admitted_runs),
+            "max_retry_count_observed": max_retry_count_observed,
+            "missing_deliverable_retry_runs": missing_deliverable_retry_runs,
+            "coupled_compatibility_repair_runs": coupled_compatibility_repair_runs,
+            "last_green_subset_preserved_runs": last_green_subset_preserved_runs,
+        },
+        "stop_reason_counts": stop_reason_counts,
+        "lane_counts": lane_counts,
+        "allowlist_family_counts": allowlist_family_counts,
+    }
+
+
+
+def write_single_task_canary_metrics(
+    metrics: Mapping[str, object],
+    *,
+    metrics_path: str | Path | None = None,
+) -> str:
+    target = Path(metrics_path or default_single_task_canary_metrics_path(ledger_path=metrics.get("ledger_path")))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(dict(metrics), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target.as_posix()
+
+
+
+def refresh_single_task_reporting_artifacts(
+    *,
+    ledger_path: str | Path | None = None,
+    metrics_path: str | Path | None = None,
+    recovery_report_path: str | Path | None = None,
+    generated_at: str = "",
+) -> dict[str, object]:
+    from agents.lib.failure_journal import (  # type: ignore
+        build_autonomous_single_task_recovery_report,
+        write_autonomous_single_task_recovery_report,
+    )
+
+    source_ledger_path = str(ledger_path or DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    entries = read_single_task_run_ledger(ledger_path=source_ledger_path)
+    metrics = build_single_task_canary_metrics(
+        entries=entries,
+        ledger_path=source_ledger_path,
+        generated_at=generated_at,
+    )
+    metrics_artifact_path = write_single_task_canary_metrics(metrics, metrics_path=metrics_path)
+    recovery_report = build_autonomous_single_task_recovery_report(
+        entries=entries,
+        ledger_path=source_ledger_path,
+        generated_at=generated_at,
+    )
+    recovery_artifact_path = write_autonomous_single_task_recovery_report(
+        recovery_report,
+        report_path=recovery_report_path or default_single_task_recovery_report_path(ledger_path=source_ledger_path),
+    )
+    return {
+        "ledger_entries": entries,
+        "canary_metrics": metrics,
+        "canary_metrics_path": metrics_artifact_path,
+        "recovery_report": recovery_report,
+        "recovery_report_path": recovery_artifact_path,
+    }
+
 
 
 def _build_run_task_command(
@@ -191,6 +396,7 @@ def _build_run_task_command(
     return command
 
 
+
 def run_autonomous_single_task(
     task_path: str,
     *,
@@ -200,6 +406,8 @@ def run_autonomous_single_task(
     push: bool = False,
     keep_runtime_artifacts: bool = False,
     ledger_path: str | Path | None = None,
+    metrics_path: str | Path | None = None,
+    recovery_report_path: str | Path | None = None,
     now: Callable[[], str] | None = None,
     executor: Callable[[Sequence[str]], Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
@@ -258,11 +466,22 @@ def run_autonomous_single_task(
         keep_runtime_artifacts=keep_runtime_artifacts,
     )
     persisted_path = append_single_task_run_ledger_entry(entry, ledger_path=ledger_location)
+    reporting = refresh_single_task_reporting_artifacts(
+        ledger_path=ledger_location,
+        metrics_path=metrics_path,
+        recovery_report_path=recovery_report_path,
+        generated_at=str(completed_at or started_at),
+    )
     return {
         "task_path": task_file.as_posix(),
         "ledger_path": persisted_path,
         "entry": entry,
+        "canary_metrics_path": reporting["canary_metrics_path"],
+        "canary_metrics": reporting["canary_metrics"],
+        "recovery_report_path": reporting["recovery_report_path"],
+        "recovery_report": reporting["recovery_report"],
     }
+
 
 
 def main() -> int:
@@ -274,6 +493,8 @@ def main() -> int:
     ap.add_argument("--push", action="store_true")
     ap.add_argument("--keep-runtime-artifacts", action="store_true")
     ap.add_argument("--ledger-path", default=DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    ap.add_argument("--metrics-path", default=None)
+    ap.add_argument("--recovery-report-path", default=None)
     args = ap.parse_args()
 
     result = run_autonomous_single_task(
@@ -284,9 +505,11 @@ def main() -> int:
         push=args.push,
         keep_runtime_artifacts=args.keep_runtime_artifacts,
         ledger_path=args.ledger_path,
+        metrics_path=args.metrics_path,
+        recovery_report_path=args.recovery_report_path,
     )
     entry = dict(result["entry"])
-    print(json.dumps(entry, indent=2, sort_keys=True))
+    print(json.dumps(result, indent=2, sort_keys=True))
     decision = str(entry.get("final_decision", "") or "")
     if decision == "completed":
         return 0

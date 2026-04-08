@@ -5,7 +5,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping, Sequence
 
 from agents.lib.controller_contract import POLICY_BLOCKED_FAILURE_CATEGORY
 from agents.lib.check_runner import summarize_tester_critique_bundle
@@ -328,6 +328,77 @@ def read_failure_journal(journal_path: Path | str | None = None) -> List[Dict[st
             continue
         rows.append(json.loads(line))
     return rows
+
+def build_autonomous_single_task_recovery_report(
+    *,
+    entries: Sequence[Mapping[str, Any] | dict[str, Any]] | None = None,
+    ledger_path: Path | str | None = None,
+    generated_at: str = "",
+) -> Dict[str, Any]:
+    rows = [dict(entry) for entry in (entries or [])]
+    source_ledger_path = str(ledger_path or "")
+    total_runs = len(rows)
+    stop_reason_counts: Dict[str, int] = {
+        "completed": 0,
+        "blocked_supervised_only": 0,
+        "escalation_required": 0,
+        "execution_failed": 0,
+    }
+    escalation_reason_counts: Dict[str, int] = {}
+    handoff_required_count = 0
+    recovery_required_count = 0
+    escalation_required_count = 0
+    hosted_authority_blocked_runs = 0
+
+    for row in rows:
+        final_decision = str(row.get("final_decision", "") or "")
+        escalation = dict(row.get("escalation", {}) or {})
+        validation = dict(row.get("validation", {}) or {})
+        reason = str(escalation.get("reason", "") or "").strip()
+
+        if final_decision in stop_reason_counts:
+            stop_reason_counts[final_decision] += 1
+        if final_decision != "completed":
+            handoff_required_count += 1
+        if final_decision == "execution_failed":
+            recovery_required_count += 1
+        if bool(escalation.get("required", False)) or final_decision == "escalation_required":
+            escalation_required_count += 1
+        if reason:
+            escalation_reason_counts[reason] = escalation_reason_counts.get(reason, 0) + 1
+        if bool(validation.get("no_checks_reported_observed", False)):
+            hosted_authority_blocked_runs += 1
+
+    blocked_supervised_only_count = int(stop_reason_counts.get("blocked_supervised_only", 0))
+    execution_failed_count = int(stop_reason_counts.get("execution_failed", 0))
+
+    return {
+        "schema_version": 1,
+        "report_type": "autonomous_single_task_recovery_report",
+        "generated_at": str(generated_at or ""),
+        "ledger_path": source_ledger_path,
+        "total_runs": total_runs,
+        "handoff_required_count": handoff_required_count,
+        "recovery_required_count": recovery_required_count,
+        "escalation_required_count": escalation_required_count,
+        "blocked_supervised_only_count": blocked_supervised_only_count,
+        "execution_failed_count": execution_failed_count,
+        "hosted_authority_blocked_runs": hosted_authority_blocked_runs,
+        "hosted_authority_blocking_frequency": round((hosted_authority_blocked_runs / total_runs), 4) if total_runs else 0.0,
+        "stop_reason_counts": stop_reason_counts,
+        "escalation_reason_counts": escalation_reason_counts,
+    }
+
+
+def write_autonomous_single_task_recovery_report(
+    report: Mapping[str, Any],
+    *,
+    report_path: Path | str | None = None,
+) -> str:
+    target = Path(report_path) if report_path is not None else Path("artifacts/autonomous_single_task/recovery_report.json")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(dict(report), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target.as_posix()
 
 
 def build_multi_agent_failure_context(
