@@ -87,6 +87,10 @@ def _normalize_validation_contract(payload: Mapping[str, object] | None, *, work
     repo_required_checks = _normalize_str_list(src.get('repo_required_checks'))
     repo_check_contract_source = str(src.get('repo_check_contract_source') or 'project_registry').strip() or 'project_registry'
     hosted_checks_source = str(src.get('hosted_checks_source') or 'gh_pr_checks').strip() or 'gh_pr_checks'
+    repo_default_branch = str(src.get('repo_default_branch') or workspace_contract.get('default_base_branch') or 'main').strip() or 'main'
+    enforcement_probe_strategy = str(
+        src.get('enforcement_probe_strategy') or 'rules_branch_then_branch_protection'
+    ).strip() or 'rules_branch_then_branch_protection'
     bootstrap_required = bool(src.get('bootstrap_required', bool(bootstrap_commands)))
     return {
         'focused_validation_commands': focused_commands,
@@ -98,6 +102,8 @@ def _normalize_validation_contract(payload: Mapping[str, object] | None, *, work
         'repo_required_checks': repo_required_checks,
         'repo_check_contract_source': repo_check_contract_source,
         'hosted_checks_source': hosted_checks_source,
+        'repo_default_branch': repo_default_branch,
+        'enforcement_probe_strategy': enforcement_probe_strategy,
         'validation_matrix_serializable': True,
     }
 
@@ -116,6 +122,8 @@ def project_validation_matrix(project_contract: Mapping[str, object] | None = No
         'repo_required_checks': list(matrix.get('repo_required_checks', [])),
         'repo_check_contract_source': str(matrix.get('repo_check_contract_source') or 'project_registry'),
         'hosted_checks_source': str(matrix.get('hosted_checks_source') or 'gh_pr_checks'),
+        'repo_default_branch': str(matrix.get('repo_default_branch') or contract.get('branch_policy', {}).get('default_base_branch') or 'main'),
+        'enforcement_probe_strategy': str(matrix.get('enforcement_probe_strategy') or 'rules_branch_then_branch_protection'),
         'validation_matrix_serializable': bool(matrix.get('validation_matrix_serializable', True)),
     }
 
@@ -143,6 +151,8 @@ def resolve_project_validation_plan(project_id: str = 'tradingbot_monorepo', *, 
         'repo_required_checks': list(matrix['repo_required_checks']),
         'repo_check_contract_source': str(matrix['repo_check_contract_source']),
         'hosted_checks_source': str(matrix['hosted_checks_source']),
+        'repo_default_branch': str(matrix['repo_default_branch']),
+        'enforcement_probe_strategy': str(matrix['enforcement_probe_strategy']),
     }
 
 
@@ -295,6 +305,8 @@ def project_merge_eligibility_contract(project_contract: Mapping[str, object] | 
         'repo_required_checks': list(matrix['repo_required_checks']),
         'repo_check_contract_source': str(matrix['repo_check_contract_source']),
         'hosted_checks_source': str(matrix['hosted_checks_source']),
+        'repo_default_branch': str(matrix['repo_default_branch']),
+        'enforcement_probe_strategy': str(matrix['enforcement_probe_strategy']),
         'merge_requires_hosted_authority': hosted_required,
         'missing_required_checks_blocks_merge': hosted_required and bool(matrix['repo_required_checks']),
         'allow_unattended_execution': bool(contract.get('allow_unattended_execution', False)),
@@ -409,5 +421,12 @@ def project_repo_check_contract(project_contract: Mapping[str, object]) -> dict[
 
     return {
         "required_checks": required_checks,
-        "repo_check_contract_source": str(project_contract.get("project_id", "") or "project_registry"),
+        "repo_required_checks": required_checks,
+        "repo_check_contract_source": str(matrix.get("repo_check_contract_source") or "project_registry"),
+        "hosted_checks_source": str(matrix.get("hosted_checks_source") or "gh_pr_checks"),
+        "repo_default_branch": str(matrix.get("repo_default_branch") or "main"),
+        "enforcement_probe_strategy": str(
+            matrix.get("enforcement_probe_strategy") or "rules_branch_then_branch_protection"
+        ),
+        "missing_required_checks_blocks_merge": bool(required_checks),
     }

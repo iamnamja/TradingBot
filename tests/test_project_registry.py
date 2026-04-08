@@ -88,3 +88,18 @@ def test_task_136_project_registry_keeps_bounded_claim_and_stable_required_check
     assert snapshot["portfolio_reproof_claim"] == "deterministic_local_supervised_only"
     assert snapshot["unattended_safe_project_ids"] == []
     assert matrix["repo_required_checks"] == ["ci-required"]
+
+
+def test_project_repo_check_contract_exposes_real_github_enforcement_metadata() -> None:
+    registry = _load_project_registry_module()
+    contract = registry.resolve_project_contract("tradingbot_monorepo")
+    repo_contract = registry.project_repo_check_contract(contract)
+    matrix = registry.project_validation_matrix(contract)
+
+    assert repo_contract["required_checks"] == ["ci-required"]
+    assert repo_contract["repo_check_contract_source"] == "project_registry"
+    assert repo_contract["hosted_checks_source"] == "gh_pr_checks"
+    assert repo_contract["repo_default_branch"] == "main"
+    assert repo_contract["enforcement_probe_strategy"] == "rules_branch_then_branch_protection"
+    assert matrix["repo_default_branch"] == "main"
+    assert matrix["enforcement_probe_strategy"] == "rules_branch_then_branch_protection"

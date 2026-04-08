@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Literal, Mapping, Sequence
 
@@ -16,6 +17,8 @@ VERIFICATION_AUTHORITY_PROFILES: tuple[VerificationAuthorityProfile, ...] = (
 DEFAULT_REPO_REQUIRED_CHECKS: tuple[str, ...] = ()
 DEFAULT_REPO_CHECK_CONTRACT_SOURCE = "repo_defaults"
 DEFAULT_HOSTED_CHECKS_SOURCE = "gh_pr_checks"
+DEFAULT_REPO_DEFAULT_BRANCH = "main"
+DEFAULT_ENFORCEMENT_PROBE_STRATEGY = "rules_branch_then_branch_protection"
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,8 @@ def canonical_repo_check_contract(
     repo_check_contract_source: Any | None = None,
     missing_required_checks_blocks_merge: Any | None = None,
     hosted_checks_source: Any | None = None,
+    repo_default_branch: Any | None = None,
+    enforcement_probe_strategy: Any | None = None,
 ) -> dict[str, object]:
     data = payload or {}
     names = _coerce_required_check_names(
@@ -91,6 +96,14 @@ def canonical_repo_check_contract(
         hosted_checks_source if hosted_checks_source is not None else data.get("hosted_checks_source"),
         default=DEFAULT_HOSTED_CHECKS_SOURCE,
     )
+    default_branch = _coerce_text(
+        repo_default_branch if repo_default_branch is not None else data.get("repo_default_branch"),
+        default=DEFAULT_REPO_DEFAULT_BRANCH,
+    )
+    probe_strategy = _coerce_text(
+        enforcement_probe_strategy if enforcement_probe_strategy is not None else data.get("enforcement_probe_strategy"),
+        default=DEFAULT_ENFORCEMENT_PROBE_STRATEGY,
+    )
     if configured:
         note = f"Repo check contract requires hosted checks: {', '.join(names)}."
     else:
@@ -101,7 +114,323 @@ def canonical_repo_check_contract(
         "repo_check_contract_configured": configured,
         "missing_required_checks_blocks_merge": block_missing,
         "hosted_checks_source": hosted_source,
+        "repo_default_branch": default_branch,
+        "enforcement_probe_strategy": probe_strategy,
         "repo_check_contract_note": note,
+    }
+
+
+def _parse_json_payload(text: str) -> Any | None:
+    payload_text = str(text or "").strip()
+    if not payload_text:
+        return None
+    try:
+        return json.loads(payload_text)
+    except Exception:
+        return None
+
+
+def _merge_required_check_contexts(*values: Any) -> tuple[str, ...]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for item in _coerce_required_check_names(value):
+            if item not in seen:
+                merged.append(item)
+                seen.add(item)
+    return tuple(merged)
+
+
+def _parse_branch_rules_required_check_payload(payload: Any) -> dict[str, object]:
+    rules = payload if isinstance(payload, list) else []
+    required_contexts: list[str] = []
+    ruleset_ids: list[str] = []
+    ruleset_sources: list[str] = []
+    strict_policy = False
+    required_rule_present = False
+
+    for rule in rules:
+        if not isinstance(rule, Mapping):
+            continue
+        if str(rule.get("type") or "").strip() != "required_status_checks":
+            continue
+        required_rule_present = True
+        parameters = rule.get("parameters") if isinstance(rule.get("parameters"), Mapping) else {}
+        strict_policy = strict_policy or _coerce_bool(parameters.get("strict_required_status_checks_policy"))
+        required_contexts = list(
+            _merge_required_check_contexts(
+                required_contexts,
+                [item.get("context") if isinstance(item, Mapping) else item for item in list(parameters.get("required_status_checks", []))],
+            )
+        )
+        ruleset_id = str(rule.get("ruleset_id") or "").strip()
+        ruleset_source = str(rule.get("ruleset_source") or rule.get("ruleset_source_type") or "").strip()
+        if ruleset_id and ruleset_id not in ruleset_ids:
+            ruleset_ids.append(ruleset_id)
+        if ruleset_source and ruleset_source not in ruleset_sources:
+            ruleset_sources.append(ruleset_source)
+
+    return {
+        "branch_rules_checked": isinstance(payload, list),
+        "required_status_checks_rule_present": required_rule_present,
+        "required_status_check_contexts": tuple(required_contexts),
+        "strict_required_status_checks_policy": strict_policy,
+        "ruleset_ids": tuple(ruleset_ids),
+        "ruleset_sources": tuple(ruleset_sources),
+    }
+
+
+def _parse_branch_protection_required_check_payload(payload: Any) -> dict[str, object]:
+    if not isinstance(payload, Mapping):
+        return {
+            "branch_protection_enabled": False,
+            "required_status_checks_rule_present": False,
+            "required_status_check_contexts": (),
+            "strict_required_status_checks_policy": False,
+        }
+
+    required_status_checks = payload.get("required_status_checks")
+    if not isinstance(required_status_checks, Mapping):
+        return {
+            "branch_protection_enabled": bool(payload),
+            "required_status_checks_rule_present": False,
+            "required_status_check_contexts": (),
+            "strict_required_status_checks_policy": False,
+        }
+
+    contexts = _merge_required_check_contexts(
+        required_status_checks.get("contexts"),
+        [item.get("context") if isinstance(item, Mapping) else item for item in list(required_status_checks.get("checks", []))],
+    )
+    return {
+        "branch_protection_enabled": True,
+        "required_status_checks_rule_present": True,
+        "required_status_check_contexts": contexts,
+        "strict_required_status_checks_policy": _coerce_bool(required_status_checks.get("strict")),
+    }
+
+
+def canonical_repo_enforcement_truth(
+    payload: Mapping[str, Any] | None = None,
+    *,
+    repo_check_contract: Mapping[str, Any] | None = None,
+    enforcement_probe_available: Any | None = None,
+    enforcement_probe_status: Any | None = None,
+    enforcement_source: Any | None = None,
+    enforcement_note: Any | None = None,
+    branch_rules_checked: Any | None = None,
+    branch_protection_enabled: Any | None = None,
+    required_status_checks_rule_present: Any | None = None,
+    required_status_check_contexts: Any | None = None,
+    strict_required_status_checks_policy: Any | None = None,
+    ruleset_ids: Any | None = None,
+    ruleset_sources: Any | None = None,
+) -> dict[str, object]:
+    data = payload or {}
+    contract = canonical_repo_check_contract(repo_check_contract if repo_check_contract is not None else data.get("repo_check_contract"))
+    expected_checks = tuple(contract["repo_required_checks"])
+    enforced_contexts = _coerce_required_check_names(
+        required_status_check_contexts
+        if required_status_check_contexts is not None
+        else data.get("required_status_check_contexts")
+    )
+    probe_available = _coerce_bool(
+        enforcement_probe_available
+        if enforcement_probe_available is not None
+        else data.get("enforcement_probe_available", True)
+    )
+    probe_status = _coerce_text(
+        enforcement_probe_status if enforcement_probe_status is not None else data.get("enforcement_probe_status"),
+        default=("not_required" if not expected_checks else ""),
+    )
+    source = _coerce_text(
+        enforcement_source if enforcement_source is not None else data.get("enforcement_source"),
+        default="",
+    )
+    note = _coerce_text(enforcement_note if enforcement_note is not None else data.get("enforcement_note"), default="")
+    rules_checked = _coerce_bool(
+        branch_rules_checked if branch_rules_checked is not None else data.get("branch_rules_checked", False)
+    )
+    protection_enabled = _coerce_bool(
+        branch_protection_enabled if branch_protection_enabled is not None else data.get("branch_protection_enabled", False)
+    )
+    rule_present = _coerce_bool(
+        required_status_checks_rule_present
+        if required_status_checks_rule_present is not None
+        else data.get("required_status_checks_rule_present", bool(enforced_contexts))
+    )
+    strict_policy = _coerce_bool(
+        strict_required_status_checks_policy
+        if strict_required_status_checks_policy is not None
+        else data.get("strict_required_status_checks_policy", False)
+    )
+    ruleset_id_values = _coerce_required_check_names(ruleset_ids if ruleset_ids is not None else data.get("ruleset_ids"))
+    ruleset_source_values = _coerce_required_check_names(
+        ruleset_sources if ruleset_sources is not None else data.get("ruleset_sources")
+    )
+    missing_contexts = tuple(check for check in expected_checks if check not in enforced_contexts)
+    converged = False
+
+    if not expected_checks:
+        probe_status = probe_status or "not_required"
+        note = note or "Repo check contract does not require hosted check enforcement."
+        converged = True
+    elif not probe_available:
+        probe_status = probe_status or "unavailable"
+        note = note or "GitHub required-check enforcement probe could not be executed."
+    elif not rule_present:
+        probe_status = probe_status or "required_status_check_rule_missing"
+        note = note or "GitHub branch rules/protection do not require the expected status-check contexts."
+    elif missing_contexts:
+        probe_status = probe_status or "required_check_context_missing"
+        note = note or f"GitHub enforcement is missing required status-check contexts: {', '.join(missing_contexts)}."
+    else:
+        probe_status = probe_status or "satisfied"
+        note = note or "GitHub branch rules/protection require the expected status-check contexts."
+        converged = True
+
+    return {
+        "repo_check_contract": dict(contract),
+        "repo_required_checks": expected_checks,
+        "repo_default_branch": str(contract["repo_default_branch"]),
+        "enforcement_probe_strategy": str(contract["enforcement_probe_strategy"]),
+        "enforcement_probe_available": probe_available,
+        "enforcement_probe_status": probe_status,
+        "enforcement_source": source,
+        "enforcement_note": note,
+        "branch_rules_checked": rules_checked,
+        "branch_protection_enabled": protection_enabled,
+        "required_status_checks_rule_present": rule_present,
+        "required_status_check_contexts": enforced_contexts,
+        "missing_required_check_contexts": missing_contexts,
+        "strict_required_status_checks_policy": strict_policy,
+        "ruleset_ids": ruleset_id_values,
+        "ruleset_sources": ruleset_source_values,
+        "repo_required_check_enforcement_converged": converged,
+    }
+
+
+def _stdout_and_stderr_text(result: object) -> str:
+    stdout, stderr = _extract_stdout_stderr(result)
+    return "\n".join(part for part in (stdout, stderr) if str(part).strip()).strip()
+
+
+def _classify_probe_error(exc: Exception) -> str:
+    message = str(exc or "").lower()
+    if "404" in message or "not found" in message or "not protected" in message:
+        return "missing"
+    return "unavailable"
+
+
+def probe_repo_required_check_enforcement(
+    runner: Runner,
+    *,
+    repo_check_contract: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    contract = canonical_repo_check_contract(repo_check_contract)
+    if not bool(contract["repo_check_contract_configured"]):
+        return canonical_repo_enforcement_truth(repo_check_contract=contract)
+
+    branch = str(contract["repo_default_branch"])
+    rules_error: Exception | None = None
+
+    try:
+        rules_result = runner(["gh", "api", f"repos/{{owner}}/{{repo}}/rules/branches/{branch}"], True)
+        rules_payload = _parse_json_payload(_stdout_and_stderr_text(rules_result))
+        rules_truth = _parse_branch_rules_required_check_payload(rules_payload)
+        if bool(rules_truth["required_status_checks_rule_present"]):
+            return canonical_repo_enforcement_truth(
+                repo_check_contract=contract,
+                enforcement_probe_available=True,
+                enforcement_probe_status="satisfied",
+                enforcement_source="github_branch_rules",
+                enforcement_note="GitHub branch rules are enforcing the configured required status-check contexts."
+                if not tuple(check for check in contract["repo_required_checks"] if check not in tuple(rules_truth["required_status_check_contexts"]))
+                else "",
+                **rules_truth,
+            )
+    except Exception as exc:
+        rules_error = exc
+
+    try:
+        protection_result = runner(["gh", "api", f"repos/{{owner}}/{{repo}}/branches/{branch}/protection"], True)
+        protection_payload = _parse_json_payload(_stdout_and_stderr_text(protection_result))
+        protection_truth = _parse_branch_protection_required_check_payload(protection_payload)
+        return canonical_repo_enforcement_truth(
+            repo_check_contract=contract,
+            enforcement_probe_available=True,
+            enforcement_probe_status=(
+                "required_status_check_rule_missing"
+                if not bool(protection_truth["required_status_checks_rule_present"])
+                else ""
+            ),
+            enforcement_source="github_branch_protection",
+            enforcement_note=(
+                "GitHub branch protection is active but does not require the configured status-check contexts."
+                if not bool(protection_truth["required_status_checks_rule_present"])
+                else ""
+            ),
+            **protection_truth,
+        )
+    except Exception as exc:
+        classification = _classify_probe_error(exc)
+        if classification == "missing":
+            return canonical_repo_enforcement_truth(
+                repo_check_contract=contract,
+                enforcement_probe_available=True,
+                enforcement_probe_status="required_status_check_rule_missing",
+                enforcement_source="github_branch_protection",
+                enforcement_note="GitHub branch protection is not configured for the target base branch.",
+            )
+        note_parts = []
+        if rules_error is not None:
+            note_parts.append(str(rules_error))
+        note_parts.append(str(exc))
+        return canonical_repo_enforcement_truth(
+            repo_check_contract=contract,
+            enforcement_probe_available=False,
+            enforcement_probe_status="unavailable",
+            enforcement_source="github_branch_rules_or_protection",
+            enforcement_note="; ".join(part for part in note_parts if part),
+        )
+
+
+def evaluate_repo_required_check_convergence(
+    *,
+    repo_check_contract: Mapping[str, Any] | None = None,
+    repo_enforcement_truth: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    contract = canonical_repo_check_contract(repo_check_contract)
+    truth = canonical_repo_enforcement_truth(
+        repo_enforcement_truth,
+        repo_check_contract=contract,
+    )
+    if not bool(contract["repo_check_contract_configured"]):
+        reason = "repo_check_contract_not_configured"
+        summary = "Repo check contract is not configured, so GitHub required-check enforcement is not applicable."
+        converged = False
+    elif not bool(truth["enforcement_probe_available"]):
+        reason = "enforcement_probe_unavailable"
+        summary = "GitHub required-check enforcement could not be probed."
+        converged = False
+    elif not bool(truth["required_status_checks_rule_present"]):
+        reason = "required_status_check_rule_missing"
+        summary = "GitHub branch rules/protection do not require the configured status-check contexts."
+        converged = False
+    elif bool(truth["missing_required_check_contexts"]):
+        reason = "required_check_context_missing"
+        summary = "GitHub enforcement is missing at least one required status-check context from the repo contract."
+        converged = False
+    else:
+        reason = "converged"
+        summary = "GitHub branch rules/protection require the configured status-check contexts."
+        converged = True
+    return {
+        "repo_check_contract": dict(contract),
+        "repo_enforcement_truth": dict(truth),
+        "repo_required_check_enforcement_converged": converged,
+        "repo_required_check_enforcement_reason": reason,
+        "summary": summary,
     }
 
 
@@ -169,6 +498,8 @@ def canonical_required_check_truth(
             else data.get("missing_required_checks_blocks_merge")
         ),
         hosted_checks_source=hosted_checks_source if hosted_checks_source is not None else data.get("hosted_checks_source"),
+        repo_default_branch=data.get("repo_default_branch"),
+        enforcement_probe_strategy=data.get("enforcement_probe_strategy"),
     )
     contract_configured = bool(contract["repo_check_contract_configured"])
     discovered = _coerce_bool(
@@ -530,6 +861,7 @@ def accepted_task_pr_merge_flow(
         repo_check_contract=repo_contract,
         required_check_truth=required_truth,
     )
+    repo_enforcement_truth = canonical_repo_enforcement_truth(repo_check_contract=repo_contract)
     result: Dict[str, object] = {
         "accepted": bool(accepted),
         "autonomous_merge_enabled": bool(autonomous_merge_enabled),
@@ -549,6 +881,7 @@ def accepted_task_pr_merge_flow(
         "operational_convergence_ready": bool(operational["operational_convergence_ready"]),
         "operational_convergence_reason": str(operational["operational_convergence_reason"]),
         "hosted_authority_operational_convergence": dict(operational),
+        "repo_required_check_enforcement": dict(evaluate_repo_required_check_convergence(repo_check_contract=repo_contract, repo_enforcement_truth=repo_enforcement_truth)),
         **required_truth,
         'project_id': str((project_contract or {}).get('project_id', '')),
         'repo_check_contract': dict(repo_contract),
@@ -598,6 +931,30 @@ def accepted_task_pr_merge_flow(
         result.update(canonical_merge_posture_truth(result))
         return result
 
+    repo_enforcement_truth = probe_repo_required_check_enforcement(runner, repo_check_contract=repo_contract)
+    result["repo_required_check_enforcement"] = dict(
+        evaluate_repo_required_check_convergence(
+            repo_check_contract=repo_contract,
+            repo_enforcement_truth=repo_enforcement_truth,
+        )
+    )
+    operational = evaluate_hosted_authority_operational_convergence(
+        verification_authority_profile=profile,
+        repo_check_contract=repo_contract,
+        required_check_truth=result,
+        repo_enforcement_truth=repo_enforcement_truth,
+    )
+    result["unattended_execution_ready"] = bool(operational["unattended_execution_ready"])
+    result["operational_convergence_ready"] = bool(operational["operational_convergence_ready"])
+    result["operational_convergence_reason"] = str(operational["operational_convergence_reason"])
+    result["hosted_authority_operational_convergence"] = dict(operational)
+    if not bool(result.get("operational_convergence_ready", False)):
+        result["stopped_honestly"] = True
+        result["stop_reason"] = str(result.get("operational_convergence_reason") or "required check enforcement not converged")
+        result["post_task_decision"] = merge_posture_decision_for_flow_stage("checks")
+        result.update(canonical_merge_posture_truth(result))
+        return result
+
     merged = merge_pr(runner)
     if not merged.ok:
         result["stopped_honestly"] = True
@@ -626,6 +983,18 @@ def accepted_task_pr_merge_flow(
     )
     result["next_task_may_proceed"] = True
     return result
+
+
+
+def probe_repo_required_check_enforcement_result(
+    runner: Runner,
+    *,
+    repo_check_contract: Mapping[str, Any] | None = None,
+) -> GitWorkflowResult:
+    evidence = probe_repo_required_check_enforcement(runner, repo_check_contract=repo_check_contract)
+    ok = bool(evidence.get("repo_required_check_enforcement_converged", False))
+    message = "required-check enforcement converged" if ok else str(evidence.get("enforcement_probe_status") or "required-check enforcement not converged")
+    return GitWorkflowResult(ok, "probe_repo_required_check_enforcement", message, evidence=dict(evidence))
 
 
 def report_branch_push_ready(branch: str, *, printer=print) -> None:
@@ -683,6 +1052,7 @@ def evaluate_hosted_authority_operational_convergence(
     verification_authority_profile: Any,
     repo_check_contract: Mapping[str, Any] | None = None,
     required_check_truth: Mapping[str, Any] | None = None,
+    repo_enforcement_truth: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     profile = coerce_verification_authority_profile(verification_authority_profile)
     contract = canonical_repo_check_contract(repo_check_contract)
@@ -691,11 +1061,26 @@ def evaluate_hosted_authority_operational_convergence(
         verification_authority_profile=profile,
         repo_check_contract=contract,
     )
+    enforcement = (
+        evaluate_repo_required_check_convergence(
+            repo_check_contract=contract,
+            repo_enforcement_truth=repo_enforcement_truth,
+        )
+        if repo_enforcement_truth is not None
+        else {
+            "repo_check_contract": dict(contract),
+            "repo_enforcement_truth": {},
+            "repo_required_check_enforcement_converged": None,
+            "repo_required_check_enforcement_reason": "not_probed",
+            "summary": "GitHub required-check enforcement was not probed in this evaluation.",
+        }
+    )
     hosted_required = profile != 'local_only'
     discovered = bool(truth['required_checks_discovered'])
     hosted_reported = bool(truth['hosted_checks_reported'])
     probe_status = str(truth['hosted_authority_probe_status'])
     state = str(truth['required_check_state'])
+    enforcement_truth = dict(enforcement.get('repo_enforcement_truth') or {})
 
     if not hosted_required:
         ready = True
@@ -705,6 +1090,21 @@ def evaluate_hosted_authority_operational_convergence(
         ready = False
         reason = 'repo_check_contract_not_configured'
         summary = 'Repo check contract is not configured, so unattended GitHub readiness is not established.'
+    elif repo_enforcement_truth is not None and not bool(enforcement['repo_required_check_enforcement_converged']):
+        enforcement_reason = str(enforcement['repo_required_check_enforcement_reason'])
+        if enforcement_reason == 'enforcement_probe_unavailable':
+            reason = 'required_check_enforcement_probe_unavailable'
+            summary = 'GitHub required-check enforcement could not be verified, so unattended readiness is not established.'
+        elif enforcement_reason == 'required_status_check_rule_missing':
+            reason = 'required_check_enforcement_missing'
+            summary = 'GitHub branch rules/protection are not enforcing the configured required status-check contexts, so unattended readiness is not established.'
+        elif enforcement_reason == 'required_check_context_missing':
+            reason = 'required_check_enforcement_context_mismatch'
+            summary = 'GitHub branch rules/protection do not require the same status-check contexts as the repo contract, so unattended readiness is not established.'
+        else:
+            reason = 'required_check_enforcement_not_converged'
+            summary = str(enforcement.get('summary') or 'GitHub required-check enforcement is not yet converged.')
+        ready = False
     elif not discovered or not hosted_reported:
         ready = False
         reason = 'hosted_checks_not_reporting'
@@ -724,17 +1124,29 @@ def evaluate_hosted_authority_operational_convergence(
     else:
         ready = True
         reason = 'ready'
-        summary = 'Hosted required checks are configured, reporting, and green for unattended GitHub readiness.'
+        summary = (
+            'Hosted required checks are both enforced by GitHub and currently green, so unattended GitHub readiness is established.'
+            if repo_enforcement_truth is not None
+            else 'Required hosted checks are reporting green, so unattended GitHub readiness is established for the currently evaluated signal set.'
+        )
 
     return {
         'verification_authority_profile': profile,
         'repo_check_contract': dict(contract),
         'required_check_truth': dict(truth),
-        'operational_convergence_ready': bool(ready),
-        'unattended_execution_ready': bool(ready),
+        'repo_required_check_enforcement': dict(enforcement),
+        'repo_required_check_enforcement_converged': enforcement.get('repo_required_check_enforcement_converged'),
+        'unattended_execution_ready': ready,
+        'operational_convergence_ready': ready,
         'operational_convergence_reason': reason,
-        'operational_convergence_summary': summary,
-        'hosted_authority_required': hosted_required,
+        'summary': summary,
+        'hosted_authority_probe_status': probe_status,
+        'required_check_state': state,
+        'required_checks_discovered': discovered,
+        'hosted_checks_reported': hosted_reported,
+        'enforcement_probe_status': str(enforcement_truth.get('enforcement_probe_status') or ''),
+        'enforcement_source': str(enforcement_truth.get('enforcement_source') or ''),
+        'repo_default_branch': str(contract['repo_default_branch']),
     }
 
 
@@ -833,6 +1245,8 @@ def project_repo_check_contract(project_contract: Mapping[str, Any] | None = Non
         required_checks=matrix.get('repo_required_checks'),
         repo_check_contract_source=matrix.get('repo_check_contract_source'),
         hosted_checks_source=matrix.get('hosted_checks_source'),
+        repo_default_branch=matrix.get('repo_default_branch'),
+        enforcement_probe_strategy=matrix.get('enforcement_probe_strategy'),
     )
 
 
