@@ -87,7 +87,17 @@ def bounded_failure_snippet(message: str, max_chars: int = DEFAULT_RAW_SNIPPET_L
     return f"{head}{suffix}"
 
 
-def build_failure_remediation_plan(*, kind: str, message: str, category: str = "", retry_count: int, fingerprint: str = "", raw_failure_snippet: str = "", max_repair_attempts: int = 3, repair_attempt_budget: int | None = None) -> Dict[str, Any]:
+def build_failure_remediation_plan(
+    *,
+    kind: str,
+    message: str,
+    category: str = "",
+    retry_count: int,
+    fingerprint: str = "",
+    raw_failure_snippet: str = "",
+    max_repair_attempts: int = 3,
+    repair_attempt_budget: int | None = None,
+) -> Dict[str, Any]:
     normalized = normalize_failure_remediation_payload(
         kind=kind,
         message=message,
@@ -100,15 +110,16 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
     message = str(normalized["failure_message"])
     category = str(normalized["failure_category"]) or classify_failure(kind, message)
     retry_count = int(normalized["retry_count"])
-    fingerprint = fingerprint or failure_fingerprint(kind=kind, message=message, category=category)
-    raw_failure_snippet = raw_failure_snippet or bounded_failure_snippet(message)
+
     route = choose_repair_strategy(kind=kind, message=message, category=category)
     recommended = "manual_patch"
     if route["remediation_lane"] == "builder":
         recommended = "retry_with_targeted_fix"
     elif route["remediation_lane"] == "verifier":
         recommended = "rerun_verifier_lane"
+
     attempt_budget = int(normalized["max_repair_attempts"])
+
     plan = {
         "recommended_next_action": recommended,
         "chosen_remediation_path": str(route["repair_strategy"]),
@@ -123,6 +134,9 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
         "raw_failure_snippet": raw_failure_snippet,
         "route_rationale": str(route.get("route_rationale") or route["rationale"]),
         "targeted_patch_surface": str(route.get("targeted_patch_surface") or "broad_builder_repair"),
+        "chosen_repair_target": str(route.get("chosen_repair_target") or route.get("targeted_patch_surface") or "broad_builder_repair"),
+        "assertion_target_category": str(route.get("assertion_target_category") or ""),
+        "assertion_target_confidence": float(route.get("assertion_target_confidence", 0.0) or 0.0),
         "target_files": [str(item) for item in route.get("target_files") or [] if str(item)],
         "prefer_minimal_patch": bool(route.get("prefer_minimal_patch", False)),
         "minimal_patch_selected": bool(route.get("minimal_patch_selected", False)),
@@ -131,6 +145,7 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
         "max_repair_attempts": attempt_budget,
         "repair_attempt_budget": attempt_budget,
     }
+
     repair_attempt = build_repair_attempt_record(
         task_path="",
         repair_strategy=str(plan["repair_strategy"]),
@@ -142,10 +157,12 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
     plan["repair_attempt_fingerprint"] = str(repair_attempt["repair_attempt_fingerprint"])
     plan["repair_target_files"] = list(repair_attempt["target_files"])
     plan["repair_target_surface"] = str(repair_attempt["targeted_patch_surface"])
+
     if plan["remediation_lane"] == "builder":
         plan["autonomy_confidence"] = 0.8 if retry_count <= 2 else 0.35
     elif plan["remediation_lane"] == "verifier":
         plan["autonomy_confidence"] = 0.7 if retry_count <= 2 else 0.25
+
     if retry_count >= attempt_budget and plan["remediation_lane"] != "verifier":
         plan.update(
             recommended_next_action="manual_patch",
@@ -162,6 +179,7 @@ def build_failure_remediation_plan(*, kind: str, message: str, category: str = "
             minimal_patch_selected=False,
             max_files_to_edit=0,
         )
+
     return plan
 
 

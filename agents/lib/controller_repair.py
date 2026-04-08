@@ -14,7 +14,6 @@ from agents.lib.controller_contract import (
     POLICY_BLOCKED_FAILURE_CATEGORY,
     RESUME_METADATA_FIELDS,
 )
-from agents.lib.public_compat import normalize_failure_record_payload
 
 _KNOWN_DECISION_STRINGS = {
     "accepted",
@@ -65,44 +64,20 @@ REPAIR_STRATEGIES = (
 
 def build_repair_attempt_record(
     *,
-    task_path: str = "",
-    repair_strategy: str = "manual_stop",
-    targeted_patch_surface: str = "manual_stop",
+    task_path: str,
+    repair_strategy: str,
+    targeted_patch_surface: str,
     target_files: Iterable[str] | None = None,
     failure_fingerprint: str = "",
     retry_count: int = 0,
-    failure_kind: str = "",
-    failure_message: str = "",
-    failure_category: str = "",
-    kind: str = "",
-    message: str = "",
-    category: str = "",
-    attempted_action: str = "",
-    outcome: str = "",
 ) -> dict[str, Any]:
     normalized_files = _stable_unique(_normalize_path(path) for path in (target_files or ()) if str(path or "").strip())
-    resolved = normalize_failure_record_payload(
-        failure_kind=failure_kind,
-        failure_message=failure_message,
-        failure_category=failure_category,
-        kind=kind,
-        message=message,
-        category=category,
-    )
-    resolved_kind = str(resolved["failure_kind"])
-    resolved_message = str(resolved["failure_message"])
-    resolved_category = str(resolved["failure_category"])
     payload = {
         "task_path": str(task_path or "").strip(),
         "repair_strategy": str(repair_strategy or "manual_stop").strip() or "manual_stop",
         "targeted_patch_surface": str(targeted_patch_surface or "manual_stop").strip() or "manual_stop",
         "target_files": normalized_files,
         "failure_fingerprint": str(failure_fingerprint or "").strip(),
-        "failure_kind": resolved_kind,
-        "failure_message": resolved_message,
-        "failure_category": resolved_category,
-        "attempted_action": str(attempted_action or "").strip(),
-        "outcome": str(outcome or "").strip(),
     }
     digest = hashlib.sha1(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8", errors="replace")
@@ -269,6 +244,24 @@ _IMPORT_MISSING_SYMBOL_RE = re.compile(r"imports missing symbol ['\"]([^'\"]+)['
 _PATH_RE = re.compile(r"([A-Za-z0-9_./\\-]+\.(?:py|md))")
 _MODULE_ATTR_RE = re.compile(r"module ['\"]([^'\"]+)['\"] has no attribute")
 
+
+ASSERTION_TARGET_CATEGORIES = (
+    "missing_alias",
+    "missing_exported_key",
+    "wrong_canonical_enum_value",
+    "missing_project_contract_field",
+    "docs_overclaim",
+    "unclassified",
+)
+
+_PROJECT_CONTRACT_FIELD_TOKENS = (
+    "workspace_root",
+    "branch_namespace",
+    "state_namespace",
+    "carry_forward_memory_namespace",
+    "project_workspace_root",
+    "project_repo_root",
+)
 
 def _normalize_path(path: str) -> str:
     return str(path or "").strip().replace("\\", "/")
@@ -490,6 +483,96 @@ def is_collection_failure(*, kind: str, message: str, category: str = "") -> boo
     return bool(classify_collection_failure(kind=kind, message=message, category=category))
 
 
+
+
+def classify_assertion_repair_target(
+    *,
+    kind: str,
+    message: str,
+    category: str = "",
+    touched_files: Iterable[str] | None = None,
+    task_file: str = "",
+) -> dict[str, Any]:
+    raw_message = str(message or "")
+    text = _coerce_failure_text(kind, raw_message, category)
+    hinted_files = controller_family_files_touched([*(touched_files or ()), task_file], details=raw_message)
+
+    def _target(surface: str, *, category_name: str, rationale: str, confidence: float, explicit_targets: list[str] | None = None) -> dict[str, Any]:
+        target_files = explicit_targets if explicit_targets is not None else _target_files_for_surface(
+            surface,
+            task_file=task_file,
+            touched_files=hinted_files or touched_files,
+        )
+        return {
+            "assertion_target_category": category_name,
+            "chosen_repair_target": surface,
+            "targeted_patch_surface": surface,
+            "target_files": target_files,
+            "prefer_minimal_patch": surface != "broad_builder_repair",
+            "minimal_patch_selected": surface != "broad_builder_repair",
+            "max_files_to_edit": 0 if surface == "manual_stop" else (2 if surface in {"compatibility_alias_only", "import_line_only"} else 3),
+            "assertion_target_rationale": rationale,
+            "assertion_target_confidence": confidence,
+            "narrow_repair_selected": surface in {"compatibility_alias_only", "result_shape_adapter", "manifest_schema_adapter", "controller_contract_surface", "docs_claim_sync"},
+            "repair_target_priority": "narrow_first" if surface != "broad_builder_repair" else "broad_fallback",
+        }
+
+    if str(category or "").strip() == "docs_proof_claim_drift" or (
+        "failed to reach green" in text and any(token in text for token in ("readme", "project state", "product spec", "proof claim", "tasks 090", "tasks 123", "complete"))
+    ):
+        return _target(
+            "docs_claim_sync",
+            category_name="docs_overclaim",
+            rationale="Assertion evidence points to docs/status overclaim while validation is still red.",
+            confidence=0.98,
+            explicit_targets=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md", "docs/ORCHESTRATOR_PRODUCT_SPEC.md"],
+        )
+
+    if any(field in text for field in _PROJECT_CONTRACT_FIELD_TOKENS) and any(token in text for token in ("keyerror", "missing", "assert isinstance(contract")):
+        return _target(
+            "compatibility_alias_only",
+            category_name="missing_project_contract_field",
+            rationale="Assertion evidence points to a missing project contract convenience field or namespace alias.",
+            confidence=0.95,
+            explicit_targets=["agents/lib/project_registry.py", "agents/run_task.py"],
+        )
+
+    if "unexpected keyword argument" in text or "missing `path` or `task_path`" in text or "repair_attempt_budget" in text:
+        return _target(
+            "compatibility_alias_only",
+            category_name="missing_alias",
+            rationale="Assertion evidence points to alias drift; repair the smallest compatibility seam before broader rewrites.",
+            confidence=0.95,
+        )
+
+    if any(token in text for token in ("has no attribute", "cannot import name", "imports missing symbol", "unknown export key", "module 'agents.run_task' has no attribute")):
+        explicit = ["agents/run_task.py"] if "run_task" in raw_message else None
+        return _target(
+            "compatibility_alias_only",
+            category_name="missing_exported_key",
+            rationale="Assertion evidence points to a missing exported key or symbol on a public/tested seam.",
+            confidence=0.94,
+            explicit_targets=explicit,
+        )
+
+    decision_mismatches = _decision_mismatches(raw_message)
+    if decision_mismatches or ("assert" in text and any(token in text for token in ("manual_patch_required", "failed_checks", "failed_merge", "failed_reset", "next_task_may_proceed"))):
+        return _target(
+            "controller_contract_surface",
+            category_name="wrong_canonical_enum_value",
+            rationale="Assertion evidence points to canonical enum/status drift; prefer a controller vocabulary fix over a broad rewrite.",
+            confidence=0.92,
+            explicit_targets=["agents/lib/controller_contract.py", "agents/lib/batch_executor.py", "agents/lib/batch_state.py"],
+        )
+
+    return _target(
+        "broad_builder_repair",
+        category_name="unclassified",
+        rationale="No narrow assertion-targeted seam was confidently identified.",
+        confidence=0.0,
+        explicit_targets=[],
+    )
+
 def choose_repair_strategy(
     *,
     kind: str,
@@ -515,6 +598,13 @@ def choose_repair_strategy(
         touched_files=touched_files,
         task_file=task_file,
     )
+    assertion_target = classify_assertion_repair_target(
+        kind=kind,
+        message=message,
+        category=normalized_category,
+        touched_files=touched_files,
+        task_file=task_file,
+    )
     route = {
         "failure_kind": str(kind or "unknown").strip() or "unknown",
         "failure_category": normalized_category,
@@ -527,6 +617,12 @@ def choose_repair_strategy(
         "rationale": "Failure is not safely repairable without explicit operator intervention.",
         "route_rationale": "Failure is not safely repairable without explicit operator intervention.",
         "semantic_failure_digest": digest,
+        "assertion_target_category": str(assertion_target.get("assertion_target_category") or ""),
+        "chosen_repair_target": str(assertion_target.get("chosen_repair_target") or targeted.get("targeted_patch_surface") or ""),
+        "assertion_target_confidence": float(assertion_target.get("assertion_target_confidence", 0.0) or 0.0),
+        "assertion_target_rationale": str(assertion_target.get("assertion_target_rationale") or ""),
+        "narrow_repair_selected": bool(assertion_target.get("narrow_repair_selected", False)),
+        "repair_target_priority": str(assertion_target.get("repair_target_priority") or "broad_fallback"),
         **targeted,
     }
 
@@ -536,6 +632,8 @@ def choose_repair_strategy(
 
     collection_category = classify_collection_failure(kind=kind, message=message, category=normalized_category)
     if collection_category:
+        if assertion_target.get("assertion_target_category") not in {"", "unclassified"}:
+            route.update(**assertion_target)
         route.update(
             failure_category=collection_category,
             repair_strategy="collection_import_contract_repair",
@@ -593,6 +691,8 @@ def choose_repair_strategy(
         return route
 
     if normalized_category in {"tests", "behavioral_regression"} or digest.get("failing_tests"):
+        if assertion_target.get("assertion_target_category") not in {"", "unclassified"}:
+            route.update(**assertion_target)
         route.update(
             repair_strategy="behavioral_test_repair",
             remediation_lane="builder",
@@ -619,6 +719,8 @@ def choose_repair_strategy(
         return route
 
     if normalized_category == "docs_proof_claim_drift" or any(token in text for token in ("proof-claim", "proof claim", "docs/", "readme", "documentation claim", "status narrative")):
+        if assertion_target.get("assertion_target_category") not in {"", "unclassified"}:
+            route.update(**assertion_target)
         route.update(
             repair_strategy="docs_proof_claim_repair",
             remediation_lane="builder",
@@ -631,6 +733,8 @@ def choose_repair_strategy(
         )
         return route
 
+    if assertion_target.get("assertion_target_category") not in {"", "unclassified"}:
+        route.update(**assertion_target)
     return route
 
 
@@ -647,6 +751,8 @@ def format_repair_strategy(route: dict[str, Any] | None) -> str:
             f"- continue_autonomously: {bool(payload.get('continue_autonomously', False))}",
             f"- stop_after_failure: {bool(payload.get('stop_after_failure', False))}",
             f"- targeted_patch_surface: {payload.get('targeted_patch_surface', '')}",
+            f"- chosen_repair_target: {payload.get('chosen_repair_target', '')}",
+            f"- assertion_target_category: {payload.get('assertion_target_category', '')}",
             f"- target_files: {', '.join(str(item) for item in payload.get('target_files', []))}",
             f"- minimal_patch_selected: {bool(payload.get('minimal_patch_selected', False))}",
             f"- rationale: {payload.get('rationale', '')}",
