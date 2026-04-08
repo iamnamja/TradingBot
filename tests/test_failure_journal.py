@@ -151,3 +151,36 @@ def test_failure_journal_supports_bounded_portfolio_repair_tracking() -> None:
     )
     assert plan["bounded"] is True
     assert plan["max_repair_attempts"] == 2
+
+
+def test_bundle_failure_classification_and_remediation_plans_are_distinct() -> None:
+    fj = _load_failure_journal_module()
+
+    assert fj.classify_failure("bundle_transport", "Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.") == "bundle_markerless_transport"
+    assert fj.classify_failure("bundle_transport", "Missing FILE blocks from the requested scope: tests/test_x.py") == "bundle_underfilled_response"
+    assert fj.classify_failure("bundle_transport", "No FILE: blocks could be parsed (check FILE:/END_FILE lines).") == "bundle_malformed_transport"
+
+    empty_plan = fj.build_failure_remediation_plan(
+        kind="bundle_empty_response",
+        message="Bundle transport was present but contained zero FILE blocks.",
+        retry_count=1,
+        max_repair_attempts=3,
+    )
+    underfilled_plan = fj.build_failure_remediation_plan(
+        kind="bundle_underfilled_response",
+        message="Missing FILE blocks from the requested scope: tests/test_x.py",
+        retry_count=1,
+        max_repair_attempts=3,
+    )
+    markerless_plan = fj.build_failure_remediation_plan(
+        kind="bundle_markerless_transport",
+        message="Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.",
+        retry_count=1,
+        max_repair_attempts=3,
+    )
+
+    assert empty_plan["repair_strategy"] == "bundle_empty_response_retry"
+    assert underfilled_plan["repair_strategy"] == "missing_deliverable_retry"
+    assert markerless_plan["repair_strategy"] == "bundle_transport_format_retry"
+    assert underfilled_plan["targeted_patch_surface"] == "bundle_missing_deliverables"
+    assert markerless_plan["targeted_patch_surface"] == "bundle_transport_format"

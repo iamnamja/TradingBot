@@ -498,6 +498,9 @@ def validate_exact_deliverable_contract(task_text: str) -> Tuple[bool, str]:
     return False, "Invalid exact deliverable contract entries detected:\n" + "\n".join(f"- {issue}" for issue in issues)
 
 
+_PROOF_TASK_HINT_RE = re.compile(r"\b(re-?proof|proof checkpoint|portfolio proof|proof-backed|reproof)\b", re.IGNORECASE)
+
+
 def proof_task_admission_snapshot() -> Dict[str, object]:
     return {
         "proof_task_gate_enabled": True,
@@ -510,15 +513,72 @@ def proof_task_admission_snapshot() -> Dict[str, object]:
     }
 
 
+def _looks_like_proof_task(task_text: str, task_file: str = "") -> bool:
+    combined = f"{task_file}\n{task_text}".lower()
+    if "proof" in Path(task_file).name.lower():
+        return True
+    return bool(_PROOF_TASK_HINT_RE.search(combined))
+
+
 def evaluate_proof_task_admission(
     *,
     task_text: str,
-    task_file: str = "",
+    task_file: str,
     required_paths: Sequence[str] | None = None,
 ) -> Dict[str, object]:
-    from agents.lib.task_contracts import evaluate_proof_task_admission as _impl  # type: ignore
+    required_paths = [str(path) for path in (required_paths or []) if str(path).strip()]
+    if not _looks_like_proof_task(task_text, task_file):
+        return {
+            "proof_task_admission_allowed": True,
+            "proof_task_admission_reason": "",
+            "strict_exact_deliverable_contract_issues": [],
+            "strict_exact_deliverable_paths": required_paths,
+            "required_paths": required_paths,
+            "proof_task_detected": False,
+            "proof_task_admission_failure_kind": "",
+        }
 
-    return dict(_impl(task_text, task_file=task_file, required_paths=required_paths))
+    issues: List[str] = []
+    lower = normalize_newlines(task_text).lower()
+    if "create or update these exact files" not in lower:
+        issues.append("proof/re-proof tasks must declare `Create or update these exact files` before model execution.")
+
+    ok_required_contract, required_contract_msg = validate_exact_deliverable_contract(task_text)
+    if not ok_required_contract:
+        for raw in str(required_contract_msg).splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.lower().startswith("invalid exact deliverable contract"):
+                continue
+            if line.startswith("-"):
+                line = line[1:].strip()
+            if line and line not in issues:
+                issues.append(line)
+
+    failure_kind = ""
+    if issues:
+        if "create or update these exact files" not in lower:
+            failure_kind = "missing_strict_exact_deliverable_contract"
+        elif required_paths:
+            failure_kind = "invalid_strict_exact_deliverable_contract"
+        else:
+            failure_kind = "missing_strict_exact_deliverable_paths"
+
+    allowed = not issues
+    reason = ""
+    if not allowed:
+        reason = "Proof-task admission blocked: exact deliverable contract is missing or invalid."
+
+    return {
+        "proof_task_admission_allowed": allowed,
+        "proof_task_admission_reason": reason,
+        "strict_exact_deliverable_contract_issues": issues,
+        "strict_exact_deliverable_paths": required_paths,
+        "required_paths": required_paths,
+        "proof_task_detected": True,
+        "proof_task_admission_failure_kind": failure_kind,
+    }
 
 
 def report_proof_task_admission_failure(
@@ -528,8 +588,8 @@ def report_proof_task_admission_failure(
     last_output_path: Path,
     last_bundle_path: Path,
 ) -> None:
-    reason = str(decision.get("proof_task_admission_reason", "") or "Proof-task admission blocked before model execution.")
-    failure_kind = str(decision.get("proof_task_admission_failure_kind", "proof_task_admission_blocked") or "proof_task_admission_blocked")
+    reason = str(decision.get("proof_task_admission_reason") or "Proof-task admission blocked before model execution.")
+    failure_kind = str(decision.get("proof_task_admission_failure_kind") or "proof_task_admission_blocked")
     required_paths = [str(path) for path in (decision.get("strict_exact_deliverable_paths", []) or []) if str(path).strip()]
     _emit_failure_artifact_messages(
         last_output_path,
@@ -543,6 +603,41 @@ def report_proof_task_admission_failure(
         protected_files=required_paths,
     )
 
+
+def classify_bundle_transport_failure(
+    raw_text: str,
+    error_message: str,
+    *,
+    expected_paths: List[str] | None = None,
+    parsed_paths: List[str] | None = None,
+) -> Dict[str, object]:
+    try:
+        from agents.lib.bundle_parser import classify_bundle_transport_failure as _classify
+    except Exception:
+        _classify = None  # type: ignore[assignment]
+
+    if _classify is not None:
+        return _classify(
+            raw_text=raw_text,
+            error_message=error_message,
+            expected_paths=list(expected_paths or []),
+            parsed_paths=list(parsed_paths or []),
+            normalize_newlines=normalize_newlines,
+            file_bundle_begin=FILE_BUNDLE_BEGIN,
+            file_bundle_end=FILE_BUNDLE_END,
+            file_header_re=FILE_HEADER_RE,
+        )
+
+    normalized = normalize_newlines(raw_text)
+    message = str(error_message or "")
+    markers_present = FILE_BUNDLE_BEGIN in normalized and FILE_BUNDLE_END in normalized
+    if "Missing FILE blocks from the requested scope:" in message:
+        return {"failure_category": "bundle_underfilled_response", "bundle_markers_present": markers_present, "bundle_structurally_valid": True}
+    if markers_present and not normalized.split(FILE_BUNDLE_BEGIN, 1)[1].split(FILE_BUNDLE_END, 1)[0].strip():
+        return {"failure_category": "bundle_empty_response", "bundle_markers_present": True, "bundle_structurally_valid": False}
+    if "missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers" in message or (normalized.strip() and not markers_present):
+        return {"failure_category": "bundle_markerless_transport", "bundle_markers_present": False, "bundle_structurally_valid": False}
+    return {"failure_category": "bundle_malformed_transport", "bundle_markers_present": markers_present, "bundle_structurally_valid": False}
 
 
 def build_final_acceptance_report(
@@ -5228,9 +5323,11 @@ def _parser_policy_exports() -> Dict[str, object]:
     if _bundle_parser is not None:
         exports["parse_file_bundle"] = getattr(_bundle_parser, "parse_file_bundle", None)
         exports["parse_method_insertion_bundle"] = getattr(_bundle_parser, "parse_method_insertion_bundle", None)
+        exports["classify_bundle_transport_failure"] = getattr(_bundle_parser, "classify_bundle_transport_failure", None)
     else:
         exports["parse_file_bundle"] = None
         exports["parse_method_insertion_bundle"] = None
+        exports["classify_bundle_transport_failure"] = None
 
     if _task_contracts is not None:
         exports["parse_task_contract_directives"] = getattr(_task_contracts, "parse_task_contract_directives", None)

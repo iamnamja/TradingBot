@@ -35,6 +35,7 @@ def build_shell_seam_registry() -> dict[str, tuple[str, ...]]:
             "validate_exact_deliverable_contract",
             "evaluate_proof_task_admission",
             "report_proof_task_admission_failure",
+            "classify_bundle_transport_failure",
             "task_requires_material_update",
             "task_allows_unchanged_cli",
             "parse_harness_file_policies",

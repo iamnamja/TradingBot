@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Pattern, Type, Tuple
+import re
+
+from typing import Any, Callable, Dict, List, Pattern, Type, Tuple
 
 
 def parse_file_bundle(
@@ -125,6 +127,95 @@ def classify_duplicate_file_entries(
 
     return normalized, conflicts, sorted(equivalent_duplicates)
 
+
+
+
+def classify_bundle_transport_failure(
+    *,
+    raw_text: str,
+    error_message: str,
+    expected_paths: List[str] | None = None,
+    parsed_paths: List[str] | None = None,
+    normalize_newlines: Callable[[str], str] | None = None,
+    file_bundle_begin: str = "BEGIN_FILE_BUNDLE",
+    file_bundle_end: str = "END_FILE_BUNDLE",
+    file_header_re: Pattern[str] | None = None,
+) -> Dict[str, Any]:
+    normalize = normalize_newlines or (lambda value: str(value or "").replace("\r\n", "\n").replace("\r", "\n"))
+    normalized = normalize(raw_text)
+    message = str(error_message or "")
+    msg_lower = message.lower()
+    expected = [str(path).strip().replace("\\", "/") for path in (expected_paths or []) if str(path).strip()]
+    parsed = [str(path).strip().replace("\\", "/") for path in (parsed_paths or []) if str(path).strip()]
+
+    has_begin = file_bundle_begin in normalized
+    has_end = file_bundle_end in normalized
+    markers_present = False
+    body = ""
+    if has_begin and has_end:
+        begin_index = normalized.index(file_bundle_begin) + len(file_bundle_begin)
+        end_index = normalized.index(file_bundle_end)
+        if begin_index <= end_index:
+            markers_present = True
+            body = normalized[begin_index:end_index].strip("\n")
+
+    header_re = file_header_re or re.compile(r"^FILE:\s+(.+?)\s*$")
+    file_header_count = 0
+    if body:
+        for line in body.split("\n"):
+            if header_re.match(line):
+                file_header_count += 1
+
+    missing_paths: List[str] = []
+    if "missing file blocks from the requested scope:" in msg_lower:
+        suffix = message.split(":", 1)[1] if ":" in message else ""
+        missing_paths = [item.strip() for item in suffix.split(",") if item.strip()]
+    elif expected and parsed:
+        missing_paths = sorted(set(expected) - set(parsed))
+
+    category = "bundle_transport"
+    summary = "Generic bundle transport failure."
+    structurally_valid = False
+
+    if "missing file blocks from the requested scope:" in msg_lower:
+        category = "bundle_underfilled_response"
+        summary = "Structurally valid bundle omitted one or more requested FILE blocks."
+        structurally_valid = True
+    elif ("model output missing begin_file_bundle/end_file_bundle markers." in msg_lower) or (normalized.strip() and not markers_present and (not has_begin or not has_end)):
+        category = "bundle_markerless_transport"
+        summary = "Response did not include a usable BEGIN_FILE_BUNDLE/END_FILE_BUNDLE transport wrapper."
+    elif markers_present and not body.strip():
+        category = "bundle_empty_response"
+        summary = "Bundle transport was present but contained zero FILE blocks."
+    elif any(token in msg_lower for token in (
+        "no file: headers found inside file bundle",
+        "no file: blocks could be parsed",
+        "nested file header encountered before end_file",
+        "missing end_file",
+        "duplicate file path in bundle",
+        "unexpected file blocks outside the requested scope",
+        "empty file: path",
+    )):
+        category = "bundle_malformed_transport"
+        summary = "Bundle transport was present but malformed or policy-violating."
+    elif "bundle" in msg_lower or "end_file" in msg_lower or "begin_file_bundle" in msg_lower or markers_present:
+        category = "bundle_malformed_transport"
+        summary = "Bundle transport failure could not be narrowed beyond malformed transport."
+
+    return {
+        "failure_category": category,
+        "bundle_failure_summary": summary,
+        "bundle_markers_present": markers_present,
+        "bundle_empty": category == "bundle_empty_response",
+        "bundle_underfilled": category == "bundle_underfilled_response",
+        "bundle_markerless": category == "bundle_markerless_transport",
+        "bundle_malformed": category == "bundle_malformed_transport",
+        "bundle_structurally_valid": structurally_valid,
+        "expected_paths": expected,
+        "parsed_paths": parsed,
+        "missing_paths": missing_paths,
+        "bundle_file_header_count": file_header_count,
+    }
 
 def parse_method_insertion_bundle(
     *,

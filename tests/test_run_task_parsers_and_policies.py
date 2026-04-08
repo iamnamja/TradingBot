@@ -137,38 +137,35 @@ def test_parse_file_bundle_transport_resilient_nested_raw_marker_lines() -> None
     assert all("ignored unexpected FILE header outside FILE block" not in warning for warning in warnings)
 
 
-def test_evaluate_proof_task_admission_parity() -> None:
-    task = (
-        "# Task 130 — supervised proof re-proof\n\n"
-        "## Create or update these exact files\n"
-        "- `README.md`\n"
-        "- `docs/TRADINGBOT_PROJECT_STATE.md`\n"
+def test_classify_bundle_transport_failure_distinguishes_empty_underfilled_markerless_and_malformed() -> None:
+    empty = run_task.classify_bundle_transport_failure(
+        "BEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE\n",
+        "No FILE: blocks could be parsed (check FILE:/END_FILE lines).",
+        expected_paths=["a.py"],
     )
-    decision = run_task.evaluate_proof_task_admission(
-        task_text=task,
-        task_file="tasks/130_supervised_proof_reproof.md",
+    assert empty["failure_category"] == "bundle_empty_response"
+    assert empty["bundle_empty"] is True
+
+    underfilled = run_task.classify_bundle_transport_failure(
+        _bundle_text(),
+        "Missing FILE blocks from the requested scope: c.py",
+        expected_paths=["a.py", "b.txt", "c.py"],
+        parsed_paths=["a.py", "b.txt"],
     )
-    assert decision["proof_task_admission_allowed"] is True
-    assert decision["strict_exact_deliverable_paths"] == ["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"]
+    assert underfilled["failure_category"] == "bundle_underfilled_response"
+    assert underfilled["bundle_structurally_valid"] is True
+    assert underfilled["missing_paths"] == ["c.py"]
 
-
-
-def test_report_proof_task_admission_failure_writes_truthful_placeholders(tmp_path) -> None:
-    output_path = tmp_path / "_last_agent_model_output.txt"
-    bundle_path = tmp_path / "_last_agent_file_bundle.txt"
-    decision = {
-        "proof_task_admission_failure_kind": "missing_strict_exact_deliverable_contract",
-        "proof_task_admission_reason": "Proof-style tasks must include a `Create or update these exact files` section before model execution.",
-        "strict_exact_deliverable_paths": ["README.md"],
-    }
-    run_task.report_proof_task_admission_failure(
-        decision,
-        task_file="tasks/130.md",
-        last_output_path=output_path,
-        last_bundle_path=bundle_path,
+    markerless = run_task.classify_bundle_transport_failure(
+        "FILE: a.py\nx = 1\nEND_FILE\n",
+        "Model output missing BEGIN_FILE_BUNDLE/END_FILE_BUNDLE markers.",
     )
-    output_text = output_path.read_text(encoding="utf-8")
-    bundle_text = bundle_path.read_text(encoding="utf-8")
-    assert "missing_strict_exact_deliverable_contract" in output_text
-    assert "failed_before_model_output" in output_text
-    assert '"files": []' in bundle_text
+    assert markerless["failure_category"] == "bundle_markerless_transport"
+    assert markerless["bundle_markerless"] is True
+
+    malformed = run_task.classify_bundle_transport_failure(
+        "BEGIN_FILE_BUNDLE\nFILE: a.py\nFILE: b.py\nEND_FILE\nEND_FILE_BUNDLE\n",
+        "Nested FILE header encountered before END_FILE for a.py. Every FILE block must be closed with END_FILE before the next FILE header.",
+    )
+    assert malformed["failure_category"] == "bundle_malformed_transport"
+    assert malformed["bundle_malformed"] is True

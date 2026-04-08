@@ -129,10 +129,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.ensure_branch)
     assert callable(run_task.run_checks)
     assert callable(run_task.parse_required_files)
+    assert callable(run_task.classify_bundle_transport_failure)
     assert callable(run_task.validate_exact_deliverable_contract)
-    assert callable(run_task.proof_task_admission_snapshot)
-    assert callable(run_task.evaluate_proof_task_admission)
-    assert callable(run_task.report_proof_task_admission_failure)
     assert callable(run_task.keep_runtime_artifacts_requested)
     assert callable(run_task.build_final_acceptance_report)
     assert callable(run_task.classify_final_acceptance_failure)
@@ -191,3 +189,11 @@ def test_project_contract_contains_workspace_and_isolation_namespaces() -> None:
     assert isinstance(contract["branch_namespace"], str)
     assert isinstance(contract["state_namespace"], str)
     assert isinstance(contract["carry_forward_memory_namespace"], str)
+
+
+def test_parser_policy_exports_include_bundle_failure_classifier() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    exports = run_task._parser_policy_exports()
+
+    assert "classify_bundle_transport_failure" in exports
+    assert callable(exports["classify_bundle_transport_failure"])
