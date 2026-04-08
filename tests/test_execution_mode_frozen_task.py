@@ -64,3 +64,36 @@ def test_execution_resolves_from_frozen_artifact(monkeypatch, tmp_path, capsys):
     assert code == 0
     assert "Execution mode: using frozen spec artifact" in out
     assert captured["task_text"] == canonical.strip()
+
+
+def test_proof_task_missing_exact_files_is_rejected_before_model_execution(monkeypatch, tmp_path, capsys):
+    mod = _load_run_task_module()
+    task_path = tmp_path / "tasks" / "130_supervised_portfolio_reproof.md"
+    task_path.parent.mkdir(parents=True, exist_ok=True)
+    task_path.write_text(
+        "# Task 130 — supervised portfolio re-proof\n\n"
+        "## Deliverables\n"
+        "- `README.md`\n"
+        "- `docs/TRADINGBOT_PROJECT_STATE.md`\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(mod.main.__globals__, "ensure_clean_worktree", lambda: None)
+    monkeypatch.setitem(mod.main.__globals__, "capture", lambda _cmd: "main")
+    monkeypatch.setitem(mod.main.__globals__, "ensure_branch", lambda _branch: (_ for _ in ()).throw(AssertionError("should not create branch")))
+    monkeypatch.setitem(mod.main.__globals__, "request_and_parse_bundle", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not reach model request")))
+
+    old_argv = sys.argv[:]
+    try:
+        sys.argv = ["run_task.py", str(task_path), "--max-iters", "1"]
+        code = mod.main()
+    finally:
+        sys.argv = old_argv
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "[task_admission]" in out
+    assert "Create or update these exact files" in out
+    assert (tmp_path / "_last_agent_model_output.txt").exists()
+    assert (tmp_path / "_last_agent_file_bundle.txt").exists()

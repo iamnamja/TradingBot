@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized proof checkpoint is now complete through **Task 129**.
+The synchronized proof checkpoint is now complete through **Task 130**.
 
 The deterministic proof-backed slice currently covers:
 
@@ -24,6 +24,7 @@ The deterministic proof-backed slice currently covers:
 - project-aware validation matrices and authority profiles
 - compatibility-preserving hosted-authority convergence + merge-eligibility truth
 - green-gated docs/status/spec claim discipline for proof-complete wording
+- proof/re-proof task admission gate requiring exact deliverables before model execution
 - extraction-prep consumer boundary posture (not full extraction)
 
 Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for authoritative status narrative.
@@ -40,6 +41,7 @@ Today the repo has deterministic local proof for a bounded supervised multi-proj
 6. project-aware authority evaluation with conservative stop when unsatisfied
 7. compatibility-preserving hosted-authority truth and merge-eligibility truth
 8. explicit claim discipline bound to local deterministic tests
+9. proof-style task admission blocked unless exact repo-relative deliverables are declared
 
 It does **not** claim:
 
