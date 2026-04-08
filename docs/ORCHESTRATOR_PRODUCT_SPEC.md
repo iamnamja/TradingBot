@@ -16,27 +16,19 @@ Build a reusable orchestration engine that can execute constrained implementatio
 - **100–107 harden resilience, hosted-authority truth, bootstrap recovery, and supervised mixed-manifest proof**
 - **108–114 harden ordinary-task autonomy operating mode (artifact envelopes, tester critique/replay, repair memory, admission gates, authority contracts, multi-role ordinary execution, cross-task carry-forward)**
 - **115 adds a fresh supervised local-first ordinary-manifest end-to-end re-proof**
-- **116–122 add project registry, project isolation, backlog/dependency policy, bounded repair/rollback posture, and hosted-authority convergence**
-- **123 adds a fresh supervised local-first bounded multi-project portfolio scheduler re-proof**
-- **124 freezes the public/tested compatibility contract for key alias-driven seams**
-- **125 adds a shared schema alias normalization layer**
-- **126 unifies canonical stop-status and decision vocabulary**
 - Product is reusable and increasingly standardized, but **not extracted** as a standalone repo/package.
 
 ## What the product can honestly claim today
 
 The repo now has deterministic proof for a bounded supervised slice:
 
-- project selection across more than one registered project
-- isolated project workspace/branch/state/carry-forward memory namespaces
-- next-task selection that respects explicit dependency truth
-- stronger bounded self-heal planning with conservative rollback posture
-- project-aware validation and authority evaluation
-- frozen public/tested compatibility aliases across key seam families
-- schema alias normalization through one shared normalization layer
-- canonical stop-status and decision vocabulary across controller, batch, and merge helpers
-- conservative stop behavior when merge/authority posture is unsatisfied
-- explicit claim discipline that does not exceed tested deterministic local-supervised scope
+- short ordinary-manifest progression across multiple ordinary tasks
+- combined builder/verifier/controller execution surfaces
+- tester critique with focused replay lane before broader validation
+- repair-memory suppression of repeated no-progress retries
+- bounded cross-task carry-forward memory
+- conservative authority/admission gate stop posture
+- explicit claim discipline that does not exceed tested deterministic scope
 
 The proof is intentionally bounded and does **not** claim:
 
@@ -44,3 +36,17 @@ The proof is intentionally bounded and does **not** claim:
 - broad unattended production scheduling across arbitrary task families
 - broad arbitrary multi-language portability
 - full standalone extraction is complete
+
+## Next product-stage focus
+
+The next continuation after Task 115 should focus on converting the current bounded ordinary-manifest proof into a portfolio-capable operating mode.
+
+The main product gaps are:
+
+- no canonical multi-project registry and contract surface yet
+- insufficient project-scoped isolation for state, branches, and workspaces
+- weak next-task selection across a real backlog
+- dependency and decomposition planning that is still too manifest-shaped
+- self-heal that still needs stronger repair-plan ranking and rollback behavior
+- validation and authority that are not yet fully project-aware
+- hosted authority that is still truthful but not yet operationally converged enough for low-babysitting portfolio execution
