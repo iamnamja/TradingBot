@@ -204,3 +204,41 @@ def test_task_family_router_routes_controller_core_into_constrained_manual_lane(
     assert context["task_family"] == "strict_manual_controller_core"
     assert route["recommended_lane"] == "constrained_manual"
     assert route["recommended_next_role"] == "manual_patch"
+
+
+def test_task_136_resilience_reproof_keeps_proof_task_admission_exact_and_bounded():
+    blocked_text = """
+# Task 136 — Orchestrator supervised resilience re-proof
+
+## Deliverables
+- `README.md`
+- `docs/TRADINGBOT_PROJECT_STATE.md`
+""".strip()
+
+    blocked = run_task.evaluate_proof_task_admission(
+        task_text=blocked_text,
+        task_file="tasks/136_orchestrator_supervised_resilience_reproof.md",
+        required_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+    )
+
+    assert blocked["proof_task_detected"] is True
+    assert blocked["proof_task_admission_allowed"] is False
+    assert any("Create or update these exact files" in issue for issue in blocked["strict_exact_deliverable_contract_issues"])
+
+    allowed_text = """
+# Task 136 — Orchestrator supervised resilience re-proof
+
+## Create or update these exact files
+- `README.md`
+- `docs/TRADINGBOT_PROJECT_STATE.md`
+""".strip()
+
+    allowed = run_task.evaluate_proof_task_admission(
+        task_text=allowed_text,
+        task_file="tasks/136_orchestrator_supervised_resilience_reproof.md",
+        required_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+    )
+
+    assert allowed["proof_task_detected"] is True
+    assert allowed["proof_task_admission_allowed"] is True
+    assert allowed["strict_exact_deliverable_contract_issues"] == []

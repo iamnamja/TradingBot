@@ -229,3 +229,35 @@ def test_request_and_parse_bundle_underfilled_response_uses_missing_deliverable_
     assert "Already accepted required paths" in prompts[0]
     assert "a.py" in prompts[0]
     assert "Your previous response was INVALID" not in prompts[0]
+
+
+def test_task_136_resilience_reproof_helpers_cover_empty_underfilled_and_missing_deliverables() -> None:
+    empty = run_task.classify_bundle_transport_failure(
+        "BEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE\n",
+        "No FILE: blocks could be parsed (check FILE:/END_FILE lines).",
+        expected_paths=["README.md"],
+    )
+    underfilled = run_task.classify_bundle_transport_failure(
+        "BEGIN_FILE_BUNDLE\nFILE: README.md\nupdated\nEND_FILE\nEND_FILE_BUNDLE\n",
+        "Missing FILE blocks from the requested scope: docs/TRADINGBOT_PROJECT_STATE.md",
+        expected_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+        parsed_paths=["README.md"],
+    )
+    evidence = run_task.extract_missing_deliverable_evidence(
+        "Missing FILE blocks from the requested scope: docs/TRADINGBOT_PROJECT_STATE.md",
+        required_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+        parsed_paths=["README.md"],
+    )
+    feedback = run_task.build_missing_deliverable_retry_feedback(
+        task_file="tasks/136_orchestrator_supervised_resilience_reproof.md",
+        required_paths=["README.md", "docs/TRADINGBOT_PROJECT_STATE.md"],
+        missing_required_paths=evidence["missing_required_paths"],
+        accepted_paths=evidence["accepted_paths"],
+    )
+
+    assert empty["failure_category"] == "bundle_empty_response"
+    assert underfilled["failure_category"] == "bundle_underfilled_response"
+    assert evidence["retry_target_paths"] == ["docs/TRADINGBOT_PROJECT_STATE.md"]
+    assert feedback["deliverable_retry_kind"] == "missing_required_paths"
+    assert "EXACTLY these missing required paths" in feedback["retry_feedback"]
+    assert "README.md" in feedback["retry_feedback"]

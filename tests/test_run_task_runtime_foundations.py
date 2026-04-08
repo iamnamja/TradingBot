@@ -200,3 +200,16 @@ def test_project_contract_contains_workspace_and_isolation_namespaces() -> None:
     assert isinstance(contract["branch_namespace"], str)
     assert isinstance(contract["state_namespace"], str)
     assert isinstance(contract["carry_forward_memory_namespace"], str)
+
+
+def test_task_136_resilience_public_surface_remains_available() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    assert callable(run_task.evaluate_proof_task_admission)
+    assert callable(run_task.report_proof_task_admission_failure)
+    assert callable(run_task.classify_bundle_transport_failure)
+    assert callable(run_task.extract_missing_deliverable_evidence)
+    assert callable(run_task.build_missing_deliverable_retry_feedback)
+    assert callable(run_task.restore_file_snapshot_subset)
+    assert callable(run_task.build_last_green_subset_preservation_plan)
+    assert callable(run_task.write_last_green_subset_artifact)

@@ -196,3 +196,23 @@ def test_dependency_aware_next_task_selection_prefers_ready_items() -> None:
 
     second = tq.select_next_task(queue, completed_task_paths=["tasks/001.md"])
     assert second.task_path in {"tasks/002.md", "tasks/003.md"}
+
+
+def test_task_136_dependency_aware_selection_returns_none_when_no_tasks_are_ready() -> None:
+    tq = _task_queue_module()
+    planner = _manifest_planner_module()
+
+    graph = planner.build_dependency_graph(
+        {
+            "tasks": [
+                {"path": "tasks/010.md", "depends_on": ["tasks/011.md"]},
+                {"path": "tasks/011.md", "depends_on": ["tasks/010.md"]},
+            ]
+        }
+    )
+    queue = tq.build_task_queue_from_manifest(
+        {"tasks": ["tasks/010.md", "tasks/011.md"]},
+        dependency_graph=graph,
+    )
+
+    assert tq.select_next_task(queue, completed_task_paths=[]) is None

@@ -76,3 +76,15 @@ def test_project_registry_portfolio_slice_is_explicitly_bounded_and_supervised()
     assert snapshot["portfolio_scheduler_mode"] == "supervised_local_first"
     assert snapshot["portfolio_slice_bounded"] is True
     assert snapshot["portfolio_reproof_claim"] == "deterministic_local_supervised_only"
+
+
+def test_task_136_project_registry_keeps_bounded_claim_and_stable_required_check() -> None:
+    registry = _load_project_registry_module()
+    snapshot = registry.project_registry_snapshot()
+    tradingbot = registry.resolve_project_contract("tradingbot_monorepo")
+    matrix = registry.project_validation_matrix(tradingbot)
+
+    assert snapshot["portfolio_slice_bounded"] is True
+    assert snapshot["portfolio_reproof_claim"] == "deterministic_local_supervised_only"
+    assert snapshot["unattended_safe_project_ids"] == []
+    assert matrix["repo_required_checks"] == ["ci-required"]
