@@ -4,7 +4,7 @@
 
 The orchestrator has become strong enough to enforce guardrails, but not yet strong enough to behave like a reliable central command system across a long backlog.
 
-The repeated 20–30 turn repair cycles on narrow tasks are evidence that the current bottleneck is not only model quality or task wording. The deeper issue is that the orchestrator still lacks a mature control plane.
+The current bottleneck is no longer only “can the harness recover from failures.” It is also whether the safe one-task lane is operationally trustworthy on live GitHub branches.
 
 ## Current strengths
 
@@ -12,31 +12,26 @@ The repeated 20–30 turn repair cycles on narrow tasks are evidence that the cu
 - protected-file policies exist
 - spec/frozen-task support exists
 - validator and failure-journal seams exist
-- bundle preflight and some localized repair support exist
+- bundle preflight and localized repair support exist
 - portability/adapters groundwork is already in place
+- the repo now has a bounded one-task autonomous lane with ledger, canary reporting, and supervised handoff artifacts
 
 ## Current weaknesses
 
-### 1. Task-family blindness
-The runner still treats too many tasks as generic code generation problems.
+### 1. Live hosted-authority interpretation still needs hardening
+The repo should treat GitHub reporting races, check-run vs commit-status surfaces, and real required-check convergence more explicitly.
 
-### 2. Failure handling is reactive, not strategic
-The system blocks bad output, but does not yet reliably decide whether a failure means retry, local repair, task patch, harness patch, manual patch lane, or stop.
+### 2. The safe lane still needs deeper scheduler integration
+The bounded single-task runner exists, but the scheduler should route through it directly when exactly one safe task is ready.
 
-### 3. Localized repair is not yet the default small-task behavior
-Good files are not consistently preserved while bad subsets are repaired.
+### 3. Mixed queues need cleaner conservative handling
+The system must stop or requeue cleanly when safe work and supervised-only work appear together.
 
-### 4. Backlog readiness is not a first-class controller concept
-The system can run a task, but it does not yet own readiness, blockers, next-task selection, or long-loop autonomy.
+### 4. Resume semantics for the safe lane are still a maturity gap
+Interrupted one-task runs should be resumable without artifact duplication or widened scope.
 
-### 5. PR/CI/merge behavior is still a workflow around the orchestrator, not inside it
-A true central-command product needs PR/CI/merge status and failure interpretation as native controller behavior.
-
-### 6. Semantic seam validation is too weak
-The current harness still leans too hard on string/regex checks where seam-heavy tasks need manifest-driven or semantic validation.
-
-### 7. Docs/task numbering drift still costs trust
-Trajectory changes have repeatedly required manual renumbering and doc cleanup.
+### 5. Operator proof needs to be more explicit
+A small live canary proof bundle should make it easy to see what the lane can do and what it still refuses to do.
 
 ## Do we need AI on top?
 
@@ -51,6 +46,7 @@ Its responsibilities should include:
 - seam manifest and semantic contract validation
 - failure classification and remediation planning
 - confidence-gated autonomy vs escalation decisions
+- hosted-authority interpretation across live GitHub surfaces
 
 ## Design target
 
@@ -63,21 +59,15 @@ The orchestrator should behave like this:
 5. Classify any failure.
 6. Repair locally when safe.
 7. Escalate to manual patch lane when needed.
-8. Open PR, watch CI, merge, resync `main`.
-9. Mark the task done and advance to the next ready task.
+8. Interpret live PR authority conservatively.
+9. Merge only when the required contract is truly green.
+10. Mark the task done and advance to the next ready task.
 
 ## Immediate build priorities
 
-1. stable harness contract freeze
-2. task-family classification and prompt compiler
-3. seam manifest and semantic contract validator
-4. failure classifier and remediation planner
-5. localized repair and real failure artifacts
-6. backlog readiness + state engine
-7. PR/CI/merge controller
-8. end-to-end autonomy loop integration
-
-
-## Bootstrap lane rule
-
-Until the harness contract is frozen and regression-tested, bootstrap harness tasks should use the manual patch lane rather than the normal autonomous lane.
+1. settle-window and dual-surface hosted-authority probe
+2. real-PR `ci-required` smoke proof
+3. scheduler bridge to the bounded single-task runner
+4. mixed-queue stop/requeue discipline
+5. one-task resume and idempotent re-entry
+6. live canary proof bundle

@@ -35,16 +35,16 @@ After Tasks 137–142, the orchestrator now has bounded deterministic defenses a
 - coupled compatibility-surface repair planning
 - last-known-good subset preservation during retries
 - hosted-authority operational-readiness truth
-- a safe task-family autonomy allowlist for ordinary one-task work
-- deterministic single-task ledger, canary metrics, recovery reporting, and supervised handoff artifacts
+- allowlisted one-task autonomous execution
+- deterministic run ledger, canary reporting, and supervised handoff artifacts
 
-## Active policy posture
+## Next policy posture (143–148)
 
-The current tranche still does **not** broaden into arbitrary autonomy. The active policy remains a narrow safe lane:
+The next tranche should keep the lane narrow while making it more operationally trustworthy:
 
-- autonomous execution is allowed only for explicitly allowlisted ordinary task families
-- the safe lane currently covers docs/tests/`src/tradingbot` work only, while `agents/` and `src/builder/orchestrator/` remain escalation-first by default
-- proof-shaped tasks remain supervised even when their file families are otherwise allowlisted
-- self-hosting control-plane edits remain escalation-first unless separately proven safe
-- unattended readiness remains blocked unless real GitHub required-check reporting and enforcement are visibly converged
-- broader autonomy claims remain blocked until the safe lane is re-proven green under live hosted authority
+- hosted-authority probing should distinguish `not yet reported` from truly missing or failed required checks
+- live `ci-required` convergence should be smoke-proved on a real PR before claims broaden
+- the orchestrator scheduler should route only the single-ready-safe-task case through the bounded runner
+- mixed safe and supervised-only queues should stop/requeue conservatively instead of widening autonomy
+- bounded single-task resume/re-entry should be idempotent and artifact-safe
+- broader autonomy claims should remain blocked until the live canary proof bundle is green

@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 124–142 are complete in bounded supervised scope plus a narrow safe autonomous one-task lane:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, adds a safe task-family autonomy allowlist, and introduces a dedicated autonomous single-task runner with a persisted run ledger.
+- **Tasks 137–142 are complete in bounded supervised scope plus a narrow one-task autonomous lane:** the repo now converges around the stable `ci-required` contract surface, allowlists ordinary one-task autonomy conservatively, provides a dedicated bounded single-task runner, persists deterministic run ledgers and canary metrics, emits explicit supervised handoff artifacts for out-of-lane work, and re-proves that only one allowlisted safe task at a time is autonomous.
 
 The current bounded deterministic slice now demonstrates:
 
@@ -23,12 +23,9 @@ The current bounded deterministic slice now demonstrates:
 5. green-gated proof-claim discipline
 6. targeted retry planning around missing deliverables and coupled compatibility surfaces
 7. bounded subset preservation so targeted retries do not unnecessarily widen the changed-file set
-8. explicit hosted-authority operational-readiness truth, including blocking `no checks reported` posture
+8. explicit hosted-authority operational-readiness truth, including conservative interpretation of missing or weak required-check evidence
 9. a fresh supervised resilience re-proof over the recent failure corpus
-10. a bounded autonomous single-task canary runner with persisted ledger artifacts
-11. durable canary metrics and recovery reporting artifacts so single-task convergence can be measured without claiming a broad dashboard or unattended scheduler
-12. deterministic supervised handoff artifacts when a blocked or escalated single-task run must stop honestly and return to supervision
-13. a fresh supervised re-proof that the repo can autonomously run one allowlisted safe task at a time while keeping proof-shaped work and self-hosting control-plane work outside the autonomous lane
+10. a bounded one-task autonomous lane with deterministic ledger, canary reporting, and supervised handoff artifacts
 
 ## Scope honesty
 
@@ -39,15 +36,18 @@ Current proof scope remains explicitly limited to:
 - conservative stop-on-risk / stop-on-authority-unsatisfied posture
 - compatibility-preserving self-heal and schema alias normalization contracts
 - extraction preparation posture rather than completed standalone extraction
-- allowlisted one-task safe-lane autonomy only
-- explicit supervised handoff when a task is proof-shaped, unsafe, or execution-failing
+- at most one allowlisted safe task at a time under supervision
+- self-hosting control-plane work remains escalation-first unless separately proven safe
 
 It still does **not** claim autonomy for arbitrary protected/controller/meta task lists, broad unattended production scheduling, or broad multi-language portability.
 
 ## Next continuation target
 
-The next tranche should stay honest and operational:
+The next tranche should focus on making the safe lane operationally trustworthy end to end:
 
-1. converge real GitHub reporting plus required-check enforcement around the stable `ci-required` contract
-2. treat the one-task autonomous lane as bounded and supervised until hosted authority is visibly green on real PR branches
-3. only consider widening task families or progressing toward batch autonomy after the GitHub-side operational blocker is truly resolved
+1. tolerate the initial GitHub reporting race with a settle window and dual-surface hosted-authority probe
+2. add a real-PR smoke proof for the stable `ci-required` contract
+3. bridge the scheduler directly to the bounded single-task runner when exactly one safe task is ready
+4. add conservative stop/requeue policy for mixed safe and supervised-only queues
+5. make bounded one-task resume/re-entry idempotent and artifact-safe
+6. produce an operator-readable proof bundle for the live canary lane

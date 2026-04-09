@@ -2,51 +2,55 @@
 
 We are continuing work on the TradingBot orchestrator project.
 
-Use the attached current `agents`, `docs`, `tasks`, `tests`, `README.md`, and `requirements.txt` snapshots as the source of truth.
+Use the attached current `agents`, `docs`, `tasks`, `tests`, and `README.md` snapshots as the source of truth.
 
 ## Current completed state
 
-- reliability/autonomy continuation complete through 067
-- stabilization and backlog foundations complete through 075
-- autonomy/controller-thinning tranche complete through 082
-- recent key milestones:
-  - 076 final acceptance reviewer/report
-  - 077 targeted acceptance self-heal
-  - 078 canonical batch executor loop
-  - 079 accepted-task PR/check/merge/reset gate
-  - 080 resume semantics
-  - 081 controller decomposition extraction
-  - 082 first narrow autonomous ordinary-manifest proof
+- synchronized continuation is complete through **Task 142**
+- the repo now has a bounded supervised slice plus a narrow autonomous one-task lane
+- key recent milestones:
+  - 137 real GitHub required-check convergence around the stable `ci-required` contract
+  - 138 safe task-family autonomy allowlist
+  - 139 dedicated autonomous single-task runner and ledger
+  - 140 canary metrics and recovery reporting
+  - 141 escalation artifact and supervised handoff lane
+  - 142 supervised safe-lane single-task re-proof
 
 ## Important reality
 
-- short ordinary-manifest proof now exists, but 082 exposed remaining controller-contract and repair-discipline gaps
-- broad arbitrary protected/controller manifest autonomy is still not an honest claim
-- `agents/run_task.py` is thinner than before, but controller glue still exists and should keep moving outward carefully
-- the next tranche should centralize controller truth into a dedicated contract module rather than only “aligning strings by convention”
+- the repo can honestly claim only **one allowlisted safe task at a time** under supervision
+- self-hosting control-plane work remains escalation-first unless separately proven safe
+- broad unattended scheduler autonomy is still not an honest claim
+- the next tranche should focus on operational safe-lane convergence, not on widening autonomy claims
+
+## Current live GitHub reality
+
+- the stable hosted-authority contract is `ci-required`
+- the GitHub ruleset for `main` should require `ci-required`
+- the repo also publishes workflow/check-run surfaces such as `ci`
+- the next tranche should harden interpretation of live PR reporting so the orchestrator distinguishes initial reporting delay from genuinely missing required-check evidence
 
 ## Next intended tranche
 
-- 083 controller contract canonicalization
-- 084 non-reexecuting retry/self-heal channel
-- 085 merge-posture truth persistence and resume contract
-- 086 semantic failure digest and controller repair context
-- 087 controller-task strict mode and patch-quality gate
-- 088 controller decomposition fourth extraction
-- 089 hardened autonomous short-manifest proof
+- 143 GitHub settle window and dual-surface probe
+- 144 real PR required-check smoke proof
+- 145 scheduler bridge to safe single-task runner
+- 146 safe-lane stop/requeue and supervised mix policy
+- 147 single-task resume and idempotent re-entry
+- 148 live canary corpus and operator proof bundle
 
 ## Working style
 
 - use `tasks/README.md` as canonical task ordering
+- keep the lane narrow and operationally honest
+- do not widen claims beyond what tests and live GitHub evidence support
 - exact deliverable completeness matters
-- compare actual committed diff vs task-required files
-- run `ruff check .` and `pytest -q` before considering a task done
-- for controller-core tasks, manual patches are often still appropriate
-- docs should not claim a proof or milestone before final acceptance actually passes
-- prefer targeted cleanup patches over blind reruns once a branch is close
+- run focused validation first, then `ruff check .`, then `pytest -q`
+- preserve compatibility seams and stable exports in `agents/run_task.py` and `agents/lib/shell_router.py`
+- prefer the smallest targeted recovery when a task branch is close
 
 ## Execution posture for this tranche
 
-- Treat **083** as a manual patch first. It is the contract-stabilization task that the rest of 084–089 depends on.
-- 084–088 are still controller-core enough that manual patching is likely the safer first move.
-- 089 is the first good autonomous candidate once the controller contract, repair digest, and strict-mode surfaces are actually landed.
+- 143–144 are operational/manual-first because they touch live GitHub hosted-authority truth
+- 145–147 should remain bounded, one-task-only, and conservative
+- 148 is the first operator-facing proof bundle for the live one-task canary lane
