@@ -6,8 +6,8 @@
 
 ## Current continuation note
 
-Tasks 124–136 hardened the orchestrator against the known self-hosting failure corpus, but the repo still does not claim broad unattended autonomy.
+Tasks 137–142 are now complete. The repo has a bounded supervised re-proof for a narrow one-task autonomous safe lane, but it still does not honestly claim broad unattended autonomy.
 
 ## Current next-step note
 
-The current tranche is about making **autonomous single-task runs** measurable and reliable inside a narrow safe lane, with real GitHub required-check truth, a persisted one-task ledger, canary metrics, recovery reporting, and deterministic supervised handoff artifacts for unsafe self-hosting work.
+The next step is to make the GitHub-side `ci-required` reporting/enforcement visibly converge on live PR branches, then decide whether the safe lane can be widened without overstating what the repo actually proves.

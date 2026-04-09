@@ -305,3 +305,51 @@ def test_task_138_safe_task_family_allowlist_keeps_proof_tasks_supervised():
     assert admission["autonomous_single_task_lane"] == "supervised_only"
     assert admission["autonomous_single_task_allowed"] is False
     assert admission["task_family_allowlisted"] is True
+
+
+
+def test_task_142_safe_lane_reproof_task_itself_remains_supervised_even_with_allowlisted_docs_and_tests():
+    task_text = """
+# Task 142 — Orchestrator supervised safe-lane single-task re-proof
+
+## Create or update these exact files
+- `tests/test_run_task_contract_directives.py`
+- `tests/test_single_task_runner.py`
+- `tests/test_failure_journal.py`
+- `tests/test_merge_manager_integration.py`
+- `tests/test_run_task_runtime_foundations.py`
+- `docs/TRADINGBOT_PROJECT_STATE.md`
+- `docs/ORCHESTRATOR_PRODUCT_SPEC.md`
+- `docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md`
+- `README.md`
+""".strip()
+
+    required_paths = [
+        "tests/test_run_task_contract_directives.py",
+        "tests/test_single_task_runner.py",
+        "tests/test_failure_journal.py",
+        "tests/test_merge_manager_integration.py",
+        "tests/test_run_task_runtime_foundations.py",
+        "docs/TRADINGBOT_PROJECT_STATE.md",
+        "docs/ORCHESTRATOR_PRODUCT_SPEC.md",
+        "docs/ORCHESTRATOR_CONTROLS_AND_POLICIES.md",
+        "README.md",
+    ]
+
+    proof = run_task.evaluate_proof_task_admission(
+        task_text=task_text,
+        task_file="tasks/142_orchestrator_supervised_safe_lane_single_task_reproof.md",
+        required_paths=required_paths,
+    )
+    admission = run_task.evaluate_autonomous_single_task_admission(
+        required_paths,
+        task_file="tasks/142_orchestrator_supervised_safe_lane_single_task_reproof.md",
+        task_text=task_text,
+    )
+
+    assert proof["proof_task_detected"] is True
+    assert proof["proof_task_admission_allowed"] is True
+    assert admission["task_family_allowlisted"] is True
+    assert admission["autonomy_allowlist_family"] == "docs_and_tests"
+    assert admission["autonomous_single_task_lane"] == "supervised_only"
+    assert admission["autonomous_single_task_allowed"] is False

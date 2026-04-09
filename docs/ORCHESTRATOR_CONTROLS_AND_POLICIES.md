@@ -28,22 +28,23 @@ The current canonical family names are:
 
 ## Current control posture
 
-After Tasks 124–136, the orchestrator now has bounded deterministic defenses around:
+After Tasks 137–142, the orchestrator now has bounded deterministic defenses around:
 
 - proof-task admission and exact deliverable contracts
 - bundle failure classification and missing-deliverable retry compilation
 - coupled compatibility-surface repair planning
 - last-known-good subset preservation during retries
 - hosted-authority operational-readiness truth
-- conservative stop when no dependency-ready task is available
+- a safe task-family autonomy allowlist for ordinary one-task work
+- deterministic single-task ledger, canary metrics, recovery reporting, and supervised handoff artifacts
 
-## Next policy posture (137–142)
+## Active policy posture
 
-The next tranche should **not** broaden into arbitrary autonomy. It should narrow into a safe lane:
+The current tranche still does **not** broaden into arbitrary autonomy. The active policy remains a narrow safe lane:
 
 - autonomous execution is allowed only for explicitly allowlisted ordinary task families
-- the safe lane admits narrow docs/tests/`src/tradingbot` work only, while `agents/` and `src/builder/orchestrator/` remain escalation-first by default
+- the safe lane currently covers docs/tests/`src/tradingbot` work only, while `agents/` and `src/builder/orchestrator/` remain escalation-first by default
+- proof-shaped tasks remain supervised even when their file families are otherwise allowlisted
 - self-hosting control-plane edits remain escalation-first unless separately proven safe
-- unattended readiness remains blocked unless real GitHub required-check enforcement is converged
-- a dedicated single-task runner should emit a run ledger, canary metrics, recovery reporting, and deterministic supervised handoff artifacts
-- broader autonomy claims should remain blocked until the safe lane is re-proven green
+- unattended readiness remains blocked unless real GitHub required-check reporting and enforcement are visibly converged
+- broader autonomy claims remain blocked until the safe lane is re-proven green under live hosted authority

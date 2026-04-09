@@ -164,6 +164,7 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.default_single_task_supervised_handoff_path)
     assert callable(run_task.build_single_task_supervised_handoff_artifact)
     assert callable(run_task.write_single_task_supervised_handoff_artifact)
+    assert callable(run_task.run_autonomous_single_task)
     _, _, _, _, failure_journal, run_single_task, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_single_task.read_single_task_run_ledger)
     assert callable(run_single_task.build_single_task_canary_metrics)
