@@ -1,6 +1,6 @@
 # Orchestrator GitHub Required-Check Setup
 
-This repo treats hosted-authority truth and unattended-readiness claims conservatively.
+This repo now treats hosted-authority truth and unattended-readiness claims conservatively.
 
 That means the code should only be considered operationally converged for unattended merge progression when the GitHub side is also aligned.
 
@@ -11,32 +11,55 @@ Use a branch protection rule or ruleset that:
 - requires a pull request before merge
 - requires status checks to pass before merge
 - uses the stable required-check context `ci-required`
-- does not rely only on the raw workflow job name as the long-term contract surface
+- does not rely only on an incidental workflow job name as the long-term contract surface
 - prevents force-pushes and direct bypasses unless explicitly intended for operators
 
 ## Why the repo contract uses a stable required-check name
 
 The orchestrator needs a check name that is stable enough to treat as a contract surface.
 
-Use `ci-required` as the required status-check context for the TradingBot monorepo. Treat ad hoc job names as implementation details unless the contract is intentionally updated.
+Use `ci-required` as the required status check context for the TradingBot monorepo. Treat ad hoc job names as implementation details unless the contract is intentionally updated.
+
+## What the runtime now verifies
+
+Tasks 137 and 143 now combine three GitHub-side signals:
+
+1. **Initial PR reporting truth** — whether `gh pr checks --watch` shows hosted checks on the branch
+2. **Settled dual-surface truth** — whether the current commit reports check runs and/or commit statuses after a short settle window (`gh api repos/{owner}/{repo}/commits/<sha>/check-runs` and `gh api repos/{owner}/{repo}/commits/<sha>/status`)
+3. **Enforcement truth** — whether active branch rules or branch protection on the repo base branch actually require the configured `ci-required` context (`gh api repos/{owner}/{repo}/rules/branches/main` with fallback to `gh api repos/{owner}/{repo}/branches/main/protection`)
+
+The orchestrator now treats all three as part of honest unattended-readiness interpretation on the TradingBot monorepo.
 
 ## Operational interpretation
 
-When GitHub initially reports weak or incomplete evidence, the orchestrator should distinguish between:
+When the runtime sees any of the following, unattended readiness remains **blocked**:
 
-- `not yet reported`
-- missing required checks
-- failed required checks
-- weak or misconfigured enforcement
+- `gh pr checks --watch` initially says `no checks reported on the branch` and the settle window still finds no check runs or statuses
+- GitHub reports other checks, but the required `ci-required` context never appears
+- branch rules / protection do not require `ci-required`
+- GitHub enforcement requires a different status-check context than the repo contract
+- GitHub enforcement could not be probed reliably
 
-Initial `no checks reported` signals should not automatically be treated as final truth if the branch is still inside the settle window. Hosted authority should remain blocked until the stable `ci-required` contract actually appears and reaches a satisfiable state.
+Local green validation alone is not enough to claim operational unattended readiness.
 
 ## Manual verification checklist
 
 Before claiming unattended readiness, confirm that:
 
 1. the repo contract expects `ci-required`
-2. the GitHub ruleset or branch protection for `main` requires `ci-required`
-3. pull requests actually publish `ci-required` on the branch
-4. the required status reaches a passed state before merge progression
-5. the repo can distinguish transient reporting delay from genuinely missing required-check evidence
+2. the GitHub branch protection rule or ruleset for `main` requires `ci-required`
+3. pull requests actually report the check on the branch
+4. the required check reaches a passed state before merge progression
+
+## Useful GitHub CLI spot checks
+
+```bash
+gh pr checks --watch
+git rev-parse HEAD
+gh api repos/{owner}/{repo}/commits/<sha>/check-runs
+gh api repos/{owner}/{repo}/commits/<sha>/status
+gh api repos/{owner}/{repo}/rules/branches/main
+gh api repos/{owner}/{repo}/branches/main/protection
+```
+
+The rules endpoint is the preferred signal because it returns the active rules that apply to the branch. The protection endpoint remains a compatibility fallback for repositories still relying on classic branch protection rather than rulesets.

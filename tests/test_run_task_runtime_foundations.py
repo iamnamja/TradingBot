@@ -147,6 +147,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.execute_batch_loop)
     assert callable(run_task.accepted_task_pr_merge_flow)
     assert callable(run_task.canonical_required_check_truth)
+    assert callable(run_task.probe_github_required_check_surfaces)
+    assert callable(run_task.probe_hosted_authority)
     assert callable(run_task.evaluate_verification_authority)
     assert callable(run_task.evaluate_hosted_authority_operational_convergence)
     assert callable(run_task.report_branch_push_ready)
