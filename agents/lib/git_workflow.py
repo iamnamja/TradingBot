@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Literal, Mapping, Sequence
 
@@ -22,6 +23,7 @@ DEFAULT_REPO_DEFAULT_BRANCH = "main"
 DEFAULT_ENFORCEMENT_PROBE_STRATEGY = "rules_branch_then_branch_protection"
 DEFAULT_GITHUB_CHECK_SETTLE_WINDOW_SECONDS = 6.0
 DEFAULT_GITHUB_CHECK_POLL_INTERVAL_SECONDS = 2.0
+DEFAULT_REAL_PR_REQUIRED_CHECK_SMOKE_ARTIFACT_PATH = "artifacts/autonomous_single_task/real_pr_required_check_smoke.json"
 
 
 @dataclass(frozen=True)
@@ -969,9 +971,48 @@ def _infer_required_check_truth_from_output(
 
 
 
-def probe_github_required_check_surfaces(
+def default_real_pr_required_check_smoke_artifact_path() -> str:
+    return DEFAULT_REAL_PR_REQUIRED_CHECK_SMOKE_ARTIFACT_PATH
+
+
+def _write_json_artifact(payload: Mapping[str, Any], *, artifact_path: str) -> str:
+    path = Path(artifact_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dict(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return str(path)
+
+
+def _parse_pr_view_payload(payload: Any) -> dict[str, object]:
+    if not isinstance(payload, Mapping):
+        return {
+            "pull_request_number": 0,
+            "pull_request_url": "",
+            "pull_request_state": "",
+            "pull_request_base_ref": "",
+            "pull_request_head_ref": "",
+            "pull_request_head_sha": "",
+            "pull_request_merge_state_status": "",
+        }
+    number = payload.get("number")
+    try:
+        pr_number = int(number)
+    except Exception:
+        pr_number = 0
+    return {
+        "pull_request_number": pr_number,
+        "pull_request_url": _coerce_text(payload.get("url")),
+        "pull_request_state": _coerce_text(payload.get("state")),
+        "pull_request_base_ref": _coerce_text(payload.get("baseRefName")),
+        "pull_request_head_ref": _coerce_text(payload.get("headRefName")),
+        "pull_request_head_sha": _coerce_text(payload.get("headRefOid")),
+        "pull_request_merge_state_status": _coerce_text(payload.get("mergeStateStatus")),
+    }
+
+
+def _probe_required_check_surfaces_for_sha(
     runner: Runner,
     *,
+    sha: str,
     verification_authority_profile: Any = "local_plus_required_ci",
     repo_check_contract: Mapping[str, Any] | None = None,
     settle_window_seconds: Any | None = None,
@@ -996,10 +1037,8 @@ def probe_github_required_check_surfaces(
     try:
         while attempts < attempt_limit:
             attempts += 1
-            sha_result = runner(["git", "rev-parse", "HEAD"], True)
-            sha = _coerce_text(_stdout_and_stderr_text(sha_result))
             if not sha:
-                raise RuntimeError("could not resolve HEAD commit sha for hosted-authority probe")
+                raise RuntimeError("could not resolve commit sha for hosted-authority probe")
             check_runs_result = runner(["gh", "api", f"repos/{{owner}}/{{repo}}/commits/{sha}/check-runs"], True)
             commit_status_result = runner(["gh", "api", f"repos/{{owner}}/{{repo}}/commits/{sha}/status"], True)
             last_check_runs_truth = _parse_commit_check_runs_payload(
@@ -1051,6 +1090,7 @@ def probe_github_required_check_surfaces(
                 return {
                     **truth,
                     "github_dual_surface_reported": bool(merged_surface_truth["github_dual_surface_reported"]),
+                    "github_probed_commit_sha": sha,
                 }
             if attempts < attempt_limit and window_seconds > 0 and interval_seconds > 0:
                 sleep_fn(interval_seconds)
@@ -1087,7 +1127,187 @@ def probe_github_required_check_surfaces(
     return {
         **truth,
         "github_dual_surface_reported": False,
+        "github_probed_commit_sha": sha,
     }
+
+
+def probe_real_pr_required_check_smoke_proof(
+    runner: Runner,
+    *,
+    verification_authority_profile: Any = "local_plus_required_ci",
+    repo_check_contract: Mapping[str, Any] | None = None,
+    pr_ref: Any | None = None,
+    artifact_path: str | None = None,
+    settle_window_seconds: Any | None = None,
+    poll_interval_seconds: Any | None = None,
+    sleeper: Callable[[float], None] | None = None,
+) -> dict[str, object]:
+    profile = coerce_verification_authority_profile(verification_authority_profile)
+    contract = canonical_repo_check_contract(repo_check_contract)
+    resolved_artifact_path = artifact_path or DEFAULT_REAL_PR_REQUIRED_CHECK_SMOKE_ARTIFACT_PATH
+
+    pr_view: dict[str, object]
+    required_check_truth: dict[str, object] = canonical_required_check_truth(
+        verification_authority_profile=profile,
+        repo_check_contract=contract,
+    )
+    enforcement_truth = canonical_repo_enforcement_truth(repo_check_contract=contract)
+    enforcement_convergence = evaluate_repo_required_check_convergence(
+        repo_check_contract=contract,
+        repo_enforcement_truth=enforcement_truth,
+    )
+    reason = "pr_view_unavailable"
+    summary = "Could not inspect a real open pull request for required-check smoke proof."
+    proved = False
+
+    cmd = ["gh", "pr", "view"]
+    if pr_ref is not None and str(pr_ref).strip():
+        cmd.append(str(pr_ref).strip())
+    cmd.extend(["--json", "number,headRefName,headRefOid,baseRefName,state,mergeStateStatus,url"])
+
+    try:
+        pr_result = runner(cmd, True)
+        pr_view = _parse_pr_view_payload(_parse_json_payload(_stdout_and_stderr_text(pr_result)))
+    except Exception as exc:
+        smoke = {
+            "verification_authority_profile": profile,
+            "repo_check_contract": dict(contract),
+            "repo_required_check_enforcement": dict(enforcement_truth),
+            "repo_required_check_enforcement_convergence": dict(enforcement_convergence),
+            "required_check_truth": dict(required_check_truth),
+            "real_pr_required_check_smoke_proved": False,
+            "real_pr_required_check_smoke_reason": reason,
+            "real_pr_required_check_smoke_summary": f"{summary} {exc}".strip(),
+            "real_pr_required_check_smoke_artifact_path": resolved_artifact_path,
+            "pull_request_number": 0,
+            "pull_request_url": "",
+            "pull_request_state": "",
+            "pull_request_base_ref": "",
+            "pull_request_head_ref": "",
+            "pull_request_head_sha": "",
+            "pull_request_merge_state_status": "",
+        }
+        smoke["real_pr_required_check_smoke_artifact_path"] = _write_json_artifact(smoke, artifact_path=resolved_artifact_path)
+        return smoke
+
+    pull_request_state = str(pr_view["pull_request_state"]).upper()
+    pull_request_base_ref = str(pr_view["pull_request_base_ref"])
+    pull_request_head_sha = str(pr_view["pull_request_head_sha"])
+
+    enforcement_truth = probe_repo_required_check_enforcement(
+        runner,
+        repo_check_contract=contract,
+    )
+    enforcement_convergence = evaluate_repo_required_check_convergence(
+        repo_check_contract=contract,
+        repo_enforcement_truth=enforcement_truth,
+    )
+
+    if pull_request_state != "OPEN":
+        reason = "pull_request_not_open"
+        summary = "Real required-check smoke proof requires an open pull request."
+    elif pull_request_base_ref != str(contract["repo_default_branch"]):
+        reason = "pull_request_targets_non_default_branch"
+        summary = "Real required-check smoke proof requires a pull request that targets the repo default branch."
+    elif not pull_request_head_sha:
+        reason = "pull_request_head_sha_missing"
+        summary = "Real required-check smoke proof requires a pull request head commit sha."
+    else:
+        required_check_truth = _probe_required_check_surfaces_for_sha(
+            runner,
+            sha=pull_request_head_sha,
+            verification_authority_profile=profile,
+            repo_check_contract=contract,
+            settle_window_seconds=settle_window_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+            sleeper=sleeper,
+        )
+        state = str(required_check_truth.get("required_check_state") or "")
+        probe_status = str(required_check_truth.get("hosted_authority_probe_status") or "")
+        if not bool(enforcement_convergence["repo_required_check_enforcement_converged"]):
+            reason = "required_check_enforcement_not_converged"
+            summary = "GitHub branch rules or protection are not yet converged on the configured required-check contract."
+        elif bool(required_check_truth.get("hosted_authority_satisfied")):
+            reason = "smoke_proved"
+            summary = "A real open pull request targets the default branch and reports the configured required-check contract as satisfied."
+            proved = True
+        elif probe_status == "not_yet_reported" or state == "not_yet_reported":
+            reason = "required_checks_not_yet_reported"
+            summary = "The real open pull request exists, but the configured required-check contract has not yet reported on GitHub."
+        elif state == "pending":
+            reason = "required_checks_pending"
+            summary = "The real open pull request exists, but the configured required-check contract is still pending."
+        elif state == "timed_out":
+            reason = "required_checks_timed_out"
+            summary = "The real open pull request exists, but the configured required-check contract timed out."
+        elif state == "failed":
+            reason = "required_checks_failed"
+            summary = "The real open pull request exists, but the configured required-check contract failed."
+        elif probe_status == "required_context_missing" or state == "missing":
+            reason = "required_check_context_missing"
+            summary = "The real open pull request reported hosted checks, but the configured required-check context is missing."
+        elif probe_status == "misconfigured":
+            reason = "required_checks_misconfigured"
+            summary = "The real open pull request exists, but the configured required-check contract is misconfigured."
+        elif probe_status == "unavailable":
+            reason = "required_check_probe_unavailable"
+            summary = "The real open pull request exists, but the hosted required-check probe could not be executed."
+        else:
+            reason = "required_checks_unsatisfied"
+            summary = "The real open pull request exists, but the configured required-check contract is not yet satisfied."
+
+    smoke = {
+        "verification_authority_profile": profile,
+        "repo_check_contract": dict(contract),
+        "repo_required_check_enforcement": dict(enforcement_truth),
+        "repo_required_check_enforcement_convergence": dict(enforcement_convergence),
+        "required_check_truth": dict(required_check_truth),
+        **pr_view,
+        "real_pr_required_check_smoke_proved": proved,
+        "real_pr_required_check_smoke_reason": reason,
+        "real_pr_required_check_smoke_summary": summary,
+        "real_pr_required_check_smoke_artifact_path": resolved_artifact_path,
+    }
+    smoke["real_pr_required_check_smoke_artifact_path"] = _write_json_artifact(smoke, artifact_path=resolved_artifact_path)
+    return smoke
+
+
+
+def probe_github_required_check_surfaces(
+    runner: Runner,
+    *,
+    verification_authority_profile: Any = "local_plus_required_ci",
+    repo_check_contract: Mapping[str, Any] | None = None,
+    settle_window_seconds: Any | None = None,
+    poll_interval_seconds: Any | None = None,
+    sleeper: Callable[[float], None] | None = None,
+) -> dict[str, object]:
+    profile = coerce_verification_authority_profile(verification_authority_profile)
+    contract = canonical_repo_check_contract(repo_check_contract)
+    if profile == "local_only":
+        return canonical_required_check_truth(
+            verification_authority_profile=profile,
+            repo_check_contract=contract,
+        )
+    try:
+        sha_result = runner(["git", "rev-parse", "HEAD"], True)
+        sha = _coerce_text(_stdout_and_stderr_text(sha_result))
+    except Exception as exc:
+        return canonical_required_check_truth(
+            verification_authority_profile=profile,
+            repo_check_contract=contract,
+            hosted_authority_probe_status="unavailable",
+            hosted_authority_probe_note=str(exc),
+        )
+    return _probe_required_check_surfaces_for_sha(
+        runner,
+        sha=sha,
+        verification_authority_profile=profile,
+        repo_check_contract=contract,
+        settle_window_seconds=settle_window_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+        sleeper=sleeper,
+    )
 
 
 def probe_hosted_authority(

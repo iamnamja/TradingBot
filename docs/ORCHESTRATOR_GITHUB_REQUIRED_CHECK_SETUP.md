@@ -22,20 +22,18 @@ Use `ci-required` as the required status check context for the TradingBot monore
 
 ## What the runtime now verifies
 
-Tasks 137 and 143 now combine three GitHub-side signals:
+Task 137 adds two distinct GitHub-side checks:
 
-1. **Initial PR reporting truth** — whether `gh pr checks --watch` shows hosted checks on the branch
-2. **Settled dual-surface truth** — whether the current commit reports check runs and/or commit statuses after a short settle window (`gh api repos/{owner}/{repo}/commits/<sha>/check-runs` and `gh api repos/{owner}/{repo}/commits/<sha>/status`)
-3. **Enforcement truth** — whether active branch rules or branch protection on the repo base branch actually require the configured `ci-required` context (`gh api repos/{owner}/{repo}/rules/branches/main` with fallback to `gh api repos/{owner}/{repo}/branches/main/protection`)
+1. **Reporting truth** — whether pull requests actually report hosted checks on the branch (`gh pr checks`)
+2. **Enforcement truth** — whether active branch rules or branch protection on the repo base branch actually require the configured `ci-required` context (`gh api repos/{owner}/{repo}/rules/branches/main` with fallback to `gh api repos/{owner}/{repo}/branches/main/protection`)
 
-The orchestrator now treats all three as part of honest unattended-readiness interpretation on the TradingBot monorepo.
+The orchestrator now treats both as required for unattended-readiness claims on the TradingBot monorepo.
 
 ## Operational interpretation
 
 When the runtime sees any of the following, unattended readiness remains **blocked**:
 
-- `gh pr checks --watch` initially says `no checks reported on the branch` and the settle window still finds no check runs or statuses
-- GitHub reports other checks, but the required `ci-required` context never appears
+- `no checks reported on the branch`
 - branch rules / protection do not require `ci-required`
 - GitHub enforcement requires a different status-check context than the repo contract
 - GitHub enforcement could not be probed reliably
@@ -55,11 +53,22 @@ Before claiming unattended readiness, confirm that:
 
 ```bash
 gh pr checks --watch
-git rev-parse HEAD
-gh api repos/{owner}/{repo}/commits/<sha>/check-runs
-gh api repos/{owner}/{repo}/commits/<sha>/status
 gh api repos/{owner}/{repo}/rules/branches/main
 gh api repos/{owner}/{repo}/branches/main/protection
 ```
 
 The rules endpoint is the preferred signal because it returns the active rules that apply to the branch. The protection endpoint remains a compatibility fallback for repositories still relying on classic branch protection rather than rulesets.
+
+
+## Real open-PR smoke proof
+
+Task 144 adds a second operational proof layer on top of the settle-window and dual-surface probe.
+
+The repo can now write a deterministic artifact that captures whether a **real open pull request**:
+
+- targets the default base branch
+- has a concrete PR head SHA
+- is subject to the configured `ci-required` enforcement contract
+- actually reports the required check as satisfied on that PR head commit
+
+This keeps the scope narrow: the artifact proves the required-check contract on a live PR surface, but it does not by itself claim broad unattended merge autonomy.
