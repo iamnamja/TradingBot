@@ -205,6 +205,16 @@ def evaluate_repo_required_check_convergence(**kwargs: Any) -> dict[str, object]
     from agents.lib.git_workflow import evaluate_repo_required_check_convergence as _impl
     return dict(_impl(**kwargs))
 
+
+def default_real_pr_required_check_smoke_artifact_path() -> str:
+    from agents.lib.git_workflow import default_real_pr_required_check_smoke_artifact_path as _impl
+    return str(_impl())
+
+
+def probe_real_pr_required_check_smoke_proof(runner, **kwargs: Any) -> dict[str, object]:
+    from agents.lib.git_workflow import probe_real_pr_required_check_smoke_proof as _impl
+    return dict(_impl(runner, **kwargs))
+
 def evaluate_project_merge_eligibility(*, project_contract: Mapping[str, Any] | str, accepted: bool, autonomous_merge_enabled: bool, local_validation_passed: bool, required_check_truth: Mapping[str, Any] | None = None) -> dict[str, object]:
     from agents.lib.git_workflow import evaluate_project_merge_eligibility as _evaluate_project_merge_eligibility
     from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
