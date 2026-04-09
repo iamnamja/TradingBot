@@ -269,3 +269,42 @@ def test_write_autonomous_single_task_recovery_report_persists_json_artifact(tmp
     assert target.exists()
     loaded = target.read_text(encoding="utf-8")
     assert '"total_runs": 2' in loaded
+
+
+
+def test_task_142_safe_lane_reproof_recovery_report_remains_bounded_to_one_task_handoffs() -> None:
+    fj = _load_failure_journal_module()
+    report = fj.build_autonomous_single_task_recovery_report(
+        entries=[
+            {
+                "final_decision": "completed",
+                "escalation": {"required": False, "reason": ""},
+                "validation": {"no_checks_reported_observed": False},
+            },
+            {
+                "final_decision": "blocked_supervised_only",
+                "escalation": {"required": False, "reason": "Task remains supervised because it is proof shaped."},
+                "validation": {"no_checks_reported_observed": False},
+            },
+            {
+                "final_decision": "escalation_required",
+                "escalation": {
+                    "required": True,
+                    "reason": "Task touches self-hosting control-plane or harness surfaces and must be escalated for supervised/manual handling.",
+                },
+                "validation": {"no_checks_reported_observed": True},
+            },
+        ],
+        ledger_path="artifacts/autonomous_single_task/run_ledger.jsonl",
+        generated_at="2026-04-08T18:45:00Z",
+    )
+
+    assert report["total_runs"] == 3
+    assert report["handoff_required_count"] == 2
+    assert report["recovery_required_count"] == 0
+    assert report["escalation_required_count"] == 1
+    assert report["blocked_supervised_only_count"] == 1
+    assert report["hosted_authority_blocked_runs"] == 1
+    assert report["stop_reason_counts"]["completed"] == 1
+    assert report["stop_reason_counts"]["blocked_supervised_only"] == 1
+    assert report["stop_reason_counts"]["escalation_required"] == 1

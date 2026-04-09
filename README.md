@@ -10,9 +10,9 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized proof checkpoint is now complete through **Task 136**.
+The synchronized proof checkpoint is now complete through **Task 142**.
 
-The bounded supervised resilience slice now covers:
+The bounded supervised slice plus narrow safe autonomous one-task lane now covers:
 
 - proof-task admission gating on exact deliverable contracts
 - empty / underfilled / markerless / malformed bundle classification
@@ -22,12 +22,15 @@ The bounded supervised resilience slice now covers:
 - conservative stop when no dependency-ready tasks are available
 - hosted-authority operational convergence truth, including blocking `no checks reported` posture
 - green-gated proof-claim discipline
+- safe task-family autonomy allowlisting for ordinary one-task work
+- a dedicated autonomous single-task runner with persisted ledger, canary metrics, recovery reporting, and supervised handoff artifacts
+- a fresh supervised re-proof that only one allowlisted safe task at a time is autonomous
 
 Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for the authoritative bounded-scope status narrative.
 
 ## What the repo can honestly claim today
 
-Today the repo has deterministic local proof for a bounded supervised multi-project slice plus resilience hardening:
+Today the repo has deterministic local proof for a bounded supervised multi-project slice plus a narrow one-task autonomous canary lane:
 
 1. controller / builder / verifier role separation
 2. project selection across more than one registered project
@@ -38,6 +41,7 @@ Today the repo has deterministic local proof for a bounded supervised multi-proj
 7. bounded subset preservation so retries can roll back only the failing subset
 8. explicit operational-convergence truth for hosted authority and unattended-readiness blocking evidence
 9. fresh supervised resilience re-proof over the known failure corpus from Tasks 130–135
+10. a bounded autonomous lane that can run one allowlisted safe task at a time with deterministic artifacts and explicit supervised handoff for anything outside that lane
 
 It does **not** claim:
 
@@ -45,12 +49,12 @@ It does **not** claim:
 - arbitrary protected/controller/meta task-family autonomy
 - full standalone extraction completion
 - arbitrary language portability
+- operational unattended readiness while live GitHub PR branches still report `no checks reported`
 
 ## Next continuation target
 
-Move from bounded resilience hardening to a **safe autonomous single-task lane**:
+Keep the lane narrow and operationally honest:
 
-- finish real GitHub branch-protection / required-check enforcement around the stable `ci-required` context
-- add a safe-task-family autonomy allowlist and explicit escalation posture for self-hosting control-plane work
-- introduce a dedicated autonomous single-task runner plus run ledger and canary metrics
-- re-prove one-task autonomous execution only after the safe lane and operational enforcement are truly green
+- converge real GitHub PR reporting plus required-check enforcement around the stable `ci-required` context
+- keep self-hosting control-plane work escalation-first unless separately proven safe
+- only consider widening beyond one-task autonomy after hosted authority is visibly green on live PR branches

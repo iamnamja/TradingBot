@@ -233,3 +233,90 @@ def test_run_autonomous_single_task_reports_escalation_without_execution(tmp_pat
     assert handoff["handoff_kind"] == "escalation_required"
     assert handoff["implicated_paths"] == ["agents/run_task.py"]
     assert "supervised/manual lane" in handoff["next_supervised_action"]
+
+
+
+def test_task_142_supervised_safe_lane_reproof_stays_bounded_to_one_allowlisted_task_at_a_time(tmp_path: Path) -> None:
+    runner = _load_run_single_task_module()
+    ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
+
+    safe_task = tmp_path / "142_safe_tests_only_task.md"
+    safe_task.write_text(
+        "# Safe tests-only task\n\n"
+        "## Create or update these exact files\n"
+        "- `tests/test_single_task_runner.py`\n",
+        encoding="utf-8",
+    )
+    unsafe_task = tmp_path / "142_control_plane_task.md"
+    unsafe_task.write_text(
+        "# Unsafe control-plane task\n\n"
+        "## Create or update these exact files\n"
+        "- `agents/run_task.py`\n",
+        encoding="utf-8",
+    )
+
+    timestamps = iter([
+        "2026-04-08T18:40:00Z",
+        "2026-04-08T18:40:01Z",
+        "2026-04-08T18:40:02Z",
+        "2026-04-08T18:40:03Z",
+    ])
+
+    def fake_now() -> str:
+        return next(timestamps)
+
+    def fake_executor(command: list[str]) -> dict[str, object]:
+        return {
+            "command": list(command),
+            "returncode": 0,
+            "stdout": "=== Iteration 1/4 ===\nAll checks passed!\n[100%]\n",
+            "stderr": "",
+        }
+
+    safe_result = runner.run_autonomous_single_task(
+        safe_task.as_posix(),
+        ledger_path=ledger_path,
+        now=fake_now,
+        executor=fake_executor,
+    )
+    unsafe_result = runner.run_autonomous_single_task(
+        unsafe_task.as_posix(),
+        ledger_path=ledger_path,
+        now=fake_now,
+        executor=fake_executor,
+    )
+
+    ledger_rows = runner.read_single_task_run_ledger(ledger_path=ledger_path)
+    metrics = unsafe_result["canary_metrics"]
+    recovery = unsafe_result["recovery_report"]
+    handoff = unsafe_result["supervised_handoff"]
+
+    assert len(ledger_rows) == 2
+    assert ledger_rows[0]["final_decision"] == "completed"
+    assert ledger_rows[1]["final_decision"] == "escalation_required"
+    assert ledger_rows[0]["validation"]["execution_invoked"] is True
+    assert ledger_rows[1]["validation"]["execution_invoked"] is False
+    assert safe_result["entry"]["admission"]["autonomous_single_task_lane"] == "autonomous_safe"
+    assert unsafe_result["entry"]["admission"]["autonomous_single_task_lane"] == "escalation_required"
+
+    assert metrics["total_runs"] == 2
+    assert metrics["admitted_runs"] == 1
+    assert metrics["executed_runs"] == 1
+    assert metrics["completed_runs"] == 1
+    assert metrics["blocked_runs"] == 1
+    assert metrics["completion_rate"] == 1.0
+    assert metrics["stop_reason_counts"]["completed"] == 1
+    assert metrics["stop_reason_counts"]["escalation_required"] == 1
+    assert metrics["lane_counts"]["autonomous_safe"] == 1
+    assert metrics["lane_counts"]["escalation_required"] == 1
+
+    assert recovery["total_runs"] == 2
+    assert recovery["handoff_required_count"] == 1
+    assert recovery["recovery_required_count"] == 0
+    assert recovery["escalation_required_count"] == 1
+    assert recovery["blocked_supervised_only_count"] == 0
+
+    assert handoff["handoff_required"] is True
+    assert handoff["handoff_kind"] == "escalation_required"
+    assert handoff["implicated_paths"] == ["agents/run_task.py"]
+
