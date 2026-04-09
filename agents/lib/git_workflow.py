@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Literal, Mapping, Sequence
 
@@ -19,6 +20,8 @@ DEFAULT_REPO_CHECK_CONTRACT_SOURCE = "repo_defaults"
 DEFAULT_HOSTED_CHECKS_SOURCE = "gh_pr_checks"
 DEFAULT_REPO_DEFAULT_BRANCH = "main"
 DEFAULT_ENFORCEMENT_PROBE_STRATEGY = "rules_branch_then_branch_protection"
+DEFAULT_GITHUB_CHECK_SETTLE_WINDOW_SECONDS = 6.0
+DEFAULT_GITHUB_CHECK_POLL_INTERVAL_SECONDS = 2.0
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,29 @@ def _coerce_bool(value: Any) -> bool:
 def _coerce_text(value: Any, default: str = "") -> str:
     text = str(value if value is not None else default).strip()
     return text or default
+
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _normalize_settle_window_seconds(value: Any) -> float:
+    return max(0.0, _coerce_float(value, DEFAULT_GITHUB_CHECK_SETTLE_WINDOW_SECONDS))
+
+
+def _normalize_poll_interval_seconds(value: Any) -> float:
+    return max(0.0, _coerce_float(value, DEFAULT_GITHUB_CHECK_POLL_INTERVAL_SECONDS))
+
+
+def _settle_probe_attempt_limit(window_seconds: float, poll_interval_seconds: float) -> int:
+    if window_seconds <= 0:
+        return 1
+    interval = poll_interval_seconds if poll_interval_seconds > 0 else window_seconds
+    return max(1, int((window_seconds / interval) + 0.999999))
 
 
 def _coerce_required_check_names(value: Any) -> tuple[str, ...]:
@@ -207,6 +233,148 @@ def _parse_branch_protection_required_check_payload(payload: Any) -> dict[str, o
         "required_status_checks_rule_present": True,
         "required_status_check_contexts": contexts,
         "strict_required_status_checks_policy": _coerce_bool(required_status_checks.get("strict")),
+    }
+
+
+
+def _parse_commit_check_runs_payload(payload: Any) -> dict[str, object]:
+    runs = payload.get("check_runs") if isinstance(payload, Mapping) else []
+    if not isinstance(runs, list):
+        runs = []
+    names: list[str] = []
+    states_by_name: dict[str, str] = {}
+    for run in runs:
+        if not isinstance(run, Mapping):
+            continue
+        name = _coerce_text(run.get("name"))
+        if not name:
+            continue
+        status = _coerce_text(run.get("status")).lower()
+        conclusion = _coerce_text(run.get("conclusion")).lower()
+        if conclusion in {"success", "successful", "passed"}:
+            state = "passed"
+        elif conclusion in {"timed_out", "timeout"}:
+            state = "timed_out"
+        elif conclusion in {"failure", "failed", "error", "cancelled", "canceled", "action_required", "startup_failure"}:
+            state = "failed"
+        elif status in {"queued", "in_progress", "requested", "waiting", "pending"}:
+            state = "pending"
+        else:
+            state = "reported"
+        if name not in names:
+            names.append(name)
+        previous = states_by_name.get(name, "")
+        if previous in {"failed", "timed_out"}:
+            continue
+        if state in {"failed", "timed_out"} or previous == "":
+            states_by_name[name] = state
+        elif previous == "pending" or state == "pending":
+            states_by_name[name] = "pending"
+        elif previous == "passed" and state == "reported":
+            states_by_name[name] = "passed"
+        else:
+            states_by_name[name] = state
+    return {
+        "github_check_runs_reported": bool(names),
+        "github_check_run_names": tuple(names),
+        "github_check_run_states": dict(states_by_name),
+    }
+
+
+def _parse_commit_status_payload(payload: Any) -> dict[str, object]:
+    statuses = payload.get("statuses") if isinstance(payload, Mapping) else []
+    if not isinstance(statuses, list):
+        statuses = []
+    contexts: list[str] = []
+    states_by_context: dict[str, str] = {}
+    for status in statuses:
+        if not isinstance(status, Mapping):
+            continue
+        context = _coerce_text(status.get("context"))
+        if not context:
+            continue
+        raw_state = _coerce_text(status.get("state")).lower()
+        if raw_state in {"success", "successful", "passed"}:
+            state = "passed"
+        elif raw_state in {"pending", "queued", "in_progress"}:
+            state = "pending"
+        elif raw_state in {"timed_out", "timeout"}:
+            state = "timed_out"
+        elif raw_state in {"failure", "failed", "error", "cancelled", "canceled"}:
+            state = "failed"
+        else:
+            state = "reported"
+        if context not in contexts:
+            contexts.append(context)
+        previous = states_by_context.get(context, "")
+        if previous in {"failed", "timed_out"}:
+            continue
+        if state in {"failed", "timed_out"} or previous == "":
+            states_by_context[context] = state
+        elif previous == "pending" or state == "pending":
+            states_by_context[context] = "pending"
+        elif previous == "passed" and state == "reported":
+            states_by_context[context] = "passed"
+        else:
+            states_by_context[context] = state
+    return {
+        "github_commit_statuses_reported": bool(contexts),
+        "github_commit_status_contexts": tuple(contexts),
+        "github_commit_status_states": dict(states_by_context),
+        "github_commit_combined_state": _coerce_text(payload.get("state") if isinstance(payload, Mapping) else ""),
+    }
+
+
+def _merge_required_check_surface_state(
+    required_checks: Sequence[str],
+    *,
+    check_runs_truth: Mapping[str, Any],
+    commit_status_truth: Mapping[str, Any],
+) -> dict[str, object]:
+    check_run_states = check_runs_truth.get("github_check_run_states") if isinstance(check_runs_truth, Mapping) else {}
+    if not isinstance(check_run_states, Mapping):
+        check_run_states = {}
+    commit_status_states = commit_status_truth.get("github_commit_status_states") if isinstance(commit_status_truth, Mapping) else {}
+    if not isinstance(commit_status_states, Mapping):
+        commit_status_states = {}
+    required_on_surface: list[str] = []
+    pending = False
+    timed_out = False
+    failed = False
+    passed = True
+    missing = False
+    for check in required_checks:
+        states: list[str] = []
+        if check in check_run_states:
+            states.append(str(check_run_states[check]))
+        if check in commit_status_states:
+            states.append(str(commit_status_states[check]))
+        if not states:
+            missing = True
+            passed = False
+            continue
+        if check not in required_on_surface:
+            required_on_surface.append(check)
+        if any(state == "timed_out" for state in states):
+            timed_out = True
+            passed = False
+        elif any(state == "failed" for state in states):
+            failed = True
+            passed = False
+        elif any(state == "pending" for state in states):
+            pending = True
+            passed = False
+        elif not all(state == "passed" for state in states):
+            passed = False
+    surfaces_reported = bool(check_runs_truth.get("github_check_runs_reported")) or bool(commit_status_truth.get("github_commit_statuses_reported"))
+    return {
+        "github_required_checks_seen": tuple(required_on_surface),
+        "github_dual_surface_reported": surfaces_reported,
+        "required_checks_missing_on_surface": bool(surfaces_reported and missing),
+        "required_checks_pending_on_surface": pending,
+        "required_checks_timed_out_on_surface": timed_out,
+        "required_checks_failed_on_surface": failed,
+        "required_checks_passed_on_surface": passed and not missing and not pending and not timed_out and not failed,
     }
 
 
@@ -444,6 +612,7 @@ def _required_check_state(
     timed_out: bool,
     failed: bool,
     passed: bool,
+    not_yet_reported: bool = False,
 ) -> str:
     if not configured:
         return "not_required"
@@ -451,6 +620,8 @@ def _required_check_state(
         return "unavailable"
     if misconfigured:
         return "misconfigured"
+    if not_yet_reported:
+        return "not_yet_reported"
     if missing:
         return "missing"
     if timed_out:
@@ -462,6 +633,7 @@ def _required_check_state(
     if passed:
         return "passed"
     return "unknown"
+
 
 
 def canonical_required_check_truth(
@@ -482,6 +654,14 @@ def canonical_required_check_truth(
     hosted_checks_reported: Any | None = None,
     hosted_authority_probe_status: Any | None = None,
     hosted_authority_probe_note: Any | None = None,
+    github_check_runs_reported: Any | None = None,
+    github_check_run_names: Any | None = None,
+    github_commit_statuses_reported: Any | None = None,
+    github_commit_status_contexts: Any | None = None,
+    github_required_checks_seen: Any | None = None,
+    github_settle_window_seconds: Any | None = None,
+    github_settle_poll_interval_seconds: Any | None = None,
+    github_settle_probe_attempts: Any | None = None,
 ) -> dict[str, object]:
     data = payload or {}
     profile = coerce_verification_authority_profile(verification_authority_profile)
@@ -526,6 +706,7 @@ def canonical_required_check_truth(
     misconfigured = False
     missing = False
     passed = False
+    not_yet_reported = False
 
     if not hosted_required:
         passed = True
@@ -535,10 +716,19 @@ def canonical_required_check_truth(
         if probe_status == "unavailable":
             unavailable = True
             probe_note = probe_note or "Hosted authority probe could not be executed."
+        elif probe_status == "not_yet_reported":
+            not_yet_reported = True
+            pending = True
+            probe_note = probe_note or "Hosted checks have not yet reported on either GitHub surface during the settle window."
         elif not contract_configured:
             misconfigured = True
             probe_status = "misconfigured"
             probe_note = probe_note or str(contract["repo_check_contract_note"])
+        elif probe_status == "required_context_missing":
+            missing = True
+            discovered = True
+            hosted_reported = True
+            probe_note = probe_note or "GitHub is reporting checks on the branch, but the required status-check context is missing."
         elif not hosted_reported or not discovered:
             misconfigured = True
             probe_status = "misconfigured"
@@ -577,6 +767,9 @@ def canonical_required_check_truth(
         failed = False
         passed = False
 
+    if not_yet_reported:
+        passed = False
+
     hosted_available = (not hosted_required) or probe_status not in {"unavailable", "misconfigured"}
     hosted_satisfied = (not hosted_required) or probe_status == "satisfied"
     authority_satisfied = (not hosted_required) or hosted_satisfied
@@ -596,6 +789,7 @@ def canonical_required_check_truth(
         "required_checks_passed": passed,
         "required_checks_unavailable": unavailable,
         "required_checks_misconfigured": misconfigured,
+        "required_checks_not_yet_reported": not_yet_reported,
         "missing_required_checks_blocks_merge": bool(contract["missing_required_checks_blocks_merge"]),
         "verification_authority_satisfied": authority_satisfied,
         "required_check_state": _required_check_state(
@@ -607,6 +801,7 @@ def canonical_required_check_truth(
             timed_out=timed_out,
             failed=failed,
             passed=passed,
+            not_yet_reported=not_yet_reported,
         ),
         "hosted_checks_source": str(contract["hosted_checks_source"]),
         "hosted_checks_reported": hosted_reported,
@@ -614,6 +809,35 @@ def canonical_required_check_truth(
         "hosted_authority_satisfied": hosted_satisfied,
         "hosted_authority_probe_status": probe_status or ("not_required" if not hosted_required else "reported_unsatisfied"),
         "hosted_authority_probe_note": probe_note,
+        "github_check_runs_reported": _coerce_bool(
+            github_check_runs_reported if github_check_runs_reported is not None else data.get("github_check_runs_reported", False)
+        ),
+        "github_check_run_names": _coerce_required_check_names(
+            github_check_run_names if github_check_run_names is not None else data.get("github_check_run_names")
+        ),
+        "github_commit_statuses_reported": _coerce_bool(
+            github_commit_statuses_reported if github_commit_statuses_reported is not None else data.get("github_commit_statuses_reported", False)
+        ),
+        "github_commit_status_contexts": _coerce_required_check_names(
+            github_commit_status_contexts if github_commit_status_contexts is not None else data.get("github_commit_status_contexts")
+        ),
+        "github_required_checks_seen": _coerce_required_check_names(
+            github_required_checks_seen if github_required_checks_seen is not None else data.get("github_required_checks_seen")
+        ),
+        "github_settle_window_seconds": _normalize_settle_window_seconds(
+            github_settle_window_seconds if github_settle_window_seconds is not None else data.get("github_settle_window_seconds", 0)
+        ),
+        "github_settle_poll_interval_seconds": _normalize_poll_interval_seconds(
+            github_settle_poll_interval_seconds if github_settle_poll_interval_seconds is not None else data.get("github_settle_poll_interval_seconds", 0)
+        ),
+        "github_settle_probe_attempts": max(
+            0,
+            int(
+                github_settle_probe_attempts
+                if github_settle_probe_attempts is not None
+                else data.get("github_settle_probe_attempts", 0)
+            ),
+        ),
     }
 
 
@@ -659,7 +883,10 @@ def evaluate_verification_authority(
             blocking_reason = "hosted_required_checks_misconfigured"
         else:
             state = str(truth["required_check_state"])
-            if state == "pending":
+            if state == "not_yet_reported":
+                summary = "Configured verification authority is not satisfied because required CI checks have not yet reported on GitHub."
+                blocking_reason = "required_checks_not_yet_reported"
+            elif state == "pending":
                 summary = "Configured verification authority is not satisfied because required CI checks are still pending."
                 blocking_reason = "required_checks_pending"
             elif state == "timed_out":
@@ -668,9 +895,9 @@ def evaluate_verification_authority(
             elif state == "failed":
                 summary = "Configured verification authority is not satisfied because required CI checks failed."
                 blocking_reason = "required_checks_failed"
-            elif state == "missing":
-                summary = "Configured verification authority is not satisfied because required CI checks were reported as missing."
-                blocking_reason = "required_checks_missing"
+            elif state == "missing" or probe_status == "required_context_missing":
+                summary = "Configured verification authority is not satisfied because GitHub reported checks but the required status-check context is missing."
+                blocking_reason = "required_check_context_missing"
             else:
                 summary = "Configured verification authority is not satisfied because required CI checks did not report success."
                 blocking_reason = "required_checks_unsatisfied"
@@ -736,9 +963,131 @@ def _infer_required_check_truth_from_output(
         required_checks_failed=failed,
         required_checks_passed=passed,
         hosted_checks_reported=discovered,
-        hosted_authority_probe_status=("misconfigured" if not discovered else None),
-        hosted_authority_probe_note=("Hosted checks did not report on the branch." if not discovered else ""),
+        hosted_authority_probe_status=("not_yet_reported" if not discovered else None),
+        hosted_authority_probe_note=("Hosted checks have not yet reported on the branch." if not discovered else ""),
     )
+
+
+
+def probe_github_required_check_surfaces(
+    runner: Runner,
+    *,
+    verification_authority_profile: Any = "local_plus_required_ci",
+    repo_check_contract: Mapping[str, Any] | None = None,
+    settle_window_seconds: Any | None = None,
+    poll_interval_seconds: Any | None = None,
+    sleeper: Callable[[float], None] | None = None,
+) -> dict[str, object]:
+    profile = coerce_verification_authority_profile(verification_authority_profile)
+    contract = canonical_repo_check_contract(repo_check_contract)
+    if profile == "local_only":
+        return canonical_required_check_truth(
+            verification_authority_profile=profile,
+            repo_check_contract=contract,
+        )
+    window_seconds = _normalize_settle_window_seconds(settle_window_seconds)
+    interval_seconds = _normalize_poll_interval_seconds(poll_interval_seconds)
+    attempt_limit = _settle_probe_attempt_limit(window_seconds, interval_seconds)
+    sleep_fn = sleeper or time.sleep
+    attempts = 0
+    last_check_runs_truth: dict[str, object] = {}
+    last_commit_status_truth: dict[str, object] = {}
+
+    try:
+        while attempts < attempt_limit:
+            attempts += 1
+            sha_result = runner(["git", "rev-parse", "HEAD"], True)
+            sha = _coerce_text(_stdout_and_stderr_text(sha_result))
+            if not sha:
+                raise RuntimeError("could not resolve HEAD commit sha for hosted-authority probe")
+            check_runs_result = runner(["gh", "api", f"repos/{{owner}}/{{repo}}/commits/{sha}/check-runs"], True)
+            commit_status_result = runner(["gh", "api", f"repos/{{owner}}/{{repo}}/commits/{sha}/status"], True)
+            last_check_runs_truth = _parse_commit_check_runs_payload(
+                _parse_json_payload(_stdout_and_stderr_text(check_runs_result))
+            )
+            last_commit_status_truth = _parse_commit_status_payload(
+                _parse_json_payload(_stdout_and_stderr_text(commit_status_result))
+            )
+            merged_surface_truth = _merge_required_check_surface_state(
+                tuple(contract["repo_required_checks"]),
+                check_runs_truth=last_check_runs_truth,
+                commit_status_truth=last_commit_status_truth,
+            )
+            if bool(merged_surface_truth["github_dual_surface_reported"]):
+                probe_status = "required_context_missing"
+                if bool(merged_surface_truth["required_checks_passed_on_surface"]):
+                    probe_status = "satisfied"
+                elif bool(merged_surface_truth["required_checks_pending_on_surface"]):
+                    probe_status = "reported_unsatisfied"
+                elif bool(merged_surface_truth["required_checks_timed_out_on_surface"]):
+                    probe_status = "reported_unsatisfied"
+                elif bool(merged_surface_truth["required_checks_failed_on_surface"]):
+                    probe_status = "reported_unsatisfied"
+                truth = canonical_required_check_truth(
+                    verification_authority_profile=profile,
+                    repo_check_contract=contract,
+                    required_checks_discovered=bool(merged_surface_truth["github_required_checks_seen"]) or bool(merged_surface_truth["github_dual_surface_reported"]),
+                    required_checks_missing=bool(merged_surface_truth["required_checks_missing_on_surface"]),
+                    required_checks_pending=bool(merged_surface_truth["required_checks_pending_on_surface"]),
+                    required_checks_timed_out=bool(merged_surface_truth["required_checks_timed_out_on_surface"]),
+                    required_checks_failed=bool(merged_surface_truth["required_checks_failed_on_surface"]),
+                    required_checks_passed=bool(merged_surface_truth["required_checks_passed_on_surface"]),
+                    hosted_checks_reported=bool(merged_surface_truth["github_dual_surface_reported"]),
+                    hosted_authority_probe_status=probe_status,
+                    hosted_authority_probe_note=(
+                        "GitHub is reporting checks on the branch, but the required status-check context is missing."
+                        if probe_status == "required_context_missing"
+                        else "GitHub dual-surface probe reported the required status-check context."
+                    ),
+                    github_check_runs_reported=last_check_runs_truth.get("github_check_runs_reported"),
+                    github_check_run_names=last_check_runs_truth.get("github_check_run_names"),
+                    github_commit_statuses_reported=last_commit_status_truth.get("github_commit_statuses_reported"),
+                    github_commit_status_contexts=last_commit_status_truth.get("github_commit_status_contexts"),
+                    github_required_checks_seen=merged_surface_truth.get("github_required_checks_seen"),
+                    github_settle_window_seconds=window_seconds,
+                    github_settle_poll_interval_seconds=interval_seconds,
+                    github_settle_probe_attempts=attempts,
+                )
+                return {
+                    **truth,
+                    "github_dual_surface_reported": bool(merged_surface_truth["github_dual_surface_reported"]),
+                }
+            if attempts < attempt_limit and window_seconds > 0 and interval_seconds > 0:
+                sleep_fn(interval_seconds)
+    except Exception as exc:
+        return canonical_required_check_truth(
+            verification_authority_profile=profile,
+            repo_check_contract=contract,
+            hosted_authority_probe_status="unavailable",
+            hosted_authority_probe_note=str(exc),
+            github_check_runs_reported=last_check_runs_truth.get("github_check_runs_reported", False),
+            github_check_run_names=last_check_runs_truth.get("github_check_run_names", ()),
+            github_commit_statuses_reported=last_commit_status_truth.get("github_commit_statuses_reported", False),
+            github_commit_status_contexts=last_commit_status_truth.get("github_commit_status_contexts", ()),
+            github_settle_window_seconds=window_seconds,
+            github_settle_poll_interval_seconds=interval_seconds,
+            github_settle_probe_attempts=attempts,
+        )
+
+    truth = canonical_required_check_truth(
+        verification_authority_profile=profile,
+        repo_check_contract=contract,
+        required_checks_discovered=False,
+        hosted_checks_reported=False,
+        hosted_authority_probe_status="not_yet_reported",
+        hosted_authority_probe_note="Hosted checks have not yet reported on either GitHub surface during the settle window.",
+        github_check_runs_reported=last_check_runs_truth.get("github_check_runs_reported", False),
+        github_check_run_names=last_check_runs_truth.get("github_check_run_names", ()),
+        github_commit_statuses_reported=last_commit_status_truth.get("github_commit_statuses_reported", False),
+        github_commit_status_contexts=last_commit_status_truth.get("github_commit_status_contexts", ()),
+        github_settle_window_seconds=window_seconds,
+        github_settle_poll_interval_seconds=interval_seconds,
+        github_settle_probe_attempts=attempts,
+    )
+    return {
+        **truth,
+        "github_dual_surface_reported": False,
+    }
 
 
 def probe_hosted_authority(
@@ -746,6 +1095,9 @@ def probe_hosted_authority(
     *,
     verification_authority_profile: Any = "local_plus_required_ci",
     repo_check_contract: Mapping[str, Any] | None = None,
+    settle_window_seconds: Any | None = None,
+    poll_interval_seconds: Any | None = None,
+    sleeper: Callable[[float], None] | None = None,
 ) -> dict[str, object]:
     profile = coerce_verification_authority_profile(verification_authority_profile)
     if profile == "local_only":
@@ -765,11 +1117,25 @@ def probe_hosted_authority(
             hosted_authority_probe_note=str(exc),
         )
     stdout, stderr = _extract_stdout_stderr(result)
-    return _infer_required_check_truth_from_output(
+    initial_truth = _infer_required_check_truth_from_output(
         "\n".join([stdout, stderr]).strip(),
         profile=profile,
         repo_check_contract=repo_check_contract,
     )
+    if bool(initial_truth["required_checks_discovered"]) or str(initial_truth["required_check_state"]) == "passed":
+        return initial_truth
+    settle_truth = probe_github_required_check_surfaces(
+        runner,
+        verification_authority_profile=profile,
+        repo_check_contract=repo_check_contract,
+        settle_window_seconds=settle_window_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+        sleeper=sleeper,
+    )
+    return {
+        **settle_truth,
+        "gh_pr_checks_settle_invoked": True,
+    }
 
 
 def create_pr(runner: Runner, *, title: str, body: str = "") -> GitWorkflowResult:
@@ -785,12 +1151,18 @@ def wait_for_required_checks(
     *,
     verification_authority_profile: Any = "local_plus_required_ci",
     repo_check_contract: Mapping[str, Any] | None = None,
+    settle_window_seconds: Any | None = None,
+    poll_interval_seconds: Any | None = None,
+    sleeper: Callable[[float], None] | None = None,
 ) -> GitWorkflowResult:
     profile = coerce_verification_authority_profile(verification_authority_profile)
     evidence = probe_hosted_authority(
         runner,
         verification_authority_profile=profile,
         repo_check_contract=repo_check_contract,
+        settle_window_seconds=settle_window_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+        sleeper=sleeper,
     )
     if profile == "local_only":
         return GitWorkflowResult(True, "wait_for_required_checks", "required CI checks not configured", evidence=evidence)
@@ -803,8 +1175,10 @@ def wait_for_required_checks(
         message = "hosted authority probe unavailable"
     elif probe_status == "misconfigured":
         message = "required checks misconfigured"
-    elif state == "missing":
-        message = "required checks missing"
+    elif probe_status == "not_yet_reported":
+        message = "required checks not yet reported"
+    elif probe_status == "required_context_missing" or state == "missing":
+        message = "required check context missing"
     elif state == "pending":
         message = "required checks pending"
     elif state == "timed_out":
@@ -845,6 +1219,9 @@ def accepted_task_pr_merge_flow(
     verification_authority_profile: Any = "local_plus_required_ci",
     repo_check_contract: Mapping[str, Any] | None = None,
     project_contract: Mapping[str, Any] | None = None,
+    settle_window_seconds: Any | None = None,
+    poll_interval_seconds: Any | None = None,
+    sleeper: Callable[[float], None] | None = None,
 ) -> Dict[str, object]:
     if project_contract is not None and repo_check_contract is None:
         repo_check_contract = project_repo_check_contract(project_contract)
@@ -912,6 +1289,9 @@ def accepted_task_pr_merge_flow(
         runner,
         verification_authority_profile=profile,
         repo_check_contract=repo_check_contract,
+        settle_window_seconds=settle_window_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+        sleeper=sleeper,
     )
     result.update(dict(checks.evidence or {}))
     result["required_checks_passed"] = bool(result.get("required_checks_passed", False))
@@ -1031,7 +1411,7 @@ def evaluate_hosted_authority_convergence(
     elif not contract_match:
         converged = False
         reason = 'repo_check_contract_mismatch'
-    elif probe_status in {'unavailable', 'misconfigured'}:
+    elif probe_status in {'unavailable', 'misconfigured', 'not_yet_reported', 'required_context_missing'}:
         converged = False
         reason = probe_status
     else:
@@ -1105,6 +1485,14 @@ def evaluate_hosted_authority_operational_convergence(
             reason = 'required_check_enforcement_not_converged'
             summary = str(enforcement.get('summary') or 'GitHub required-check enforcement is not yet converged.')
         ready = False
+    elif probe_status == 'not_yet_reported':
+        ready = False
+        reason = 'hosted_checks_settling'
+        summary = 'Hosted checks have not yet reported on either GitHub surface during the settle window, so unattended GitHub readiness is not established.'
+    elif probe_status == 'required_context_missing' or state == 'missing':
+        ready = False
+        reason = 'required_check_context_missing'
+        summary = 'GitHub is reporting checks on the branch, but the required status-check context is missing, so unattended GitHub readiness is not established.'
     elif not discovered or not hosted_reported:
         ready = False
         reason = 'hosted_checks_not_reporting'

@@ -31,24 +31,44 @@ def test_required_check_truth_is_explicit_when_ci_not_configured() -> None:
     assert truth["verification_authority_satisfied"] is True
 
 
-def test_wait_for_required_checks_treats_no_checks_reported_as_misconfigured_non_success() -> None:
-    def runner(_cmd: list[str], check: bool = True):
-        return SimpleNamespace(returncode=0, stdout="no checks reported on the branch", stderr="")
+def test_wait_for_required_checks_uses_dual_surface_settle_probe_when_checks_have_not_yet_reported() -> None:
+    calls: list[list[str]] = []
+
+    def runner(cmd: list[str], check: bool = True):
+        calls.append(cmd)
+        if cmd[:3] == ["gh", "pr", "checks"]:
+            return SimpleNamespace(returncode=0, stdout="no checks reported on the branch", stderr="")
+        if cmd == ["git", "rev-parse", "HEAD"]:
+            return SimpleNamespace(returncode=0, stdout="abc123", stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/commits/abc123/check-runs"]:
+            return SimpleNamespace(returncode=0, stdout='{"check_runs":[]}', stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/commits/abc123/status"]:
+            return SimpleNamespace(returncode=0, stdout='{"state":"pending","statuses":[]}', stderr="")
+        raise AssertionError(cmd)
 
     result = git_workflow.wait_for_required_checks(
         runner,
         verification_authority_profile="local_plus_required_ci",
         repo_check_contract=REPO_CHECK_CONTRACT,
+        settle_window_seconds=0,
+        poll_interval_seconds=0,
     )
 
     assert result.ok is False
-    assert result.message == "required checks misconfigured"
+    assert result.message == "required checks not yet reported"
     assert result.evidence["required_checks_configured"] is True
-    assert result.evidence["repo_check_contract_configured"] is True
     assert result.evidence["required_checks_discovered"] is False
-    assert result.evidence["required_checks_misconfigured"] is True
-    assert result.evidence["hosted_authority_probe_status"] == "misconfigured"
-    assert result.evidence["hosted_authority_satisfied"] is False
+    assert result.evidence["required_checks_not_yet_reported"] is True
+    assert result.evidence["hosted_authority_probe_status"] == "not_yet_reported"
+    assert result.evidence["github_check_runs_reported"] is False
+    assert result.evidence["github_commit_statuses_reported"] is False
+    assert result.evidence["github_settle_probe_attempts"] == 1
+    assert [cmd[:3] for cmd in calls[:4]] == [
+        ["gh", "pr", "checks"],
+        ["git", "rev-parse", "HEAD"],
+        ["gh", "api", "repos/{owner}/{repo}/commits/abc123/check-runs"],
+        ["gh", "api", "repos/{owner}/{repo}/commits/abc123/status"],
+    ]
 
 
 def test_wait_for_required_checks_distinguishes_unavailable_probe() -> None:
@@ -97,12 +117,26 @@ def test_merge_flow_blocks_when_required_checks_fail() -> None:
     assert [cmd[:3] for cmd in calls] == [["gh", "pr", "create"], ["gh", "pr", "checks"]]
 
 
-def test_merge_flow_requires_ci_even_when_local_acceptance_is_green() -> None:
+def test_merge_flow_distinguishes_missing_required_context_from_not_yet_reported() -> None:
     def runner(cmd: list[str], check: bool = True):
         if cmd[:3] == ["gh", "pr", "create"]:
             return SimpleNamespace(returncode=0, stdout="created", stderr="")
         if cmd[:3] == ["gh", "pr", "checks"]:
             return SimpleNamespace(returncode=0, stdout="no checks reported on the branch", stderr="")
+        if cmd == ["git", "rev-parse", "HEAD"]:
+            return SimpleNamespace(returncode=0, stdout="abc123", stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/commits/abc123/check-runs"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='{"check_runs":[{"name":"ci","status":"completed","conclusion":"success"}]}',
+                stderr="",
+            )
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/commits/abc123/status"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='{"state":"success","statuses":[{"context":"publish_status","state":"success"}]}',
+                stderr="",
+            )
         raise AssertionError(cmd)
 
     result = git_workflow.accepted_task_pr_merge_flow(
@@ -112,13 +146,17 @@ def test_merge_flow_requires_ci_even_when_local_acceptance_is_green() -> None:
         pr_title="x",
         verification_authority_profile="local_plus_required_ci",
         repo_check_contract=REPO_CHECK_CONTRACT,
+        settle_window_seconds=0,
+        poll_interval_seconds=0,
     )
 
     assert result["accepted"] is True
-    assert result["required_checks_misconfigured"] is True
-    assert result["hosted_authority_probe_status"] == "misconfigured"
+    assert result["required_checks_missing"] is True
+    assert result["required_check_state"] == "missing"
+    assert result["hosted_authority_probe_status"] == "required_context_missing"
     assert result["verification_authority_satisfied"] is False
     assert result["next_task_may_proceed"] is False
+    assert result["stop_reason"] == "required check context missing"
 
 
 def test_merge_flow_can_succeed_with_required_ci_authority() -> None:
@@ -162,8 +200,43 @@ def test_merge_flow_can_succeed_with_required_ci_authority() -> None:
     assert result["next_task_may_proceed"] is True
 
 
+def test_wait_for_required_checks_can_settle_from_no_checks_reported_to_required_status_green() -> None:
+    def runner(cmd: list[str], check: bool = True):
+        if cmd[:3] == ["gh", "pr", "checks"]:
+            return SimpleNamespace(returncode=0, stdout="no checks reported on the branch", stderr="")
+        if cmd == ["git", "rev-parse", "HEAD"]:
+            return SimpleNamespace(returncode=0, stdout="abc123", stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/commits/abc123/check-runs"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='{"check_runs":[{"name":"ci","status":"completed","conclusion":"success"}]}',
+                stderr="",
+            )
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/commits/abc123/status"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout='{"state":"success","statuses":[{"context":"ci-required","state":"success"}]}',
+                stderr="",
+            )
+        raise AssertionError(cmd)
+
+    result = git_workflow.wait_for_required_checks(
+        runner,
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=REPO_CHECK_CONTRACT,
+        settle_window_seconds=0,
+        poll_interval_seconds=0,
+    )
+
+    assert result.ok is True
+    assert result.message == "required checks passed"
+    assert result.evidence["required_checks_passed"] is True
+    assert result.evidence["hosted_authority_probe_status"] == "satisfied"
+    assert result.evidence["github_required_checks_seen"] == ("ci-required",)
+
 
 def test_project_aware_authority_profiles_can_differ_across_projects() -> None:
+
     from agents.lib import project_registry  # noqa: E402
 
     tradingbot = project_registry.resolve_project_contract("tradingbot_monorepo")
