@@ -27,3 +27,12 @@
 - **140** `orchestrator_single_task_canary_metrics_and_reporting`
 - **141** `orchestrator_escalation_artifact_and_supervised_handoff_lane`
 - **142** `orchestrator_supervised_safe_lane_single_task_reproof`
+
+## Operational safe-lane convergence tranche
+
+- **143** `orchestrator_github_settle_window_and_dual_surface_probe`
+- **144** `orchestrator_real_pr_required_check_smoke_proof`
+- **145** `orchestrator_scheduler_bridge_to_safe_single_task_runner`
+- **146** `orchestrator_safe_lane_stop_requeue_and_supervised_mix_policy`
+- **147** `orchestrator_single_task_resume_and_idempotent_reentry`
+- **148** `orchestrator_live_canary_corpus_and_operator_proof_bundle`

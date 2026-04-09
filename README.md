@@ -20,7 +20,7 @@ The bounded supervised slice plus narrow safe autonomous one-task lane now cover
 - coupled compatibility-surface repair planning from assertion evidence
 - last-known-good subset preservation during retries
 - conservative stop when no dependency-ready tasks are available
-- hosted-authority operational convergence truth, including blocking `no checks reported` posture
+- hosted-authority operational convergence truth around the stable `ci-required` contract
 - green-gated proof-claim discipline
 - safe task-family autonomy allowlisting for ordinary one-task work
 - a dedicated autonomous single-task runner with persisted ledger, canary metrics, recovery reporting, and supervised handoff artifacts
@@ -49,12 +49,14 @@ It does **not** claim:
 - arbitrary protected/controller/meta task-family autonomy
 - full standalone extraction completion
 - arbitrary language portability
-- operational unattended readiness while live GitHub PR branches still report `no checks reported`
+- broad multi-task autonomy beyond the one-task lane
 
 ## Next continuation target
 
 Keep the lane narrow and operationally honest:
 
-- converge real GitHub PR reporting plus required-check enforcement around the stable `ci-required` context
+- harden live GitHub PR reporting interpretation around the stable `ci-required` context
+- smoke-prove required-check convergence on a real PR
+- route the scheduler through the bounded single-task runner when exactly one safe task is ready
 - keep self-hosting control-plane work escalation-first unless separately proven safe
-- only consider widening beyond one-task autonomy after hosted authority is visibly green on live PR branches
+- only consider widening beyond one-task autonomy after the live canary proof bundle is green
