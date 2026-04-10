@@ -8,7 +8,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 
 - **124–136** hardened the bounded supervised portfolio slice and its failure/authority truth
 - **137–148** created and operationally converged the narrow autonomous one-task lane: safe-task-family allowlisting, dedicated runner + ledger, canary reporting, supervised handoff, real GitHub required-check truth, scheduler bridging, stop/requeue policy, resume semantics, and the first operator proof bundle
-- **149–154** shifted the product into one-task execution quality: external-safe eval manifest, bounded dev / test / repair / controller loop, external-safe failure taxonomy, scoreboarding and recovery artifacts, corpus re-proof, and the explicit go / no-go gate for any bounded two-task widening
+- the product now has a bounded autonomous one-task capability with a deterministic developer / verifier / repair / controller record, plus a measured external-safe re-proof showing a roughly two-thirds supervised pass-rate band on the current corpus, but not yet broad autonomous app-building capability
 
 ## What the product can honestly claim today
 
@@ -24,36 +24,28 @@ The repo has deterministic proof for a bounded supervised portfolio slice plus a
 - last-green subset preservation so retries can roll back only the failing subset
 - explicit operational-readiness truth around the stable `ci-required` contract
 - a bounded scheduler bridge that routes exactly one admitted safe task through the dedicated single-task runner and stops/requeues mixed queues conservatively
-- operator-visible one-task evidence: ledger, canary metrics, recovery report, failure taxonomy, failure digest, and external-safe re-proof
-- a machine-readable widening gate that decides whether bounded two-task trials are justified
+- operator-visible proof artifacts for the bounded one-task lane
 
 The proof is intentionally bounded and does **not** claim:
 
 - arbitrary protected/controller task-list autonomy
 - broad unattended production scheduling across arbitrary task families
+- broad arbitrary multi-language portability
 - arbitrary multi-task autonomous execution
 - broad self-hosting control-plane autonomy
-- bounded two-task execution readiness as a current fact
-
-## Current widening posture
-
-The product now has an explicit gate for bounded two-task trials. That gate requires all of the following before widening begins:
-
-- at least **6** evaluated one-task external-safe runs
-- at least **0.75** completion rate
-- at most **0.25** escalation rate
-- at most **0.10** hosted-authority block rate
-- at most **0.34** self-healed completion share
-- direct completions must exceed self-healed completions
-
-The current truthful result is still **no-go**. The present re-proof band remains roughly **4 of 6** completed, with **2 of 4** completions still requiring bounded self-heal.
 
 ## Next product-stage focus
 
-The next product work should stay inside one-task execution quality:
+The next product phase should optimize for **execution quality**, not more surface area:
 
-- raise direct one-task completion rate
-- reduce escalation-required outcomes
-- reduce authority-block frequency where possible without weakening truthfulness
-- make direct completions clearly outnumber self-healed completions
-- keep the lane width at one until the explicit gate clears
+- evaluate the current lane on an external-safe ordinary task corpus
+- run a real bounded dev / test / repair / controller loop inside one task
+- improve targeted self-heal behavior on ordinary external-safe failures
+- measure pass rate, retry rate, escalation rate, and dominant failure classes
+- re-prove the one-task lane on that corpus before any two-task widening
+
+Tasks 149–153 now define the canonical external-safe evaluation manifest, wire the bounded one-task runner into a deterministic developer / verifier / repair / controller record, classify ordinary failures into narrower self-heal lanes, measure pass-rate and dominant non-completion reasons, and then re-prove the current claim on that corpus. The current truthful band is roughly **4 completed runs out of 6 corpus items** under supervision, with **2 completed after bounded self-heal** and the remaining failures staying bounded rather than silently widened.
+
+Task 154 now turns that posture into an explicit go / no-go gate, and the current truthful result is still no-go. Task 155 responds by improving the current one-task lane instead of widening it: isolated lint-only failures on required Python paths can now be normalized inside a bounded safe preflight before the run is recorded as failed.
+
+Only after those criteria are met should the product consider bounded two-task trials, and only later should it be wrapped as a separate operator-facing app.
