@@ -773,7 +773,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
 
         for p, c in files.items():
 
-            pretty.append(f"{shell_globals['FILE_HEADER_PREFIX']}{p}")
+            pretty.append(f"FILE: {p}")
 
             pretty.append(c.rstrip("\n"))
 
