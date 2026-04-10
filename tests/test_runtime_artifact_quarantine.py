@@ -158,3 +158,14 @@ def test_quarantine_unknown_only_does_not_require_git_cleanup() -> None:
     assert result["warnings"]["unknown_artifacts"] == ["scratch/random.out"]
     assert result["should_block"] is True
     assert git_calls == []
+
+
+
+def test_bundle_error_artifact_is_known_safe() -> None:
+    _, artifact_quarantine = _load_runtime_artifact_modules()
+    classify_runtime_artifacts = artifact_quarantine.classify_runtime_artifacts
+
+    classified = classify_runtime_artifacts([Path("_last_agent_file_bundle_error.txt")])
+
+    assert [p.as_posix() for p in classified["known_safe"]] == ["_last_agent_file_bundle_error.txt"]
+    assert classified["unknown"] == []
