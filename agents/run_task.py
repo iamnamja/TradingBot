@@ -5917,6 +5917,30 @@ def write_single_task_resume_state(state: Mapping[str, object], **kwargs: Any) -
     return str(_impl(state, **kwargs))
 
 
+def default_operator_proof_bundle_path(**kwargs: Any) -> str:
+    from agents.run_single_task import default_operator_proof_bundle_path as _impl  # type: ignore
+
+    return str(_impl(**kwargs))
+
+
+def build_live_canary_operator_proof_bundle(**kwargs: Any) -> Dict[str, object]:
+    from agents.run_single_task import build_live_canary_operator_proof_bundle as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
+def write_live_canary_operator_proof_bundle(bundle: Mapping[str, object], **kwargs: Any) -> str:
+    from agents.run_single_task import write_live_canary_operator_proof_bundle as _impl  # type: ignore
+
+    return str(_impl(bundle, **kwargs))
+
+
+def run_live_canary_corpus_and_operator_proof_bundle(**kwargs: Any) -> Dict[str, object]:
+    from agents.run_single_task import run_live_canary_corpus_and_operator_proof_bundle as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
 def autonomous_backlog_runner_proof_capabilities() -> dict[str, object]:
     return {
         "ordinary_manifest_autonomous_proof": True,

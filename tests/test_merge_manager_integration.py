@@ -454,3 +454,57 @@ def test_merge_flow_stops_when_required_checks_pass_but_enforcement_is_not_conve
     assert result["operational_convergence_reason"] == "required_check_enforcement_context_mismatch"
     assert result["merged_to_main"] is False
     assert result["next_task_may_proceed"] is False
+
+
+
+def test_task_148_operator_proof_bundle_does_not_override_hosted_authority_truth() -> None:
+    import importlib
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    if "agents.run_single_task" in sys.modules:
+        del sys.modules["agents.run_single_task"]
+    runner = importlib.import_module("agents.run_single_task")
+
+    bundle = runner.build_live_canary_operator_proof_bundle(
+        real_pr_smoke={
+            "required_check_contract_status": "required_context_missing",
+            "required_check_context": "ci-required",
+            "note": "Required status check did not appear on the PR head SHA.",
+        },
+        safe_result={
+            "task_path": "tasks/148_safe.md",
+            "entry": {
+                "final_decision": "completed",
+                "validation": {"execution_invoked": True},
+                "admission": {"autonomous_single_task_lane": "autonomous_safe"},
+            },
+            "ledger_path": "artifacts/autonomous_single_task/run_ledger.jsonl",
+            "canary_metrics": {"total_runs": 2, "completed_runs": 1},
+            "recovery_report": {"handoff_required_count": 1, "escalation_required_count": 1},
+        },
+        escalation_result={
+            "task_path": "tasks/148_escalation.md",
+            "entry": {
+                "final_decision": "escalation_required",
+                "admission": {"autonomous_single_task_lane": "escalation_required"},
+                "escalation": {"required": True},
+            },
+            "supervised_handoff": {
+                "handoff_required": True,
+                "handoff_kind": "escalation_required",
+                "implicated_paths": ["agents/run_task.py"],
+            },
+            "canary_metrics": {"total_runs": 2, "completed_runs": 1},
+            "recovery_report": {"handoff_required_count": 1, "escalation_required_count": 1},
+        },
+        generated_at="2026-04-09T22:30:00Z",
+    )
+
+    assert bundle["bounded_claim_ready"] is False
+    assert "real_github_required_check_not_yet_satisfied" in bundle["claim_blockers"]
+    assert bundle["operator_next_action"].startswith("Do not widen autonomy claims")
