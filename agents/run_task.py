@@ -190,21 +190,6 @@ def evaluate_hosted_authority_operational_convergence(*, verification_authority_
     from agents.lib.git_workflow import evaluate_hosted_authority_operational_convergence as _impl
     return dict(_impl(verification_authority_profile=verification_authority_profile, repo_check_contract=repo_check_contract, required_check_truth=required_check_truth, repo_enforcement_truth=repo_enforcement_truth))
 
-
-def canonical_repo_enforcement_truth(**kwargs: Any) -> dict[str, object]:
-    from agents.lib.git_workflow import canonical_repo_enforcement_truth as _impl
-    return dict(_impl(**kwargs))
-
-
-def probe_repo_required_check_enforcement(runner, **kwargs: Any) -> dict[str, object]:
-    from agents.lib.git_workflow import probe_repo_required_check_enforcement as _impl
-    return dict(_impl(runner, **kwargs))
-
-
-def evaluate_repo_required_check_convergence(**kwargs: Any) -> dict[str, object]:
-    from agents.lib.git_workflow import evaluate_repo_required_check_convergence as _impl
-    return dict(_impl(**kwargs))
-
 def evaluate_project_merge_eligibility(*, project_contract: Mapping[str, Any] | str, accepted: bool, autonomous_merge_enabled: bool, local_validation_passed: bool, required_check_truth: Mapping[str, Any] | None = None) -> dict[str, object]:
     from agents.lib.git_workflow import evaluate_project_merge_eligibility as _evaluate_project_merge_eligibility
     from agents.lib.project_registry import resolve_project_contract as _resolve_project_contract
@@ -1057,34 +1042,6 @@ def task_family_task_context(required_paths: Sequence[str] | None, *, task_file:
     from agents.lib.task_contracts import task_family_task_context as _impl  # type: ignore
 
     return dict(_impl(required_paths, task_file=task_file))
-
-
-def safe_task_family_allowlist_snapshot() -> Dict[str, object]:
-    from agents.lib.task_contracts import safe_task_family_allowlist_snapshot as _impl  # type: ignore
-
-    return dict(_impl())
-
-
-def evaluate_autonomous_single_task_admission(
-    required_paths: Sequence[str] | None,
-    *,
-    task_file: str = "",
-    task_text: str = "",
-) -> Dict[str, object]:
-    from agents.lib.task_contracts import evaluate_autonomous_single_task_admission as _impl  # type: ignore
-
-    return dict(_impl(required_paths, task_file=task_file, task_text=task_text))
-
-
-def task_admission_context(
-    required_paths: Sequence[str] | None,
-    *,
-    task_file: str = "",
-    task_text: str = "",
-) -> Dict[str, object]:
-    from agents.lib.task_contracts import task_admission_context as _impl  # type: ignore
-
-    return dict(_impl(required_paths, task_file=task_file, task_text=task_text))
 
 
 def recommend_task_family_route(
@@ -5886,59 +5843,39 @@ def _shell_router_exports() -> Dict[str, object]:
 
 
 
+def external_safe_eval_archetypes() -> Dict[str, object]:
+    from agents.lib.task_eval_corpus import external_safe_eval_archetypes as _impl  # type: ignore
 
-def select_single_admissible_safe_task(**kwargs: Any) -> Dict[str, object]:
-    from agents.lib.task_queue import select_single_admissible_safe_task as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
-
-
-def run_scheduler_safe_single_task_bridge(**kwargs: Any) -> Dict[str, object]:
-    from agents.lib.batch_executor import run_scheduler_safe_single_task_bridge as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
+    return dict(_impl())
 
 
-def default_single_task_resume_state_path(**kwargs: Any) -> str:
-    from agents.run_single_task import default_single_task_resume_state_path as _impl  # type: ignore
 
-    return str(_impl(**kwargs))
+def external_safe_eval_validation_profiles() -> Dict[str, object]:
+    from agents.lib.task_eval_corpus import external_safe_eval_validation_profiles as _impl  # type: ignore
 
-
-def read_single_task_resume_state(**kwargs: Any) -> Dict[str, object]:
-    from agents.run_single_task import read_single_task_resume_state as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
+    return dict(_impl())
 
 
-def write_single_task_resume_state(state: Mapping[str, object], **kwargs: Any) -> str:
-    from agents.run_single_task import write_single_task_resume_state as _impl  # type: ignore
 
-    return str(_impl(state, **kwargs))
+def list_external_safe_eval_items() -> List[Dict[str, object]]:
+    from agents.lib.task_eval_corpus import list_external_safe_eval_items as _impl  # type: ignore
 
-
-def default_operator_proof_bundle_path(**kwargs: Any) -> str:
-    from agents.run_single_task import default_operator_proof_bundle_path as _impl  # type: ignore
-
-    return str(_impl(**kwargs))
+    return [dict(item) for item in _impl()]
 
 
-def build_live_canary_operator_proof_bundle(**kwargs: Any) -> Dict[str, object]:
-    from agents.run_single_task import build_live_canary_operator_proof_bundle as _impl  # type: ignore
 
-    return dict(_impl(**kwargs))
+def get_external_safe_eval_item(item_id: str) -> Dict[str, object]:
+    from agents.lib.task_eval_corpus import get_external_safe_eval_item as _impl  # type: ignore
 
-
-def write_live_canary_operator_proof_bundle(bundle: Mapping[str, object], **kwargs: Any) -> str:
-    from agents.run_single_task import write_live_canary_operator_proof_bundle as _impl  # type: ignore
-
-    return str(_impl(bundle, **kwargs))
+    return dict(_impl(item_id))
 
 
-def run_live_canary_corpus_and_operator_proof_bundle(**kwargs: Any) -> Dict[str, object]:
-    from agents.run_single_task import run_live_canary_corpus_and_operator_proof_bundle as _impl  # type: ignore
 
-    return dict(_impl(**kwargs))
+def external_safe_eval_manifest_snapshot() -> Dict[str, object]:
+    from agents.lib.task_eval_corpus import external_safe_eval_manifest_snapshot as _impl  # type: ignore
+
+    return dict(_impl())
+
 
 
 def autonomous_backlog_runner_proof_capabilities() -> dict[str, object]:
@@ -5949,5 +5886,81 @@ def autonomous_backlog_runner_proof_capabilities() -> dict[str, object]:
         "resume_after_merge_skip_semantics": True,
     }
 
+
+def evaluate_autonomous_single_task_admission(*args, **kwargs):
+    from agents.lib.task_contracts import evaluate_autonomous_single_task_admission as _impl
+    return _impl(*args, **kwargs)
+
+
+def safe_task_family_allowlist_snapshot(*args, **kwargs):
+    from agents.lib.task_contracts import safe_task_family_allowlist_snapshot as _impl
+    return _impl(*args, **kwargs)
+
+
+def canonical_repo_enforcement_truth(*args, **kwargs):
+    from agents.lib.git_workflow import canonical_repo_enforcement_truth as _impl
+    return _impl(*args, **kwargs)
+
+
+
+def task_admission_context(*args, **kwargs):
+    from agents.lib.task_contracts import task_admission_context as _impl
+    return _impl(*args, **kwargs)
+
+
+def probe_repo_required_check_enforcement(*args, **kwargs):
+    from agents.lib.git_workflow import probe_repo_required_check_enforcement as _impl
+    return _impl(*args, **kwargs)
+
+
+def evaluate_repo_required_check_convergence(*args, **kwargs):
+    from agents.lib.git_workflow import evaluate_repo_required_check_convergence as _impl
+    return _impl(*args, **kwargs)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
+
+def select_single_admissible_safe_task(*args, **kwargs):
+    from agents.lib.task_queue import select_single_admissible_safe_task as _impl
+    return _impl(*args, **kwargs)
+
+def run_scheduler_safe_single_task_bridge(*args, **kwargs):
+    from agents.run_single_task import run_scheduler_safe_lane_bridge as _impl
+    return _impl(*args, **kwargs)
+
+
+def default_single_task_resume_state_path(*args, **kwargs):
+    from agents.run_single_task import default_single_task_resume_state_path as _impl
+    return _impl(*args, **kwargs)
+
+
+def read_single_task_resume_state(*args, **kwargs):
+    from agents.run_single_task import read_single_task_resume_state as _impl
+    return _impl(*args, **kwargs)
+
+
+def write_single_task_resume_state(*args, **kwargs):
+    from agents.run_single_task import write_single_task_resume_state as _impl
+    return _impl(*args, **kwargs)
+
+
+def default_operator_proof_bundle_path(*args, **kwargs):
+    from agents.run_single_task import default_operator_proof_bundle_path as _impl
+    return _impl(*args, **kwargs)
+
+
+def build_live_canary_operator_proof_bundle(*args, **kwargs):
+    from agents.run_single_task import build_live_canary_operator_proof_bundle as _impl
+    return _impl(*args, **kwargs)
+
+
+def write_live_canary_operator_proof_bundle(*args, **kwargs):
+    from agents.run_single_task import write_live_canary_operator_proof_bundle as _impl
+    return _impl(*args, **kwargs)
+
+
+def run_live_canary_corpus_and_operator_proof_bundle(*args, **kwargs):
+    from agents.run_single_task import run_live_canary_corpus_and_operator_proof_bundle as _impl
+    return _impl(*args, **kwargs)
+
