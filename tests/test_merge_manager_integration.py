@@ -508,3 +508,43 @@ def test_task_148_operator_proof_bundle_does_not_override_hosted_authority_truth
     assert bundle["bounded_claim_ready"] is False
     assert "real_github_required_check_not_yet_satisfied" in bundle["claim_blockers"]
     assert bundle["operator_next_action"].startswith("Do not widen autonomy claims")
+
+
+def test_task_153_reliability_reproof_does_not_override_required_ci_authority_truth() -> None:
+    reproof_scoreboard = {
+        "pass_rate": 0.6667,
+        "completed_runs": 4,
+        "completed_after_self_heal_runs": 2,
+        "non_completion_runs": 2,
+    }
+
+    def runner(cmd: list[str], check: bool = True):
+        if cmd[:3] == ["gh", "pr", "create"]:
+            return SimpleNamespace(returncode=0, stdout="created", stderr="")
+        if cmd[:3] == ["gh", "pr", "checks"]:
+            return SimpleNamespace(returncode=0, stdout="no checks reported on the branch", stderr="")
+        if cmd[:3] == ["git", "rev-parse", "HEAD"]:
+            return SimpleNamespace(returncode=0, stdout="abc123", stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/commits/abc123/check-runs"]:
+            return SimpleNamespace(returncode=0, stdout='{"check_runs": []}', stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/commits/abc123/status"]:
+            return SimpleNamespace(returncode=0, stdout='{"state": "pending", "statuses": []}', stderr="")
+        if cmd[:3] == ["gh", "api", "repos/{owner}/{repo}/rules/branches/main"]:
+            return SimpleNamespace(returncode=0, stdout='[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci-required"}],"strict_required_status_checks_policy":true}}]', stderr="")
+        raise AssertionError(cmd)
+
+    result = git_workflow.accepted_task_pr_merge_flow(
+        runner,
+        accepted=True,
+        autonomous_merge_enabled=True,
+        pr_title="task-153-reproof",
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=REPO_CHECK_CONTRACT,
+    )
+
+    assert reproof_scoreboard["pass_rate"] >= 0.6
+    assert result["required_checks_not_yet_reported"] is True
+    assert result["hosted_authority_probe_status"] == "not_yet_reported"
+    assert result["verification_authority_satisfied"] is False
+    assert result["next_task_may_proceed"] is False
+
