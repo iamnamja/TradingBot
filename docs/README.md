@@ -1,16 +1,14 @@
-# Docs Index Addendum
+# Docs Index
 
-## Current roadmap slices
+## Current continuation focus
 
-- `ORCHESTRATOR_ROADMAP_149_154.md` — execution-quality tranche after the bounded one-task proof bundle
-- `ORCHESTRATOR_ROADMAP_156_160.md` — benchmark proof-mode tranche
-- `ORCHESTRATOR_ROADMAP_161_165.md` — single-task reliability sprint after the first live proof attempts
-- `ORCHESTRATOR_PHASE_DIRECTION.md` — current phase order and exit signal
+The orchestrator is now complete through **Task 156** and the next roadmap slice is a **single-task reliability sprint**.
 
-## Current continuation note
+Start with these docs:
 
-The next priority is no longer broader autonomy. It is making the current lane complete ordinary external-safe one-task work with a credible pass rate, reliable transport, and full integration completeness.
-
-## Current next-step note
-
-Use the orchestrator itself to run the next benchmark-eligible one-task tasks. Treat any human mid-run intervention as failed autonomous work, fix the orchestrator around real observed failures, and only then resume broader roadmap execution.
+- `TRADINGBOT_PROJECT_STATE.md` — current truthful project status
+- `ORCHESTRATOR_PHASE_DIRECTION.md` — what the current phase is and is not
+- `ORCHESTRATOR_PRODUCT_SPEC.md` — near-term product role for the orchestrator
+- `ORCHESTRATOR_ROADMAP_149_154.md` — completed execution-quality tranche
+- `ORCHESTRATOR_ROADMAP_157_161.md` — the current one-task reliability sprint
+- `NEW_CHAT_HANDOFF_PROMPT.md` — continuation context for a new chat
