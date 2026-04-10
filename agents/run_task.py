@@ -5382,6 +5382,13 @@ def main() -> int:
             if _repeat_limit_exceeded(violation_counts, "python_syntax", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated Python syntax failures. Recommended action: manual_patch")
                 print("Model output saved to: _last_agent_model_output.txt")
+                Path("_last_agent_file_bundle_error.txt").write_text(
+                    "Bundle transport failure: no FILE blocks could be parsed from the model response.\n"
+                    "If _last_agent_model_output.txt contains only BEGIN_FILE_BUNDLE / END_FILE_BUNDLE, the model returned an empty bundle.\n"
+                    "Parsed file bundle saved to _last_agent_file_bundle.txt may contain only the empty wrapper markers.\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
                 print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
                 return 1
             prev_files = files

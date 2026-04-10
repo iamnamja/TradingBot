@@ -772,6 +772,7 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
         if files is None:
             last_bundle_error_path.write_text(
                 "Parsed file bundle was not written because the model response did not produce a parseable file map.\n"
+                "If the raw output is only BEGIN_FILE_BUNDLE / END_FILE_BUNDLE, this was an empty bundle transport failure.\n"
                 "See _last_agent_model_output.txt for the raw model output.\n"
                 "Expected artifact: _last_agent_file_bundle.txt\n",
                 encoding="utf-8",
