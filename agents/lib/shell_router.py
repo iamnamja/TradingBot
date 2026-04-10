@@ -764,11 +764,23 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             return 1
 
         pretty: list[str] = [shell_globals["FILE_BUNDLE_BEGIN"]]
+
+        if files is None:
+
+            print("ERROR [shell_router] Parsed file bundle was empty after localized repair; aborting cleanly.")
+
+            return 1
+
         for p, c in files.items():
-            pretty.append(f"FILE: {p}")
+
+            pretty.append(f"{shell_globals['FILE_HEADER_PREFIX']}{p}")
+
             pretty.append(c.rstrip("\n"))
+
             pretty.append(shell_globals["FILE_END"])
+
         pretty.append(shell_globals["FILE_BUNDLE_END"])
+
         last_bundle_path.write_text("\n".join(pretty) + "\n", encoding="utf-8", newline="\n")
 
         ok_syntax, syntax_msg = shell_globals["validate_python_syntax"](files)
