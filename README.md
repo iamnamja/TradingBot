@@ -18,10 +18,11 @@ The bounded supervised slice plus narrow safe autonomous one-task lane now cover
 - bundle failure classification and targeted retry shaping
 - hosted-authority operational convergence truth around the stable `ci-required` contract
 - safe task-family autonomy allowlisting for ordinary one-task work
-- a dedicated autonomous single-task runner with ledger, canary metrics, recovery reporting, supervised handoff, and bounded resume state
+- a dedicated autonomous single-task runner with ledger, canary metrics, recovery reporting, supervised handoff, bounded resume state, and operator proof bundle
 - scheduler routing through that bounded runner when exactly one safe task is ready
 - conservative stop / requeue / supervised handoff for mixed queues
-- a live canary operator proof bundle that shows one safe success, one explicit out-of-lane escalation, and the real hosted-authority smoke result
+
+Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for the authoritative bounded-scope status narrative.
 
 ## What the repo can honestly claim today
 
@@ -39,3 +40,13 @@ It does **not** claim:
 - arbitrary protected/controller/meta task-family autonomy
 - arbitrary multi-task autonomous execution
 - arbitrary self-hosting control-plane autonomy
+
+## Next continuation target
+
+Shift from “more safe-lane plumbing” to **execution quality**:
+
+- define a canonical external-safe one-task evaluation corpus
+- make the bounded one-task lane behave like a real dev / test / repair / controller loop
+- improve targeted self-heal quality on ordinary external-safe failures
+- measure pass rate and dominant failure classes
+- only then decide whether bounded two-task trials are justified

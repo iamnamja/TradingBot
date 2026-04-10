@@ -36,3 +36,12 @@
 - **146** `orchestrator_safe_lane_stop_requeue_and_supervised_mix_policy`
 - **147** `orchestrator_single_task_resume_and_idempotent_reentry`
 - **148** `orchestrator_live_canary_corpus_and_operator_proof_bundle`
+
+## Execution-quality tranche
+
+- **149** `orchestrator_external_safe_corpus_and_eval_manifest`
+- **150** `orchestrator_one_task_multi_agent_dev_test_repair_loop`
+- **151** `orchestrator_external_safe_failure_taxonomy_and_self_heal_router`
+- **152** `orchestrator_one_task_pass_rate_scoreboard_and_failure_digest`
+- **153** `orchestrator_external_safe_corpus_reliability_reproof`
+- **154** `orchestrator_two_task_readiness_gate_and_phase_transition`
