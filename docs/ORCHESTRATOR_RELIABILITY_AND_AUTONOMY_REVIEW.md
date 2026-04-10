@@ -48,6 +48,8 @@ Task 151 sharpens the current one-task lane by teaching it to distinguish common
 
 Task 152 converts that execution story into durable measurement. The bounded lane now emits a pass-rate scoreboard plus a failure digest so operators can see completed-without-manual-help runs, completed-after-self-heal runs, escalations, hosted-authority blocks, and the dominant reasons ordinary external-safe work still fails to complete.
 
+Task 153 then re-proves the bounded claim against the canonical external-safe corpus instead of relying only on canary-shaped proof tasks. The current truthful band is now roughly **two-thirds completion (4 of 6)** on the measured corpus under supervision. That is good enough to keep the one-task claim alive, but not good enough to widen it yet. Self-heal is contributing materially because **2 of the 4 completions** required bounded repair selection, while the remaining non-completions still surface as bounded lint-only or hosted-authority failures instead of disappearing into manual patch churn.
+
 ## Desired outcome of the next tranche
 
 By the end of the next tranche, the project should be able to answer:

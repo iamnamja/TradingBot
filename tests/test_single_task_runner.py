@@ -27,6 +27,13 @@ def _load_run_single_task_module():
     return importlib.import_module("agents.run_single_task")
 
 
+def _load_task_eval_corpus_module():
+    _bootstrap_repo_root()
+    if "agents.lib.task_eval_corpus" in sys.modules:
+        del sys.modules["agents.lib.task_eval_corpus"]
+    return importlib.import_module("agents.lib.task_eval_corpus")
+
+
 
 def test_build_single_task_canary_metrics_aggregates_retry_and_hosted_authority_signals() -> None:
     runner = _load_run_single_task_module()
@@ -786,3 +793,128 @@ def test_refresh_single_task_reporting_artifacts_emits_scoreboard_and_failure_di
     assert reporting["pass_rate_scoreboard"]["escalated_runs"] == 1
     assert reporting["failure_digest"]["non_completion_runs"] == 1
     assert reporting["failure_digest"]["dominant_non_completion_reasons"][0]["reason"] == "lint_only_failure"
+
+
+def test_task_153_external_safe_corpus_reproof_refreshes_reporting_from_manifest_shaped_ledger(tmp_path: Path) -> None:
+    runner = _load_run_single_task_module()
+    corpus = _load_task_eval_corpus_module()
+    manifest = corpus.external_safe_eval_manifest_snapshot()
+    items = corpus.list_external_safe_eval_items()
+    ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
+
+    scenario_by_item_id = {
+        "feature_budget_rollup": {
+            "retry_count_observed": 0,
+            "repair_required": False,
+            "repair_attempt_selected": False,
+            "no_checks_reported_observed": False,
+            "final_decision": "completed",
+            "failure_taxonomy": {},
+        },
+        "bugfix_parser_normalization": {
+            "retry_count_observed": 1,
+            "repair_required": True,
+            "repair_attempt_selected": True,
+            "no_checks_reported_observed": False,
+            "final_decision": "completed",
+            "failure_taxonomy": {},
+        },
+        "tests_scheduler_guardrail": {
+            "retry_count_observed": 0,
+            "repair_required": False,
+            "repair_attempt_selected": False,
+            "no_checks_reported_observed": False,
+            "final_decision": "completed",
+            "failure_taxonomy": {},
+        },
+        "docs_operator_quickstart": {
+            "retry_count_observed": 1,
+            "repair_required": True,
+            "repair_attempt_selected": True,
+            "no_checks_reported_observed": True,
+            "final_decision": "completed",
+            "failure_taxonomy": {},
+        },
+        "docs_and_tests_api_usage": {
+            "retry_count_observed": 1,
+            "repair_required": True,
+            "repair_attempt_selected": True,
+            "no_checks_reported_observed": False,
+            "final_decision": "execution_failed",
+            "failure_taxonomy": {
+                "failure_family": "formatting_lint_only",
+                "failure_category": "lint",
+            },
+        },
+        "feature_flags_defaults": {
+            "retry_count_observed": 0,
+            "repair_required": False,
+            "repair_attempt_selected": False,
+            "no_checks_reported_observed": True,
+            "final_decision": "execution_failed",
+            "failure_taxonomy": {},
+        },
+    }
+
+    for offset, item in enumerate(items):
+        scenario = scenario_by_item_id[item["item_id"]]
+        runner.append_single_task_run_ledger_entry(
+            {
+                "task_path": f"tasks/external_safe_corpus/{item['item_id']}.md",
+                "task_name": f"external_safe_{item['item_id']}.md",
+                "required_paths": list(item["required_paths"]),
+                "admission": {
+                    "autonomous_single_task_allowed": bool(item["autonomous_single_task_allowed"]),
+                    "proof_task_admission_allowed": True,
+                    "autonomous_single_task_lane": str(item["allowed_execution_lane"]),
+                    "autonomy_allowlist_family": str(item["autonomy_allowlist_family"]),
+                },
+                "retry": {
+                    "retry_count_observed": scenario["retry_count_observed"],
+                },
+                "validation": {
+                    "execution_invoked": True,
+                    "no_checks_reported_observed": scenario["no_checks_reported_observed"],
+                },
+                "multi_agent_loop": {
+                    "repair_artifact": {
+                        "repair_required": scenario["repair_required"],
+                        "repair_attempt_selected": scenario["repair_attempt_selected"],
+                    },
+                    "failure_taxonomy": dict(scenario["failure_taxonomy"]),
+                },
+                "final_decision": scenario["final_decision"],
+                "completed_at": f"2026-04-10T15:00:0{offset}Z",
+            },
+            ledger_path=ledger_path,
+        )
+
+    reporting = runner.refresh_single_task_reporting_artifacts(
+        ledger_path=ledger_path,
+        generated_at="2026-04-10T15:05:00Z",
+    )
+
+    scoreboard = reporting["pass_rate_scoreboard"]
+    failure_digest = reporting["failure_digest"]
+
+    assert manifest["item_count"] == 6
+    assert manifest["eligible_autonomous_item_ids"] == [item["item_id"] for item in items]
+    assert scoreboard["total_runs"] == manifest["item_count"]
+    assert scoreboard["admitted_runs"] == manifest["item_count"]
+    assert scoreboard["completed_runs"] == 4
+    assert scoreboard["completed_without_manual_help_runs"] == 2
+    assert scoreboard["completed_after_self_heal_runs"] == 2
+    assert scoreboard["non_completion_runs"] == 2
+    assert scoreboard["pass_rate"] == 0.6667
+    assert scoreboard["completed_without_manual_help_rate"] == 0.3333
+    assert scoreboard["completed_after_self_heal_rate"] == 0.3333
+    assert scoreboard["self_heal_attempted_runs"] == 3
+    assert scoreboard["self_heal_success_runs"] == 2
+    assert scoreboard["self_heal_success_rate"] == 0.6667
+    assert scoreboard["blocked_by_authority_runs"] == 2
+    assert failure_digest["non_completion_runs"] == 2
+    assert failure_digest["dominant_non_completion_reasons"][0] == {"reason": "formatting_lint_only", "count": 1}
+    assert failure_digest["dominant_non_completion_reasons"][1] == {"reason": "hosted_authority_no_checks_reported", "count": 1}
+    assert Path(reporting["pass_rate_scoreboard_path"]).exists()
+    assert Path(reporting["failure_digest_path"]).exists()
+

@@ -29,6 +29,13 @@ def _load_run_task_module():
         del sys.modules["agents.run_task"]
     return importlib.import_module("agents.run_task")
 
+
+def _load_task_eval_corpus_module():
+    _bootstrap_repo_root()
+    if "agents.lib.task_eval_corpus" in sys.modules:
+        del sys.modules["agents.lib.task_eval_corpus"]
+    return importlib.import_module("agents.lib.task_eval_corpus")
+
 def test_failure_journal_live_seam_exports_are_stable_and_do_not_require_module_alias() -> None:
     run_task = _load_run_task_module()
     exports = run_task._failure_journal_exports()
@@ -495,3 +502,83 @@ def test_write_external_safe_scoreboard_and_failure_digest_persist_json_artifact
     assert Path(digest_written) == digest_target
     assert '"completed_runs": 3' in scoreboard_target.read_text(encoding="utf-8")
     assert '"non_completion_runs": 2' in digest_target.read_text(encoding="utf-8")
+
+
+def test_task_153_external_safe_corpus_reproof_supports_a_meaningful_supervised_pass_rate_band() -> None:
+    fj = _load_failure_journal_module()
+    corpus = _load_task_eval_corpus_module()
+    manifest = corpus.external_safe_eval_manifest_snapshot()
+
+    entries = [
+        {
+            "admission": {"autonomous_single_task_allowed": True, "proof_task_admission_allowed": True},
+            "retry": {"retry_count_observed": 0},
+            "validation": {"no_checks_reported_observed": False},
+            "multi_agent_loop": {"repair_artifact": {"repair_required": False, "repair_attempt_selected": False}},
+            "final_decision": "completed",
+        },
+        {
+            "admission": {"autonomous_single_task_allowed": True, "proof_task_admission_allowed": True},
+            "retry": {"retry_count_observed": 1},
+            "validation": {"no_checks_reported_observed": False},
+            "multi_agent_loop": {"repair_artifact": {"repair_required": True, "repair_attempt_selected": True}},
+            "final_decision": "completed",
+        },
+        {
+            "admission": {"autonomous_single_task_allowed": True, "proof_task_admission_allowed": True},
+            "retry": {"retry_count_observed": 0},
+            "validation": {"no_checks_reported_observed": False},
+            "multi_agent_loop": {"repair_artifact": {"repair_required": False, "repair_attempt_selected": False}},
+            "final_decision": "completed",
+        },
+        {
+            "admission": {"autonomous_single_task_allowed": True, "proof_task_admission_allowed": True},
+            "retry": {"retry_count_observed": 1},
+            "validation": {"no_checks_reported_observed": True},
+            "multi_agent_loop": {"repair_artifact": {"repair_required": True, "repair_attempt_selected": True}},
+            "final_decision": "completed",
+        },
+        {
+            "admission": {"autonomous_single_task_allowed": True, "proof_task_admission_allowed": True},
+            "retry": {"retry_count_observed": 1},
+            "validation": {"no_checks_reported_observed": False},
+            "multi_agent_loop": {
+                "repair_artifact": {"repair_required": True, "repair_attempt_selected": True},
+                "failure_taxonomy": {"failure_family": "formatting_lint_only", "failure_category": "lint"},
+            },
+            "final_decision": "execution_failed",
+        },
+        {
+            "admission": {"autonomous_single_task_allowed": True, "proof_task_admission_allowed": True},
+            "retry": {"retry_count_observed": 0},
+            "validation": {"no_checks_reported_observed": True},
+            "multi_agent_loop": {"repair_artifact": {"repair_required": False, "repair_attempt_selected": False}},
+            "final_decision": "execution_failed",
+        },
+    ]
+
+    scoreboard = fj.build_external_safe_pass_rate_scoreboard(
+        entries=entries,
+        ledger_path="artifacts/autonomous_single_task/run_ledger.jsonl",
+        generated_at="2026-04-10T15:10:00Z",
+    )
+    digest = fj.build_external_safe_failure_digest(
+        entries=entries,
+        journal_entries=[{"failure_category": "lint"}],
+        ledger_path="artifacts/autonomous_single_task/run_ledger.jsonl",
+        journal_path="artifacts/failure_journal.jsonl",
+        generated_at="2026-04-10T15:10:00Z",
+    )
+
+    assert manifest["item_count"] == 6
+    assert scoreboard["total_runs"] == manifest["item_count"]
+    assert scoreboard["pass_rate"] == 0.6667
+    assert scoreboard["completed_runs"] > digest["non_completion_runs"]
+    assert scoreboard["completed_after_self_heal_runs"] == 2
+    assert scoreboard["self_heal_success_rate"] == 0.6667
+    assert scoreboard["next_reproof_target"]["minimum_meaningful_band"] == "at_least_0.6_on_external_safe_corpus"
+    assert digest["dominant_non_completion_reasons"] == [
+        {"reason": "formatting_lint_only", "count": 1},
+        {"reason": "hosted_authority_no_checks_reported", "count": 1},
+    ]
+

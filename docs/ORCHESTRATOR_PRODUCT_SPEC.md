@@ -8,7 +8,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 
 - **124–136** hardened the bounded supervised portfolio slice and its failure/authority truth
 - **137–148** created and operationally converged the narrow autonomous one-task lane: safe-task-family allowlisting, dedicated runner + ledger, canary reporting, supervised handoff, real GitHub required-check truth, scheduler bridging, stop/requeue policy, resume semantics, and the first operator proof bundle
-- the product now has a bounded autonomous one-task capability with a deterministic developer / verifier / repair / controller record, but not yet broad autonomous app-building capability
+- the product now has a bounded autonomous one-task capability with a deterministic developer / verifier / repair / controller record, plus a measured external-safe re-proof showing a roughly two-thirds supervised pass-rate band on the current corpus, but not yet broad autonomous app-building capability
 
 ## What the product can honestly claim today
 
@@ -44,6 +44,6 @@ The next product phase should optimize for **execution quality**, not more surfa
 - measure pass rate, retry rate, escalation rate, and dominant failure classes
 - re-prove the one-task lane on that corpus before any two-task widening
 
-Tasks 149–150 start this phase by defining the canonical external-safe evaluation manifest and then wiring the bounded one-task runner into a deterministic developer / verifier / repair / controller record. That record makes it clear which role produced the deciding evidence before the project attempts any broader self-heal claims.
+Tasks 149–153 now define the canonical external-safe evaluation manifest, wire the bounded one-task runner into a deterministic developer / verifier / repair / controller record, classify ordinary failures into narrower self-heal lanes, measure pass-rate and dominant non-completion reasons, and then re-prove the current claim on that corpus. The current truthful band is roughly **4 completed runs out of 6 corpus items** under supervision, with **2 completed after bounded self-heal** and the remaining failures staying bounded rather than silently widened.
 
 Only after those criteria are met should the product consider bounded two-task trials, and only later should it be wrapped as a separate operator-facing app.
