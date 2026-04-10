@@ -2,9 +2,9 @@
 
 ## Current state
 
-The repository is now complete through **Task 155**.
+The repository now has a merged bounded one-task benchmark harness plus targeted runtime hotfixes from the first live proof-mode attempts.
 
-The orchestrator has a real bounded one-task execution lane with:
+The orchestrator has:
 
 - proof-task admission gating and exact deliverable discipline,
 - safe-task-family allowlisting,
@@ -13,37 +13,39 @@ The orchestrator has a real bounded one-task execution lane with:
 - external-safe failure taxonomy and targeted self-heal routing,
 - pass-rate scoreboarding and failure digests,
 - a corpus re-proof and a truthful two-task readiness gate,
-- a bounded lint-only preflight normalization step for eligible one-task Python work.
+- bounded lint-only preflight normalization,
+- a one-task benchmark harness,
+- and clearer diagnostics for empty parsed-bundle failures.
 
 ## What the repo can honestly claim now
 
 It can honestly claim:
 
 - one external-safe allowlisted task at a time can run through a bounded autonomous one-task lane under supervision,
-- ordinary one-task failures are classified and can trigger bounded self-heal behavior,
-- the repo has measurement artifacts rather than only anecdotal success/failure impressions,
-- the repo has a truthful no-go gate that prevents widening to bounded two-task work before one-task reliability earns it.
+- the orchestrator is now being exercised on real proof-mode runs rather than only manual patch slices,
+- ordinary one-task failures and transport/runtime failures are starting to be measured separately,
+- the repo still has a truthful no-go gate that prevents widening to bounded two-task work before one-task reliability earns it.
 
 It still does **not** honestly claim:
 
 - broad unattended scheduler autonomy,
 - reliable multi-task autonomous execution,
 - self-hosting control-plane autonomy,
-- that the orchestrator is already the default trusted execution path for ongoing task work.
+- or that the orchestrator is already a dependable default execution path for routine task work.
 
 ## Immediate direction
 
-The next tranche should switch into **benchmark proof mode**.
+The project should pause broadening and enter a **single-task reliability sprint**.
 
 That means:
 
-- the orchestrator itself should run the next benchmark-eligible one-task tasks,
-- any human mid-run intervention should count against autonomous success,
-- the benchmark scorecard should become the main basis for promotion decisions,
-- we should reduce real measured blockers rather than primarily adding more generic features.
+- keep using the orchestrator itself to run benchmark-eligible one-task work,
+- count any human mid-run intervention against autonomous success,
+- fix the runtime around real observed failures before broadening scope,
+- and require full integration completion rather than accepting green-but-partial task branches.
 
 ## Why this matters
 
-Through Task 155, we proved that the bounded one-task lane is meaningful enough to benchmark seriously.
+Through the live Task 156/157 proof attempts, we learned that the central risk is no longer “missing one more orchestrator subsystem.”
 
-What remains unproven is whether the orchestrator can complete the next benchmark-eligible tasks with little or no human rescue. The right next step is to force the system to demonstrate that in practice.
+The real risk is that the orchestrator still cannot yet complete one benchmark-eligible task cleanly and repeatedly without manual follow-up. The next slice should optimize for that directly.
