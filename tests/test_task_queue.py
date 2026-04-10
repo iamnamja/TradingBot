@@ -218,127 +218,79 @@ def test_task_136_dependency_aware_selection_returns_none_when_no_tasks_are_read
     assert tq.select_next_task(queue, completed_task_paths=[]) is None
 
 
-def test_select_single_admissible_safe_task_returns_unique_ready_safe_task(tmp_path: Path) -> None:
+
+def test_plan_safe_lane_stop_requeue_policy_runs_one_safe_task_and_handoffs_supervised_mix() -> None:
     tq = _task_queue_module()
+    queue = [
+        tq.TaskQueueItem(task_path="tasks/201.md", ordinal=1),
+        tq.TaskQueueItem(task_path="tasks/202.md", ordinal=2),
+        tq.TaskQueueItem(task_path="tasks/203.md", ordinal=3, depends_on=("tasks/201.md",)),
+    ]
+    task_texts = {
+        "tasks/201.md": "## Create or update these exact files\n- `tests/test_task_queue.py`\n",
+        "tasks/202.md": "## Create or update these exact files\n- `agents/run_task.py`\n",
+        "tasks/203.md": "## Create or update these exact files\n- `tests/test_single_task_runner.py`\n",
+    }
 
-    task_safe = tmp_path / "tasks" / "301.md"
-    task_safe.parent.mkdir(parents=True, exist_ok=True)
-    task_safe.write_text(
-        """
-# Task 145 — Safe scheduler task
-
-## Create or update these exact files
-- `tests/test_task_queue.py`
-- `tests/test_run_task_runtime_foundations.py`
-""".strip(),
-        encoding="utf-8",
-    )
-    task_supervised = tmp_path / "tasks" / "302.md"
-    task_supervised.write_text(
-        """
-# Task 145 — Control-plane scheduler task
-
-## Create or update these exact files
-- `agents/run_task.py`
-""".strip(),
-        encoding="utf-8",
+    plan = tq.plan_safe_lane_stop_requeue_policy(
+        queue,
+        task_text_loader=lambda task_path: task_texts[task_path],
     )
 
-    queue = tq.build_task_queue_from_manifest(
-        {
-            "tasks": [
-                {"path": "tasks/301.md"},
-                {"path": "tasks/302.md"},
-            ]
-        },
-        repo_root=tmp_path,
-    )
-
-    def fake_evaluator(item, _root):
-        if item.task_path.endswith("301.md"):
-            return {
-                "admission": {"autonomous_single_task_allowed": True},
-                "proof_admission": {"proof_task_admission_allowed": True},
-            }
-        return {
-            "admission": {"autonomous_single_task_allowed": False},
-            "proof_admission": {"proof_task_admission_allowed": True},
-        }
-
-    selection = tq.select_single_admissible_safe_task(queue, repo_root=tmp_path, admission_evaluator=fake_evaluator)
-    assert selection["bridge_decision"] == "delegate_to_single_task_runner"
-    assert selection["selected_task_path"] == "tasks/301.md"
-    assert selection["safe_ready_task_paths"] == ["tasks/301.md"]
-    assert "tasks/302.md" in selection["non_safe_ready_task_paths"]
+    assert plan["decision"] == "run_one_and_stop"
+    assert plan["selected_task_path"] == "tasks/201.md"
+    assert plan["supervised_handoff_task_paths"] == ["tasks/202.md"]
+    assert plan["requeue_task_paths"] == ["tasks/203.md"]
+    assert plan["stop_after_selected"] is True
+    assert plan["supervised_handoff_required"] is True
 
 
-def test_select_single_admissible_safe_task_refuses_when_multiple_safe_tasks_are_ready(tmp_path: Path) -> None:
+
+def test_plan_safe_lane_stop_requeue_policy_refuses_multiple_ready_safe_tasks() -> None:
     tq = _task_queue_module()
+    queue = [
+        tq.TaskQueueItem(task_path="tasks/301.md", ordinal=1),
+        tq.TaskQueueItem(task_path="tasks/302.md", ordinal=2),
+        tq.TaskQueueItem(task_path="tasks/303.md", ordinal=3),
+    ]
+    task_texts = {
+        "tasks/301.md": "## Create or update these exact files\n- `tests/test_task_queue.py`\n",
+        "tasks/302.md": "## Create or update these exact files\n- `tests/test_single_task_runner.py`\n",
+        "tasks/303.md": "## Create or update these exact files\n- `agents/run_task.py`\n",
+    }
 
-    for name in ["401.md", "402.md"]:
-        path = tmp_path / "tasks" / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            """
-# Task 145 — Safe scheduler task
-
-## Create or update these exact files
-- `tests/test_task_queue.py`
-""".strip(),
-            encoding="utf-8",
-        )
-
-    queue = tq.build_task_queue_from_manifest(
-        {"tasks": ["tasks/401.md", "tasks/402.md"]},
-        repo_root=tmp_path,
+    plan = tq.plan_safe_lane_stop_requeue_policy(
+        queue,
+        task_text_loader=lambda task_path: task_texts[task_path],
     )
 
-    def fake_evaluator(_item, _root):
-        return {
-            "admission": {"autonomous_single_task_allowed": True},
-            "proof_admission": {"proof_task_admission_allowed": True},
-        }
-
-    selection = tq.select_single_admissible_safe_task(queue, repo_root=tmp_path, admission_evaluator=fake_evaluator)
-    assert selection["bridge_decision"] == "delegate_to_supervision"
-    assert sorted(selection["safe_ready_task_paths"]) == ["tasks/401.md", "tasks/402.md"]
+    assert plan["decision"] == "stop_and_requeue"
+    assert plan["selected_task_path"] == ""
+    assert sorted(plan["ready_safe_task_paths"]) == ["tasks/301.md", "tasks/302.md"]
+    assert plan["supervised_handoff_task_paths"] == ["tasks/303.md"]
+    assert sorted(plan["requeue_task_paths"]) == ["tasks/301.md", "tasks/302.md"]
 
 
-def test_batch_executor_routes_scheduler_path_through_single_task_runner(tmp_path: Path) -> None:
+
+def test_execute_safe_lane_scheduler_mix_policy_routes_through_bridge(tmp_path: Path) -> None:
     tq = _task_queue_module()
     be = _batch_executor_module()
+    queue = [
+        tq.TaskQueueItem(task_path="tasks/601.md", ordinal=1),
+        tq.TaskQueueItem(task_path="tasks/602.md", ordinal=2),
+    ]
+    task_texts = {
+        "tasks/601.md": "## Create or update these exact files\n- `tests/test_task_queue.py`\n",
+        "tasks/602.md": "## Create or update these exact files\n- `agents/run_task.py`\n",
+    }
 
-    task_safe = tmp_path / "tasks" / "501.md"
-    task_safe.parent.mkdir(parents=True, exist_ok=True)
-    task_safe.write_text(
-        """
-# Task 145 — Safe scheduler task
-
-## Create or update these exact files
-- `tests/test_task_queue.py`
-""".strip(),
-        encoding="utf-8",
-    )
-
-    queue = tq.build_task_queue_from_manifest({"tasks": ["tasks/501.md"]}, repo_root=tmp_path)
-    invoked: list[str] = []
-
-    def fake_runner(task_path: str, **_kwargs):
-        invoked.append(task_path)
-        return {"task_path": task_path, "entry": {"final_decision": "completed"}}
-
-    result = be.run_scheduler_safe_single_task_bridge(
+    result = be.execute_safe_lane_scheduler_mix_policy(
         queue=queue,
-        repo_root=tmp_path,
-        selection={
-            "bridge_decision": "delegate_to_single_task_runner",
-            "selected_task_path": "tasks/501.md",
-            "rationale": "exactly one safe task",
-        },
-        single_task_runner=fake_runner,
+        task_text_loader=lambda task_path: task_texts[task_path],
+        task_runner=lambda task_path, **_kwargs: {"entry": {"final_decision": "completed"}, "task_path": task_path},
+        policy_artifact_path=(tmp_path / "scheduler_policy.json").as_posix(),
+        now=lambda: "2026-04-09T21:10:00Z",
     )
 
-    assert invoked == ["tasks/501.md"]
-    assert result["bridge_decision"] == "delegate_to_single_task_runner"
-    assert result["autonomous_single_task_invoked"] is True
-    assert result["final_decision"] == "completed"
+    assert result["selection"]["selected_task_path"] == "tasks/601.md"
+    assert result["autonomous_result"]["task_path"] == "tasks/601.md"

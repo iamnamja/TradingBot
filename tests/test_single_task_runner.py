@@ -28,6 +28,15 @@ def _load_run_single_task_module():
 
 
 
+
+def _task_queue_module():
+    _bootstrap_repo_root()
+    if "agents.lib.task_queue" in sys.modules:
+        del sys.modules["agents.lib.task_queue"]
+    return importlib.import_module("agents.lib.task_queue")
+
+
+
 def test_build_single_task_canary_metrics_aggregates_retry_and_hosted_authority_signals() -> None:
     runner = _load_run_single_task_module()
 
@@ -155,7 +164,7 @@ def test_run_autonomous_single_task_persists_ledger_and_reporting_artifacts(tmp_
     task_path.write_text(
         "# Safe tests-only task\n\n"
         "## Create or update these exact files\n"
-        "- `tests/test_single_task_runner.py`\n",
+        "## Create or update these exact files\n- `tests/test_single_task_runner.py`\n",
         encoding="utf-8",
     )
     ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
@@ -214,7 +223,7 @@ def test_run_autonomous_single_task_reports_escalation_without_execution(tmp_pat
     task_path.write_text(
         "# Self-hosting control-plane task\n\n"
         "## Create or update these exact files\n"
-        "- `agents/run_task.py`\n",
+        "## Create or update these exact files\n- `agents/run_task.py`\n",
         encoding="utf-8",
     )
     ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
@@ -236,155 +245,61 @@ def test_run_autonomous_single_task_reports_escalation_without_execution(tmp_pat
 
 
 
-def test_task_142_supervised_safe_lane_reproof_stays_bounded_to_one_allowlisted_task_at_a_time(tmp_path: Path) -> None:
+def test_run_scheduler_safe_lane_bridge_runs_single_safe_task_and_writes_policy_artifact(tmp_path: Path) -> None:
     runner = _load_run_single_task_module()
-    ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
+    tq = _task_queue_module()
+    queue = [
+        tq.TaskQueueItem(task_path="tasks/401.md", ordinal=1),
+        tq.TaskQueueItem(task_path="tasks/402.md", ordinal=2),
+    ]
+    task_texts = {
+        "tasks/401.md": "## Create or update these exact files\n- `tests/test_single_task_runner.py`\n",
+        "tasks/402.md": "## Create or update these exact files\n- `agents/run_task.py`\n",
+    }
 
-    safe_task = tmp_path / "142_safe_tests_only_task.md"
-    safe_task.write_text(
-        "# Safe tests-only task\n\n"
-        "## Create or update these exact files\n"
-        "- `tests/test_single_task_runner.py`\n",
-        encoding="utf-8",
-    )
-    unsafe_task = tmp_path / "142_control_plane_task.md"
-    unsafe_task.write_text(
-        "# Unsafe control-plane task\n\n"
-        "## Create or update these exact files\n"
-        "- `agents/run_task.py`\n",
-        encoding="utf-8",
-    )
-
-    timestamps = iter([
-        "2026-04-08T18:40:00Z",
-        "2026-04-08T18:40:01Z",
-        "2026-04-08T18:40:02Z",
-        "2026-04-08T18:40:03Z",
-    ])
-
-    def fake_now() -> str:
-        return next(timestamps)
-
-    def fake_executor(command: list[str]) -> dict[str, object]:
-        return {
-            "command": list(command),
-            "returncode": 0,
-            "stdout": "=== Iteration 1/4 ===\nAll checks passed!\n[100%]\n",
-            "stderr": "",
-        }
-
-    safe_result = runner.run_autonomous_single_task(
-        safe_task.as_posix(),
-        ledger_path=ledger_path,
-        now=fake_now,
-        executor=fake_executor,
-    )
-    unsafe_result = runner.run_autonomous_single_task(
-        unsafe_task.as_posix(),
-        ledger_path=ledger_path,
-        now=fake_now,
-        executor=fake_executor,
-    )
-
-    ledger_rows = runner.read_single_task_run_ledger(ledger_path=ledger_path)
-    metrics = unsafe_result["canary_metrics"]
-    recovery = unsafe_result["recovery_report"]
-    handoff = unsafe_result["supervised_handoff"]
-
-    assert len(ledger_rows) == 2
-    assert ledger_rows[0]["final_decision"] == "completed"
-    assert ledger_rows[1]["final_decision"] == "escalation_required"
-    assert ledger_rows[0]["validation"]["execution_invoked"] is True
-    assert ledger_rows[1]["validation"]["execution_invoked"] is False
-    assert safe_result["entry"]["admission"]["autonomous_single_task_lane"] == "autonomous_safe"
-    assert unsafe_result["entry"]["admission"]["autonomous_single_task_lane"] == "escalation_required"
-
-    assert metrics["total_runs"] == 2
-    assert metrics["admitted_runs"] == 1
-    assert metrics["executed_runs"] == 1
-    assert metrics["completed_runs"] == 1
-    assert metrics["blocked_runs"] == 1
-    assert metrics["completion_rate"] == 1.0
-    assert metrics["stop_reason_counts"]["completed"] == 1
-    assert metrics["stop_reason_counts"]["escalation_required"] == 1
-    assert metrics["lane_counts"]["autonomous_safe"] == 1
-    assert metrics["lane_counts"]["escalation_required"] == 1
-
-    assert recovery["total_runs"] == 2
-    assert recovery["handoff_required_count"] == 1
-    assert recovery["recovery_required_count"] == 0
-    assert recovery["escalation_required_count"] == 1
-    assert recovery["blocked_supervised_only_count"] == 0
-
-    assert handoff["handoff_required"] is True
-    assert handoff["handoff_kind"] == "escalation_required"
-    assert handoff["implicated_paths"] == ["agents/run_task.py"]
-
-
-
-def test_scheduler_safe_single_task_bridge_invokes_bounded_runner_for_unique_safe_task(tmp_path) -> None:
-    run_single_task = _load_run_single_task_module()
-    safe_task = tmp_path / "task_145_safe.md"
-    safe_task.write_text(
-        """
-# Task 145 — Safe scheduler bridge
-
-## Create or update these exact files
-- `tests/test_single_task_runner.py`
-""".strip(),
-        encoding="utf-8",
-    )
-
-    invoked: list[str] = []
-
-    def fake_runner(selected_task_path: str, **_kwargs):
-        invoked.append(selected_task_path)
-        return {"task_path": selected_task_path, "entry": {"final_decision": "completed"}}
-
-    result = run_single_task.run_scheduler_single_task_bridge(
-        queue=[type("Item", (), {"task_path": safe_task.as_posix()})()],
-        selection={
-            "bridge_decision": "delegate_to_single_task_runner",
-            "selected_task_path": safe_task.as_posix(),
-            "rationale": "exactly one safe task",
+    result = runner.run_scheduler_safe_lane_bridge(
+        queue,
+        task_text_loader=lambda task_path: task_texts[task_path],
+        task_runner=lambda task_path, **_kwargs: {
+            "entry": {"final_decision": "completed"},
+            "task_path": task_path,
         },
-        single_task_runner=fake_runner,
+        policy_artifact_path=tmp_path / "scheduler_policy.json",
+        now=lambda: "2026-04-09T20:50:00Z",
     )
 
-    assert invoked == [safe_task.as_posix()]
-    assert result["autonomous_single_task_invoked"] is True
-    assert result["final_decision"] == "completed"
+    artifact_path = Path(result["policy_artifact_path"])
+    assert artifact_path.exists()
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert result["selection"]["selected_task_path"] == "tasks/401.md"
+    assert artifact["executed_autonomous_task"] is True
+    assert artifact["supervised_handoff_task_paths"] == ["tasks/402.md"]
+    assert artifact["requeue_task_paths"] == []
 
 
-def test_scheduler_safe_single_task_bridge_refuses_to_widen_when_selection_blocks(tmp_path) -> None:
-    run_single_task = _load_run_single_task_module()
-    unsafe_task = tmp_path / "task_145_supervised.md"
-    unsafe_task.write_text(
-        """
-# Task 145 — Supervised scheduler bridge
 
-## Create or update these exact files
-- `agents/run_task.py`
-""".strip(),
-        encoding="utf-8",
+def test_run_scheduler_safe_lane_bridge_refuses_widening_and_requeues_safe_work(tmp_path: Path) -> None:
+    runner = _load_run_single_task_module()
+    tq = _task_queue_module()
+    queue = [
+        tq.TaskQueueItem(task_path="tasks/501.md", ordinal=1),
+        tq.TaskQueueItem(task_path="tasks/502.md", ordinal=2),
+    ]
+    task_texts = {
+        "tasks/501.md": "## Create or update these exact files\n- `tests/test_single_task_runner.py`\n",
+        "tasks/502.md": "## Create or update these exact files\n- `tests/test_task_queue.py`\n",
+    }
+
+    result = runner.run_scheduler_safe_lane_bridge(
+        queue,
+        task_text_loader=lambda task_path: task_texts[task_path],
+        task_runner=lambda *_args, **_kwargs: {"entry": {"final_decision": "completed"}},
+        policy_artifact_path=tmp_path / "scheduler_policy.json",
+        now=lambda: "2026-04-09T20:55:00Z",
     )
 
-    invoked: list[str] = []
-
-    def fake_runner(selected_task_path: str, **_kwargs):
-        invoked.append(selected_task_path)
-        return {"task_path": selected_task_path, "entry": {"final_decision": "completed"}}
-
-    result = run_single_task.run_scheduler_single_task_bridge(
-        queue=[type("Item", (), {"task_path": unsafe_task.as_posix()})()],
-        selection={
-            "bridge_decision": "delegate_to_supervision",
-            "selected_task_path": "",
-            "rationale": "no admissible safe task",
-        },
-        single_task_runner=fake_runner,
-    )
-
-    assert invoked == []
-    assert result["autonomous_single_task_invoked"] is False
-    assert result["bridge_decision"] == "delegate_to_supervision"
+    artifact = json.loads(Path(result["policy_artifact_path"]).read_text(encoding="utf-8"))
+    assert result["autonomous_result"] is None
+    assert artifact["policy_decision"] == "stop_and_requeue"
+    assert sorted(artifact["requeue_task_paths"]) == ["tasks/501.md", "tasks/502.md"]
+    assert artifact["executed_autonomous_task"] is False

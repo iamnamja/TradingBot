@@ -1115,6 +1115,104 @@ def format_task_family_route(route: Mapping[str, object] | None) -> str:
     return str(_impl(route))
 
 
+def default_single_task_ledger_path() -> str:
+    from agents.run_single_task import default_single_task_ledger_path as _impl  # type: ignore
+
+    return str(_impl())
+
+
+def default_single_task_supervised_handoff_path(*, ledger_path: str | Path | None = None) -> str:
+    from agents.run_single_task import default_single_task_supervised_handoff_path as _impl  # type: ignore
+
+    return str(_impl(ledger_path=ledger_path))
+
+
+def summarize_single_task_execution(*, execution_result: Mapping[str, object] | None = None) -> Dict[str, object]:
+    from agents.run_single_task import summarize_single_task_execution as _impl  # type: ignore
+
+    return dict(_impl(execution_result=execution_result))
+
+
+def canonical_single_task_run_ledger_entry(**kwargs: Any) -> Dict[str, object]:
+    from agents.run_single_task import canonical_single_task_run_ledger_entry as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
+def append_single_task_run_ledger_entry(entry: Mapping[str, object], *, ledger_path: str | Path | None = None) -> str:
+    from agents.run_single_task import append_single_task_run_ledger_entry as _impl  # type: ignore
+
+    return str(_impl(entry, ledger_path=ledger_path))
+
+
+def build_single_task_supervised_handoff_artifact(
+    *,
+    entry: Mapping[str, object] | None,
+    handoff_path: str | Path | None = None,
+    generated_at: str = "",
+) -> Dict[str, object]:
+    from agents.run_single_task import build_single_task_supervised_handoff_artifact as _impl  # type: ignore
+
+    return dict(_impl(entry=entry, handoff_path=handoff_path, generated_at=generated_at))
+
+
+def write_single_task_supervised_handoff_artifact(
+    artifact: Mapping[str, object],
+    *,
+    handoff_path: str | Path | None = None,
+) -> str:
+    from agents.run_single_task import write_single_task_supervised_handoff_artifact as _impl  # type: ignore
+
+    return str(_impl(artifact, handoff_path=handoff_path))
+
+
+def run_autonomous_single_task(task_path: str, **kwargs: Any) -> Dict[str, object]:
+    from agents.run_single_task import run_autonomous_single_task as _impl  # type: ignore
+
+    return dict(_impl(task_path, **kwargs))
+
+
+def plan_safe_lane_stop_requeue_policy(
+    queue: Sequence[object],
+    *,
+    completed_task_paths: Sequence[str] | None = None,
+    task_text_loader: Any | None = None,
+) -> Dict[str, object]:
+    from agents.lib.task_queue import plan_safe_lane_stop_requeue_policy as _impl  # type: ignore
+
+    return dict(_impl(queue, completed_task_paths=completed_task_paths, task_text_loader=task_text_loader))
+
+
+def default_scheduler_safe_lane_policy_path(*, ledger_path: str | Path | None = None) -> str:
+    from agents.run_single_task import default_scheduler_safe_lane_policy_path as _impl  # type: ignore
+
+    return str(_impl(ledger_path=ledger_path))
+
+
+def build_scheduler_safe_lane_policy_artifact(**kwargs: Any) -> Dict[str, object]:
+    from agents.run_single_task import build_scheduler_safe_lane_policy_artifact as _impl  # type: ignore
+
+    return dict(_impl(**kwargs))
+
+
+def write_scheduler_safe_lane_policy_artifact(artifact: Mapping[str, object], *, policy_artifact_path: str | Path | None = None) -> str:
+    from agents.run_single_task import write_scheduler_safe_lane_policy_artifact as _impl  # type: ignore
+
+    return str(_impl(artifact, policy_artifact_path=policy_artifact_path))
+
+
+def run_scheduler_safe_lane_bridge(queue: Sequence[object], **kwargs: Any) -> Dict[str, object]:
+    from agents.run_single_task import run_scheduler_safe_lane_bridge as _impl  # type: ignore
+
+    return dict(_impl(queue, **kwargs))
+
+
+def execute_safe_lane_scheduler_mix_policy(*, queue: Sequence[object], **kwargs: Any) -> Dict[str, object]:
+    from agents.lib.batch_executor import execute_safe_lane_scheduler_mix_policy as _impl  # type: ignore
+
+    return dict(_impl(queue=list(queue), **kwargs))
+
+
 def multi_agent_task_context(required_paths: Sequence[str] | None) -> Dict[str, object]:
     from agents.lib.task_contracts import multi_agent_task_context as _impl  # type: ignore
 
@@ -5884,19 +5982,6 @@ def _shell_router_exports() -> Dict[str, object]:
 
     return exports
 
-
-
-
-def select_single_admissible_safe_task(**kwargs: Any) -> Dict[str, object]:
-    from agents.lib.task_queue import select_single_admissible_safe_task as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
-
-
-def run_scheduler_safe_single_task_bridge(**kwargs: Any) -> Dict[str, object]:
-    from agents.lib.batch_executor import run_scheduler_safe_single_task_bridge as _impl  # type: ignore
-
-    return dict(_impl(**kwargs))
 
 
 def autonomous_backlog_runner_proof_capabilities() -> dict[str, object]:
