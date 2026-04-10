@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 124–141 are complete in bounded supervised scope plus a narrow safe-lane canary:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, adds a safe task-family autonomy allowlist, and introduces a dedicated autonomous single-task runner with a persisted run ledger.
+- **Tasks 124–146 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, re-proves the bounded supervised resilience corpus over the concrete failure classes from Tasks 130–135, and now verifies real GitHub required-check enforcement convergence around the stable `ci-required` context instead of relying only on modeled local contract truth, and now adds an explicit safe task-family autonomy allowlist that only admits narrow ordinary single-task work while escalating self-hosting control-plane edits by default.
 
 The current bounded deterministic slice now demonstrates:
 
@@ -24,10 +24,9 @@ The current bounded deterministic slice now demonstrates:
 6. targeted retry planning around missing deliverables and coupled compatibility surfaces
 7. bounded subset preservation so targeted retries do not unnecessarily widen the changed-file set
 8. explicit hosted-authority operational-readiness truth, including blocking `no checks reported` posture
-9. a fresh supervised resilience re-proof over the recent failure corpus
-10. a bounded autonomous single-task canary runner with persisted ledger artifacts
-11. durable canary metrics and recovery reporting artifacts so single-task convergence can be measured without claiming a broad dashboard or unattended scheduler
-12. deterministic supervised handoff artifacts when a blocked or escalated single-task run must stop honestly and return to supervision
+9. real GitHub required-check enforcement convergence truth for the configured `ci-required` contract on the repo base branch
+10. a bounded autonomous one-task lane with scheduler bridging, explicit stop/requeue policy, and supervised handoff artifacts
+11. a fresh supervised resilience re-proof over the recent failure corpus
 
 ## Scope honesty
 
@@ -38,20 +37,14 @@ Current proof scope remains explicitly limited to:
 - conservative stop-on-risk / stop-on-authority-unsatisfied posture
 - compatibility-preserving self-heal and schema alias normalization contracts
 - extraction preparation posture rather than completed standalone extraction
-- safe-lane autonomy only after real operational enforcement is converged
+- safe-lane autonomy only after real operational enforcement is converged and bounded resume semantics remain idempotent
 
 It still does **not** claim autonomy for arbitrary protected/controller/meta task lists, broad unattended production scheduling, or broad multi-language portability.
 
 ## Next continuation target
 
-The next tranche should focus on moving from resilience hardening toward a **safe autonomous single-task lane**:
+The next tranche should focus on making the bounded one-task lane operationally trustworthy:
 
-1. operationally converge hosted required-check / branch-protection truth with the real GitHub setup
-2. introduce an allowlisted task-family admission lane for autonomous single-task runs
-3. extend the single-task runner ledger into durable canary metrics and recovery reporting artifacts
-4. produce explicit escalation artifacts for self-hosting control-plane tasks that still require supervised/manual handling
-5. keep supervised handoff artifacts stable so blocked or failed one-task runs return cleanly to manual oversight
-6. re-prove autonomous single-task execution only after the above lane is green
-
-
-Task 146 note: mixed queues now stop conservatively after at most one unique autonomous-safe task, emit explicit supervised handoff for unsafe ready work, and requeue remaining work without widening the bounded lane.
+1. add single-task resume and idempotent re-entry so interrupted runs do not duplicate ledger rows or artifacts
+2. keep the scheduler mix policy bounded to one admitted safe task at a time plus explicit supervised handoff for everything else
+3. finish with a live canary/operator proof bundle only after the above lane is green

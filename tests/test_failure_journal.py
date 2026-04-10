@@ -308,3 +308,29 @@ def test_task_142_safe_lane_reproof_recovery_report_remains_bounded_to_one_task_
     assert report["stop_reason_counts"]["completed"] == 1
     assert report["stop_reason_counts"]["blocked_supervised_only"] == 1
     assert report["stop_reason_counts"]["escalation_required"] == 1
+
+
+
+def test_recovery_report_counts_resumed_reentry_and_completed_entry_reuse() -> None:
+    fj = _load_failure_journal_module()
+    report = fj.build_autonomous_single_task_recovery_report(
+        entries=[
+            {
+                "final_decision": "completed",
+                "escalation": {"required": False, "reason": ""},
+                "validation": {"no_checks_reported_observed": False},
+                "resume": {"resume_reentry": True, "reused_completed_entry": False},
+            },
+            {
+                "final_decision": "completed",
+                "escalation": {"required": False, "reason": ""},
+                "validation": {"no_checks_reported_observed": False},
+                "resume": {"resume_reentry": False, "reused_completed_entry": True},
+            },
+        ],
+        ledger_path="artifacts/autonomous_single_task/run_ledger.jsonl",
+        generated_at="2026-04-09T20:15:00Z",
+    )
+
+    assert report["resumed_reentry_count"] == 1
+    assert report["reused_completed_entry_count"] == 1

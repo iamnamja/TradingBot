@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -12,7 +13,7 @@ DEFAULT_SINGLE_TASK_LEDGER_PATH = "artifacts/autonomous_single_task/run_ledger.j
 DEFAULT_SINGLE_TASK_CANARY_METRICS_PATH = "artifacts/autonomous_single_task/canary_metrics.json"
 DEFAULT_SINGLE_TASK_RECOVERY_REPORT_PATH = "artifacts/autonomous_single_task/recovery_report.json"
 DEFAULT_SINGLE_TASK_SUPERVISED_HANDOFF_PATH = "artifacts/autonomous_single_task/supervised_handoff.json"
-DEFAULT_SCHEDULER_SAFE_LANE_POLICY_PATH = "artifacts/autonomous_single_task/scheduler_safe_lane_policy.json"
+DEFAULT_SINGLE_TASK_RESUME_STATE_PATH = "artifacts/autonomous_single_task/resume_state.json"
 LEDGER_SCHEMA_VERSION = 1
 CANARY_METRICS_SCHEMA_VERSION = 1
 SUPERVISED_HANDOFF_SCHEMA_VERSION = 1
@@ -36,6 +37,65 @@ def default_single_task_recovery_report_path(*, ledger_path: str | Path | None =
 def default_single_task_supervised_handoff_path(*, ledger_path: str | Path | None = None) -> str:
     path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
     return path.with_name("supervised_handoff.json").as_posix()
+
+
+def default_single_task_resume_state_path(*, ledger_path: str | Path | None = None) -> str:
+    path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    return path.with_name("resume_state.json").as_posix()
+
+
+def build_single_task_run_token(
+    *,
+    task_path: str,
+    task_text: str,
+    provider: str | None,
+    model: str | None,
+    max_iters: int,
+    push: bool,
+    keep_runtime_artifacts: bool,
+) -> str:
+    payload = "|".join(
+        [
+            str(task_path or ""),
+            hashlib.sha1(str(task_text or "").encode("utf-8", errors="replace")).hexdigest(),
+            str(provider or ""),
+            str(model or ""),
+            str(int(max_iters)),
+            "1" if push else "0",
+            "1" if keep_runtime_artifacts else "0",
+        ]
+    )
+    return hashlib.sha1(payload.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
+def read_single_task_resume_state(*, resume_state_path: str | Path | None = None, ledger_path: str | Path | None = None) -> dict[str, object]:
+    path = Path(resume_state_path or default_single_task_resume_state_path(ledger_path=ledger_path))
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def write_single_task_resume_state(
+    state: Mapping[str, object],
+    *,
+    resume_state_path: str | Path | None = None,
+    ledger_path: str | Path | None = None,
+) -> str:
+    target = Path(resume_state_path or state.get("resume_state_path") or default_single_task_resume_state_path(ledger_path=ledger_path))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = dict(state)
+    payload["resume_state_path"] = target.as_posix()
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target.as_posix()
+
+
+def _find_single_task_entry_by_run_token(entries: Sequence[Mapping[str, object]], run_token: str) -> dict[str, object]:
+    for row in reversed([dict(entry) for entry in entries]):
+        resume = dict(row.get("resume", {}) or {})
+        if str(resume.get("run_token", "") or "") == str(run_token or ""):
+            return row
+    return {}
 
 
 def _tail_text(text: str, *, limit: int = 1200) -> str:
@@ -106,6 +166,12 @@ def canonical_single_task_run_ledger_entry(
     ledger_path: str,
     push_requested: bool,
     keep_runtime_artifacts: bool,
+    run_token: str = "",
+    resume_state_path: str = "",
+    resume_reentry: bool = False,
+    reused_completed_entry: bool = False,
+    resume_count: int = 0,
+    resumed_from_stage: str = "",
 ) -> dict[str, object]:
     admission_dict = dict(admission)
     proof_dict = dict(proof_admission)
@@ -182,6 +248,14 @@ def canonical_single_task_run_ledger_entry(
         "escalation": {
             "required": escalation_required,
             "reason": escalation_reason,
+        },
+        "resume": {
+            "run_token": str(run_token or ""),
+            "resume_state_path": str(resume_state_path or ""),
+            "resume_reentry": bool(resume_reentry),
+            "reused_completed_entry": bool(reused_completed_entry),
+            "resume_count": int(resume_count or 0),
+            "resumed_from_stage": str(resumed_from_stage or ""),
         },
         "final_decision": final_decision,
         "execution": {
@@ -541,6 +615,56 @@ def refresh_single_task_reporting_artifacts(
 
 
 
+
+
+def _legacy_run_scheduler_single_task_bridge(
+    *,
+    queue: Sequence[object],
+    repo_root: str | Path = ".",
+    completed_task_paths: Sequence[str] | None = None,
+    selection: Mapping[str, object] | None = None,
+    selector: Callable[..., Mapping[str, object]] | None = None,
+    single_task_runner: Callable[..., Mapping[str, object]] | None = None,
+    runner_kwargs: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    from agents.lib.task_queue import select_single_admissible_safe_task as _select_single_admissible_safe_task  # type: ignore
+
+    active_selection = dict(
+        selection
+        or (selector or _select_single_admissible_safe_task)(
+            queue,
+            repo_root=repo_root,
+            completed_task_paths=completed_task_paths,
+        )
+    )
+    decision = str(active_selection.get("bridge_decision", "") or "")
+    selected_task_path = str(active_selection.get("selected_task_path", "") or "")
+    if decision != "delegate_to_single_task_runner" or not selected_task_path:
+        return {
+            "bridge_decision": decision or "delegate_to_supervision",
+            "autonomous_single_task_invoked": False,
+            "task_path": selected_task_path,
+            "selection": active_selection,
+            "rationale": str(active_selection.get("rationale", "") or ""),
+        }
+
+    result = dict(
+        (single_task_runner or run_autonomous_single_task)(
+            selected_task_path,
+            **dict(runner_kwargs or {}),
+        )
+    )
+    entry = dict(result.get("entry", {}) or {})
+    return {
+        "bridge_decision": "delegate_to_single_task_runner",
+        "autonomous_single_task_invoked": True,
+        "task_path": selected_task_path,
+        "selection": active_selection,
+        "single_task_result": result,
+        "final_decision": str(entry.get("final_decision", "") or ""),
+    }
+
+
 def _build_run_task_command(
     *,
     task_path: str,
@@ -575,17 +699,86 @@ def run_autonomous_single_task(
     metrics_path: str | Path | None = None,
     recovery_report_path: str | Path | None = None,
     supervised_handoff_path: str | Path | None = None,
+    resume_state_path: str | Path | None = None,
     now: Callable[[], str] | None = None,
     executor: Callable[[Sequence[str]], Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
     import agents.run_task as run_task
 
     ledger_location = str(ledger_path or DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    resume_location = str(resume_state_path or default_single_task_resume_state_path(ledger_path=ledger_location))
     task_file = Path(task_path)
     if not task_file.exists():
         raise FileNotFoundError(f"Task file not found: {task_path}")
     task_text = task_file.read_text(encoding="utf-8", errors="replace")
     required_paths = list(run_task.parse_required_files(task_text))
+    run_token = build_single_task_run_token(
+        task_path=task_file.as_posix(),
+        task_text=task_text,
+        provider=provider,
+        model=model,
+        max_iters=max_iters,
+        push=push,
+        keep_runtime_artifacts=keep_runtime_artifacts,
+    )
+
+    existing_entries = read_single_task_run_ledger(ledger_path=ledger_location)
+    existing_entry = _find_single_task_entry_by_run_token(existing_entries, run_token)
+    clock = now or (lambda: "")
+
+    if existing_entry:
+        existing_resume = dict(existing_entry.get("resume", {}) or {})
+        if not existing_resume.get("resume_state_path"):
+            existing_resume["resume_state_path"] = resume_location
+            existing_entry["resume"] = existing_resume
+        write_single_task_resume_state(
+            {
+                "schema_version": 1,
+                "runner": "autonomous_single_task",
+                "run_token": run_token,
+                "task_path": task_file.as_posix(),
+                "ledger_path": ledger_location,
+                "resume_state_path": resume_location,
+                "stage": "completed",
+                "resume_count": int(existing_resume.get("resume_count", 0) or 0),
+                "reused_completed_entry": True,
+                "latest_started_at": str(existing_entry.get("started_at", "") or ""),
+                "latest_completed_at": str(existing_entry.get("completed_at", "") or ""),
+            },
+            resume_state_path=resume_location,
+            ledger_path=ledger_location,
+        )
+        refreshed = refresh_single_task_reporting_artifacts(
+            ledger_path=ledger_location,
+            metrics_path=metrics_path,
+            recovery_report_path=recovery_report_path,
+            supervised_handoff_path=supervised_handoff_path,
+            current_entry=existing_entry,
+            generated_at=str(existing_entry.get("completed_at", "") or existing_entry.get("started_at", "") or ""),
+        )
+        return {
+            "task_path": task_file.as_posix(),
+            "ledger_path": ledger_location,
+            "entry": existing_entry,
+            "resume_state_path": resume_location,
+            "reused_completed_entry": True,
+            "canary_metrics_path": refreshed["canary_metrics_path"],
+            "canary_metrics": refreshed["canary_metrics"],
+            "recovery_report_path": refreshed["recovery_report_path"],
+            "recovery_report": refreshed["recovery_report"],
+            "supervised_handoff_path": refreshed["supervised_handoff_path"],
+            "supervised_handoff": refreshed["supervised_handoff"],
+        }
+
+    prior_resume_state = read_single_task_resume_state(resume_state_path=resume_location, ledger_path=ledger_location)
+    resumed_from_stage = ""
+    resume_count = 0
+    resume_reentry = False
+    if str(prior_resume_state.get("run_token", "") or "") == run_token and str(prior_resume_state.get("stage", "") or "") != "completed":
+        resume_reentry = True
+        resumed_from_stage = str(prior_resume_state.get("stage", "") or "")
+        resume_count = int(prior_resume_state.get("resume_count", 0) or 0) + 1
+
     admission = dict(
         run_task.evaluate_autonomous_single_task_admission(
             required_paths,
@@ -601,8 +794,27 @@ def run_autonomous_single_task(
         )
     )
 
-    clock = now or (lambda: "")
     started_at = str(clock() or "")
+    write_single_task_resume_state(
+        {
+            "schema_version": 1,
+            "runner": "autonomous_single_task",
+            "run_token": run_token,
+            "task_path": task_file.as_posix(),
+            "ledger_path": ledger_location,
+            "resume_state_path": resume_location,
+            "stage": "admitted",
+            "resume_count": resume_count,
+            "resume_reentry": resume_reentry,
+            "resumed_from_stage": resumed_from_stage,
+            "latest_started_at": started_at,
+            "admission_allowed": bool(admission.get("autonomous_single_task_allowed", False)),
+            "proof_admission_allowed": bool(proof_admission.get("proof_task_admission_allowed", False)),
+        },
+        resume_state_path=resume_location,
+        ledger_path=ledger_location,
+    )
+
     execution_summary: dict[str, object] | None = None
     allowed = bool(admission.get("autonomous_single_task_allowed", False)) and bool(
         proof_admission.get("proof_task_admission_allowed", False)
@@ -615,6 +827,24 @@ def run_autonomous_single_task(
             max_iters=max_iters,
             push=push,
             keep_runtime_artifacts=keep_runtime_artifacts,
+        )
+        write_single_task_resume_state(
+            {
+                "schema_version": 1,
+                "runner": "autonomous_single_task",
+                "run_token": run_token,
+                "task_path": task_file.as_posix(),
+                "ledger_path": ledger_location,
+                "resume_state_path": resume_location,
+                "stage": "executing",
+                "resume_count": resume_count,
+                "resume_reentry": resume_reentry,
+                "resumed_from_stage": resumed_from_stage,
+                "latest_started_at": started_at,
+                "command": command,
+            },
+            resume_state_path=resume_location,
+            ledger_path=ledger_location,
         )
         raw_execution = dict((executor or _default_executor)(command))
         execution_summary = summarize_single_task_execution(execution_result=raw_execution)
@@ -631,6 +861,30 @@ def run_autonomous_single_task(
         ledger_path=ledger_location,
         push_requested=push,
         keep_runtime_artifacts=keep_runtime_artifacts,
+        run_token=run_token,
+        resume_state_path=resume_location,
+        resume_reentry=resume_reentry,
+        reused_completed_entry=False,
+        resume_count=resume_count,
+        resumed_from_stage=resumed_from_stage,
+    )
+    write_single_task_resume_state(
+        {
+            "schema_version": 1,
+            "runner": "autonomous_single_task",
+            "run_token": run_token,
+            "task_path": task_file.as_posix(),
+            "ledger_path": ledger_location,
+            "resume_state_path": resume_location,
+            "stage": "finalizing",
+            "resume_count": resume_count,
+            "resume_reentry": resume_reentry,
+            "resumed_from_stage": resumed_from_stage,
+            "latest_started_at": started_at,
+            "latest_completed_at": completed_at,
+        },
+        resume_state_path=resume_location,
+        ledger_path=ledger_location,
     )
     persisted_path = append_single_task_run_ledger_entry(entry, ledger_path=ledger_location)
     reporting = refresh_single_task_reporting_artifacts(
@@ -641,10 +895,31 @@ def run_autonomous_single_task(
         current_entry=entry,
         generated_at=str(completed_at or started_at),
     )
+    write_single_task_resume_state(
+        {
+            "schema_version": 1,
+            "runner": "autonomous_single_task",
+            "run_token": run_token,
+            "task_path": task_file.as_posix(),
+            "ledger_path": persisted_path,
+            "resume_state_path": resume_location,
+            "stage": "completed",
+            "resume_count": resume_count,
+            "resume_reentry": resume_reentry,
+            "resumed_from_stage": resumed_from_stage,
+            "latest_started_at": started_at,
+            "latest_completed_at": completed_at,
+            "final_decision": str(entry.get("final_decision", "") or ""),
+        },
+        resume_state_path=resume_location,
+        ledger_path=ledger_location,
+    )
     return {
         "task_path": task_file.as_posix(),
         "ledger_path": persisted_path,
         "entry": entry,
+        "resume_state_path": resume_location,
+        "reused_completed_entry": False,
         "canary_metrics_path": reporting["canary_metrics_path"],
         "canary_metrics": reporting["canary_metrics"],
         "recovery_report_path": reporting["recovery_report_path"],
@@ -655,39 +930,10 @@ def run_autonomous_single_task(
 
 
 
-def build_scheduler_safe_lane_policy_artifact(
-    *,
-    selection: Mapping[str, object],
-    autonomous_result: Mapping[str, object] | None = None,
-    policy_artifact_path: str | Path | None = None,
-    generated_at: str = "",
-) -> dict[str, object]:
-    selected_task_path = str(selection.get("selected_task_path", "") or "")
-    autonomous_payload = dict(autonomous_result or {})
-    entry = dict(autonomous_payload.get("entry", {}) or {})
-    final_decision = str(entry.get("final_decision", "") or "")
-    return {
-        "artifact_type": "scheduler_safe_lane_mix_policy",
-        "generated_at": str(generated_at or ""),
-        "policy_artifact_path": str(policy_artifact_path or DEFAULT_SCHEDULER_SAFE_LANE_POLICY_PATH),
-        "policy_decision": str(selection.get("decision", "") or ""),
-        "selected_task_path": selected_task_path,
-        "executed_autonomous_task": bool(selected_task_path and autonomous_payload),
-        "autonomous_task_final_decision": final_decision,
-        "ready_safe_task_paths": list(selection.get("ready_safe_task_paths", []) or []),
-        "supervised_handoff_task_paths": list(selection.get("supervised_handoff_task_paths", []) or []),
-        "supervised_handoff_required": bool(selection.get("supervised_handoff_required", False)),
-        "requeue_task_paths": list(selection.get("requeue_task_paths", []) or []),
-        "waiting_task_paths": list(selection.get("waiting_task_paths", []) or []),
-        "stop_after_selected": bool(selection.get("stop_after_selected", False)),
-        "rationale": str(selection.get("rationale", "") or ""),
-        "next_supervised_action": (
-            "Review supervised_handoff_task_paths and continue in the supervised/manual lane before attempting more queue work."
-            if bool(selection.get("supervised_handoff_required", False))
-            else "Continue with a later supervised scheduler pass after requeued work becomes uniquely admissible."
-        ),
-    }
-
+def default_scheduler_safe_lane_policy_path(*, ledger_path: str | Path | None = None) -> str:
+    default_ledger_path = str(globals().get("DEFAULT_SINGLE_TASK_LEDGER_PATH", "artifacts/autonomous_single_task/run_ledger.jsonl"))
+    path = Path(ledger_path) if ledger_path is not None else Path(default_ledger_path)
+    return path.with_name("scheduler_safe_lane_policy.json").as_posix()
 
 
 def write_scheduler_safe_lane_policy_artifact(
@@ -695,11 +941,85 @@ def write_scheduler_safe_lane_policy_artifact(
     *,
     policy_artifact_path: str | Path | None = None,
 ) -> str:
-    target = Path(policy_artifact_path or artifact.get("policy_artifact_path") or DEFAULT_SCHEDULER_SAFE_LANE_POLICY_PATH)
+    target = Path(policy_artifact_path or artifact.get("policy_artifact_path") or default_scheduler_safe_lane_policy_path())
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(dict(artifact), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return target.as_posix()
 
+
+def run_scheduler_single_task_bridge(
+    *,
+    queue: Sequence[object],
+    repo_root: str | Path = ".",
+    completed_task_paths: Sequence[str] | None = None,
+    selection: Mapping[str, object] | None = None,
+    selector: Callable[..., Mapping[str, object]] | None = None,
+    single_task_runner: Callable[..., Mapping[str, object]] | None = None,
+    runner_kwargs: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    active_selection = dict(selection or {})
+    if not active_selection:
+        if selector is not None:
+            active_selection = dict(
+                selector(
+                    queue,
+                    repo_root=repo_root,
+                    completed_task_paths=completed_task_paths,
+                )
+            )
+        else:
+            try:
+                from agents.lib.task_queue import select_single_admissible_safe_task as _select_single_admissible_safe_task  # type: ignore
+
+                active_selection = dict(
+                    _select_single_admissible_safe_task(
+                        queue,
+                        repo_root=repo_root,
+                        completed_task_paths=completed_task_paths,
+                    )
+                )
+            except ImportError:
+                from agents.lib.task_queue import plan_safe_lane_stop_requeue_policy as _plan_safe_lane_stop_requeue_policy
+
+                planned = dict(
+                    _plan_safe_lane_stop_requeue_policy(
+                        queue,
+                        completed_task_paths=completed_task_paths,
+                    )
+                )
+                active_selection = dict(planned)
+                active_selection.setdefault(
+                    "bridge_decision",
+                    "delegate_to_single_task_runner" if str(planned.get("selected_task_path", "") or "") else "delegate_to_supervision",
+                )
+    decision = str(active_selection.get("bridge_decision", "") or "")
+    selected_task_path = str(active_selection.get("selected_task_path", "") or "")
+    if not decision:
+        decision = "delegate_to_single_task_runner" if selected_task_path else "delegate_to_supervision"
+    if decision != "delegate_to_single_task_runner" or not selected_task_path:
+        return {
+            "bridge_decision": decision or "delegate_to_supervision",
+            "autonomous_single_task_invoked": False,
+            "task_path": selected_task_path,
+            "selection": active_selection,
+            "rationale": str(active_selection.get("rationale", "") or ""),
+        }
+
+    result = dict(
+        (single_task_runner or run_autonomous_single_task)(
+            selected_task_path,
+            **dict(runner_kwargs or {}),
+        )
+    )
+    entry = dict(result.get("entry", {}) or {})
+    return {
+        "bridge_decision": "delegate_to_single_task_runner",
+        "autonomous_single_task_invoked": True,
+        "task_path": selected_task_path,
+        "selection": active_selection,
+        "single_task_result": result,
+        "final_decision": str(entry.get("final_decision", "") or ""),
+    }
 
 
 def run_scheduler_safe_lane_bridge(
@@ -726,12 +1046,23 @@ def run_scheduler_safe_lane_bridge(
     if selected_task_path:
         autonomous_result = dict((task_runner or run_autonomous_single_task)(selected_task_path, **runner_kwargs))
     generated_at = str((now or (lambda: ""))() or "")
-    artifact = build_scheduler_safe_lane_policy_artifact(
-        selection=selection,
-        autonomous_result=autonomous_result,
-        policy_artifact_path=policy_artifact_path or default_scheduler_safe_lane_policy_path(),
-        generated_at=generated_at,
-    )
+    entry = dict(dict(autonomous_result or {}).get("entry", {}) or {})
+    artifact = {
+        "artifact_type": "scheduler_safe_lane_mix_policy",
+        "generated_at": generated_at,
+        "policy_artifact_path": str(policy_artifact_path or default_scheduler_safe_lane_policy_path()),
+        "policy_decision": str(selection.get("decision", "") or ""),
+        "selected_task_path": selected_task_path,
+        "executed_autonomous_task": bool(selected_task_path and autonomous_result),
+        "autonomous_task_final_decision": str(entry.get("final_decision", "") or ""),
+        "ready_safe_task_paths": list(selection.get("ready_safe_task_paths", []) or []),
+        "supervised_handoff_task_paths": list(selection.get("supervised_handoff_task_paths", []) or []),
+        "supervised_handoff_required": bool(selection.get("supervised_handoff_required", False)),
+        "requeue_task_paths": list(selection.get("requeue_task_paths", []) or []),
+        "waiting_task_paths": list(selection.get("waiting_task_paths", []) or []),
+        "stop_after_selected": bool(selection.get("stop_after_selected", False)),
+        "rationale": str(selection.get("rationale", "") or ""),
+    }
     written = write_scheduler_safe_lane_policy_artifact(
         artifact,
         policy_artifact_path=policy_artifact_path or default_scheduler_safe_lane_policy_path(),
@@ -756,6 +1087,7 @@ def main() -> int:
     ap.add_argument("--metrics-path", default=None)
     ap.add_argument("--recovery-report-path", default=None)
     ap.add_argument("--supervised-handoff-path", default=None)
+    ap.add_argument("--resume-state-path", default=None)
     args = ap.parse_args()
 
     result = run_autonomous_single_task(
@@ -769,6 +1101,7 @@ def main() -> int:
         metrics_path=args.metrics_path,
         recovery_report_path=args.recovery_report_path,
         supervised_handoff_path=args.supervised_handoff_path,
+        resume_state_path=args.resume_state_path,
     )
     entry = dict(result["entry"])
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -783,7 +1116,3 @@ def main() -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
-
-def default_scheduler_safe_lane_policy_path(*, ledger_path: str | Path | None = None) -> str:
-    path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
-    return path.with_name("scheduler_safe_lane_policy.json").as_posix()

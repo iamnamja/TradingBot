@@ -349,11 +349,14 @@ def build_autonomous_single_task_recovery_report(
     recovery_required_count = 0
     escalation_required_count = 0
     hosted_authority_blocked_runs = 0
+    resumed_reentry_count = 0
+    reused_completed_entry_count = 0
 
     for row in rows:
         final_decision = str(row.get("final_decision", "") or "")
         escalation = dict(row.get("escalation", {}) or {})
         validation = dict(row.get("validation", {}) or {})
+        resume = dict(row.get("resume", {}) or {})
         reason = str(escalation.get("reason", "") or "").strip()
 
         if final_decision in stop_reason_counts:
@@ -368,6 +371,10 @@ def build_autonomous_single_task_recovery_report(
             escalation_reason_counts[reason] = escalation_reason_counts.get(reason, 0) + 1
         if bool(validation.get("no_checks_reported_observed", False)):
             hosted_authority_blocked_runs += 1
+        if bool(resume.get("resume_reentry", False)):
+            resumed_reentry_count += 1
+        if bool(resume.get("reused_completed_entry", False)):
+            reused_completed_entry_count += 1
 
     blocked_supervised_only_count = int(stop_reason_counts.get("blocked_supervised_only", 0))
     execution_failed_count = int(stop_reason_counts.get("execution_failed", 0))
@@ -385,6 +392,8 @@ def build_autonomous_single_task_recovery_report(
         "execution_failed_count": execution_failed_count,
         "hosted_authority_blocked_runs": hosted_authority_blocked_runs,
         "hosted_authority_blocking_frequency": round((hosted_authority_blocked_runs / total_runs), 4) if total_runs else 0.0,
+        "resumed_reentry_count": resumed_reentry_count,
+        "reused_completed_entry_count": reused_completed_entry_count,
         "stop_reason_counts": stop_reason_counts,
         "escalation_reason_counts": escalation_reason_counts,
     }
