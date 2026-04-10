@@ -10,7 +10,7 @@ The orchestrator has moved beyond pure hardening and into a bounded one-task aut
 - protected-file policies exist
 - validator and failure-journal seams exist
 - hosted-authority interpretation around `ci-required` is explicit
-- the repo now has a bounded one-task autonomous lane with ledger, canary reporting, supervised handoff, resume state, operator proof bundle, and a deterministic developer / verifier / repair / controller execution record
+- the repo now has a bounded one-task autonomous lane with ledger, canary reporting, supervised handoff, resume state, operator proof bundle, a deterministic developer / verifier / repair / controller execution record, and an external-safe failure taxonomy that chooses narrower self-heal lanes for ordinary failures
 - the scheduler can route exactly one admitted safe task through the canonical bounded runner
 
 ## Current weakness that matters most now
@@ -43,6 +43,8 @@ The main bottleneck is now:
 4. pass-rate scoreboard and failure digest
 5. external-safe corpus reliability re-proof
 6. two-task readiness gate and phase transition
+
+Task 151 sharpens the current one-task lane by teaching it to distinguish common external-safe failure families instead of relying on a generic retry posture. That means ordinary import/collection failures, lint-only failures, missing deliverable coverage, missing required file updates, and focused test regressions can now route to a smaller credible repair path before the lane escalates.
 
 ## Desired outcome of the next tranche
 

@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 124–150 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, verifies real GitHub required-check enforcement convergence around the stable `ci-required` context, establishes a safe task-family autonomy allowlist, adds a bounded autonomous single-task runner with ledger/reporting/handoff/resume semantics, routes the scheduler through that runner when exactly one safe task is ready, packages the lane into an operator-readable live canary proof bundle, defines the canonical external-safe evaluation manifest, and now records a deterministic one-task developer / verifier / repair / controller loop inside each admitted safe run.
+- **Tasks 124–151 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, verifies real GitHub required-check enforcement convergence around the stable `ci-required` context, establishes a safe task-family autonomy allowlist, adds a bounded autonomous single-task runner with ledger/reporting/handoff/resume semantics, routes the scheduler through that runner when exactly one safe task is ready, packages the lane into an operator-readable live canary proof bundle, defines the canonical external-safe evaluation manifest, and now records a deterministic one-task developer / verifier / repair / controller loop inside each admitted safe run.
 
 The current bounded deterministic slice now demonstrates:
 
@@ -27,6 +27,7 @@ The current bounded deterministic slice now demonstrates:
 9. a bounded autonomous one-task lane with scheduler bridging, explicit stop/requeue policy, supervised handoff, resume-state artifacts, and an operator proof bundle
 10. a fresh supervised operational re-proof over the bounded one-task lane
 11. a deterministic role-separated one-task execution record covering developer generation, verifier evidence, repair selection, and controller decision
+12. an external-safe failure taxonomy and bounded self-heal router that chooses narrower repair lanes for common ordinary one-task failures
 
 ## Scope honesty
 
@@ -52,7 +53,7 @@ The next tranche should shift from “more safe-lane plumbing” to **execution 
 5. re-prove the bounded one-task lane on that external-safe corpus
 6. only then decide whether bounded two-task trials are justified
 
-## Task 149–150 checkpoint
+## Task 149–151 checkpoint
 
 Task 149 establishes the canonical external-safe evaluation manifest that later execution-quality tasks will use as the proving ground for one-task autonomous performance. The manifest carries:
 
@@ -68,3 +69,13 @@ Task 150 converts each admitted one-task autonomous run from a simple shell arou
 - tester-style critique and ordinary-task execution plan
 - bounded repair-attempt selection derived from verifier evidence
 - final controller action explaining whether the run was accepted, stopped, or escalated
+
+Task 151 then adds an explicit external-safe failure taxonomy and self-heal router on top of that bounded loop. Ordinary one-task failures are now classified into narrower families such as:
+
+- incomplete deliverable coverage
+- missing required file updates
+- import or collection errors
+- focused test regressions
+- lint-only failures
+
+Those families now route into a smallest-credible repair plan instead of defaulting to a generic replay-only posture.

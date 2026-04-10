@@ -674,6 +674,47 @@ def test_run_autonomous_single_task_surfaces_bounded_multi_agent_failure_artifac
     assert result["verifier_artifact"]["likely_failure_family"] == "import_contract"
     assert result["repair_artifact"]["repair_required"] is True
     assert result["repair_artifact"]["repair_attempt_selected"] is True
-    assert result["repair_artifact"]["repair_strategy"] == "focused_replay_then_targeted_patch"
+    assert result["failure_taxonomy"]["failure_family"] == "import_collection_error"
+    assert result["repair_artifact"]["repair_strategy"] == "focused_import_collection_repair"
+    assert result["repair_artifact"]["generic_replay_avoided"] is True
     assert result["controller_decision"]["action"] == "repair"
-    assert result["entry"]["multi_agent_loop"]["failure_context"]["repair_strategy"] == "focused_replay_then_targeted_patch"
+    assert result["entry"]["multi_agent_loop"]["failure_taxonomy"]["failure_family"] == "import_collection_error"
+    assert result["entry"]["multi_agent_loop"]["failure_context"]["repair_strategy"] == "focused_import_collection_repair"
+
+
+def test_run_autonomous_single_task_routes_lint_only_failures_into_lint_only_repair(tmp_path: Path) -> None:
+    runner = _load_run_single_task_module()
+    task_path = tmp_path / "151_safe_tests_only_task.md"
+    task_path.write_text(
+        "# Safe tests-only task\n\n"
+        "## Create or update these exact files\n"
+        "- `tests/test_single_task_runner.py`\n",
+        encoding="utf-8",
+    )
+    ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
+
+    def fake_executor(command: list[str]) -> dict[str, object]:
+        return {
+            "command": list(command),
+            "returncode": 1,
+            "stdout": (
+                "=== Iteration 1/4 ===\n"
+                "ruff failed\n"
+                "E402 Module level import not at top of file\n"
+            ),
+            "stderr": "",
+        }
+
+    result = runner.run_autonomous_single_task(
+        task_path.as_posix(),
+        ledger_path=ledger_path,
+        now=lambda: "2026-04-10T20:05:00Z",
+        executor=fake_executor,
+    )
+
+    assert result["entry"]["final_decision"] == "execution_failed"
+    assert result["failure_taxonomy"]["failure_family"] == "formatting_lint_only"
+    assert result["repair_artifact"]["repair_strategy"] == "lint_only_repair_then_replay"
+    assert result["repair_artifact"]["selected_replay_commands"][0].startswith("ruff check")
+    assert "ruff check ." in result["repair_artifact"]["selected_replay_commands"]
+    assert result["controller_decision"]["action"] == "repair"

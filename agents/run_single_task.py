@@ -177,8 +177,10 @@ def build_single_task_multi_agent_role_artifacts(
     max_repair_attempts_within_run: int = 1,
 ) -> dict[str, object]:
     from agents.lib.controller import decide_single_task_controller_action  # type: ignore
+    from agents.lib.failure_classifier import classify_single_task_failure  # type: ignore
     from agents.lib.failure_journal import build_multi_agent_failure_context  # type: ignore
     from agents.lib.repair_loop import select_single_task_targeted_repair  # type: ignore
+    from agents.lib.repair_planner import build_single_task_repair_plan  # type: ignore
     from agents.lib.verifier import build_single_task_developer_artifact, build_single_task_verifier_artifact  # type: ignore
 
     developer_artifact = build_single_task_developer_artifact(
@@ -194,11 +196,24 @@ def build_single_task_multi_agent_role_artifacts(
         execution_summary=execution_summary,
         execution_invoked=execution_invoked,
     )
-    repair_artifact = select_single_task_targeted_repair(
+    baseline_repair_artifact = select_single_task_targeted_repair(
         task_path=task_path,
         developer_artifact=developer_artifact,
         verifier_artifact=verifier_artifact,
         max_repair_attempts_within_run=max_repair_attempts_within_run,
+    )
+    failure_taxonomy = classify_single_task_failure(
+        task_path=task_path,
+        required_paths=required_paths,
+        execution_summary=execution_summary,
+        developer_artifact=developer_artifact,
+        verifier_artifact=verifier_artifact,
+    )
+    repair_artifact = build_single_task_repair_plan(
+        task_path=task_path,
+        verifier_artifact=verifier_artifact,
+        baseline_repair_artifact=baseline_repair_artifact,
+        failure_taxonomy=failure_taxonomy,
     )
     controller_decision = decide_single_task_controller_action(
         task_path=task_path,
@@ -223,6 +238,7 @@ def build_single_task_multi_agent_role_artifacts(
     return {
         "developer_artifact": developer_artifact,
         "verifier_artifact": verifier_artifact,
+        "failure_taxonomy": failure_taxonomy,
         "repair_artifact": repair_artifact,
         "controller_decision": controller_decision,
         "role_trace": role_trace,
@@ -347,6 +363,7 @@ def canonical_single_task_run_ledger_entry(
             "role_trace": list(multi_agent_payload.get("role_trace", []) or []),
             "developer_artifact": dict(multi_agent_payload.get("developer_artifact", {}) or {}),
             "verifier_artifact": dict(multi_agent_payload.get("verifier_artifact", {}) or {}),
+            "failure_taxonomy": dict(multi_agent_payload.get("failure_taxonomy", {}) or {}),
             "repair_artifact": dict(multi_agent_payload.get("repair_artifact", {}) or {}),
             "controller_decision": dict(multi_agent_payload.get("controller_decision", {}) or {}),
             "failure_context": dict(multi_agent_payload.get("failure_context", {}) or {}),
@@ -1131,6 +1148,7 @@ def run_autonomous_single_task(
             "role_trace": list(existing_multi_agent_loop.get("role_trace", []) or []),
             "developer_artifact": dict(existing_multi_agent_loop.get("developer_artifact", {}) or {}),
             "verifier_artifact": dict(existing_multi_agent_loop.get("verifier_artifact", {}) or {}),
+            "failure_taxonomy": dict(existing_multi_agent_loop.get("failure_taxonomy", {}) or {}),
             "repair_artifact": dict(existing_multi_agent_loop.get("repair_artifact", {}) or {}),
             "controller_decision": dict(existing_multi_agent_loop.get("controller_decision", {}) or {}),
         }
@@ -1302,6 +1320,7 @@ def run_autonomous_single_task(
         "role_trace": list(multi_agent_loop.get("role_trace", []) or []),
         "developer_artifact": dict(multi_agent_loop.get("developer_artifact", {}) or {}),
         "verifier_artifact": dict(multi_agent_loop.get("verifier_artifact", {}) or {}),
+        "failure_taxonomy": dict(multi_agent_loop.get("failure_taxonomy", {}) or {}),
         "repair_artifact": dict(multi_agent_loop.get("repair_artifact", {}) or {}),
         "controller_decision": dict(multi_agent_loop.get("controller_decision", {}) or {}),
     }

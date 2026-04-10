@@ -45,6 +45,7 @@ The next tranche should optimize for **external-safe one-task execution quality*
 - the primary proving ground is a canonical external-safe evaluation corpus, not arbitrary self-hosting work
 - the bounded one-task lane should behave like a real dev / test / repair / controller loop
 - targeted self-heal should be ranked around ordinary external-safe failure classes, not generic replay
+- the self-heal router should prefer the smallest credible repair lane for ordinary external-safe failures such as incomplete deliverable coverage, missing required file updates, import/collection failures, focused test regressions, and lint-only failures
 - pass-rate measurement should drive readiness decisions
 - self-hosting control-plane edits remain escalation-first unless separately proven safe later
 - multi-task widening remains blocked until the one-task external-safe pass-rate gate is green
