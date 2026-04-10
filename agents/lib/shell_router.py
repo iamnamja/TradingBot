@@ -763,12 +763,22 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
             _emit_failure_artifact_messages(shell_globals, last_output_path, last_bundle_path, task_file=task_path.as_posix(), failure_category="bundle_transport", protected_files=protected_bundle_blocked_paths, before_model_output=not last_output_path.exists(), normal_bundle_attempted=bool(bundle_required), reason=str(e), protected_execution_attempted=bool(protected_targets), mixed_task=bool(bundle_required and protected_bundle_blocked_paths), protected_targets_identified=protected_target_names)
             return 1
 
+        last_bundle_error_path = Path("_last_agent_file_bundle_error.txt")
+        if last_bundle_error_path.exists():
+            last_bundle_error_path.unlink()
+
         pretty: list[str] = [shell_globals["FILE_BUNDLE_BEGIN"]]
 
         if files is None:
-
+            last_bundle_error_path.write_text(
+                "Parsed file bundle was not written because the model response did not produce a parseable file map.\n"
+                "See _last_agent_model_output.txt for the raw model output.\n"
+                "Expected artifact: _last_agent_file_bundle.txt\n",
+                encoding="utf-8",
+                newline="\n",
+            )
             print("ERROR [shell_router] Parsed file bundle was empty after localized repair; aborting cleanly.")
-
+            print("Bundle parse diagnostics saved to: _last_agent_file_bundle_error.txt")
             return 1
 
         for p, c in files.items():
@@ -782,6 +792,8 @@ def route_shell_main(args: Any, shell_globals: dict[str, Any]) -> int:
         pretty.append(shell_globals["FILE_BUNDLE_END"])
 
         last_bundle_path.write_text("\n".join(pretty) + "\n", encoding="utf-8", newline="\n")
+        if last_bundle_error_path.exists():
+            last_bundle_error_path.unlink()
 
         ok_syntax, syntax_msg = shell_globals["validate_python_syntax"](files)
         if not ok_syntax:
