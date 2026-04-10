@@ -55,6 +55,14 @@ def _batch_executor_module():
     return importlib.import_module("agents.lib.batch_executor")
 
 
+def _run_task_module():
+    root = Path(__file__).resolve().parents[1]
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    return importlib.import_module("agents.run_task")
+
+
 def _write_task(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("# task\n", encoding="utf-8")
@@ -294,3 +302,156 @@ def test_execute_safe_lane_scheduler_mix_policy_routes_through_bridge(tmp_path: 
 
     assert result["selection"]["selected_task_path"] == "tasks/601.md"
     assert result["autonomous_result"]["task_path"] == "tasks/601.md"
+
+
+def test_select_single_admissible_safe_task_returns_single_safe_selection() -> None:
+    tq = _task_queue_module()
+    queue = [
+        tq.TaskQueueItem(task_path="tasks/701.md", ordinal=1),
+        tq.TaskQueueItem(task_path="tasks/702.md", ordinal=2),
+    ]
+    task_texts = {
+        "tasks/701.md": "## Create or update these exact files\n- `tests/test_task_queue.py`\n",
+        "tasks/702.md": "## Create or update these exact files\n- `agents/run_task.py`\n",
+    }
+
+    selection = tq.select_single_admissible_safe_task(
+        queue,
+        task_text_loader=lambda task_path: task_texts[task_path],
+    )
+
+    assert selection["selection_allowed"] is True
+    assert selection["selected_task_path"] == "tasks/701.md"
+    assert selection["selection_decision"] == "run_one_and_stop"
+    assert selection["supervised_handoff_task_paths"] == ["tasks/702.md"]
+
+
+
+def test_two_task_readiness_gate_returns_no_go_for_current_reproof_band() -> None:
+    tq = _task_queue_module()
+
+    readiness = tq.evaluate_two_task_readiness_gate(
+        canary_metrics={
+            "total_runs": 6,
+            "completed_runs": 4,
+            "completion_rate": 0.6667,
+            "retry_metrics": {
+                "completed_after_retry_runs": 2,
+            },
+            "hosted_authority_blocking_frequency": 0.1667,
+        },
+        recovery_report={
+            "total_runs": 6,
+            "escalation_required_count": 2,
+            "hosted_authority_blocking_frequency": 0.1667,
+        },
+    )
+
+    assert readiness["go_for_bounded_two_task_trials"] is False
+    assert readiness["decision"] == "stay_in_bounded_one_task_phase"
+    assert readiness["thresholds_met"]["completion_rate"] is False
+    assert readiness["thresholds_met"]["authority_block_rate"] is False
+    assert readiness["thresholds_met"]["self_heal_share"] is False
+    assert readiness["thresholds_met"]["direct_completions_exceed_self_healed"] is False
+    assert any("Completion rate" in reason for reason in readiness["unmet_gate_reasons"])
+
+
+
+def test_two_task_readiness_gate_returns_go_when_explicit_thresholds_are_cleared() -> None:
+    tq = _task_queue_module()
+
+    readiness = tq.evaluate_two_task_readiness_gate(
+        canary_metrics={
+            "total_runs": 8,
+            "completed_runs": 7,
+            "completion_rate": 0.875,
+            "retry_metrics": {
+                "completed_after_retry_runs": 2,
+            },
+            "hosted_authority_blocking_frequency": 0.0,
+        },
+        recovery_report={
+            "total_runs": 8,
+            "escalation_required_count": 1,
+            "hosted_authority_blocking_frequency": 0.0,
+        },
+    )
+
+    assert readiness["go_for_bounded_two_task_trials"] is True
+    assert readiness["decision"] == "eligible_for_bounded_two_task_trials"
+    assert all(readiness["thresholds_met"].values()) is True
+    assert readiness["unmet_gate_reasons"] == []
+
+
+
+def test_plan_two_task_phase_transition_holds_lane_width_at_one_until_gate_is_green() -> None:
+    tq = _task_queue_module()
+
+    hold = tq.plan_two_task_phase_transition(
+        canary_metrics={
+            "total_runs": 6,
+            "completed_runs": 4,
+            "completion_rate": 0.6667,
+            "retry_metrics": {"completed_after_retry_runs": 2},
+        },
+        recovery_report={
+            "total_runs": 6,
+            "escalation_required_count": 2,
+            "hosted_authority_blocking_frequency": 0.1667,
+        },
+    )
+    go = tq.plan_two_task_phase_transition(
+        canary_metrics={
+            "total_runs": 8,
+            "completed_runs": 7,
+            "completion_rate": 0.875,
+            "retry_metrics": {"completed_after_retry_runs": 2},
+        },
+        recovery_report={
+            "total_runs": 8,
+            "escalation_required_count": 1,
+            "hosted_authority_blocking_frequency": 0.0,
+        },
+    )
+
+    assert hold["phase_transition_decision"] == "hold_one_task_lane"
+    assert hold["allowed_ready_safe_task_width"] == 1
+    assert go["phase_transition_decision"] == "prepare_bounded_two_task_trials"
+    assert go["allowed_ready_safe_task_width"] == 2
+
+
+
+def test_run_task_two_task_gate_wrappers_delegate_to_live_task_queue_helpers() -> None:
+    run_task = _run_task_module()
+
+    snapshot = run_task.two_task_readiness_gate_snapshot()
+    readiness = run_task.evaluate_two_task_readiness_gate(
+        canary_metrics={
+            "total_runs": 8,
+            "completed_runs": 7,
+            "completion_rate": 0.875,
+            "retry_metrics": {"completed_after_retry_runs": 2},
+        },
+        recovery_report={
+            "total_runs": 8,
+            "escalation_required_count": 1,
+            "hosted_authority_blocking_frequency": 0.0,
+        },
+    )
+    phase = run_task.plan_two_task_phase_transition(
+        canary_metrics={
+            "total_runs": 8,
+            "completed_runs": 7,
+            "completion_rate": 0.875,
+            "retry_metrics": {"completed_after_retry_runs": 2},
+        },
+        recovery_report={
+            "total_runs": 8,
+            "escalation_required_count": 1,
+            "hosted_authority_blocking_frequency": 0.0,
+        },
+    )
+
+    assert snapshot["gate_type"] == "two_task_readiness"
+    assert readiness["go_for_bounded_two_task_trials"] is True
+    assert phase["allowed_ready_safe_task_width"] == 2
