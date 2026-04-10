@@ -14,9 +14,12 @@ DEFAULT_SINGLE_TASK_CANARY_METRICS_PATH = "artifacts/autonomous_single_task/cana
 DEFAULT_SINGLE_TASK_RECOVERY_REPORT_PATH = "artifacts/autonomous_single_task/recovery_report.json"
 DEFAULT_SINGLE_TASK_SUPERVISED_HANDOFF_PATH = "artifacts/autonomous_single_task/supervised_handoff.json"
 DEFAULT_SINGLE_TASK_RESUME_STATE_PATH = "artifacts/autonomous_single_task/resume_state.json"
+DEFAULT_SCHEDULER_SAFE_LANE_POLICY_PATH = "artifacts/autonomous_single_task/scheduler_safe_lane_policy.json"
+DEFAULT_OPERATOR_PROOF_BUNDLE_PATH = "artifacts/autonomous_single_task/operator_proof_bundle.json"
 LEDGER_SCHEMA_VERSION = 1
 CANARY_METRICS_SCHEMA_VERSION = 1
 SUPERVISED_HANDOFF_SCHEMA_VERSION = 1
+OPERATOR_PROOF_BUNDLE_SCHEMA_VERSION = 1
 ITERATION_RE = re.compile(r"=== Iteration\s+(\d+)/(\d+)\s+===")
 
 
@@ -42,6 +45,16 @@ def default_single_task_supervised_handoff_path(*, ledger_path: str | Path | Non
 def default_single_task_resume_state_path(*, ledger_path: str | Path | None = None) -> str:
     path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
     return path.with_name("resume_state.json").as_posix()
+
+
+def default_scheduler_safe_lane_policy_path(*, ledger_path: str | Path | None = None) -> str:
+    path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    return path.with_name("scheduler_safe_lane_policy.json").as_posix()
+
+
+def default_operator_proof_bundle_path(*, ledger_path: str | Path | None = None) -> str:
+    path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    return path.with_name("operator_proof_bundle.json").as_posix()
 
 
 def build_single_task_run_token(
@@ -617,7 +630,18 @@ def refresh_single_task_reporting_artifacts(
 
 
 
-def _legacy_run_scheduler_single_task_bridge(
+def write_scheduler_safe_lane_policy_artifact(
+    artifact: Mapping[str, object],
+    *,
+    policy_artifact_path: str | Path | None = None,
+) -> str:
+    target = Path(policy_artifact_path or artifact.get("policy_artifact_path") or default_scheduler_safe_lane_policy_path())
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(dict(artifact), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target.as_posix()
+
+
+def run_scheduler_single_task_bridge(
     *,
     queue: Sequence[object],
     repo_root: str | Path = ".",
@@ -627,18 +651,45 @@ def _legacy_run_scheduler_single_task_bridge(
     single_task_runner: Callable[..., Mapping[str, object]] | None = None,
     runner_kwargs: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    from agents.lib.task_queue import select_single_admissible_safe_task as _select_single_admissible_safe_task  # type: ignore
+    active_selection = dict(selection or {})
+    if not active_selection:
+        if selector is not None:
+            active_selection = dict(
+                selector(
+                    queue,
+                    repo_root=repo_root,
+                    completed_task_paths=completed_task_paths,
+                )
+            )
+        else:
+            try:
+                from agents.lib.task_queue import select_single_admissible_safe_task as _select_single_admissible_safe_task  # type: ignore
 
-    active_selection = dict(
-        selection
-        or (selector or _select_single_admissible_safe_task)(
-            queue,
-            repo_root=repo_root,
-            completed_task_paths=completed_task_paths,
-        )
-    )
+                active_selection = dict(
+                    _select_single_admissible_safe_task(
+                        queue,
+                        repo_root=repo_root,
+                        completed_task_paths=completed_task_paths,
+                    )
+                )
+            except ImportError:
+                from agents.lib.task_queue import plan_safe_lane_stop_requeue_policy as _plan_safe_lane_stop_requeue_policy
+
+                planned = dict(
+                    _plan_safe_lane_stop_requeue_policy(
+                        queue,
+                        completed_task_paths=completed_task_paths,
+                    )
+                )
+                active_selection = dict(planned)
+                active_selection.setdefault(
+                    "bridge_decision",
+                    "delegate_to_single_task_runner" if str(planned.get("selected_task_path", "") or "") else "delegate_to_supervision",
+                )
     decision = str(active_selection.get("bridge_decision", "") or "")
     selected_task_path = str(active_selection.get("selected_task_path", "") or "")
+    if not decision:
+        decision = "delegate_to_single_task_runner" if selected_task_path else "delegate_to_supervision"
     if decision != "delegate_to_single_task_runner" or not selected_task_path:
         return {
             "bridge_decision": decision or "delegate_to_supervision",
@@ -662,6 +713,239 @@ def _legacy_run_scheduler_single_task_bridge(
         "selection": active_selection,
         "single_task_result": result,
         "final_decision": str(entry.get("final_decision", "") or ""),
+    }
+
+
+def run_scheduler_safe_lane_bridge(
+    queue: Sequence[object],
+    *,
+    completed_task_paths: Sequence[str] | None = None,
+    task_text_loader: Callable[[str], str] | None = None,
+    task_runner: Callable[..., Mapping[str, object]] | None = None,
+    policy_artifact_path: str | Path | None = None,
+    now: Callable[[], str] | None = None,
+    **runner_kwargs: object,
+) -> dict[str, object]:
+    from agents.lib.task_queue import plan_safe_lane_stop_requeue_policy
+
+    selection = dict(
+        plan_safe_lane_stop_requeue_policy(
+            queue,
+            completed_task_paths=completed_task_paths,
+            task_text_loader=task_text_loader,
+        )
+    )
+    autonomous_result: dict[str, object] | None = None
+    selected_task_path = str(selection.get("selected_task_path", "") or "")
+    if selected_task_path:
+        autonomous_result = dict((task_runner or run_autonomous_single_task)(selected_task_path, **runner_kwargs))
+    generated_at = str((now or (lambda: ""))() or "")
+    entry = dict(dict(autonomous_result or {}).get("entry", {}) or {})
+    artifact = {
+        "artifact_type": "scheduler_safe_lane_mix_policy",
+        "generated_at": generated_at,
+        "policy_artifact_path": str(policy_artifact_path or default_scheduler_safe_lane_policy_path()),
+        "policy_decision": str(selection.get("decision", "") or ""),
+        "selected_task_path": selected_task_path,
+        "executed_autonomous_task": bool(selected_task_path and autonomous_result),
+        "autonomous_task_final_decision": str(entry.get("final_decision", "") or ""),
+        "ready_safe_task_paths": list(selection.get("ready_safe_task_paths", []) or []),
+        "supervised_handoff_task_paths": list(selection.get("supervised_handoff_task_paths", []) or []),
+        "supervised_handoff_required": bool(selection.get("supervised_handoff_required", False)),
+        "requeue_task_paths": list(selection.get("requeue_task_paths", []) or []),
+        "waiting_task_paths": list(selection.get("waiting_task_paths", []) or []),
+        "stop_after_selected": bool(selection.get("stop_after_selected", False)),
+        "rationale": str(selection.get("rationale", "") or ""),
+    }
+    written = write_scheduler_safe_lane_policy_artifact(artifact, policy_artifact_path=policy_artifact_path or default_scheduler_safe_lane_policy_path())
+    return {
+        "selection": selection,
+        "autonomous_result": autonomous_result,
+        "policy_artifact": artifact,
+        "policy_artifact_path": written,
+    }
+
+
+def _real_pr_smoke_status(smoke: Mapping[str, object] | None = None) -> str:
+    payload = dict(smoke or {})
+    for key in ("required_check_contract_status", "smoke_proof_status", "probe_status", "status"):
+        value = str(payload.get(key, "") or "")
+        if value:
+            return value
+    return ""
+
+
+def _real_pr_smoke_satisfied(smoke: Mapping[str, object] | None = None) -> bool:
+    payload = dict(smoke or {})
+    if bool(payload.get("required_check_contract_satisfied", False)) or bool(payload.get("contract_satisfied", False)):
+        return True
+    return _real_pr_smoke_status(payload) == "satisfied"
+
+
+def build_live_canary_operator_proof_bundle(
+    *,
+    real_pr_smoke: Mapping[str, object] | None = None,
+    safe_result: Mapping[str, object] | None = None,
+    escalation_result: Mapping[str, object] | None = None,
+    proof_bundle_path: str | Path | None = None,
+    generated_at: str = "",
+) -> dict[str, object]:
+    smoke = dict(real_pr_smoke or {})
+    safe_payload = dict(safe_result or {})
+    escalation_payload = dict(escalation_result or {})
+    safe_entry = dict(safe_payload.get("entry", {}) or {})
+    escalation_entry = dict(escalation_payload.get("entry", {}) or {})
+    canary_metrics = dict(escalation_payload.get("canary_metrics", {}) or safe_payload.get("canary_metrics", {}) or {})
+    recovery_report = dict(escalation_payload.get("recovery_report", {}) or safe_payload.get("recovery_report", {}) or {})
+    supervised_handoff = dict(escalation_payload.get("supervised_handoff", {}) or safe_payload.get("supervised_handoff", {}) or {})
+    smoke_status = _real_pr_smoke_status(smoke)
+    smoke_satisfied = _real_pr_smoke_satisfied(smoke)
+    safe_completed = str(safe_entry.get("final_decision", "") or "") == "completed" and bool(dict(safe_entry.get("validation", {}) or {}).get("execution_invoked", False))
+    escalation_explicit = str(escalation_entry.get("final_decision", "") or "") in {"escalation_required", "blocked_supervised_only"} and bool(supervised_handoff.get("handoff_required", dict(escalation_entry.get("escalation", {}) or {}).get("required", False)))
+    claim_blockers: list[str] = []
+    if not smoke_satisfied:
+        claim_blockers.append("real_github_required_check_not_yet_satisfied")
+    if not safe_completed:
+        claim_blockers.append("safe_canary_case_not_completed")
+    if not escalation_explicit:
+        claim_blockers.append("explicit_out_of_lane_escalation_case_missing")
+    bounded_claim_ready = not claim_blockers
+    ledger_path = str(escalation_payload.get("ledger_path") or safe_payload.get("ledger_path") or DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    bundle_path = str(proof_bundle_path or default_operator_proof_bundle_path(ledger_path=ledger_path))
+    return {
+        "schema_version": OPERATOR_PROOF_BUNDLE_SCHEMA_VERSION,
+        "bundle_type": "bounded_single_task_operator_proof_bundle",
+        "generated_at": str(generated_at or ""),
+        "proof_bundle_path": bundle_path,
+        "bounded_claim": "The orchestrator can run one allowlisted safe task at a time under supervised real-GitHub conditions.",
+        "bounded_claim_ready": bounded_claim_ready,
+        "claim_blockers": claim_blockers,
+        "refused_claims": [
+            "broad unattended scheduler autonomy",
+            "multi-task autonomous execution",
+            "arbitrary self-hosting control-plane autonomy",
+        ],
+        "hosted_authority": {
+            "required_check_context": str(smoke.get("required_check_context", "ci-required") or "ci-required"),
+            "status": smoke_status,
+            "satisfied": smoke_satisfied,
+            "pull_request_url": str(smoke.get("pull_request_url", "") or ""),
+            "pull_request_number": int(smoke.get("pull_request_number", 0) or 0),
+            "head_sha": str(smoke.get("head_sha", "") or ""),
+            "note": str(smoke.get("note") or smoke.get("status_note") or ""),
+        },
+        "live_canary_corpus": {
+            "safe_case": {
+                "task_path": str(safe_payload.get("task_path", safe_entry.get("task_path", "")) or ""),
+                "lane": str(dict(safe_entry.get("admission", {}) or {}).get("autonomous_single_task_lane", "") or ""),
+                "final_decision": str(safe_entry.get("final_decision", "") or ""),
+                "execution_invoked": bool(dict(safe_entry.get("validation", {}) or {}).get("execution_invoked", False)),
+            },
+            "explicit_escalation_case": {
+                "task_path": str(escalation_payload.get("task_path", escalation_entry.get("task_path", "")) or ""),
+                "lane": str(dict(escalation_entry.get("admission", {}) or {}).get("autonomous_single_task_lane", "") or ""),
+                "final_decision": str(escalation_entry.get("final_decision", "") or ""),
+                "handoff_required": bool(supervised_handoff.get("handoff_required", False)),
+                "handoff_kind": str(supervised_handoff.get("handoff_kind", "") or ""),
+                "implicated_paths": list(supervised_handoff.get("implicated_paths", []) or []),
+            },
+            "bounded_to_one_task_at_a_time": int(canary_metrics.get("total_runs", 0) or 0) <= 2,
+        },
+        "durable_artifacts": {
+            "ledger_path": ledger_path,
+            "canary_metrics_path": str(escalation_payload.get("canary_metrics_path", safe_payload.get("canary_metrics_path", "")) or ""),
+            "recovery_report_path": str(escalation_payload.get("recovery_report_path", safe_payload.get("recovery_report_path", "")) or ""),
+            "supervised_handoff_path": str(escalation_payload.get("supervised_handoff_path", safe_payload.get("supervised_handoff_path", "")) or ""),
+            "resume_state_path": str(escalation_payload.get("resume_state_path", safe_payload.get("resume_state_path", "")) or ""),
+        },
+        "reporting_summary": {
+            "total_runs": int(canary_metrics.get("total_runs", 0) or 0),
+            "completed_runs": int(canary_metrics.get("completed_runs", 0) or 0),
+            "handoff_required_count": int(recovery_report.get("handoff_required_count", 0) or 0),
+            "escalation_required_count": int(recovery_report.get("escalation_required_count", 0) or 0),
+            "hosted_authority_blocked_runs": int(recovery_report.get("hosted_authority_blocked_runs", 0) or 0),
+        },
+        "operator_next_action": (
+            "Use the bounded one-task lane only for allowlisted ordinary work and keep out-of-lane work in the supervised/manual lane."
+            if bounded_claim_ready
+            else "Do not widen autonomy claims; inspect claim_blockers and continue under supervised/manual handling."
+        ),
+    }
+
+
+def write_live_canary_operator_proof_bundle(bundle: Mapping[str, object], *, proof_bundle_path: str | Path | None = None) -> str:
+    target = Path(proof_bundle_path or bundle.get("proof_bundle_path") or default_operator_proof_bundle_path())
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(dict(bundle), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target.as_posix()
+
+
+def run_live_canary_corpus_and_operator_proof_bundle(
+    *,
+    safe_task_path: str,
+    escalation_task_path: str,
+    real_pr_smoke_result: Mapping[str, object] | None = None,
+    real_pr_smoke_runner: Callable[[], Mapping[str, object]] | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    max_iters: int = 4,
+    push: bool = False,
+    keep_runtime_artifacts: bool = False,
+    ledger_path: str | Path | None = None,
+    metrics_path: str | Path | None = None,
+    recovery_report_path: str | Path | None = None,
+    supervised_handoff_path: str | Path | None = None,
+    resume_state_path: str | Path | None = None,
+    proof_bundle_path: str | Path | None = None,
+    now: Callable[[], str] | None = None,
+    executor: Callable[[Sequence[str]], Mapping[str, object]] | None = None,
+) -> dict[str, object]:
+    smoke = dict(real_pr_smoke_result or ((real_pr_smoke_runner or (lambda: {}))() or {}))
+    safe_result = run_autonomous_single_task(
+        safe_task_path,
+        provider=provider,
+        model=model,
+        max_iters=max_iters,
+        push=push,
+        keep_runtime_artifacts=keep_runtime_artifacts,
+        ledger_path=ledger_path,
+        metrics_path=metrics_path,
+        recovery_report_path=recovery_report_path,
+        supervised_handoff_path=supervised_handoff_path,
+        resume_state_path=resume_state_path,
+        now=now,
+        executor=executor,
+    )
+    escalation_result = run_autonomous_single_task(
+        escalation_task_path,
+        provider=provider,
+        model=model,
+        max_iters=max_iters,
+        push=push,
+        keep_runtime_artifacts=keep_runtime_artifacts,
+        ledger_path=ledger_path or safe_result.get("ledger_path"),
+        metrics_path=metrics_path or safe_result.get("canary_metrics_path"),
+        recovery_report_path=recovery_report_path or safe_result.get("recovery_report_path"),
+        supervised_handoff_path=supervised_handoff_path or safe_result.get("supervised_handoff_path"),
+        resume_state_path=resume_state_path or safe_result.get("resume_state_path"),
+        now=now,
+        executor=executor,
+    )
+    generated_at = str((now or (lambda: ""))() or dict(escalation_result.get("entry", {}) or {}).get("completed_at", ""))
+    bundle = build_live_canary_operator_proof_bundle(
+        real_pr_smoke=smoke,
+        safe_result=safe_result,
+        escalation_result=escalation_result,
+        proof_bundle_path=proof_bundle_path or default_operator_proof_bundle_path(ledger_path=escalation_result.get("ledger_path")),
+        generated_at=generated_at,
+    )
+    written = write_live_canary_operator_proof_bundle(bundle, proof_bundle_path=proof_bundle_path or bundle.get("proof_bundle_path"))
+    return {
+        "real_pr_smoke": smoke,
+        "safe_result": safe_result,
+        "escalation_result": escalation_result,
+        "proof_bundle": bundle,
+        "proof_bundle_path": written,
     }
 
 
@@ -926,152 +1210,6 @@ def run_autonomous_single_task(
         "recovery_report": reporting["recovery_report"],
         "supervised_handoff_path": reporting["supervised_handoff_path"],
         "supervised_handoff": reporting["supervised_handoff"],
-    }
-
-
-
-def default_scheduler_safe_lane_policy_path(*, ledger_path: str | Path | None = None) -> str:
-    default_ledger_path = str(globals().get("DEFAULT_SINGLE_TASK_LEDGER_PATH", "artifacts/autonomous_single_task/run_ledger.jsonl"))
-    path = Path(ledger_path) if ledger_path is not None else Path(default_ledger_path)
-    return path.with_name("scheduler_safe_lane_policy.json").as_posix()
-
-
-def write_scheduler_safe_lane_policy_artifact(
-    artifact: Mapping[str, object],
-    *,
-    policy_artifact_path: str | Path | None = None,
-) -> str:
-    target = Path(policy_artifact_path or artifact.get("policy_artifact_path") or default_scheduler_safe_lane_policy_path())
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(dict(artifact), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return target.as_posix()
-
-
-def run_scheduler_single_task_bridge(
-    *,
-    queue: Sequence[object],
-    repo_root: str | Path = ".",
-    completed_task_paths: Sequence[str] | None = None,
-    selection: Mapping[str, object] | None = None,
-    selector: Callable[..., Mapping[str, object]] | None = None,
-    single_task_runner: Callable[..., Mapping[str, object]] | None = None,
-    runner_kwargs: Mapping[str, object] | None = None,
-) -> dict[str, object]:
-    active_selection = dict(selection or {})
-    if not active_selection:
-        if selector is not None:
-            active_selection = dict(
-                selector(
-                    queue,
-                    repo_root=repo_root,
-                    completed_task_paths=completed_task_paths,
-                )
-            )
-        else:
-            try:
-                from agents.lib.task_queue import select_single_admissible_safe_task as _select_single_admissible_safe_task  # type: ignore
-
-                active_selection = dict(
-                    _select_single_admissible_safe_task(
-                        queue,
-                        repo_root=repo_root,
-                        completed_task_paths=completed_task_paths,
-                    )
-                )
-            except ImportError:
-                from agents.lib.task_queue import plan_safe_lane_stop_requeue_policy as _plan_safe_lane_stop_requeue_policy
-
-                planned = dict(
-                    _plan_safe_lane_stop_requeue_policy(
-                        queue,
-                        completed_task_paths=completed_task_paths,
-                    )
-                )
-                active_selection = dict(planned)
-                active_selection.setdefault(
-                    "bridge_decision",
-                    "delegate_to_single_task_runner" if str(planned.get("selected_task_path", "") or "") else "delegate_to_supervision",
-                )
-    decision = str(active_selection.get("bridge_decision", "") or "")
-    selected_task_path = str(active_selection.get("selected_task_path", "") or "")
-    if not decision:
-        decision = "delegate_to_single_task_runner" if selected_task_path else "delegate_to_supervision"
-    if decision != "delegate_to_single_task_runner" or not selected_task_path:
-        return {
-            "bridge_decision": decision or "delegate_to_supervision",
-            "autonomous_single_task_invoked": False,
-            "task_path": selected_task_path,
-            "selection": active_selection,
-            "rationale": str(active_selection.get("rationale", "") or ""),
-        }
-
-    result = dict(
-        (single_task_runner or run_autonomous_single_task)(
-            selected_task_path,
-            **dict(runner_kwargs or {}),
-        )
-    )
-    entry = dict(result.get("entry", {}) or {})
-    return {
-        "bridge_decision": "delegate_to_single_task_runner",
-        "autonomous_single_task_invoked": True,
-        "task_path": selected_task_path,
-        "selection": active_selection,
-        "single_task_result": result,
-        "final_decision": str(entry.get("final_decision", "") or ""),
-    }
-
-
-def run_scheduler_safe_lane_bridge(
-    queue: Sequence[object],
-    *,
-    completed_task_paths: Sequence[str] | None = None,
-    task_text_loader: Callable[[str], str] | None = None,
-    task_runner: Callable[..., Mapping[str, object]] | None = None,
-    policy_artifact_path: str | Path | None = None,
-    now: Callable[[], str] | None = None,
-    **runner_kwargs: object,
-) -> dict[str, object]:
-    from agents.lib.task_queue import plan_safe_lane_stop_requeue_policy
-
-    selection = dict(
-        plan_safe_lane_stop_requeue_policy(
-            queue,
-            completed_task_paths=completed_task_paths,
-            task_text_loader=task_text_loader,
-        )
-    )
-    autonomous_result: dict[str, object] | None = None
-    selected_task_path = str(selection.get("selected_task_path", "") or "")
-    if selected_task_path:
-        autonomous_result = dict((task_runner or run_autonomous_single_task)(selected_task_path, **runner_kwargs))
-    generated_at = str((now or (lambda: ""))() or "")
-    entry = dict(dict(autonomous_result or {}).get("entry", {}) or {})
-    artifact = {
-        "artifact_type": "scheduler_safe_lane_mix_policy",
-        "generated_at": generated_at,
-        "policy_artifact_path": str(policy_artifact_path or default_scheduler_safe_lane_policy_path()),
-        "policy_decision": str(selection.get("decision", "") or ""),
-        "selected_task_path": selected_task_path,
-        "executed_autonomous_task": bool(selected_task_path and autonomous_result),
-        "autonomous_task_final_decision": str(entry.get("final_decision", "") or ""),
-        "ready_safe_task_paths": list(selection.get("ready_safe_task_paths", []) or []),
-        "supervised_handoff_task_paths": list(selection.get("supervised_handoff_task_paths", []) or []),
-        "supervised_handoff_required": bool(selection.get("supervised_handoff_required", False)),
-        "requeue_task_paths": list(selection.get("requeue_task_paths", []) or []),
-        "waiting_task_paths": list(selection.get("waiting_task_paths", []) or []),
-        "stop_after_selected": bool(selection.get("stop_after_selected", False)),
-        "rationale": str(selection.get("rationale", "") or ""),
-    }
-    written = write_scheduler_safe_lane_policy_artifact(
-        artifact,
-        policy_artifact_path=policy_artifact_path or default_scheduler_safe_lane_policy_path(),
-    )
-    return {
-        "selection": selection,
-        "autonomous_result": autonomous_result,
-        "policy_artifact": artifact,
-        "policy_artifact_path": written,
     }
 
 
