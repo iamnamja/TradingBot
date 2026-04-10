@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
+from builder.orchestrator.benchmark_scorecard import BenchmarkSession as StrictBenchmarkSession
 
 
 ARTIFACTS_ROOT = Path("artifacts/benchmark")
@@ -156,4 +157,17 @@ def run_one_task_external_safe_benchmark(
 
     # Write session artifact
     _write_json(root / "session.json", asdict(session))
+
+    strict_session = StrictBenchmarkSession(root)
+    for result in session.tasks:
+        verdict = str(result.get("verdict", ""))
+        strict_session.record_run(
+            direct_completion=verdict == "completed_direct",
+            self_healed_completion=verdict == "completed_after_self_heal",
+            failed=verdict in ("failed", "failed_autonomous"),
+            authority_blocked=verdict == "authority_blocked",
+            supervised=verdict == "escalated",
+            manual_edit=bool(result.get("manual_intervention", False)),
+        )
+    strict_session.close()
     return session
