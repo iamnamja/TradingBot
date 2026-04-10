@@ -46,21 +46,12 @@
 - **153** `orchestrator_external_safe_corpus_reliability_reproof`
 - **154** `orchestrator_two_task_readiness_gate_and_phase_transition`
 - **155** `orchestrator_safe_lint_preflight_normalization`
-
-## Benchmark proof-mode tranche
-
 - **156** `orchestrator_one_task_autonomous_benchmark_harness`
-- **157** `orchestrator_strict_no_manual_intervention_scorecard` *(umbrella task; live autonomous attempts showed missing benchmark integration and transport/runtime reliability blockers)*
-- **158** `orchestrator_authority_corroboration_and_run_truth`
-- **159** `orchestrator_top_failure_family_elimination_tranche`
-- **160** `orchestrator_one_task_promotion_reproof`
 
 ## Single-task reliability sprint
 
-Use this sprint before resuming broader roadmap execution. The goal is to make the orchestrator complete one benchmark-eligible task cleanly and repeatably without human mid-run rescue.
-
-- **161** `orchestrator_benchmark_scorecard_integration`
-- **162** `orchestrator_empty_bundle_transport_retry_and_classifier`
-- **163** `orchestrator_runtime_artifact_quarantine_and_subset_preservation_normalization`
-- **164** `orchestrator_completion_integrity_gate`
-- **165** `orchestrator_one_task_reliability_minipack_reproof`
+- **157** `orchestrator_benchmark_scorecard_integration`
+- **158** `orchestrator_empty_bundle_transport_retry_and_classifier`
+- **159** `orchestrator_runtime_artifact_quarantine_and_subset_preservation_normalization`
+- **160** `orchestrator_completion_integrity_gate`
+- **161** `orchestrator_one_task_reliability_minipack_reproof`
