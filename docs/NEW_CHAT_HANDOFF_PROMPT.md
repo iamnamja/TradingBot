@@ -1,52 +1,34 @@
-# New Chat Handoff Prompt
+We are continuing the TradingBot / Orchestrator project inside the same ChatGPT project.
 
-We are continuing work on the TradingBot orchestrator project.
+Use the latest merged main snapshots as source of truth.
 
-Use the attached current `agents`, `docs`, `tasks`, and `tests` snapshots as the source of truth.
+Current state:
 
-## Current completed state
+- repo is complete through Task 155,
+- the orchestrator has a bounded external-safe one-task lane with multi-agent dev/test/repair/controller artifacts,
+- failure taxonomy, scoreboarding, failure digesting, a truthful two-task readiness gate, and bounded lint-only preflight are in place,
+- the two-task gate is still a truthful no-go,
+- the next phase is benchmark proof mode, not widening.
 
-- synchronized continuation is complete through **Task 155**
-- the repo has a bounded supervised slice plus a narrow autonomous one-task lane
-- Tasks 149–154 completed the execution-quality tranche:
-  - 149 external-safe corpus and evaluation manifest
-  - 150 one-task multi-agent dev / test / repair / controller loop
-  - 151 external-safe failure taxonomy and self-heal router
-  - 152 one-task pass-rate scoreboard and failure digest
-  - 153 external-safe corpus reliability re-proof
-  - 154 two-task readiness gate and phase transition
-- Task 155 begins the blocker-reduction follow-up tranche:
-  - bounded safe lint preflight normalization for isolated lint-only failures on required Python paths
+What matters most now:
 
-## Important reality
+- use the orchestrator itself to run benchmark-eligible one-task work,
+- treat any human mid-run intervention as a failed autonomous benchmark run,
+- preserve compatibility seams and public surfaces,
+- reduce measured real blockers rather than broadening claims.
 
-- the repo can honestly claim only **one allowlisted safe task at a time** under supervision
-- Task 154 added an explicit go / no-go gate, and the current truthful answer is still **no-go** for bounded two-task widening
-- self-hosting control-plane work remains escalation-first unless separately proven safe
-- broad unattended scheduler autonomy is still not an honest claim
+Planned next tranche:
 
-## Agreed phase order
+- 156 orchestrator_one_task_autonomous_benchmark_harness
+- 157 orchestrator_strict_no_manual_intervention_scorecard
+- 158 orchestrator_authority_corroboration_and_run_truth
+- 159 orchestrator_top_failure_family_elimination_tranche
+- 160 orchestrator_one_task_promotion_reproof
 
-1. make one-task autonomous execution work reliably on ordinary external-safe tasks
-2. only then widen into bounded multi-task execution
-3. only later package the orchestrator as its own operator-facing app
-4. self-hosting app work is a later privilege, not the current proving ground
+Working style:
 
-## Current next-step posture
-
-Because the Task 154 gate is still red, the next work should reduce one-task blockers instead of widening the lane. That means:
-
-- remove preventable lint-only failures where safe
-- improve hosted-authority corroboration without weakening claim discipline
-- reduce repair-heavy completions relative to direct completions
-- only re-evaluate the two-task gate on fresh measured evidence
-
-## Working style
-
-- use `tasks/README.md` as canonical task ordering
-- keep the lane narrow and operationally honest
-- do not widen claims beyond what tests and measured artifacts support
-- exact deliverable completeness matters
-- run focused validation first, then `ruff check .`, then `pytest -q`
-- preserve compatibility seams and stable exports in `agents/run_task.py`
-- prefer the smallest targeted recovery when a task branch is close
+- review uploaded current main files first,
+- keep patches narrow,
+- prefer targeted repairs over rewrites,
+- preserve public/runtime surfaces unless there is a compelling reason not to,
+- after each change provide exact PowerShell apply/validate/merge steps.

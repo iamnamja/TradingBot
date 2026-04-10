@@ -45,8 +45,12 @@
 - **152** `orchestrator_one_task_pass_rate_scoreboard_and_failure_digest`
 - **153** `orchestrator_external_safe_corpus_reliability_reproof`
 - **154** `orchestrator_two_task_readiness_gate_and_phase_transition`
-
-
-## Gate-clearing execution-quality extension
-
 - **155** `orchestrator_safe_lint_preflight_normalization`
+
+## Benchmark proof-mode tranche
+
+- **156** `orchestrator_one_task_autonomous_benchmark_harness`
+- **157** `orchestrator_strict_no_manual_intervention_scorecard`
+- **158** `orchestrator_authority_corroboration_and_run_truth`
+- **159** `orchestrator_top_failure_family_elimination_tranche`
+- **160** `orchestrator_one_task_promotion_reproof`
