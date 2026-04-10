@@ -166,6 +166,70 @@ def summarize_single_task_execution(*, execution_result: Mapping[str, object] | 
 
 
 
+
+
+def build_single_task_multi_agent_role_artifacts(
+    *,
+    task_path: str,
+    required_paths: Sequence[str],
+    execution_summary: Mapping[str, object] | None,
+    execution_invoked: bool,
+    max_repair_attempts_within_run: int = 1,
+) -> dict[str, object]:
+    from agents.lib.controller import decide_single_task_controller_action  # type: ignore
+    from agents.lib.failure_journal import build_multi_agent_failure_context  # type: ignore
+    from agents.lib.repair_loop import select_single_task_targeted_repair  # type: ignore
+    from agents.lib.verifier import build_single_task_developer_artifact, build_single_task_verifier_artifact  # type: ignore
+
+    developer_artifact = build_single_task_developer_artifact(
+        task_path=task_path,
+        required_paths=required_paths,
+        command=list(dict(execution_summary or {}).get("command", []) or []),
+        execution_summary=execution_summary,
+        execution_invoked=execution_invoked,
+    )
+    verifier_artifact = build_single_task_verifier_artifact(
+        task_path=task_path,
+        developer_artifact=developer_artifact,
+        execution_summary=execution_summary,
+        execution_invoked=execution_invoked,
+    )
+    repair_artifact = select_single_task_targeted_repair(
+        task_path=task_path,
+        developer_artifact=developer_artifact,
+        verifier_artifact=verifier_artifact,
+        max_repair_attempts_within_run=max_repair_attempts_within_run,
+    )
+    controller_decision = decide_single_task_controller_action(
+        task_path=task_path,
+        developer_artifact=developer_artifact,
+        verifier_artifact=verifier_artifact,
+        repair_artifact=repair_artifact,
+    )
+    role_trace = [
+        "developer_generation",
+        "verifier_focused_validation",
+        "verifier_full_validation",
+        "repair_selection",
+        "controller_decision",
+    ]
+    failure_context = build_multi_agent_failure_context(
+        task_path=task_path,
+        role_trace=role_trace,
+        builder_artifact=developer_artifact,
+        verifier_artifact=verifier_artifact,
+        controller_decision=controller_decision,
+    )
+    return {
+        "developer_artifact": developer_artifact,
+        "verifier_artifact": verifier_artifact,
+        "repair_artifact": repair_artifact,
+        "controller_decision": controller_decision,
+        "role_trace": role_trace,
+        "failure_context": failure_context,
+    }
+
+
 def canonical_single_task_run_ledger_entry(
     *,
     task_path: str,
@@ -185,10 +249,12 @@ def canonical_single_task_run_ledger_entry(
     reused_completed_entry: bool = False,
     resume_count: int = 0,
     resumed_from_stage: str = "",
+    multi_agent_loop: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     admission_dict = dict(admission)
     proof_dict = dict(proof_admission)
     execution = dict(execution_summary or {})
+    multi_agent_payload = dict(multi_agent_loop or {})
     allowed = bool(admission_dict.get("autonomous_single_task_allowed", False)) and bool(
         proof_dict.get("proof_task_admission_allowed", False)
     )
@@ -277,6 +343,14 @@ def canonical_single_task_run_ledger_entry(
             "stderr_tail": str(execution.get("stderr_tail", "") or ""),
         },
         "task_excerpt": _tail_text(task_text, limit=400),
+        "multi_agent_loop": {
+            "role_trace": list(multi_agent_payload.get("role_trace", []) or []),
+            "developer_artifact": dict(multi_agent_payload.get("developer_artifact", {}) or {}),
+            "verifier_artifact": dict(multi_agent_payload.get("verifier_artifact", {}) or {}),
+            "repair_artifact": dict(multi_agent_payload.get("repair_artifact", {}) or {}),
+            "controller_decision": dict(multi_agent_payload.get("controller_decision", {}) or {}),
+            "failure_context": dict(multi_agent_payload.get("failure_context", {}) or {}),
+        },
     }
 
 
@@ -1040,6 +1114,7 @@ def run_autonomous_single_task(
             current_entry=existing_entry,
             generated_at=str(existing_entry.get("completed_at", "") or existing_entry.get("started_at", "") or ""),
         )
+        existing_multi_agent_loop = dict(existing_entry.get("multi_agent_loop", {}) or {})
         return {
             "task_path": task_file.as_posix(),
             "ledger_path": ledger_location,
@@ -1052,6 +1127,12 @@ def run_autonomous_single_task(
             "recovery_report": refreshed["recovery_report"],
             "supervised_handoff_path": refreshed["supervised_handoff_path"],
             "supervised_handoff": refreshed["supervised_handoff"],
+            "multi_agent_loop": existing_multi_agent_loop,
+            "role_trace": list(existing_multi_agent_loop.get("role_trace", []) or []),
+            "developer_artifact": dict(existing_multi_agent_loop.get("developer_artifact", {}) or {}),
+            "verifier_artifact": dict(existing_multi_agent_loop.get("verifier_artifact", {}) or {}),
+            "repair_artifact": dict(existing_multi_agent_loop.get("repair_artifact", {}) or {}),
+            "controller_decision": dict(existing_multi_agent_loop.get("controller_decision", {}) or {}),
         }
 
     prior_resume_state = read_single_task_resume_state(resume_state_path=resume_location, ledger_path=ledger_location)
@@ -1132,6 +1213,12 @@ def run_autonomous_single_task(
         )
         raw_execution = dict((executor or _default_executor)(command))
         execution_summary = summarize_single_task_execution(execution_result=raw_execution)
+    multi_agent_loop = build_single_task_multi_agent_role_artifacts(
+        task_path=task_file.as_posix(),
+        required_paths=required_paths,
+        execution_summary=execution_summary,
+        execution_invoked=allowed,
+    )
     completed_at = str(clock() or started_at)
     entry = canonical_single_task_run_ledger_entry(
         task_path=task_file.as_posix(),
@@ -1151,6 +1238,7 @@ def run_autonomous_single_task(
         reused_completed_entry=False,
         resume_count=resume_count,
         resumed_from_stage=resumed_from_stage,
+        multi_agent_loop=multi_agent_loop,
     )
     write_single_task_resume_state(
         {
@@ -1210,6 +1298,12 @@ def run_autonomous_single_task(
         "recovery_report": reporting["recovery_report"],
         "supervised_handoff_path": reporting["supervised_handoff_path"],
         "supervised_handoff": reporting["supervised_handoff"],
+        "multi_agent_loop": multi_agent_loop,
+        "role_trace": list(multi_agent_loop.get("role_trace", []) or []),
+        "developer_artifact": dict(multi_agent_loop.get("developer_artifact", {}) or {}),
+        "verifier_artifact": dict(multi_agent_loop.get("verifier_artifact", {}) or {}),
+        "repair_artifact": dict(multi_agent_loop.get("repair_artifact", {}) or {}),
+        "controller_decision": dict(multi_agent_loop.get("controller_decision", {}) or {}),
     }
 
 
