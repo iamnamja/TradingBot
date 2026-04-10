@@ -5933,6 +5933,22 @@ def select_single_admissible_safe_task(*args, **kwargs):
     from agents.lib.task_queue import select_single_admissible_safe_task as _impl
     return _impl(*args, **kwargs)
 
+
+def two_task_readiness_gate_snapshot(*args, **kwargs):
+    from agents.lib.task_queue import two_task_readiness_gate_snapshot as _impl
+    return _impl(*args, **kwargs)
+
+
+def evaluate_two_task_readiness_gate(*args, **kwargs):
+    from agents.lib.task_queue import evaluate_two_task_readiness_gate as _impl
+    return _impl(*args, **kwargs)
+
+
+def plan_two_task_phase_transition(*args, **kwargs):
+    from agents.lib.task_queue import plan_two_task_phase_transition as _impl
+    return _impl(*args, **kwargs)
+
+
 def run_scheduler_safe_single_task_bridge(*args, **kwargs):
     from agents.run_single_task import run_scheduler_safe_lane_bridge as _impl
     return _impl(*args, **kwargs)

@@ -246,6 +246,45 @@ class SafeLaneQueuePlan(TypedDict, total=False):
     rationale: str
 
 
+class TwoTaskReadinessGateContract(TypedDict, total=False):
+    minimum_evaluated_runs: int
+    minimum_completion_rate: float
+    maximum_escalation_rate: float
+    maximum_authority_block_rate: float
+    maximum_self_heal_completion_share: float
+    require_direct_completions_to_exceed_self_healed_completions: bool
+
+
+class TwoTaskReadinessGateEvaluation(TypedDict, total=False):
+    decision: str
+    go_for_bounded_two_task_trials: bool
+    current_phase: str
+    next_phase_candidate: str
+    gate_contract: dict[str, object]
+    evaluated_runs: int
+    completion_rate: float
+    escalation_rate: float
+    authority_block_rate: float
+    self_heal_completion_share: float
+    direct_completion_share: float
+    completed_runs: int
+    completed_after_retry_runs: int
+    direct_completion_runs: int
+    thresholds_met: dict[str, bool]
+    unmet_gate_reasons: list[str]
+    rationale: str
+
+
+DEFAULT_TWO_TASK_READINESS_GATE: dict[str, object] = {
+    "minimum_evaluated_runs": 6,
+    "minimum_completion_rate": 0.75,
+    "maximum_escalation_rate": 0.25,
+    "maximum_authority_block_rate": 0.10,
+    "maximum_self_heal_completion_share": 0.34,
+    "require_direct_completions_to_exceed_self_healed_completions": True,
+}
+
+
 
 def _load_scheduler_task_text(
     task_path: str,
@@ -358,6 +397,186 @@ def plan_safe_lane_stop_requeue_policy(
         "rationale": "No queue item is both ready and safe for autonomous execution yet.",
     }
 
+
+
+def select_single_admissible_safe_task(
+    queue: Sequence[TaskQueueItem],
+    *,
+    completed_task_paths: Sequence[str] | None = None,
+    task_text_loader: Any | None = None,
+) -> dict[str, object]:
+    plan = plan_safe_lane_stop_requeue_policy(
+        queue,
+        completed_task_paths=completed_task_paths,
+        task_text_loader=task_text_loader,
+    )
+    selected_task_path = str(plan.get("selected_task_path", "") or "")
+    return {
+        "selection_allowed": bool(selected_task_path) and str(plan.get("decision", "")) == "run_one_and_stop",
+        "selected_task_path": selected_task_path,
+        "selection_decision": str(plan.get("decision", "") or "requeue_waiting"),
+        "selection_rationale": str(plan.get("rationale", "") or ""),
+        "ready_safe_task_paths": list(plan.get("ready_safe_task_paths", []) or []),
+        "supervised_handoff_task_paths": list(plan.get("supervised_handoff_task_paths", []) or []),
+    }
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _safe_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def two_task_readiness_gate_snapshot(
+    gate_contract: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    contract = dict(DEFAULT_TWO_TASK_READINESS_GATE)
+    if gate_contract:
+        contract.update(dict(gate_contract))
+    return {
+        "schema_version": 1,
+        "current_phase": "phase_a_one_task_execution_quality",
+        "next_phase_candidate": "phase_b_bounded_two_task_trials",
+        "gate_type": "two_task_readiness",
+        "gate_contract": contract,
+        "gate_purpose": "Decide whether the bounded external-safe one-task lane has earned the right to start bounded two-task trials.",
+        "widening_behavior": "no_immediate_rollout",
+    }
+
+
+def evaluate_two_task_readiness_gate(
+    *,
+    canary_metrics: Mapping[str, object] | None,
+    recovery_report: Mapping[str, object] | None = None,
+    gate_contract: Mapping[str, object] | None = None,
+) -> TwoTaskReadinessGateEvaluation:
+    snapshot = two_task_readiness_gate_snapshot(gate_contract=gate_contract)
+    contract = dict(snapshot["gate_contract"])
+    metrics = dict(canary_metrics or {})
+    recovery = dict(recovery_report or {})
+
+    evaluated_runs = _safe_int(metrics.get("total_runs"), 0)
+    completed_runs = _safe_int(metrics.get("completed_runs"), 0)
+    completion_rate = _safe_float(metrics.get("completion_rate"), 0.0)
+
+    retry_metrics = dict(metrics.get("retry_metrics", {}) or {})
+    completed_after_retry_runs = _safe_int(retry_metrics.get("completed_after_retry_runs"), 0)
+    direct_completion_runs = max(completed_runs - completed_after_retry_runs, 0)
+
+    recovery_total_runs = _safe_int(recovery.get("total_runs"), evaluated_runs)
+    escalation_required_count = _safe_int(recovery.get("escalation_required_count"), 0)
+    escalation_rate = round((escalation_required_count / recovery_total_runs), 4) if recovery_total_runs else 0.0
+
+    authority_block_rate = _safe_float(
+        recovery.get("hosted_authority_blocking_frequency", metrics.get("hosted_authority_blocking_frequency", 0.0)),
+        0.0,
+    )
+    self_heal_completion_share = round((completed_after_retry_runs / completed_runs), 4) if completed_runs else 0.0
+    direct_completion_share = round((direct_completion_runs / completed_runs), 4) if completed_runs else 0.0
+
+    minimum_evaluated_runs = _safe_int(contract.get("minimum_evaluated_runs"), 6)
+    minimum_completion_rate = _safe_float(contract.get("minimum_completion_rate"), 0.75)
+    maximum_escalation_rate = _safe_float(contract.get("maximum_escalation_rate"), 0.25)
+    maximum_authority_block_rate = _safe_float(contract.get("maximum_authority_block_rate"), 0.10)
+    maximum_self_heal_completion_share = _safe_float(contract.get("maximum_self_heal_completion_share"), 0.34)
+    require_direct_gt_self_healed = bool(contract.get("require_direct_completions_to_exceed_self_healed_completions", True))
+
+    thresholds_met = {
+        "sample_size": evaluated_runs >= minimum_evaluated_runs,
+        "completion_rate": completion_rate >= minimum_completion_rate,
+        "escalation_rate": escalation_rate <= maximum_escalation_rate,
+        "authority_block_rate": authority_block_rate <= maximum_authority_block_rate,
+        "self_heal_share": self_heal_completion_share <= maximum_self_heal_completion_share,
+        "direct_completions_exceed_self_healed": (direct_completion_runs > completed_after_retry_runs) if require_direct_gt_self_healed else True,
+    }
+
+    unmet_gate_reasons: list[str] = []
+    if not thresholds_met["sample_size"]:
+        unmet_gate_reasons.append(
+            f"Need at least {minimum_evaluated_runs} evaluated one-task runs before widening; only {evaluated_runs} are currently measured."
+        )
+    if not thresholds_met["completion_rate"]:
+        unmet_gate_reasons.append(
+            f"Completion rate {completion_rate:.4f} is below the required {minimum_completion_rate:.2f} threshold for bounded two-task trials."
+        )
+    if not thresholds_met["escalation_rate"]:
+        unmet_gate_reasons.append(
+            f"Escalation rate {escalation_rate:.4f} exceeds the allowed {maximum_escalation_rate:.2f} ceiling."
+        )
+    if not thresholds_met["authority_block_rate"]:
+        unmet_gate_reasons.append(
+            f"Hosted-authority block rate {authority_block_rate:.4f} exceeds the allowed {maximum_authority_block_rate:.2f} ceiling."
+        )
+    if not thresholds_met["self_heal_share"]:
+        unmet_gate_reasons.append(
+            f"Self-healed completions still account for {self_heal_completion_share:.4f} of completions, above the allowed {maximum_self_heal_completion_share:.2f} share."
+        )
+    if not thresholds_met["direct_completions_exceed_self_healed"]:
+        unmet_gate_reasons.append(
+            "Direct completions do not yet exceed self-healed completions, so the repair loop is still too central to successful runs."
+        )
+
+    go_for_bounded_two_task_trials = all(bool(v) for v in thresholds_met.values())
+    if go_for_bounded_two_task_trials:
+        decision = "eligible_for_bounded_two_task_trials"
+        rationale = "Measured one-task external-safe results clear the explicit gate, so the repo may begin tightly bounded two-task trials without claiming broader autonomy."
+    else:
+        decision = "stay_in_bounded_one_task_phase"
+        rationale = "The measured one-task lane has not yet cleared the explicit widening gate, so the project should keep improving one-task execution quality before any bounded two-task trials."
+
+    return {
+        "decision": decision,
+        "go_for_bounded_two_task_trials": go_for_bounded_two_task_trials,
+        "current_phase": str(snapshot["current_phase"]),
+        "next_phase_candidate": str(snapshot["next_phase_candidate"]),
+        "gate_contract": contract,
+        "evaluated_runs": evaluated_runs,
+        "completion_rate": round(completion_rate, 4),
+        "escalation_rate": escalation_rate,
+        "authority_block_rate": round(authority_block_rate, 4),
+        "self_heal_completion_share": self_heal_completion_share,
+        "direct_completion_share": direct_completion_share,
+        "completed_runs": completed_runs,
+        "completed_after_retry_runs": completed_after_retry_runs,
+        "direct_completion_runs": direct_completion_runs,
+        "thresholds_met": thresholds_met,
+        "unmet_gate_reasons": unmet_gate_reasons,
+        "rationale": rationale,
+    }
+
+
+def plan_two_task_phase_transition(
+    *,
+    canary_metrics: Mapping[str, object] | None,
+    recovery_report: Mapping[str, object] | None = None,
+    gate_contract: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    readiness = evaluate_two_task_readiness_gate(
+        canary_metrics=canary_metrics,
+        recovery_report=recovery_report,
+        gate_contract=gate_contract,
+    )
+    if readiness["go_for_bounded_two_task_trials"]:
+        return {
+            **readiness,
+            "phase_transition_decision": "prepare_bounded_two_task_trials",
+            "allowed_ready_safe_task_width": 2,
+            "current_safe_lane_width": 1,
+        }
+    return {
+        **readiness,
+        "phase_transition_decision": "hold_one_task_lane",
+        "allowed_ready_safe_task_width": 1,
+        "current_safe_lane_width": 1,
+    }
 
 
 def select_next_task(
