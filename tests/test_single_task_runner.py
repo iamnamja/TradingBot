@@ -320,3 +320,71 @@ def test_task_142_supervised_safe_lane_reproof_stays_bounded_to_one_allowlisted_
     assert handoff["handoff_kind"] == "escalation_required"
     assert handoff["implicated_paths"] == ["agents/run_task.py"]
 
+
+
+def test_scheduler_safe_single_task_bridge_invokes_bounded_runner_for_unique_safe_task(tmp_path) -> None:
+    run_single_task = _load_run_single_task_module()
+    safe_task = tmp_path / "task_145_safe.md"
+    safe_task.write_text(
+        """
+# Task 145 — Safe scheduler bridge
+
+## Create or update these exact files
+- `tests/test_single_task_runner.py`
+""".strip(),
+        encoding="utf-8",
+    )
+
+    invoked: list[str] = []
+
+    def fake_runner(selected_task_path: str, **_kwargs):
+        invoked.append(selected_task_path)
+        return {"task_path": selected_task_path, "entry": {"final_decision": "completed"}}
+
+    result = run_single_task.run_scheduler_single_task_bridge(
+        queue=[type("Item", (), {"task_path": safe_task.as_posix()})()],
+        selection={
+            "bridge_decision": "delegate_to_single_task_runner",
+            "selected_task_path": safe_task.as_posix(),
+            "rationale": "exactly one safe task",
+        },
+        single_task_runner=fake_runner,
+    )
+
+    assert invoked == [safe_task.as_posix()]
+    assert result["autonomous_single_task_invoked"] is True
+    assert result["final_decision"] == "completed"
+
+
+def test_scheduler_safe_single_task_bridge_refuses_to_widen_when_selection_blocks(tmp_path) -> None:
+    run_single_task = _load_run_single_task_module()
+    unsafe_task = tmp_path / "task_145_supervised.md"
+    unsafe_task.write_text(
+        """
+# Task 145 — Supervised scheduler bridge
+
+## Create or update these exact files
+- `agents/run_task.py`
+""".strip(),
+        encoding="utf-8",
+    )
+
+    invoked: list[str] = []
+
+    def fake_runner(selected_task_path: str, **_kwargs):
+        invoked.append(selected_task_path)
+        return {"task_path": selected_task_path, "entry": {"final_decision": "completed"}}
+
+    result = run_single_task.run_scheduler_single_task_bridge(
+        queue=[type("Item", (), {"task_path": unsafe_task.as_posix()})()],
+        selection={
+            "bridge_decision": "delegate_to_supervision",
+            "selected_task_path": "",
+            "rationale": "no admissible safe task",
+        },
+        single_task_runner=fake_runner,
+    )
+
+    assert invoked == []
+    assert result["autonomous_single_task_invoked"] is False
+    assert result["bridge_decision"] == "delegate_to_supervision"

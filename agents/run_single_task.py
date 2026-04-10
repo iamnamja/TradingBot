@@ -540,6 +540,56 @@ def refresh_single_task_reporting_artifacts(
 
 
 
+
+
+def run_scheduler_single_task_bridge(
+    *,
+    queue: Sequence[object],
+    repo_root: str | Path = ".",
+    completed_task_paths: Sequence[str] | None = None,
+    selection: Mapping[str, object] | None = None,
+    selector: Callable[..., Mapping[str, object]] | None = None,
+    single_task_runner: Callable[..., Mapping[str, object]] | None = None,
+    runner_kwargs: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    from agents.lib.task_queue import select_single_admissible_safe_task as _select_single_admissible_safe_task  # type: ignore
+
+    active_selection = dict(
+        selection
+        or (selector or _select_single_admissible_safe_task)(
+            queue,
+            repo_root=repo_root,
+            completed_task_paths=completed_task_paths,
+        )
+    )
+    decision = str(active_selection.get("bridge_decision", "") or "")
+    selected_task_path = str(active_selection.get("selected_task_path", "") or "")
+    if decision != "delegate_to_single_task_runner" or not selected_task_path:
+        return {
+            "bridge_decision": decision or "delegate_to_supervision",
+            "autonomous_single_task_invoked": False,
+            "task_path": selected_task_path,
+            "selection": active_selection,
+            "rationale": str(active_selection.get("rationale", "") or ""),
+        }
+
+    result = dict(
+        (single_task_runner or run_autonomous_single_task)(
+            selected_task_path,
+            **dict(runner_kwargs or {}),
+        )
+    )
+    entry = dict(result.get("entry", {}) or {})
+    return {
+        "bridge_decision": "delegate_to_single_task_runner",
+        "autonomous_single_task_invoked": True,
+        "task_path": selected_task_path,
+        "selection": active_selection,
+        "single_task_result": result,
+        "final_decision": str(entry.get("final_decision", "") or ""),
+    }
+
+
 def _build_run_task_command(
     *,
     task_path: str,

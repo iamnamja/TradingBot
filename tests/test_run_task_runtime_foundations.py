@@ -150,8 +150,6 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.canonical_repo_enforcement_truth)
     assert callable(run_task.probe_repo_required_check_enforcement)
     assert callable(run_task.evaluate_repo_required_check_convergence)
-    assert callable(run_task.default_real_pr_required_check_smoke_artifact_path)
-    assert callable(run_task.probe_real_pr_required_check_smoke_proof)
     assert callable(run_task.report_branch_push_ready)
     assert callable(run_task.restore_file_snapshot_subset)
     assert callable(run_task.build_last_green_subset_preservation_plan)
@@ -167,11 +165,8 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.safe_task_family_allowlist_snapshot)
     assert callable(run_task.evaluate_autonomous_single_task_admission)
     assert callable(run_task.task_admission_context)
-    assert callable(run_task.default_single_task_ledger_path)
-    assert callable(run_task.summarize_single_task_execution)
-    assert callable(run_task.canonical_single_task_run_ledger_entry)
-    assert callable(run_task.append_single_task_run_ledger_entry)
-    assert callable(run_task.run_autonomous_single_task)
+    assert callable(run_task.select_single_admissible_safe_task)
+    assert callable(run_task.run_scheduler_safe_single_task_bridge)
 
 
 def test_project_merge_helpers_are_available() -> None:
