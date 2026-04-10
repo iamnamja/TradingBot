@@ -197,13 +197,19 @@ def test_run_autonomous_single_task_persists_ledger_and_reporting_artifacts(tmp_
 
     canary_metrics_path = Path(result["canary_metrics_path"])
     recovery_report_path = Path(result["recovery_report_path"])
+    pass_rate_scoreboard_path = Path(result["pass_rate_scoreboard_path"])
+    failure_digest_path = Path(result["failure_digest_path"])
     supervised_handoff_path = Path(result["supervised_handoff_path"])
     assert canary_metrics_path.exists()
     assert recovery_report_path.exists()
+    assert pass_rate_scoreboard_path.exists()
+    assert failure_digest_path.exists()
     assert supervised_handoff_path.exists()
 
     metrics = json.loads(canary_metrics_path.read_text(encoding="utf-8"))
     recovery = json.loads(recovery_report_path.read_text(encoding="utf-8"))
+    scoreboard = json.loads(pass_rate_scoreboard_path.read_text(encoding="utf-8"))
+    failure_digest = json.loads(failure_digest_path.read_text(encoding="utf-8"))
     handoff = json.loads(supervised_handoff_path.read_text(encoding="utf-8"))
 
     assert metrics["total_runs"] == 1
@@ -212,6 +218,11 @@ def test_run_autonomous_single_task_persists_ledger_and_reporting_artifacts(tmp_
     assert recovery["total_runs"] == 1
     assert recovery["handoff_required_count"] == 0
     assert recovery["hosted_authority_blocked_runs"] == 1
+    assert scoreboard["completed_runs"] == 1
+    assert scoreboard["completed_without_manual_help_runs"] == 0
+    assert scoreboard["completed_after_self_heal_runs"] == 1
+    assert scoreboard["blocked_by_authority_runs"] == 1
+    assert failure_digest["non_completion_runs"] == 0
     assert handoff["handoff_required"] is False
     assert handoff["handoff_kind"] == "none"
 
@@ -234,10 +245,15 @@ def test_run_autonomous_single_task_reports_escalation_without_execution(tmp_pat
     assert result["entry"]["validation"]["execution_invoked"] is False
     metrics = result["canary_metrics"]
     recovery = result["recovery_report"]
+    scoreboard = result["pass_rate_scoreboard"]
+    failure_digest = result["failure_digest"]
     handoff = result["supervised_handoff"]
     assert metrics["stop_reason_counts"]["escalation_required"] == 1
     assert recovery["escalation_required_count"] == 1
     assert recovery["handoff_required_count"] == 1
+    assert scoreboard["escalated_runs"] == 1
+    assert scoreboard["completed_runs"] == 0
+    assert failure_digest["non_completion_runs"] == 1
     assert handoff["handoff_required"] is True
     assert handoff["handoff_kind"] == "escalation_required"
     assert handoff["implicated_paths"] == ["agents/run_task.py"]
@@ -718,3 +734,55 @@ def test_run_autonomous_single_task_routes_lint_only_failures_into_lint_only_rep
     assert result["repair_artifact"]["selected_replay_commands"][0].startswith("ruff check")
     assert "ruff check ." in result["repair_artifact"]["selected_replay_commands"]
     assert result["controller_decision"]["action"] == "repair"
+
+
+def test_refresh_single_task_reporting_artifacts_emits_scoreboard_and_failure_digest(tmp_path: Path) -> None:
+    runner = _load_run_single_task_module()
+    ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
+
+    entries = [
+        {
+            "task_path": "tasks/150_safe_task.md",
+            "admission": {
+                "autonomous_single_task_allowed": True,
+                "proof_task_admission_allowed": True,
+                "autonomous_single_task_lane": "autonomous_safe",
+            },
+            "retry": {"retry_count_observed": 0},
+            "validation": {"execution_invoked": True, "no_checks_reported_observed": False},
+            "multi_agent_loop": {
+                "repair_artifact": {"repair_required": False, "repair_attempt_selected": False},
+                "failure_taxonomy": {},
+            },
+            "final_decision": "completed",
+        },
+        {
+            "task_path": "tasks/151_safe_task.md",
+            "admission": {
+                "autonomous_single_task_allowed": True,
+                "proof_task_admission_allowed": True,
+                "autonomous_single_task_lane": "autonomous_safe",
+            },
+            "retry": {"retry_count_observed": 1},
+            "validation": {"execution_invoked": True, "no_checks_reported_observed": False},
+            "multi_agent_loop": {
+                "repair_artifact": {"repair_required": True, "repair_attempt_selected": True},
+                "failure_taxonomy": {"failure_family": "lint_only_failure", "failure_category": "lint"},
+            },
+            "final_decision": "execution_failed",
+            "escalation": {"required": True, "reason": "Admitted single-task run failed and should be handed back to supervised recovery."},
+        },
+    ]
+    for entry in entries:
+        runner.append_single_task_run_ledger_entry(entry, ledger_path=ledger_path)
+
+    reporting = runner.refresh_single_task_reporting_artifacts(
+        ledger_path=ledger_path,
+        generated_at="2026-04-10T14:35:00Z",
+    )
+
+    assert reporting["pass_rate_scoreboard"]["total_runs"] == 2
+    assert reporting["pass_rate_scoreboard"]["completed_runs"] == 1
+    assert reporting["pass_rate_scoreboard"]["escalated_runs"] == 1
+    assert reporting["failure_digest"]["non_completion_runs"] == 1
+    assert reporting["failure_digest"]["dominant_non_completion_reasons"][0]["reason"] == "lint_only_failure"

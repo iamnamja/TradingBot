@@ -34,6 +34,19 @@ BUNDLE_FAILURE_CATEGORIES = {
 }
 
 
+def _safe_ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(float(numerator) / float(denominator), 4)
+
+
+def _coerce_failure_digest_reason(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "unknown"
+    return text
+
+
 def classify_failure(kind: str, message: str) -> str:
     collection_category = classify_collection_failure(kind=kind, message=message)
     if collection_category:
@@ -446,11 +459,207 @@ def build_multi_agent_failure_context(
         "final_authority_role": str((controller_decision or {}).get("final_authority_role") or "controller"),
     }
 
+def default_external_safe_pass_rate_scoreboard_path() -> Path:
+    return Path("artifacts/autonomous_single_task/pass_rate_scoreboard.json")
+
+
+def default_external_safe_failure_digest_path() -> Path:
+    return Path("artifacts/autonomous_single_task/failure_digest.json")
+
+
+def build_external_safe_pass_rate_scoreboard(
+    *,
+    entries: Sequence[Mapping[str, Any] | dict[str, Any]] | None = None,
+    ledger_path: Path | str | None = None,
+    generated_at: str = "",
+) -> Dict[str, Any]:
+    rows = [dict(entry) for entry in (entries or [])]
+    source_ledger_path = str(ledger_path or "")
+    total_runs = len(rows)
+    admitted_runs = 0
+    completed_without_manual_help_runs = 0
+    completed_after_self_heal_runs = 0
+    escalated_runs = 0
+    blocked_supervised_only_runs = 0
+    blocked_by_authority_runs = 0
+    self_heal_attempted_runs = 0
+    self_heal_success_runs = 0
+
+    for row in rows:
+        admission = dict(row.get("admission", {}) or {})
+        retry = dict(row.get("retry", {}) or {})
+        validation = dict(row.get("validation", {}) or {})
+        multi_agent_loop = dict(row.get("multi_agent_loop", {}) or {})
+        repair_artifact = dict(multi_agent_loop.get("repair_artifact", {}) or {})
+        final_decision = str(row.get("final_decision", "") or "")
+        proof_allowed = bool(admission.get("proof_task_admission_allowed", False))
+        autonomous_allowed = bool(admission.get("autonomous_single_task_allowed", False))
+        if autonomous_allowed and proof_allowed:
+            admitted_runs += 1
+
+        retry_count_observed = int(retry.get("retry_count_observed", 0) or 0)
+        repair_required = bool(repair_artifact.get("repair_required", False))
+        repair_attempt_selected = bool(repair_artifact.get("repair_attempt_selected", False))
+        self_heal_attempted = retry_count_observed > 0 or repair_attempt_selected or repair_required
+        if self_heal_attempted:
+            self_heal_attempted_runs += 1
+
+        if final_decision == "completed":
+            if self_heal_attempted:
+                completed_after_self_heal_runs += 1
+                self_heal_success_runs += 1
+            else:
+                completed_without_manual_help_runs += 1
+        elif final_decision in {"execution_failed", "escalation_required"}:
+            escalated_runs += 1
+        elif final_decision == "blocked_supervised_only":
+            blocked_supervised_only_runs += 1
+
+        if bool(validation.get("no_checks_reported_observed", False)):
+            blocked_by_authority_runs += 1
+
+    completed_runs = completed_without_manual_help_runs + completed_after_self_heal_runs
+    non_completion_runs = total_runs - completed_runs
+    return {
+        "schema_version": 1,
+        "artifact_type": "external_safe_one_task_pass_rate_scoreboard",
+        "generated_at": str(generated_at or ""),
+        "ledger_path": source_ledger_path,
+        "total_runs": total_runs,
+        "admitted_runs": admitted_runs,
+        "completed_runs": completed_runs,
+        "completed_without_manual_help_runs": completed_without_manual_help_runs,
+        "completed_after_self_heal_runs": completed_after_self_heal_runs,
+        "escalated_runs": escalated_runs,
+        "blocked_supervised_only_runs": blocked_supervised_only_runs,
+        "blocked_by_authority_runs": blocked_by_authority_runs,
+        "non_completion_runs": non_completion_runs,
+        "pass_rate": _safe_ratio(completed_runs, admitted_runs),
+        "completed_without_manual_help_rate": _safe_ratio(completed_without_manual_help_runs, admitted_runs),
+        "completed_after_self_heal_rate": _safe_ratio(completed_after_self_heal_runs, admitted_runs),
+        "escalation_rate": _safe_ratio(escalated_runs, total_runs),
+        "blocked_by_authority_rate": _safe_ratio(blocked_by_authority_runs, total_runs),
+        "self_heal_attempted_runs": self_heal_attempted_runs,
+        "self_heal_success_runs": self_heal_success_runs,
+        "self_heal_success_rate": _safe_ratio(self_heal_success_runs, self_heal_attempted_runs),
+        "next_reproof_target": {
+            "task": "153_orchestrator_external_safe_corpus_reliability_reproof",
+            "target_metric": "pass_rate",
+            "minimum_meaningful_band": "at_least_0.6_on_external_safe_corpus",
+            "self_heal_expectation": "completed_after_self_heal_runs_should_contribute_without_dominating_churn",
+        },
+    }
+
+
+def build_external_safe_failure_digest(
+    *,
+    entries: Sequence[Mapping[str, Any] | dict[str, Any]] | None = None,
+    ledger_path: Path | str | None = None,
+    journal_entries: Sequence[Mapping[str, Any] | dict[str, Any]] | None = None,
+    journal_path: Path | str | None = None,
+    generated_at: str = "",
+) -> Dict[str, Any]:
+    rows = [dict(entry) for entry in (entries or [])]
+    source_ledger_path = str(ledger_path or "")
+    source_journal_path = str(journal_path or "")
+    reason_counts: Dict[str, int] = {}
+    failure_family_counts: Dict[str, int] = {}
+    non_completion_runs = 0
+
+    for row in rows:
+        final_decision = str(row.get("final_decision", "") or "")
+        if final_decision == "completed":
+            continue
+        non_completion_runs += 1
+        admission = dict(row.get("admission", {}) or {})
+        escalation = dict(row.get("escalation", {}) or {})
+        validation = dict(row.get("validation", {}) or {})
+        multi_agent_loop = dict(row.get("multi_agent_loop", {}) or {})
+        failure_taxonomy = dict(multi_agent_loop.get("failure_taxonomy", {}) or {})
+
+        reason = ""
+        if bool(validation.get("no_checks_reported_observed", False)):
+            reason = "hosted_authority_no_checks_reported"
+        elif final_decision == "blocked_supervised_only":
+            reason = str(admission.get("autonomous_single_task_rationale") or admission.get("proof_task_admission_reason") or "blocked_supervised_only")
+        elif final_decision == "escalation_required":
+            reason = str(escalation.get("reason") or admission.get("autonomous_single_task_rationale") or "escalation_required")
+        else:
+            reason = str(failure_taxonomy.get("failure_family") or failure_taxonomy.get("failure_category") or escalation.get("reason") or "execution_failed")
+        reason = _coerce_failure_digest_reason(reason)
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+        failure_family = str(failure_taxonomy.get("failure_family") or failure_taxonomy.get("failure_category") or "")
+        if failure_family:
+            failure_family_counts[failure_family] = failure_family_counts.get(failure_family, 0) + 1
+
+    for row in [dict(entry) for entry in (journal_entries or [])]:
+        category = str(row.get("failure_category", "") or row.get("category", "") or "").strip()
+        if category:
+            failure_family_counts[category] = failure_family_counts.get(category, 0) + 1
+
+    dominant_non_completion_reasons = [
+        {"reason": key, "count": value}
+        for key, value in sorted(reason_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+    ]
+    dominant_failure_families = [
+        {"failure_family": key, "count": value}
+        for key, value in sorted(failure_family_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+    ]
+
+    return {
+        "schema_version": 1,
+        "artifact_type": "external_safe_one_task_failure_digest",
+        "generated_at": str(generated_at or ""),
+        "ledger_path": source_ledger_path,
+        "journal_path": source_journal_path,
+        "non_completion_runs": non_completion_runs,
+        "dominant_non_completion_reasons": dominant_non_completion_reasons,
+        "dominant_failure_families": dominant_failure_families,
+        "reason_counts": reason_counts,
+        "failure_family_counts": failure_family_counts,
+    }
+
+
+def write_external_safe_pass_rate_scoreboard(
+    scoreboard: Mapping[str, Any],
+    *,
+    scoreboard_path: Path | str | None = None,
+) -> str:
+    target = Path(scoreboard_path) if scoreboard_path is not None else default_external_safe_pass_rate_scoreboard_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(dict(scoreboard), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target.as_posix()
+
+
+def write_external_safe_failure_digest(
+    digest: Mapping[str, Any],
+    *,
+    digest_path: Path | str | None = None,
+) -> str:
+    target = Path(digest_path) if digest_path is not None else default_external_safe_failure_digest_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(dict(digest), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target.as_posix()
+
+
+
 __all__ = [
+    "build_cross_task_failure_context",
+    "build_external_safe_failure_digest",
+    "build_external_safe_pass_rate_scoreboard",
+    "build_multi_agent_failure_context",
+    "build_autonomous_single_task_recovery_report",
+    "default_external_safe_failure_digest_path",
+    "default_external_safe_pass_rate_scoreboard_path",
     "evaluate_repair_attempt_memory",
+    "failure_journal_path",
+    "read_failure_journal",
     "repair_attempt_fingerprint",
     "summarize_cross_task_repo_memory",
-    "build_cross_task_failure_context",
+    "write_autonomous_single_task_recovery_report",
+    "write_external_safe_failure_digest",
+    "write_external_safe_pass_rate_scoreboard",
 ]
 
 

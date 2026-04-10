@@ -49,6 +49,10 @@ def test_failure_journal_live_seam_exports_are_stable_and_do_not_require_module_
         "build_repair_attempt_record",
         "repair_attempt_fingerprint",
         "evaluate_repair_attempt_memory",
+        "build_external_safe_pass_rate_scoreboard",
+        "write_external_safe_pass_rate_scoreboard",
+        "build_external_safe_failure_digest",
+        "write_external_safe_failure_digest",
     }
 
     assert expected_keys.issubset(exports.keys())
@@ -366,3 +370,128 @@ def test_task_148_live_canary_operator_bundle_recovery_report_shows_one_success_
     assert report["blocked_supervised_only_count"] == 0
     assert report["stop_reason_counts"]["completed"] == 1
     assert report["stop_reason_counts"]["escalation_required"] == 1
+
+
+def test_build_external_safe_pass_rate_scoreboard_summarizes_completion_self_heal_and_authority() -> None:
+    fj = _load_failure_journal_module()
+    scoreboard = fj.build_external_safe_pass_rate_scoreboard(
+        entries=[
+            {
+                "admission": {
+                    "autonomous_single_task_allowed": True,
+                    "proof_task_admission_allowed": True,
+                },
+                "retry": {"retry_count_observed": 0},
+                "validation": {"no_checks_reported_observed": False},
+                "multi_agent_loop": {"repair_artifact": {"repair_required": False, "repair_attempt_selected": False}},
+                "final_decision": "completed",
+            },
+            {
+                "admission": {
+                    "autonomous_single_task_allowed": True,
+                    "proof_task_admission_allowed": True,
+                },
+                "retry": {"retry_count_observed": 1},
+                "validation": {"no_checks_reported_observed": True},
+                "multi_agent_loop": {"repair_artifact": {"repair_required": True, "repair_attempt_selected": True}},
+                "final_decision": "completed",
+            },
+            {
+                "admission": {
+                    "autonomous_single_task_allowed": True,
+                    "proof_task_admission_allowed": True,
+                },
+                "retry": {"retry_count_observed": 1},
+                "validation": {"no_checks_reported_observed": False},
+                "multi_agent_loop": {"repair_artifact": {"repair_required": True, "repair_attempt_selected": True}},
+                "final_decision": "execution_failed",
+            },
+            {
+                "admission": {
+                    "autonomous_single_task_allowed": False,
+                    "proof_task_admission_allowed": True,
+                },
+                "retry": {"retry_count_observed": 0},
+                "validation": {"no_checks_reported_observed": False},
+                "multi_agent_loop": {"repair_artifact": {"repair_required": False, "repair_attempt_selected": False}},
+                "final_decision": "blocked_supervised_only",
+            },
+        ],
+        ledger_path="artifacts/autonomous_single_task/run_ledger.jsonl",
+        generated_at="2026-04-10T14:30:00Z",
+    )
+
+    assert scoreboard["total_runs"] == 4
+    assert scoreboard["admitted_runs"] == 3
+    assert scoreboard["completed_runs"] == 2
+    assert scoreboard["completed_without_manual_help_runs"] == 1
+    assert scoreboard["completed_after_self_heal_runs"] == 1
+    assert scoreboard["escalated_runs"] == 1
+    assert scoreboard["blocked_supervised_only_runs"] == 1
+    assert scoreboard["blocked_by_authority_runs"] == 1
+    assert scoreboard["pass_rate"] == 0.6667
+    assert scoreboard["self_heal_success_rate"] == 0.5
+    assert scoreboard["next_reproof_target"]["target_metric"] == "pass_rate"
+
+
+def test_build_external_safe_failure_digest_summarizes_dominant_non_completion_reasons() -> None:
+    fj = _load_failure_journal_module()
+    digest = fj.build_external_safe_failure_digest(
+        entries=[
+            {
+                "final_decision": "execution_failed",
+                "validation": {"no_checks_reported_observed": False},
+                "multi_agent_loop": {"failure_taxonomy": {"failure_family": "lint_only_failure", "failure_category": "lint"}},
+            },
+            {
+                "final_decision": "execution_failed",
+                "validation": {"no_checks_reported_observed": False},
+                "multi_agent_loop": {"failure_taxonomy": {"failure_family": "lint_only_failure", "failure_category": "lint"}},
+            },
+            {
+                "final_decision": "blocked_supervised_only",
+                "admission": {"proof_task_admission_reason": "Task remains outside the bounded allowlisted safe lane."},
+                "validation": {"no_checks_reported_observed": False},
+            },
+            {
+                "final_decision": "escalation_required",
+                "validation": {"no_checks_reported_observed": True},
+                "escalation": {"reason": "Task touches self-hosting control-plane or harness surfaces and must be escalated."},
+            },
+        ],
+        journal_entries=[
+            {"failure_category": "lint"},
+            {"failure_category": "lint"},
+            {"failure_category": "import_contract"},
+        ],
+        ledger_path="artifacts/autonomous_single_task/run_ledger.jsonl",
+        journal_path="artifacts/failure_journal.jsonl",
+        generated_at="2026-04-10T14:31:00Z",
+    )
+
+    assert digest["non_completion_runs"] == 4
+    assert digest["dominant_non_completion_reasons"][0]["reason"] == "lint_only_failure"
+    assert digest["dominant_non_completion_reasons"][0]["count"] == 2
+    assert digest["dominant_failure_families"][0]["failure_family"] == "lint"
+    assert digest["failure_family_counts"]["lint"] == 2
+    assert digest["failure_family_counts"]["import_contract"] == 1
+
+
+def test_write_external_safe_scoreboard_and_failure_digest_persist_json_artifacts(tmp_path: Path) -> None:
+    fj = _load_failure_journal_module()
+    scoreboard_target = tmp_path / "artifacts" / "autonomous_single_task" / "pass_rate_scoreboard.json"
+    digest_target = tmp_path / "artifacts" / "autonomous_single_task" / "failure_digest.json"
+
+    scoreboard_written = fj.write_external_safe_pass_rate_scoreboard(
+        {"schema_version": 1, "artifact_type": "external_safe_one_task_pass_rate_scoreboard", "completed_runs": 3},
+        scoreboard_path=scoreboard_target,
+    )
+    digest_written = fj.write_external_safe_failure_digest(
+        {"schema_version": 1, "artifact_type": "external_safe_one_task_failure_digest", "non_completion_runs": 2},
+        digest_path=digest_target,
+    )
+
+    assert Path(scoreboard_written) == scoreboard_target
+    assert Path(digest_written) == digest_target
+    assert '"completed_runs": 3' in scoreboard_target.read_text(encoding="utf-8")
+    assert '"non_completion_runs": 2' in digest_target.read_text(encoding="utf-8")
