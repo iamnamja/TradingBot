@@ -8,7 +8,7 @@ Build a reusable orchestration engine that can execute constrained implementatio
 
 - **124–136** hardened the bounded supervised portfolio slice and its failure/authority truth
 - **137–148** created and operationally converged the narrow autonomous one-task lane: safe-task-family allowlisting, dedicated runner + ledger, canary reporting, supervised handoff, real GitHub required-check truth, scheduler bridging, stop/requeue policy, resume semantics, and the first operator proof bundle
-- the product now has a bounded autonomous one-task capability, but not yet broad autonomous app-building capability
+- the product now has a bounded autonomous one-task capability with a deterministic developer / verifier / repair / controller record, but not yet broad autonomous app-building capability
 
 ## What the product can honestly claim today
 
@@ -44,6 +44,6 @@ The next product phase should optimize for **execution quality**, not more surfa
 - measure pass rate, retry rate, escalation rate, and dominant failure classes
 - re-prove the one-task lane on that corpus before any two-task widening
 
-Task 149 starts this phase by defining the canonical external-safe evaluation manifest. That manifest is the measured proving ground for the next tranche rather than another proof-shaped self-hosting slice.
+Tasks 149–150 start this phase by defining the canonical external-safe evaluation manifest and then wiring the bounded one-task runner into a deterministic developer / verifier / repair / controller record. That record makes it clear which role produced the deciding evidence before the project attempts any broader self-heal claims.
 
 Only after those criteria are met should the product consider bounded two-task trials, and only later should it be wrapped as a separate operator-facing app.

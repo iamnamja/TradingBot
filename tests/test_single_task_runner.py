@@ -185,6 +185,15 @@ def test_run_autonomous_single_task_persists_ledger_and_reporting_artifacts(tmp_
     ledger_rows = runner.read_single_task_run_ledger(ledger_path=ledger_path)
     assert len(ledger_rows) == 1
     assert ledger_rows[0]["retry"]["retry_count_observed"] == 1
+    assert ledger_rows[0]["multi_agent_loop"]["role_trace"] == [
+        "developer_generation",
+        "verifier_focused_validation",
+        "verifier_full_validation",
+        "repair_selection",
+        "controller_decision",
+    ]
+    assert ledger_rows[0]["multi_agent_loop"]["verifier_artifact"]["verdict"] == "pass"
+    assert ledger_rows[0]["multi_agent_loop"]["controller_decision"]["action"] == "accept"
 
     canary_metrics_path = Path(result["canary_metrics_path"])
     recovery_report_path = Path(result["recovery_report_path"])
@@ -620,3 +629,51 @@ def test_build_live_canary_operator_proof_bundle_blocks_claim_until_real_github_
     assert bundle["bounded_claim_ready"] is False
     assert "real_github_required_check_not_yet_satisfied" in bundle["claim_blockers"]
     assert "broad unattended scheduler autonomy" in bundle["refused_claims"]
+
+
+def test_run_autonomous_single_task_surfaces_bounded_multi_agent_failure_artifacts(tmp_path: Path) -> None:
+    runner = _load_run_single_task_module()
+    task_path = tmp_path / "150_safe_tests_only_task.md"
+    task_path.write_text(
+        "# Safe tests-only task\n\n"
+        "## Create or update these exact files\n"
+        "- `tests/test_single_task_runner.py`\n",
+        encoding="utf-8",
+    )
+    ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
+
+    def fake_executor(command: list[str]) -> dict[str, object]:
+        return {
+            "command": list(command),
+            "returncode": 1,
+            "stdout": (
+                "=== Iteration 1/4 ===\n"
+                "E   ModuleNotFoundError: No module named 'agents.lib.missing'\n"
+                "FAILED tests/test_single_task_runner.py::test_demo - ModuleNotFoundError\n"
+            ),
+            "stderr": "",
+        }
+
+    result = runner.run_autonomous_single_task(
+        task_path.as_posix(),
+        ledger_path=ledger_path,
+        now=lambda: "2026-04-10T20:00:00Z",
+        executor=fake_executor,
+    )
+
+    assert result["entry"]["final_decision"] == "execution_failed"
+    assert result["role_trace"] == [
+        "developer_generation",
+        "verifier_focused_validation",
+        "verifier_full_validation",
+        "repair_selection",
+        "controller_decision",
+    ]
+    assert result["developer_artifact"]["execution_invoked"] is True
+    assert result["verifier_artifact"]["verdict"] == "fail"
+    assert result["verifier_artifact"]["likely_failure_family"] == "import_contract"
+    assert result["repair_artifact"]["repair_required"] is True
+    assert result["repair_artifact"]["repair_attempt_selected"] is True
+    assert result["repair_artifact"]["repair_strategy"] == "focused_replay_then_targeted_patch"
+    assert result["controller_decision"]["action"] == "repair"
+    assert result["entry"]["multi_agent_loop"]["failure_context"]["repair_strategy"] == "focused_replay_then_targeted_patch"

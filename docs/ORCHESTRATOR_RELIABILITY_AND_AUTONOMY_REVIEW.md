@@ -10,7 +10,7 @@ The orchestrator has moved beyond pure hardening and into a bounded one-task aut
 - protected-file policies exist
 - validator and failure-journal seams exist
 - hosted-authority interpretation around `ci-required` is explicit
-- the repo now has a bounded one-task autonomous lane with ledger, canary reporting, supervised handoff, resume state, and operator proof bundle
+- the repo now has a bounded one-task autonomous lane with ledger, canary reporting, supervised handoff, resume state, operator proof bundle, and a deterministic developer / verifier / repair / controller execution record
 - the scheduler can route exactly one admitted safe task through the canonical bounded runner
 
 ## Current weakness that matters most now
@@ -38,7 +38,7 @@ The main bottleneck is now:
 ## Immediate build priorities
 
 1. external-safe task corpus and evaluation manifest
-2. one-task multi-agent dev / test / repair / controller loop
+2. one-task multi-agent dev / test / repair / controller loop with explicit role-produced evidence
 3. external-safe failure taxonomy and self-heal router
 4. pass-rate scoreboard and failure digest
 5. external-safe corpus reliability re-proof
