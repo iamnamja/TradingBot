@@ -216,3 +216,129 @@ def test_task_136_dependency_aware_selection_returns_none_when_no_tasks_are_read
     )
 
     assert tq.select_next_task(queue, completed_task_paths=[]) is None
+
+
+def test_select_single_admissible_safe_task_returns_unique_ready_safe_task(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+
+    task_safe = tmp_path / "tasks" / "301.md"
+    task_safe.parent.mkdir(parents=True, exist_ok=True)
+    task_safe.write_text(
+        """
+# Task 145 — Safe scheduler task
+
+## Create or update these exact files
+- `tests/test_task_queue.py`
+- `tests/test_run_task_runtime_foundations.py`
+""".strip(),
+        encoding="utf-8",
+    )
+    task_supervised = tmp_path / "tasks" / "302.md"
+    task_supervised.write_text(
+        """
+# Task 145 — Control-plane scheduler task
+
+## Create or update these exact files
+- `agents/run_task.py`
+""".strip(),
+        encoding="utf-8",
+    )
+
+    queue = tq.build_task_queue_from_manifest(
+        {
+            "tasks": [
+                {"path": "tasks/301.md"},
+                {"path": "tasks/302.md"},
+            ]
+        },
+        repo_root=tmp_path,
+    )
+
+    def fake_evaluator(item, _root):
+        if item.task_path.endswith("301.md"):
+            return {
+                "admission": {"autonomous_single_task_allowed": True},
+                "proof_admission": {"proof_task_admission_allowed": True},
+            }
+        return {
+            "admission": {"autonomous_single_task_allowed": False},
+            "proof_admission": {"proof_task_admission_allowed": True},
+        }
+
+    selection = tq.select_single_admissible_safe_task(queue, repo_root=tmp_path, admission_evaluator=fake_evaluator)
+    assert selection["bridge_decision"] == "delegate_to_single_task_runner"
+    assert selection["selected_task_path"] == "tasks/301.md"
+    assert selection["safe_ready_task_paths"] == ["tasks/301.md"]
+    assert "tasks/302.md" in selection["non_safe_ready_task_paths"]
+
+
+def test_select_single_admissible_safe_task_refuses_when_multiple_safe_tasks_are_ready(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+
+    for name in ["401.md", "402.md"]:
+        path = tmp_path / "tasks" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            """
+# Task 145 — Safe scheduler task
+
+## Create or update these exact files
+- `tests/test_task_queue.py`
+""".strip(),
+            encoding="utf-8",
+        )
+
+    queue = tq.build_task_queue_from_manifest(
+        {"tasks": ["tasks/401.md", "tasks/402.md"]},
+        repo_root=tmp_path,
+    )
+
+    def fake_evaluator(_item, _root):
+        return {
+            "admission": {"autonomous_single_task_allowed": True},
+            "proof_admission": {"proof_task_admission_allowed": True},
+        }
+
+    selection = tq.select_single_admissible_safe_task(queue, repo_root=tmp_path, admission_evaluator=fake_evaluator)
+    assert selection["bridge_decision"] == "delegate_to_supervision"
+    assert sorted(selection["safe_ready_task_paths"]) == ["tasks/401.md", "tasks/402.md"]
+
+
+def test_batch_executor_routes_scheduler_path_through_single_task_runner(tmp_path: Path) -> None:
+    tq = _task_queue_module()
+    be = _batch_executor_module()
+
+    task_safe = tmp_path / "tasks" / "501.md"
+    task_safe.parent.mkdir(parents=True, exist_ok=True)
+    task_safe.write_text(
+        """
+# Task 145 — Safe scheduler task
+
+## Create or update these exact files
+- `tests/test_task_queue.py`
+""".strip(),
+        encoding="utf-8",
+    )
+
+    queue = tq.build_task_queue_from_manifest({"tasks": ["tasks/501.md"]}, repo_root=tmp_path)
+    invoked: list[str] = []
+
+    def fake_runner(task_path: str, **_kwargs):
+        invoked.append(task_path)
+        return {"task_path": task_path, "entry": {"final_decision": "completed"}}
+
+    result = be.run_scheduler_safe_single_task_bridge(
+        queue=queue,
+        repo_root=tmp_path,
+        selection={
+            "bridge_decision": "delegate_to_single_task_runner",
+            "selected_task_path": "tasks/501.md",
+            "rationale": "exactly one safe task",
+        },
+        single_task_runner=fake_runner,
+    )
+
+    assert invoked == ["tasks/501.md"]
+    assert result["bridge_decision"] == "delegate_to_single_task_runner"
+    assert result["autonomous_single_task_invoked"] is True
+    assert result["final_decision"] == "completed"

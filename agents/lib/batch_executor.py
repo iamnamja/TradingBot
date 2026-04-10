@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any, Callable, Mapping, Sequence
 
 from agents.lib import batch_state as bs
 from agents.lib.controller_contract import (
@@ -259,3 +260,48 @@ def execute_batch_loop(
     if normalized_status != state.batch_status:
         state = replace(state, batch_status=normalized_status)
     return state, outcomes, final_decision
+
+
+def _completed_task_paths_from_state(state: bs.BatchState) -> tuple[str, ...]:
+    completed: list[str] = []
+    for checkpoint in state.checkpoints:
+        if checkpoint.terminal_status == "completed":
+            completed.append(checkpoint.task_path)
+    return tuple(dict.fromkeys(completed))
+
+
+def run_scheduler_safe_single_task_bridge(
+    *,
+    queue: Sequence[TaskQueueItem],
+    repo_root: str | Path = ".",
+    state: bs.BatchState | None = None,
+    completed_task_paths: Sequence[str] | None = None,
+    selection: Mapping[str, object] | None = None,
+    selector: Callable[..., Mapping[str, object]] | None = None,
+    single_task_runner: Callable[..., Mapping[str, object]] | None = None,
+    runner_kwargs: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    from agents.lib.task_queue import select_single_admissible_safe_task as _select_single_admissible_safe_task  # type: ignore
+    from agents.run_single_task import run_scheduler_single_task_bridge as _run_scheduler_single_task_bridge  # type: ignore
+
+    completed = tuple(completed_task_paths or (_completed_task_paths_from_state(state) if state is not None else ()))
+    active_selector = selector or _select_single_admissible_safe_task
+    active_selection = dict(
+        selection
+        or active_selector(
+            queue,
+            repo_root=repo_root,
+            completed_task_paths=completed,
+        )
+    )
+    return dict(
+        _run_scheduler_single_task_bridge(
+            queue=queue,
+            repo_root=repo_root,
+            completed_task_paths=completed,
+            selection=active_selection,
+            selector=active_selector,
+            single_task_runner=single_task_runner,
+            runner_kwargs=runner_kwargs,
+        )
+    )

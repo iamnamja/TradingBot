@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 124–144 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, re-proves the bounded supervised resilience corpus over the concrete failure classes from Tasks 130–135, and now verifies real GitHub required-check enforcement convergence around the stable `ci-required` context instead of relying only on modeled local contract truth, and now adds an explicit safe task-family autonomy allowlist that only admits narrow ordinary single-task work while escalating self-hosting control-plane edits by default.
+- **Tasks 124–138 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, re-proves the bounded supervised resilience corpus over the concrete failure classes from Tasks 130–135, and now verifies real GitHub required-check enforcement convergence around the stable `ci-required` context instead of relying only on modeled local contract truth, and now adds an explicit safe task-family autonomy allowlist that only admits narrow ordinary single-task work while escalating self-hosting control-plane edits by default.
 
 The current bounded deterministic slice now demonstrates:
 
@@ -26,10 +26,6 @@ The current bounded deterministic slice now demonstrates:
 8. explicit hosted-authority operational-readiness truth, including blocking `no checks reported` posture
 9. real GitHub required-check enforcement convergence truth for the configured `ci-required` contract on the repo base branch
 10. a fresh supervised resilience re-proof over the recent failure corpus
-11. a dedicated autonomous single-task canary runner that only executes one admitted safe task and persists a deterministic run ledger for recovery/reporting
-12. canary metrics, recovery reporting, and supervised handoff artifacts for the bounded one-task lane
-13. a fresh supervised re-proof that only one allowlisted safe task at a time is autonomous
-14. GitHub settle-window and dual-surface probing plus a real open-PR smoke proof for the configured `ci-required` contract
 
 ## Scope honesty
 
@@ -46,9 +42,8 @@ It still does **not** claim autonomy for arbitrary protected/controller/meta tas
 
 ## Next continuation target
 
-The next tranche should focus on making the bounded one-task lane operationally trustworthy:
+The next tranche should focus on moving from resilience hardening toward a **safe autonomous single-task lane**:
 
-1. bridge the orchestrator scheduler to the dedicated safe single-task runner
-2. enforce stop/requeue discipline when the queue mixes autonomous-safe and supervised-only work
-3. add idempotent resume/re-entry for interrupted single-task runs
-4. package a live canary corpus and operator-ready proof bundle before widening any autonomy claims
+1. add a dedicated single-task runner, run ledger, and canary metrics on top of the new allowlisted admission lane
+2. produce explicit escalation artifacts for self-hosting control-plane tasks that still require supervised/manual handling
+3. re-prove autonomous single-task execution only after the above lane is green

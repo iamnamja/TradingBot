@@ -28,23 +28,22 @@ The current canonical family names are:
 
 ## Current control posture
 
-After Tasks 137–142, the orchestrator now has bounded deterministic defenses around:
+After Tasks 124–136, the orchestrator now has bounded deterministic defenses around:
 
 - proof-task admission and exact deliverable contracts
 - bundle failure classification and missing-deliverable retry compilation
 - coupled compatibility-surface repair planning
 - last-known-good subset preservation during retries
 - hosted-authority operational-readiness truth
-- allowlisted one-task autonomous execution
-- deterministic run ledger, canary reporting, and supervised handoff artifacts
+- conservative stop when no dependency-ready task is available
 
-## Next policy posture (143–148)
+## Next policy posture (137–142)
 
-The next tranche should keep the lane narrow while making it more operationally trustworthy:
+The next tranche should **not** broaden into arbitrary autonomy. It should narrow into a safe lane:
 
-- hosted-authority probing should distinguish `not yet reported` from truly missing or failed required checks
-- live `ci-required` convergence should be smoke-proved on a real PR before claims broaden
-- the orchestrator scheduler should route only the single-ready-safe-task case through the bounded runner
-- mixed safe and supervised-only queues should stop/requeue conservatively instead of widening autonomy
-- bounded single-task resume/re-entry should be idempotent and artifact-safe
-- broader autonomy claims should remain blocked until the live canary proof bundle is green
+- autonomous execution is allowed only for explicitly allowlisted ordinary task families
+- the safe lane admits narrow docs/tests/`src/tradingbot` work only, while `agents/` and `src/builder/orchestrator/` remain escalation-first by default
+- self-hosting control-plane edits remain escalation-first unless separately proven safe
+- unattended readiness remains blocked unless real GitHub required-check enforcement is converged
+- a dedicated single-task runner should emit a run ledger, canary metrics, and explicit escalation artifacts
+- broader autonomy claims should remain blocked until the safe lane is re-proven green
