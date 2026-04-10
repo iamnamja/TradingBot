@@ -64,7 +64,7 @@ KEEP_RUNTIME_ARTIFACTS_ENV = "TRADINGBOT_KEEP_RUNTIME_ARTIFACTS"
 RUNTIME_ARTIFACT_NAMES = (
     "last_output.txt",
     "_last_agent_model_output.txt",
-    "_last_agent_file_bundle.txt",
+    "_last_agent_file_bundle.txt", "_last_agent_file_bundle_error.txt",
     "_last_subset_preservation.json",
 )
 
