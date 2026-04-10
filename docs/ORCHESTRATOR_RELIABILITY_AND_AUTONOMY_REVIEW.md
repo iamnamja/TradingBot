@@ -46,6 +46,8 @@ The main bottleneck is now:
 
 Task 151 sharpens the current one-task lane by teaching it to distinguish common external-safe failure families instead of relying on a generic retry posture. That means ordinary import/collection failures, lint-only failures, missing deliverable coverage, missing required file updates, and focused test regressions can now route to a smaller credible repair path before the lane escalates.
 
+Task 152 converts that execution story into durable measurement. The bounded lane now emits a pass-rate scoreboard plus a failure digest so operators can see completed-without-manual-help runs, completed-after-self-heal runs, escalations, hosted-authority blocks, and the dominant reasons ordinary external-safe work still fails to complete.
+
 ## Desired outcome of the next tranche
 
 By the end of the next tranche, the project should be able to answer:

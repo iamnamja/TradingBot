@@ -16,6 +16,8 @@ DEFAULT_SINGLE_TASK_SUPERVISED_HANDOFF_PATH = "artifacts/autonomous_single_task/
 DEFAULT_SINGLE_TASK_RESUME_STATE_PATH = "artifacts/autonomous_single_task/resume_state.json"
 DEFAULT_SCHEDULER_SAFE_LANE_POLICY_PATH = "artifacts/autonomous_single_task/scheduler_safe_lane_policy.json"
 DEFAULT_OPERATOR_PROOF_BUNDLE_PATH = "artifacts/autonomous_single_task/operator_proof_bundle.json"
+DEFAULT_PASS_RATE_SCOREBOARD_PATH = "artifacts/autonomous_single_task/pass_rate_scoreboard.json"
+DEFAULT_FAILURE_DIGEST_PATH = "artifacts/autonomous_single_task/failure_digest.json"
 LEDGER_SCHEMA_VERSION = 1
 CANARY_METRICS_SCHEMA_VERSION = 1
 SUPERVISED_HANDOFF_SCHEMA_VERSION = 1
@@ -55,6 +57,16 @@ def default_scheduler_safe_lane_policy_path(*, ledger_path: str | Path | None = 
 def default_operator_proof_bundle_path(*, ledger_path: str | Path | None = None) -> str:
     path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
     return path.with_name("operator_proof_bundle.json").as_posix()
+
+
+def default_single_task_pass_rate_scoreboard_path(*, ledger_path: str | Path | None = None) -> str:
+    path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    return path.with_name("pass_rate_scoreboard.json").as_posix()
+
+
+def default_single_task_failure_digest_path(*, ledger_path: str | Path | None = None) -> str:
+    path = Path(ledger_path) if ledger_path is not None else Path(DEFAULT_SINGLE_TASK_LEDGER_PATH)
+    return path.with_name("failure_digest.json").as_posix()
 
 
 def build_single_task_run_token(
@@ -672,12 +684,18 @@ def refresh_single_task_reporting_artifacts(
     metrics_path: str | Path | None = None,
     recovery_report_path: str | Path | None = None,
     supervised_handoff_path: str | Path | None = None,
+    pass_rate_scoreboard_path: str | Path | None = None,
+    failure_digest_path: str | Path | None = None,
     current_entry: Mapping[str, object] | None = None,
     generated_at: str = "",
 ) -> dict[str, object]:
     from agents.lib.failure_journal import (  # type: ignore
         build_autonomous_single_task_recovery_report,
+        build_external_safe_failure_digest,
+        build_external_safe_pass_rate_scoreboard,
         write_autonomous_single_task_recovery_report,
+        write_external_safe_failure_digest,
+        write_external_safe_pass_rate_scoreboard,
     )
 
     source_ledger_path = str(ledger_path or DEFAULT_SINGLE_TASK_LEDGER_PATH)
@@ -697,6 +715,24 @@ def refresh_single_task_reporting_artifacts(
         recovery_report,
         report_path=recovery_report_path or default_single_task_recovery_report_path(ledger_path=source_ledger_path),
     )
+    pass_rate_scoreboard = build_external_safe_pass_rate_scoreboard(
+        entries=entries,
+        ledger_path=source_ledger_path,
+        generated_at=generated_at,
+    )
+    pass_rate_scoreboard_artifact_path = write_external_safe_pass_rate_scoreboard(
+        pass_rate_scoreboard,
+        scoreboard_path=pass_rate_scoreboard_path or default_single_task_pass_rate_scoreboard_path(ledger_path=source_ledger_path),
+    )
+    failure_digest = build_external_safe_failure_digest(
+        entries=entries,
+        ledger_path=source_ledger_path,
+        generated_at=generated_at,
+    )
+    failure_digest_artifact_path = write_external_safe_failure_digest(
+        failure_digest,
+        digest_path=failure_digest_path or default_single_task_failure_digest_path(ledger_path=source_ledger_path),
+    )
     active_entry = dict(current_entry or (entries[-1] if entries else {}))
     supervised_handoff = build_single_task_supervised_handoff_artifact(
         entry=active_entry,
@@ -713,6 +749,10 @@ def refresh_single_task_reporting_artifacts(
         "canary_metrics_path": metrics_artifact_path,
         "recovery_report": recovery_report,
         "recovery_report_path": recovery_artifact_path,
+        "pass_rate_scoreboard": pass_rate_scoreboard,
+        "pass_rate_scoreboard_path": pass_rate_scoreboard_artifact_path,
+        "failure_digest": failure_digest,
+        "failure_digest_path": failure_digest_artifact_path,
         "supervised_handoff": supervised_handoff,
         "supervised_handoff_path": supervised_handoff_artifact_path,
     }
@@ -986,6 +1026,8 @@ def run_live_canary_corpus_and_operator_proof_bundle(
     metrics_path: str | Path | None = None,
     recovery_report_path: str | Path | None = None,
     supervised_handoff_path: str | Path | None = None,
+    pass_rate_scoreboard_path: str | Path | None = None,
+    failure_digest_path: str | Path | None = None,
     resume_state_path: str | Path | None = None,
     proof_bundle_path: str | Path | None = None,
     now: Callable[[], str] | None = None,
@@ -1074,6 +1116,8 @@ def run_autonomous_single_task(
     metrics_path: str | Path | None = None,
     recovery_report_path: str | Path | None = None,
     supervised_handoff_path: str | Path | None = None,
+    pass_rate_scoreboard_path: str | Path | None = None,
+    failure_digest_path: str | Path | None = None,
     resume_state_path: str | Path | None = None,
     now: Callable[[], str] | None = None,
     executor: Callable[[Sequence[str]], Mapping[str, object]] | None = None,
@@ -1128,6 +1172,8 @@ def run_autonomous_single_task(
             metrics_path=metrics_path,
             recovery_report_path=recovery_report_path,
             supervised_handoff_path=supervised_handoff_path,
+            pass_rate_scoreboard_path=pass_rate_scoreboard_path,
+            failure_digest_path=failure_digest_path,
             current_entry=existing_entry,
             generated_at=str(existing_entry.get("completed_at", "") or existing_entry.get("started_at", "") or ""),
         )
@@ -1142,6 +1188,10 @@ def run_autonomous_single_task(
             "canary_metrics": refreshed["canary_metrics"],
             "recovery_report_path": refreshed["recovery_report_path"],
             "recovery_report": refreshed["recovery_report"],
+            "pass_rate_scoreboard_path": refreshed["pass_rate_scoreboard_path"],
+            "pass_rate_scoreboard": refreshed["pass_rate_scoreboard"],
+            "failure_digest_path": refreshed["failure_digest_path"],
+            "failure_digest": refreshed["failure_digest"],
             "supervised_handoff_path": refreshed["supervised_handoff_path"],
             "supervised_handoff": refreshed["supervised_handoff"],
             "multi_agent_loop": existing_multi_agent_loop,
@@ -1282,6 +1332,8 @@ def run_autonomous_single_task(
         metrics_path=metrics_path,
         recovery_report_path=recovery_report_path,
         supervised_handoff_path=supervised_handoff_path,
+        pass_rate_scoreboard_path=pass_rate_scoreboard_path,
+        failure_digest_path=failure_digest_path,
         current_entry=entry,
         generated_at=str(completed_at or started_at),
     )
@@ -1314,6 +1366,10 @@ def run_autonomous_single_task(
         "canary_metrics": reporting["canary_metrics"],
         "recovery_report_path": reporting["recovery_report_path"],
         "recovery_report": reporting["recovery_report"],
+        "pass_rate_scoreboard_path": reporting["pass_rate_scoreboard_path"],
+        "pass_rate_scoreboard": reporting["pass_rate_scoreboard"],
+        "failure_digest_path": reporting["failure_digest_path"],
+        "failure_digest": reporting["failure_digest"],
         "supervised_handoff_path": reporting["supervised_handoff_path"],
         "supervised_handoff": reporting["supervised_handoff"],
         "multi_agent_loop": multi_agent_loop,
@@ -1338,6 +1394,8 @@ def main() -> int:
     ap.add_argument("--metrics-path", default=None)
     ap.add_argument("--recovery-report-path", default=None)
     ap.add_argument("--supervised-handoff-path", default=None)
+    ap.add_argument("--pass-rate-scoreboard-path", default=None)
+    ap.add_argument("--failure-digest-path", default=None)
     ap.add_argument("--resume-state-path", default=None)
     args = ap.parse_args()
 
@@ -1352,6 +1410,8 @@ def main() -> int:
         metrics_path=args.metrics_path,
         recovery_report_path=args.recovery_report_path,
         supervised_handoff_path=args.supervised_handoff_path,
+        pass_rate_scoreboard_path=args.pass_rate_scoreboard_path,
+        failure_digest_path=args.failure_digest_path,
         resume_state_path=args.resume_state_path,
     )
     entry = dict(result["entry"])

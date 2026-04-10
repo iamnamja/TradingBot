@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 124–151 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, verifies real GitHub required-check enforcement convergence around the stable `ci-required` context, establishes a safe task-family autonomy allowlist, adds a bounded autonomous single-task runner with ledger/reporting/handoff/resume semantics, routes the scheduler through that runner when exactly one safe task is ready, packages the lane into an operator-readable live canary proof bundle, defines the canonical external-safe evaluation manifest, and now records a deterministic one-task developer / verifier / repair / controller loop inside each admitted safe run.
+- **Tasks 124–152 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, verifies real GitHub required-check enforcement convergence around the stable `ci-required` context, establishes a safe task-family autonomy allowlist, adds a bounded autonomous single-task runner with ledger/reporting/handoff/resume semantics, routes the scheduler through that runner when exactly one safe task is ready, packages the lane into an operator-readable live canary proof bundle, defines the canonical external-safe evaluation manifest, and now records a deterministic one-task developer / verifier / repair / controller loop inside each admitted safe run.
 
 The current bounded deterministic slice now demonstrates:
 
@@ -28,6 +28,7 @@ The current bounded deterministic slice now demonstrates:
 10. a fresh supervised operational re-proof over the bounded one-task lane
 11. a deterministic role-separated one-task execution record covering developer generation, verifier evidence, repair selection, and controller decision
 12. an external-safe failure taxonomy and bounded self-heal router that chooses narrower repair lanes for common ordinary one-task failures
+13. a durable pass-rate scoreboard and failure digest so operators can measure one-task completion, self-heal contribution, authority blocks, and dominant non-completion reasons from artifacts instead of anecdote
 
 ## Scope honesty
 
@@ -49,8 +50,8 @@ The next tranche should shift from “more safe-lane plumbing” to **execution 
 1. define an external-style safe one-task evaluation corpus
 2. make the bounded one-task lane behave like a real dev / test / repair / controller loop
 3. improve targeted self-heal quality on ordinary external-safe failures
-4. measure pass rate and failure-class distribution
-5. re-prove the bounded one-task lane on that external-safe corpus
+4. measure pass rate and failure-class distribution with durable scoreboard artifacts
+5. re-prove the bounded one-task lane on that external-safe corpus against the measured baseline
 6. only then decide whether bounded two-task trials are justified
 
 ## Task 149–151 checkpoint

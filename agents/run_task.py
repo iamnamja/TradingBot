@@ -5749,6 +5749,10 @@ def _failure_journal_exports() -> Dict[str, object]:
         "evaluate_repair_attempt_memory": None,
         "build_semantic_failure_digest": None,
         "build_semantic_repair_context": None,
+        "build_external_safe_pass_rate_scoreboard": None,
+        "write_external_safe_pass_rate_scoreboard": None,
+        "build_external_safe_failure_digest": None,
+        "write_external_safe_failure_digest": None,
         "choose_repair_strategy": None,
         "collection_failure_category": None,
     }
@@ -5770,6 +5774,10 @@ def _failure_journal_exports() -> Dict[str, object]:
             "evaluate_repair_attempt_memory",
             "build_semantic_failure_digest",
             "build_semantic_repair_context",
+            "build_external_safe_pass_rate_scoreboard",
+            "write_external_safe_pass_rate_scoreboard",
+            "build_external_safe_failure_digest",
+            "write_external_safe_failure_digest",
             "choose_repair_strategy",
             "collection_failure_category",
         ):

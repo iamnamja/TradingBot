@@ -12,3 +12,8 @@ Tasks 137–148 created and converged a bounded autonomous one-task lane, but th
 ## Current next-step note
 
 The next tranche should focus on an external-safe evaluation corpus, a real one-task dev/test/repair/controller loop, measured pass-rate artifacts, and a go / no-go gate before bounded two-task trials.
+
+## Current operator artifacts
+
+- `artifacts/autonomous_single_task/pass_rate_scoreboard.json` — durable external-safe one-task pass-rate measurement
+- `artifacts/autonomous_single_task/failure_digest.json` — dominant non-completion reasons and failure-family counts for the bounded lane
