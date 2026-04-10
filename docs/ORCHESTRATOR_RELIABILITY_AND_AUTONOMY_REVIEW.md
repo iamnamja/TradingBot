@@ -2,29 +2,53 @@
 
 ## Why this review exists
 
-The orchestrator has become strong enough to enforce guardrails, but not yet strong enough to behave like a reliable central command system across a long backlog.
-
-The current question is whether the bounded one-task lane is operationally trustworthy on real GitHub branches and understandable to an operator.
+The orchestrator has moved beyond pure hardening and into a bounded one-task autonomous lane. The next question is no longer “can it route a task safely?” The next question is “can it complete ordinary one-task work reliably enough that operators stop patching it by hand?”
 
 ## Current strengths
 
 - shell-routed execution and worktree/branch guardrails are present
 - protected-file policies exist
 - validator and failure-journal seams exist
-- bundle preflight and localized repair support exist
-- the repo now has a bounded one-task autonomous lane with ledger, canary reporting, supervised handoff, bounded resume state, and a live operator proof bundle
+- hosted-authority interpretation around `ci-required` is explicit
+- the repo now has a bounded one-task autonomous lane with ledger, canary reporting, supervised handoff, resume state, and operator proof bundle
+- the scheduler can route exactly one admitted safe task through the canonical bounded runner
 
-## Current weaknesses
+## Current weakness that matters most now
 
-### 1. The lane is still intentionally narrow
-The repo can do one allowlisted safe task at a time, not broad unattended backlog execution.
+The project still does too much **manual recovery** for ordinary one-task work.
 
-### 2. Live GitHub timing still needs conservative interpretation
-Real PR timing behavior should still be handled conservatively even with the new settle-window and real-PR smoke layers.
+That means the next phase should not prioritize a broader autonomy surface. It should prioritize execution quality and self-heal quality on a clean external-safe corpus.
 
-### 3. Self-hosting control-plane work still belongs in the supervised lane
-This remains the right policy posture until separate live proof exists.
+## The current bottleneck
 
-## Honest conclusion
+The main bottleneck is now:
 
-The orchestrator can now be described as supervised and bounded, one-task autonomous inside a narrow allowlisted lane, and explicitly conservative outside that lane.
+- can the bounded lane finish ordinary safe implementation tasks
+- can it diagnose common failures without operator editing
+- can it apply the smallest credible repair
+- can it show a real pass rate instead of anecdotal success stories
+
+## Agreed phase order
+
+1. make one-task autonomous execution actually work on ordinary external-safe tasks
+2. only then widen carefully into bounded multi-task execution
+3. only after that package the orchestrator as its own operator-facing app
+4. self-hosting app work is a later privilege, not the current proving ground
+
+## Immediate build priorities
+
+1. external-safe task corpus and evaluation manifest
+2. one-task multi-agent dev / test / repair / controller loop
+3. external-safe failure taxonomy and self-heal router
+4. pass-rate scoreboard and failure digest
+5. external-safe corpus reliability re-proof
+6. two-task readiness gate and phase transition
+
+## Desired outcome of the next tranche
+
+By the end of the next tranche, the project should be able to answer:
+
+- what the bounded one-task lane’s real external-safe pass rate is
+- which failure classes dominate manual intervention
+- whether targeted self-heal materially improves completion
+- whether the project has earned the right to start bounded two-task trials
