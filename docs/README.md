@@ -11,9 +11,13 @@ Tasks 137–148 created and converged a bounded autonomous one-task lane, but th
 
 ## Current next-step note
 
-The next tranche should focus on an external-safe evaluation corpus, a real one-task dev/test/repair/controller loop, measured pass-rate artifacts, and a go / no-go gate before bounded two-task trials.
+Tasks 149–154 completed the external-safe execution-quality tranche, including the explicit go / no-go gate before bounded two-task trials.
+
+The follow-up tranche should focus on clearing the measured gate blockers inside the one-task lane before any widening.
 
 ## Current operator artifacts
 
 - `artifacts/autonomous_single_task/pass_rate_scoreboard.json` — durable external-safe one-task pass-rate measurement
 - `artifacts/autonomous_single_task/failure_digest.json` — dominant non-completion reasons and failure-family counts for the bounded lane
+
+- `ORCHESTRATOR_ROADMAP_155_160.md` — blocker-reduction tranche after the two-task readiness gate remains red

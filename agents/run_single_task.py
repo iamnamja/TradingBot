@@ -187,6 +187,7 @@ def build_single_task_multi_agent_role_artifacts(
     execution_summary: Mapping[str, object] | None,
     execution_invoked: bool,
     max_repair_attempts_within_run: int = 1,
+    lint_preflight_artifact: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     from agents.lib.controller import decide_single_task_controller_action  # type: ignore
     from agents.lib.failure_classifier import classify_single_task_failure  # type: ignore
@@ -255,6 +256,7 @@ def build_single_task_multi_agent_role_artifacts(
         "controller_decision": controller_decision,
         "role_trace": role_trace,
         "failure_context": failure_context,
+        "lint_preflight_artifact": dict(lint_preflight_artifact or {}),
     }
 
 
@@ -351,6 +353,8 @@ def canonical_single_task_run_ledger_entry(
             "pytest_green_observed": bool(execution.get("pytest_green_observed", False)),
             "ruff_green_observed": bool(execution.get("ruff_green_observed", False)),
             "no_checks_reported_observed": bool(execution.get("no_checks_reported_observed", False)),
+            "safe_lint_preflight_attempted": bool(execution.get("safe_lint_preflight_attempted", False)),
+            "safe_lint_preflight_succeeded": bool(execution.get("safe_lint_preflight_succeeded", False)),
         },
         "escalation": {
             "required": escalation_required,
@@ -379,6 +383,7 @@ def canonical_single_task_run_ledger_entry(
             "repair_artifact": dict(multi_agent_payload.get("repair_artifact", {}) or {}),
             "controller_decision": dict(multi_agent_payload.get("controller_decision", {}) or {}),
             "failure_context": dict(multi_agent_payload.get("failure_context", {}) or {}),
+            "lint_preflight_artifact": dict(multi_agent_payload.get("lint_preflight_artifact", {}) or {}),
         },
     }
 
@@ -1103,6 +1108,63 @@ def _build_run_task_command(
     return command
 
 
+def maybe_apply_safe_lint_preflight(
+    *,
+    task_path: str,
+    required_paths: Sequence[str],
+    execution_summary: Mapping[str, object] | None,
+    execution_invoked: bool,
+    executor: Callable[[Sequence[str]], Mapping[str, object]],
+) -> tuple[dict[str, object], dict[str, object]]:
+    from agents.lib.failure_classifier import classify_single_task_failure  # type: ignore
+    from agents.lib.safe_lint_preflight import (  # type: ignore
+        apply_safe_lint_preflight_execution_summary,
+        build_safe_lint_preflight_plan,
+        run_safe_lint_preflight,
+    )
+    from agents.lib.verifier import build_single_task_developer_artifact, build_single_task_verifier_artifact  # type: ignore
+
+    execution = dict(execution_summary or {})
+    empty_artifact = {
+        "attempted": False,
+        "succeeded": False,
+        "reason": "Safe lint preflight normalization was not applicable.",
+        "python_paths": [],
+    }
+    if not execution_invoked:
+        return execution, empty_artifact
+
+    developer_artifact = build_single_task_developer_artifact(
+        task_path=task_path,
+        required_paths=required_paths,
+        command=list(execution.get("command", []) or []),
+        execution_summary=execution,
+        execution_invoked=execution_invoked,
+    )
+    verifier_artifact = build_single_task_verifier_artifact(
+        task_path=task_path,
+        developer_artifact=developer_artifact,
+        execution_summary=execution,
+        execution_invoked=execution_invoked,
+    )
+    failure_taxonomy = classify_single_task_failure(
+        task_path=task_path,
+        required_paths=required_paths,
+        execution_summary=execution,
+        developer_artifact=developer_artifact,
+        verifier_artifact=verifier_artifact,
+    )
+    plan = build_safe_lint_preflight_plan(
+        task_path=task_path,
+        required_paths=required_paths,
+        verifier_artifact=verifier_artifact,
+        failure_taxonomy=failure_taxonomy,
+    )
+    artifact = run_safe_lint_preflight(plan, executor=executor)
+    updated_execution = apply_safe_lint_preflight_execution_summary(execution, artifact)
+    return updated_execution, artifact
+
+
 
 def run_autonomous_single_task(
     task_path: str,
@@ -1201,6 +1263,7 @@ def run_autonomous_single_task(
             "failure_taxonomy": dict(existing_multi_agent_loop.get("failure_taxonomy", {}) or {}),
             "repair_artifact": dict(existing_multi_agent_loop.get("repair_artifact", {}) or {}),
             "controller_decision": dict(existing_multi_agent_loop.get("controller_decision", {}) or {}),
+            "lint_preflight_artifact": dict(existing_multi_agent_loop.get("lint_preflight_artifact", {}) or {}),
         }
 
     prior_resume_state = read_single_task_resume_state(resume_state_path=resume_location, ledger_path=ledger_location)
@@ -1249,6 +1312,12 @@ def run_autonomous_single_task(
     )
 
     execution_summary: dict[str, object] | None = None
+    lint_preflight_artifact: dict[str, object] = {
+        "attempted": False,
+        "succeeded": False,
+        "reason": "Safe lint preflight normalization was not applicable.",
+        "python_paths": [],
+    }
     allowed = bool(admission.get("autonomous_single_task_allowed", False)) and bool(
         proof_admission.get("proof_task_admission_allowed", False)
     )
@@ -1279,13 +1348,22 @@ def run_autonomous_single_task(
             resume_state_path=resume_location,
             ledger_path=ledger_location,
         )
-        raw_execution = dict((executor or _default_executor)(command))
+        command_executor = executor or _default_executor
+        raw_execution = dict(command_executor(command))
         execution_summary = summarize_single_task_execution(execution_result=raw_execution)
+        execution_summary, lint_preflight_artifact = maybe_apply_safe_lint_preflight(
+            task_path=task_file.as_posix(),
+            required_paths=required_paths,
+            execution_summary=execution_summary,
+            execution_invoked=allowed,
+            executor=command_executor,
+        )
     multi_agent_loop = build_single_task_multi_agent_role_artifacts(
         task_path=task_file.as_posix(),
         required_paths=required_paths,
         execution_summary=execution_summary,
         execution_invoked=allowed,
+        lint_preflight_artifact=lint_preflight_artifact,
     )
     completed_at = str(clock() or started_at)
     entry = canonical_single_task_run_ledger_entry(
@@ -1379,6 +1457,7 @@ def run_autonomous_single_task(
         "failure_taxonomy": dict(multi_agent_loop.get("failure_taxonomy", {}) or {}),
         "repair_artifact": dict(multi_agent_loop.get("repair_artifact", {}) or {}),
         "controller_decision": dict(multi_agent_loop.get("controller_decision", {}) or {}),
+        "lint_preflight_artifact": dict(multi_agent_loop.get("lint_preflight_artifact", {}) or {}),
     }
 
 

@@ -743,6 +743,60 @@ def test_run_autonomous_single_task_routes_lint_only_failures_into_lint_only_rep
     assert result["controller_decision"]["action"] == "repair"
 
 
+def test_run_autonomous_single_task_converts_lint_only_failure_into_completed_after_safe_preflight(tmp_path: Path) -> None:
+    runner = _load_run_single_task_module()
+    task_path = tmp_path / "155_safe_lint_preflight_task.md"
+    task_path.write_text(
+        "# Safe tests-only task\n\n"
+        "## Create or update these exact files\n"
+        "- `tests/test_single_task_runner.py`\n",
+        encoding="utf-8",
+    )
+    ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
+    calls: list[list[str]] = []
+
+    def fake_executor(command: list[str]) -> dict[str, object]:
+        calls.append(list(command))
+        if len(calls) == 1:
+            return {
+                "command": list(command),
+                "returncode": 1,
+                "stdout": (
+                    "=== Iteration 1/4 ===\n"
+                    "ruff failed\n"
+                    "E402 Module level import not at top of file\n"
+                ),
+                "stderr": "",
+            }
+        if command[:3] == ["ruff", "check", "--fix"]:
+            return {"command": list(command), "returncode": 0, "stdout": "fixed", "stderr": ""}
+        if command[:2] == ["ruff", "format"]:
+            return {"command": list(command), "returncode": 0, "stdout": "formatted", "stderr": ""}
+        if command[:2] == ["ruff", "check"]:
+            return {"command": list(command), "returncode": 0, "stdout": "All checks passed!", "stderr": ""}
+        if command[:2] == ["pytest", "-q"] or command[:4] == ["py", "-m", "pytest", "-q"]:
+            return {"command": list(command), "returncode": 0, "stdout": "[100%]", "stderr": ""}
+        raise AssertionError(f"Unexpected command: {command}")
+
+    result = runner.run_autonomous_single_task(
+        task_path.as_posix(),
+        ledger_path=ledger_path,
+        now=lambda: "2026-04-10T20:07:00Z",
+        executor=fake_executor,
+    )
+
+    assert result["entry"]["final_decision"] == "completed"
+    assert result["entry"]["validation"]["safe_lint_preflight_attempted"] is True
+    assert result["entry"]["validation"]["safe_lint_preflight_succeeded"] is True
+    assert result["lint_preflight_artifact"]["attempted"] is True
+    assert result["lint_preflight_artifact"]["succeeded"] is True
+    assert result["verifier_artifact"]["verdict"] == "pass"
+    assert result["controller_decision"]["action"] == "accept"
+    assert result["repair_artifact"]["repair_required"] is False
+    assert any(command[:3] == ["ruff", "check", "--fix"] for command in calls)
+
+
+
 def test_refresh_single_task_reporting_artifacts_emits_scoreboard_and_failure_digest(tmp_path: Path) -> None:
     runner = _load_run_single_task_module()
     ledger_path = tmp_path / "artifacts" / "run_ledger.jsonl"
