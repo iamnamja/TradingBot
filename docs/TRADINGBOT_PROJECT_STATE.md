@@ -50,3 +50,12 @@ The next tranche should shift from “more safe-lane plumbing” to **execution 
 4. measure pass rate and failure-class distribution
 5. re-prove the bounded one-task lane on that external-safe corpus
 6. only then decide whether bounded two-task trials are justified
+
+## Task 149 checkpoint
+
+Task 149 establishes the canonical external-safe evaluation manifest that later execution-quality tasks will use as the proving ground for one-task autonomous performance. The manifest carries:
+
+- explicit archetype labels for ordinary external-style work
+- allowed execution-lane truth per corpus item
+- expected validation-profile truth per corpus item
+- exact deliverable markdown text that later one-task runs can execute consistently

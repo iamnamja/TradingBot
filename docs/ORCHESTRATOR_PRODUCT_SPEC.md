@@ -44,4 +44,6 @@ The next product phase should optimize for **execution quality**, not more surfa
 - measure pass rate, retry rate, escalation rate, and dominant failure classes
 - re-prove the one-task lane on that corpus before any two-task widening
 
+Task 149 starts this phase by defining the canonical external-safe evaluation manifest. That manifest is the measured proving ground for the next tranche rather than another proof-shaped self-hosting slice.
+
 Only after those criteria are met should the product consider bounded two-task trials, and only later should it be wrapped as a separate operator-facing app.

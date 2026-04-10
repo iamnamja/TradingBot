@@ -21,6 +21,8 @@ Key outcomes for this phase:
 - a supervised reliability re-proof over the external-safe corpus
 - an explicit go / no-go gate before any two-task widening
 
+Task 149 is the first checkpoint in this phase: define the manifest and keep the proving ground external-style and safe instead of drifting back into self-hosting-first work.
+
 ### Phase B — Widen carefully into bounded multi-task execution
 This phase comes only after Phase A is green.
 
