@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Literal, Mapping, Sequence, TypedDict
+from typing import Any, Literal, Mapping, Sequence, TypedDict
 
 from agents.lib.controller_contract import (
     BatchPostTaskDecision,
@@ -28,17 +28,6 @@ class BatchSummaryTaskOutcome(TypedDict, total=False):
     status: QueueStatus
     decision: BatchPostTaskDecision
     note: str
-
-
-class SingleTaskSchedulerBridgeDecision(TypedDict, total=False):
-    bridge_decision: str
-    rationale: str
-    selected_task_path: str
-    ready_task_paths: list[str]
-    safe_ready_task_paths: list[str]
-    non_safe_ready_task_paths: list[str]
-    admission: dict[str, object]
-    proof_admission: dict[str, object]
 
 
 ALLOWED_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
@@ -216,13 +205,168 @@ def build_task_queue_from_manifest(manifest: dict[str, Any], repo_root: str | Pa
 
 
 
+def _ready_queue_items(
+    queue: Sequence[TaskQueueItem],
+    *,
+    completed_task_paths: Sequence[str] | None = None,
+) -> list[TaskQueueItem]:
+    completed = {_normalized_task_path(path) for path in (completed_task_paths or ())}
+    status_by_path = {item.task_path: ("completed" if item.task_path in completed else item.status) for item in queue}
+    reverse_blocks: dict[str, tuple[str, ...]] = {}
+    for item in queue:
+        for blocked in item.blocks:
+            reverse_blocks.setdefault(blocked, tuple())
+            reverse_blocks[blocked] = tuple(sorted(set(reverse_blocks[blocked]) | {item.task_path}))
+
+    ready: list[TaskQueueItem] = []
+    for item in queue:
+        if item.task_path in completed or item.status == "completed" or item.skipped_by_policy:
+            continue
+        missing = [dep for dep in item.depends_on if dep not in completed]
+        active_blockers = [
+            blocker
+            for blocker in reverse_blocks.get(item.task_path, ())
+            if blocker not in completed and status_by_path.get(blocker, "queued") != "completed"
+        ]
+        if missing or active_blockers:
+            continue
+        ready.append(item)
+    return ready
+
+
+class SafeLaneQueuePlan(TypedDict, total=False):
+    decision: str
+    selected_task_path: str
+    ready_safe_task_paths: list[str]
+    supervised_handoff_task_paths: list[str]
+    requeue_task_paths: list[str]
+    waiting_task_paths: list[str]
+    stop_after_selected: bool
+    supervised_handoff_required: bool
+    rationale: str
+
+
+
+def _load_scheduler_task_text(
+    task_path: str,
+    *,
+    task_text_loader: Any | None = None,
+) -> str:
+    if callable(task_text_loader):
+        loaded = task_text_loader(task_path)
+        return str(loaded or "")
+    file_path = Path(task_path)
+    if file_path.exists():
+        return file_path.read_text(encoding="utf-8", errors="replace")
+    return ""
+
+
+
+def plan_safe_lane_stop_requeue_policy(
+    queue: Sequence[TaskQueueItem],
+    *,
+    completed_task_paths: Sequence[str] | None = None,
+    task_text_loader: Any | None = None,
+) -> SafeLaneQueuePlan:
+    from agents.lib.task_contracts import evaluate_autonomous_single_task_admission
+    from agents.run_task import parse_required_files
+
+    completed = {_normalized_task_path(path) for path in (completed_task_paths or ())}
+    ready_items = _ready_queue_items(queue, completed_task_paths=completed_task_paths)
+
+    ready_safe: list[str] = []
+    ready_supervised: list[str] = []
+    ready_escalation: list[str] = []
+
+    for item in ready_items:
+        task_text = _load_scheduler_task_text(item.task_path, task_text_loader=task_text_loader)
+        required_paths = list(parse_required_files(task_text))
+        autonomous_admission = dict(
+            evaluate_autonomous_single_task_admission(
+                required_paths,
+                task_file=item.task_path,
+                task_text=task_text,
+            )
+        )
+        lane = str(autonomous_admission.get("autonomous_single_task_lane", "") or "supervised_only")
+        if lane == "autonomous_safe":
+            ready_safe.append(item.task_path)
+        elif lane == "escalation_required":
+            ready_escalation.append(item.task_path)
+        else:
+            ready_supervised.append(item.task_path)
+
+    handoff_paths = sorted(set(ready_supervised + ready_escalation))
+    pending_paths = [
+        item.task_path
+        for item in queue
+        if item.task_path not in completed and item.status != "completed" and not item.skipped_by_policy
+    ]
+
+    if len(ready_safe) == 1:
+        selected = ready_safe[0]
+        requeue = [path for path in pending_paths if path != selected and path not in handoff_paths]
+        return {
+            "decision": "run_one_and_stop",
+            "selected_task_path": selected,
+            "ready_safe_task_paths": list(ready_safe),
+            "supervised_handoff_task_paths": handoff_paths,
+            "requeue_task_paths": requeue,
+            "waiting_task_paths": [path for path in pending_paths if path not in ready_safe and path not in handoff_paths],
+            "stop_after_selected": True,
+            "supervised_handoff_required": bool(handoff_paths),
+            "rationale": "Exactly one autonomous-safe task is ready; run it, hand off unsafe ready work, requeue the rest, and stop.",
+        }
+
+    if len(ready_safe) > 1:
+        requeue = [path for path in pending_paths if path not in handoff_paths]
+        return {
+            "decision": "stop_and_requeue",
+            "selected_task_path": "",
+            "ready_safe_task_paths": list(ready_safe),
+            "supervised_handoff_task_paths": handoff_paths,
+            "requeue_task_paths": requeue,
+            "waiting_task_paths": [path for path in pending_paths if path not in ready_safe and path not in handoff_paths],
+            "stop_after_selected": True,
+            "supervised_handoff_required": bool(handoff_paths),
+            "rationale": "More than one autonomous-safe task is ready; the bounded lane refuses widening and requeues remaining safe work.",
+        }
+
+    if handoff_paths:
+        requeue = [path for path in pending_paths if path not in handoff_paths]
+        return {
+            "decision": "supervised_handoff_only",
+            "selected_task_path": "",
+            "ready_safe_task_paths": [],
+            "supervised_handoff_task_paths": handoff_paths,
+            "requeue_task_paths": requeue,
+            "waiting_task_paths": [path for path in pending_paths if path not in handoff_paths],
+            "stop_after_selected": True,
+            "supervised_handoff_required": True,
+            "rationale": "Ready work is supervised-only or escalation-required; no autonomous run is allowed.",
+        }
+
+    return {
+        "decision": "requeue_waiting",
+        "selected_task_path": "",
+        "ready_safe_task_paths": [],
+        "supervised_handoff_task_paths": [],
+        "requeue_task_paths": list(pending_paths),
+        "waiting_task_paths": list(pending_paths),
+        "stop_after_selected": False,
+        "supervised_handoff_required": False,
+        "rationale": "No queue item is both ready and safe for autonomous execution yet.",
+    }
+
+
+
 def select_next_task(
     queue: Sequence[TaskQueueItem],
     *,
     completed_task_paths: Sequence[str] | None = None,
 ) -> TaskQueueItem | None:
-    ready_items = _ready_queue_items(queue, completed_task_paths=completed_task_paths)
-    return ready_items[0] if ready_items else None
+    ready = _ready_queue_items(queue, completed_task_paths=completed_task_paths)
+    return ready[0] if ready else None
 
 def plan_manifest_progress(queue: Sequence[TaskQueueItem]) -> dict[str, object]:
     from agents.lib.manifest_planner import plan_manifest_progress as _impl
@@ -281,140 +425,3 @@ def build_batch_summary_payload(*, manifest_path: str, outcomes: Sequence[BatchS
 
 def render_batch_summary_text(summary: dict[str, object]) -> str:
     return "x"
-
-
-def _task_is_dependency_ready(
-    item: TaskQueueItem,
-    *,
-    completed: set[str],
-    status_by_path: Mapping[str, str],
-    reverse_blocks: Mapping[str, tuple[str, ...]],
-) -> bool:
-    if item.task_path in completed or item.status == "completed" or item.skipped_by_policy:
-        return False
-    missing = [dep for dep in item.depends_on if dep not in completed]
-    active_blockers = [
-        blocker
-        for blocker in reverse_blocks.get(item.task_path, ())
-        if blocker not in completed and status_by_path.get(blocker, "queued") != "completed"
-    ]
-    return not missing and not active_blockers
-
-
-def _ready_queue_items(
-    queue: Sequence[TaskQueueItem],
-    *,
-    completed_task_paths: Sequence[str] | None = None,
-) -> list[TaskQueueItem]:
-    completed = {_normalized_task_path(path) for path in (completed_task_paths or ())}
-    status_by_path = {item.task_path: ("completed" if item.task_path in completed else item.status) for item in queue}
-    reverse_blocks: dict[str, tuple[str, ...]] = {}
-    for item in queue:
-        for blocked in item.blocks:
-            reverse_blocks.setdefault(blocked, tuple())
-            reverse_blocks[blocked] = tuple(sorted(set(reverse_blocks[blocked]) | {item.task_path}))
-    return [
-        item
-        for item in queue
-        if _task_is_dependency_ready(
-            item,
-            completed=completed,
-            status_by_path=status_by_path,
-            reverse_blocks=reverse_blocks,
-        )
-    ]
-
-
-def select_single_admissible_safe_task(
-    queue: Sequence[TaskQueueItem],
-    *,
-    repo_root: str | Path = ".",
-    completed_task_paths: Sequence[str] | None = None,
-    admission_evaluator: Callable[[TaskQueueItem, Path], Mapping[str, object]] | None = None,
-) -> SingleTaskSchedulerBridgeDecision:
-    ready_items = _ready_queue_items(queue, completed_task_paths=completed_task_paths)
-    if not ready_items:
-        return {
-            "bridge_decision": "no_ready_task",
-            "rationale": "No dependency-ready task is currently available for the bounded single-task lane.",
-            "ready_task_paths": [],
-            "safe_ready_task_paths": [],
-            "non_safe_ready_task_paths": [],
-        }
-
-    root = Path(repo_root).resolve()
-
-    def _default_evaluator(item: TaskQueueItem, resolved_root: Path) -> Mapping[str, object]:
-        from agents import run_task as _run_task  # type: ignore
-
-        task_file = resolved_root / item.task_path
-        task_text = task_file.read_text(encoding="utf-8", errors="replace")
-        required_paths = list(_run_task.parse_required_files(task_text))
-        admission = dict(
-            _run_task.evaluate_autonomous_single_task_admission(
-                required_paths,
-                task_file=item.task_path,
-                task_text=task_text,
-            )
-        )
-        proof_admission = dict(
-            _run_task.evaluate_proof_task_admission(
-                task_text=task_text,
-                task_file=item.task_path,
-                required_paths=required_paths,
-            )
-        )
-        return {
-            "task_path": item.task_path,
-            "required_paths": required_paths,
-            "admission": admission,
-            "proof_admission": proof_admission,
-        }
-
-    evaluator = admission_evaluator or _default_evaluator
-    safe_candidates: list[dict[str, object]] = []
-    non_safe_ready: list[str] = []
-
-    for item in ready_items:
-        evaluation = dict(evaluator(item, root))
-        admission = dict(evaluation.get("admission", {}) or {})
-        proof_admission = dict(evaluation.get("proof_admission", {}) or {})
-        allowed = bool(admission.get("autonomous_single_task_allowed", False)) and bool(
-            proof_admission.get("proof_task_admission_allowed", False)
-        )
-        record = {
-            "task_path": item.task_path,
-            "admission": admission,
-            "proof_admission": proof_admission,
-        }
-        if allowed:
-            safe_candidates.append(record)
-        else:
-            non_safe_ready.append(item.task_path)
-
-    if len(safe_candidates) != 1:
-        rationale = (
-            "Scheduler bridge refuses to widen into multi-task autonomous execution because more than one "
-            "dependency-ready safe task is admissible."
-            if len(safe_candidates) > 1
-            else "Scheduler bridge found no dependency-ready task that is admissible for the bounded safe lane."
-        )
-        return {
-            "bridge_decision": "delegate_to_supervision",
-            "rationale": rationale,
-            "ready_task_paths": [item.task_path for item in ready_items],
-            "safe_ready_task_paths": [str(candidate["task_path"]) for candidate in safe_candidates],
-            "non_safe_ready_task_paths": non_safe_ready,
-        }
-
-    selected = safe_candidates[0]
-    return {
-        "bridge_decision": "delegate_to_single_task_runner",
-        "rationale": "Exactly one dependency-ready safe task is admissible, so scheduler routing may invoke the bounded single-task runner.",
-        "selected_task_path": str(selected["task_path"]),
-        "ready_task_paths": [item.task_path for item in ready_items],
-        "safe_ready_task_paths": [str(selected["task_path"])],
-        "non_safe_ready_task_paths": non_safe_ready,
-        "admission": dict(selected["admission"]),
-        "proof_admission": dict(selected["proof_admission"]),
-    }
