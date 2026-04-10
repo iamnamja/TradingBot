@@ -1,14 +1,16 @@
-# Docs Index
+# Docs Index Addendum
 
-## Current continuation focus
+## Current roadmap slice
 
-The orchestrator is now complete through **Task 156** and the next roadmap slice is a **single-task reliability sprint**.
+- `ORCHESTRATOR_ROADMAP_149_154.md` — execution-quality tranche after the bounded one-task proof bundle
+- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task execution quality first, bounded multi-task second, standalone app later
 
-Start with these docs:
+## Current continuation note
 
-- `TRADINGBOT_PROJECT_STATE.md` — current truthful project status
-- `ORCHESTRATOR_PHASE_DIRECTION.md` — what the current phase is and is not
-- `ORCHESTRATOR_PRODUCT_SPEC.md` — near-term product role for the orchestrator
-- `ORCHESTRATOR_ROADMAP_149_154.md` — completed execution-quality tranche
-- `ORCHESTRATOR_ROADMAP_157_161.md` — the current one-task reliability sprint
-- `NEW_CHAT_HANDOFF_PROMPT.md` — continuation context for a new chat
+Tasks 137–148 created and converged a bounded autonomous one-task lane, but the next priority is not broader autonomy. It is making the current lane complete ordinary external-safe tasks with a credible pass rate and targeted self-heal behavior.
+
+## Current next-step note
+
+The next tranche should focus on an external-safe evaluation corpus, a real one-task dev/test/repair/controller loop, measured pass-rate artifacts, and a go / no-go gate before bounded two-task trials.
+
+- `ORCHESTRATOR_ROADMAP_157_161.md`: single-task reliability sprint roadmap for Tasks 157–161

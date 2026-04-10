@@ -7,6 +7,7 @@ KNOWN_SAFE_ARTIFACT_NAMES = (
     "last_output.txt",
     "_last_agent_model_output.txt",
     "_last_agent_file_bundle.txt",
+    "_last_agent_file_bundle_error.txt",
 )
 
 

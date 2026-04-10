@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agents import run_task
@@ -261,3 +263,59 @@ def test_task_136_resilience_reproof_helpers_cover_empty_underfilled_and_missing
     assert feedback["deliverable_retry_kind"] == "missing_required_paths"
     assert "EXACTLY these missing required paths" in feedback["retry_feedback"]
     assert "README.md" in feedback["retry_feedback"]
+
+
+
+def test_request_and_parse_bundle_empty_bundle_reasks_before_generic_retry(tmp_path, monkeypatch) -> None:
+    prompts: list[str] = []
+    responses = iter([
+        "BEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE\n",
+        "BEGIN_FILE_BUNDLE\nFILE: a.py\nx = 1\nEND_FILE\nEND_FILE_BUNDLE\n",
+    ])
+
+    def fake_chat(messages, model, provider=None):
+        if len(messages) > 1:
+            prompts.append(messages[-1]["content"])
+        return next(responses)
+
+    monkeypatch.setattr(run_task, "chat", fake_chat)
+    out = run_task.request_and_parse_bundle(
+        messages=[{"role": "user", "content": "do task"}],
+        model="m",
+        provider="openai",
+        last_output_path=tmp_path / "last.txt",
+        expected_paths=["a.py"],
+    )
+    assert out == {"a.py": "x = 1\n"}
+    assert len(prompts) == 1
+    assert "EMPTY file bundle" in prompts[0]
+
+
+def test_request_and_parse_bundle_empty_bundle_retry_is_bounded_and_writes_diagnostic(tmp_path, monkeypatch) -> None:
+    responses = iter([
+        "BEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE\n",
+        "BEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE\n",
+        "BEGIN_FILE_BUNDLE\nEND_FILE_BUNDLE\n",
+    ])
+    calls = {"count": 0}
+
+    def fake_chat(messages, model, provider=None):
+        calls["count"] += 1
+        return next(responses)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(run_task, "chat", fake_chat)
+
+    with pytest.raises(run_task.FileBundleError):
+        run_task.request_and_parse_bundle(
+            messages=[{"role": "user", "content": "do task"}],
+            model="m",
+            provider="openai",
+            last_output_path=tmp_path / "last.txt",
+            expected_paths=["a.py"],
+        )
+
+    assert calls["count"] == 3
+    error_text = Path("_last_agent_file_bundle_error.txt").read_text(encoding="utf-8")
+    assert "failure_category: bundle_empty_response" in error_text
+    assert "empty BEGIN_FILE_BUNDLE / END_FILE_BUNDLE wrapper" in error_text

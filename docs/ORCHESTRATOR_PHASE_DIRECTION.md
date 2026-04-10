@@ -1,30 +1,73 @@
 # Orchestrator Phase Direction
 
-## Current phase
+## Why this document exists
 
-The project is now in a **single-task reliability sprint** inside the broader one-task benchmark proof mode.
+The project has reached the end of the first bounded one-task safe-lane tranche. That was necessary work, but it is easy to lose focus by continuing to add more orchestration surfaces without first making the existing lane truly useful.
 
-## What this phase is about
+This document records the agreed phase order so the project does not drift.
 
-This phase is about getting one-task execution to run well in real life.
+## Agreed priority order
 
-It is about proving that the bounded external-safe one-task lane can:
+### Phase A — Make one-task autonomous execution actually work
+This phase comes first.
 
-- execute real benchmark-eligible tasks through the orchestrator itself,
-- avoid empty-bundle and artifact-policy confusion,
-- complete the full required integration surface for a task,
-- reduce manual rescue and partial helper-only completions,
-- produce truthful benchmark artifacts that support promotion decisions.
+The immediate goal is not broader autonomy. The goal is to make the existing bounded one-task lane complete ordinary external-style safe tasks with a credible pass rate and with targeted self-heal behavior that materially reduces manual patching.
 
-## What this phase is not about
+Key outcomes for this phase:
 
-This phase is not yet about:
+- a canonical external-safe evaluation corpus
+- a real bounded dev / test / repair / controller loop
+- measurable pass-rate and failure-class artifacts
+- a supervised reliability re-proof over the external-safe corpus
+- an explicit go / no-go gate before any two-task widening
 
-- widening to bounded two-task execution,
-- general multi-task autonomy,
-- self-hosting autonomy,
-- app-shell/productization as the primary focus.
+Task 149 is the first checkpoint in this phase: define the manifest and keep the proving ground external-style and safe instead of drifting back into self-hosting-first work.
 
-## Phase exit signal
+### Phase B — Widen carefully into bounded multi-task execution
+This phase comes only after Phase A is green.
 
-This sprint should only end when a fresh one-task re-proof shows that the orchestrator can complete benchmark-eligible one-task work much more reliably and the broader roadmap can resume honestly.
+The goal is to move from one reliable task at a time into short dependency-aware sequences without losing the conservative stop / requeue / escalation posture.
+
+Key outcomes for this phase:
+
+- two-task or short-chain bounded trials
+- dependency-aware re-entry across more than one task
+- queue-level failure containment
+- explicit criteria for when to stop widening
+
+### Phase C — Productize the orchestrator as its own app
+This phase comes after execution quality and bounded multi-task reliability exist.
+
+The goal is to wrap a working engine in an operator-facing product rather than to build a shell around an unreliable core.
+
+Key outcomes for this phase:
+
+- separate operator-facing app surface
+- run history and artifact inspection views
+- approvals / escalation UI
+- deployment/runtime packaging
+- eventually, carefully bounded self-hosting-app work
+
+## Self-hosting stance
+
+The orchestrator should eventually be able to work on its own app, but that is a later privilege, not the first proving ground.
+
+For now:
+
+- external-style safe work is the primary proving ground
+- self-hosting-adjacent work stays supervised or narrowly bounded
+- core control-plane self-hosting remains escalation-first until later evidence supports widening
+
+## What this means right now
+
+The next tranche should optimize for:
+
+1. one-task execution quality
+2. one-task self-heal quality
+3. measured pass rate on external-safe corpus
+4. only then, explicit readiness criteria for bounded multi-task trials
+
+Anything that does not materially improve those four outcomes is lower priority.
+
+
+Current manual stabilization order is 157 benchmark scorecard integration, 158 empty bundle transport retry/classifier hardening, 159 runtime artifact normalization, and 160 completion integrity gating before wider orchestrator-run proof resumes.

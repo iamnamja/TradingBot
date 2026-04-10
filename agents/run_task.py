@@ -64,7 +64,8 @@ KEEP_RUNTIME_ARTIFACTS_ENV = "TRADINGBOT_KEEP_RUNTIME_ARTIFACTS"
 RUNTIME_ARTIFACT_NAMES = (
     "last_output.txt",
     "_last_agent_model_output.txt",
-    "_last_agent_file_bundle.txt", "_last_agent_file_bundle_error.txt",
+    "_last_agent_file_bundle.txt",
+    "_last_agent_file_bundle_error.txt",
     "_last_subset_preservation.json",
 )
 
@@ -4046,6 +4047,7 @@ def request_and_parse_bundle(
     baseline: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     last_output_path = Path(last_output_path)
+    _remove_bundle_transport_diagnostic_artifact(last_output_path)
     allowed_paths = [
         p.strip().replace("\\", "/")
         for p in (expected_paths or [])
@@ -4252,6 +4254,44 @@ def request_and_parse_bundle(
                 str(e),
                 expected_paths=allowed_paths,
             )
+            _write_bundle_transport_diagnostic_artifact(
+                raw_output=out,
+                error_message=str(e),
+                last_output_path=last_output_path,
+                last_bundle_path=Path("_last_agent_file_bundle.txt"),
+                classification=classification,
+            )
+            if str(classification.get("failure_category") or "") == "bundle_empty_response":
+                requested_paths = allowed_paths or ["the requested task deliverables"]
+                empty_bundle_retry_prompt = (
+                    "Your previous response returned an EMPTY file bundle.\n"
+                    "You produced BEGIN_FILE_BUNDLE / END_FILE_BUNDLE with no FILE blocks.\n"
+                    "Retry once now and return ONLY a valid file bundle with concrete FILE blocks for these requested paths:\n"
+                    + "\n".join(f"- {path}" for path in requested_paths)
+                    + "\n\nRequired structure:\n"
+                    + "BEGIN_FILE_BUNDLE\nFILE: path/to/file.ext\n<full file contents>\nEND_FILE\nEND_FILE_BUNDLE\n"
+                )
+                empty_retry_output = chat(messages + [{"role": "user", "content": empty_bundle_retry_prompt}], model=model, provider=provider)
+                last_output_path.write_text(empty_retry_output + "\n", encoding="utf-8", newline="\n")
+                try:
+                    parsed = _parse_validate_or_salvage(empty_retry_output, allowed_paths, require_all=bool(allowed_paths))
+                    _remove_bundle_transport_diagnostic_artifact(last_output_path)
+                    return parsed
+                except Exception as empty_retry_exc:
+                    classification = classify_bundle_transport_failure(
+                        empty_retry_output,
+                        str(empty_retry_exc),
+                        expected_paths=allowed_paths,
+                    )
+                    _write_bundle_transport_diagnostic_artifact(
+                        raw_output=empty_retry_output,
+                        error_message=str(empty_retry_exc),
+                        last_output_path=last_output_path,
+                        last_bundle_path=Path("_last_agent_file_bundle.txt"),
+                        classification=classification,
+                    )
+                    out = empty_retry_output
+                    e = empty_retry_exc
             parsed_subset: Dict[str, str] = {}
             retry_feedback: Dict[str, object] = {}
             reminder = ""
@@ -4329,6 +4369,7 @@ def request_and_parse_bundle(
             initial_raw_output,
         )
 
+    _remove_bundle_transport_diagnostic_artifact(last_output_path)
     return parsed
 
 
@@ -4536,6 +4577,50 @@ def _choose_agent_branch(task_stem: str, push: bool) -> str:
         idx += 1
         candidate = f"{base}-r{idx}"
     return candidate
+
+
+def _bundle_transport_error_path(last_output_path: Path) -> Path:
+    return Path(last_output_path).with_name("_last_agent_file_bundle_error.txt")
+
+
+def _write_bundle_transport_diagnostic_artifact(
+    *,
+    raw_output: str,
+    error_message: str,
+    last_output_path: Path,
+    last_bundle_path: Path,
+    classification: Dict[str, Any] | None = None,
+) -> Path:
+    error_path = _bundle_transport_error_path(last_output_path)
+    classification = dict(classification or {})
+    failure_category = str(classification.get("failure_category", "bundle_transport") or "bundle_transport")
+    summary = str(classification.get("bundle_failure_summary", "Bundle transport failure.") or "Bundle transport failure.")
+    raw_text = normalize_newlines(str(raw_output or ""))
+    is_empty_bundle = raw_text.strip() == (FILE_BUNDLE_BEGIN + "\n" + FILE_BUNDLE_END)
+    lines = [
+        f"failure_category: {failure_category}",
+        f"summary: {summary}",
+        f"error: {error_message}",
+        f"raw_model_output: {Path(last_output_path).as_posix()}",
+        f"parsed_bundle_artifact: {Path(last_bundle_path).as_posix()}",
+    ]
+    if is_empty_bundle or classification.get("bundle_empty"):
+        lines.append("empty_bundle_transport: true")
+        lines.append("note: no FILE blocks could be parsed from the model response.")
+        lines.append("note: raw output was an empty BEGIN_FILE_BUNDLE / END_FILE_BUNDLE wrapper with no FILE blocks.")
+    else:
+        lines.append("empty_bundle_transport: false")
+    error_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return error_path
+
+
+def _remove_bundle_transport_diagnostic_artifact(last_output_path: Path) -> None:
+    error_path = _bundle_transport_error_path(last_output_path)
+    try:
+        if error_path.exists():
+            error_path.unlink()
+    except Exception:
+        pass
 
 
 def _runtime_artifact_paths(last_output_path: Path, last_bundle_path: Path) -> List[Path]:
@@ -4753,6 +4838,9 @@ def _emit_failure_artifact_messages(last_output_path: Path, last_bundle_path: Pa
         print(f"Parsed file bundle saved to: {last_bundle_path}")
     else:
         print(f"Parsed file bundle was not written: {last_bundle_path}")
+    bundle_error_path = _bundle_transport_error_path(last_output_path)
+    if bundle_error_path.exists():
+        print(f"Bundle transport diagnostics saved to: {bundle_error_path}")
 def _cleanup_runtime_artifacts_for_commit(paths: List[Path], keep_runtime_artifacts: bool | None = None) -> None:
     exports = _artifact_quarantine_exports()
     quarantine = exports.get("quarantine_runtime_artifacts")
@@ -5382,13 +5470,6 @@ def main() -> int:
             if _repeat_limit_exceeded(violation_counts, "python_syntax", args.policy_block_limit):
                 print("\n❌ Stopping early: repeated Python syntax failures. Recommended action: manual_patch")
                 print("Model output saved to: _last_agent_model_output.txt")
-                Path("_last_agent_file_bundle_error.txt").write_text(
-                    "Bundle transport failure: no FILE blocks could be parsed from the model response.\n"
-                    "If _last_agent_model_output.txt contains only BEGIN_FILE_BUNDLE / END_FILE_BUNDLE, the model returned an empty bundle.\n"
-                    "Parsed file bundle saved to _last_agent_file_bundle.txt may contain only the empty wrapper markers.\n",
-                    encoding="utf-8",
-                    newline="\n",
-                )
                 print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
                 return 1
             prev_files = files

@@ -1,49 +1,70 @@
-# TradingBot / Orchestrator Project State
+# TradingBot Project State
+
+## Repository shape
+
+The current monorepo contains:
+
+- Trading runtime (`src/tradingbot`)
+- Orchestrator engine and control plane (`src/builder/orchestrator`)
+- Agent execution harness (`agents`)
+- Numbered implementation tasks (`tasks`)
+- Documentation and project-state tracking (`docs`)
 
 ## Current state
 
-The repository is now complete through **Task 156**.
+- **Tasks 124–148 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, normalizes schema aliases and canonical stop vocabulary, targets assertion-shaped failures toward coupled compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes empty/underfilled/markerless/malformed bundle failures, compiles targeted retry prompts around missing deliverables, preserves the last-known-good subset while rolling back only the failing subset during retries, keeps hosted-authority operational convergence truth explicit, verifies real GitHub required-check enforcement convergence around the stable `ci-required` context, establishes a safe task-family autonomy allowlist, adds a bounded autonomous single-task runner with ledger/reporting/handoff/resume semantics, routes the scheduler through that runner when exactly one safe task is ready, applies conservative stop/requeue policy for mixed queues, and packages the current lane into an operator-readable live canary proof bundle.
 
-The orchestrator has a real bounded one-task execution lane with:
+The current bounded deterministic slice now demonstrates:
 
-- proof-task admission gating and exact deliverable discipline,
-- safe-task-family allowlisting,
-- a dedicated autonomous single-task runner and ledger,
-- bounded multi-agent dev / test / repair / controller role artifacts,
-- external-safe failure taxonomy and targeted self-heal routing,
-- pass-rate scoreboarding and failure digests,
-- a corpus re-proof and a truthful two-task readiness gate,
-- a bounded lint-only preflight normalization step for eligible one-task Python work,
-- and an initial one-task benchmark harness.
+1. supervised local-first portfolio progression across more than one registered project
+2. project-scoped isolation for state, branches, workspaces, and carry-forward memory
+3. dependency-aware next-task selection with conservative stop posture
+4. compatibility-preserving hosted-authority truth and merge-eligibility truth
+5. green-gated proof-claim discipline
+6. targeted retry planning around missing deliverables and coupled compatibility surfaces
+7. bounded subset preservation so targeted retries do not unnecessarily widen the changed-file set
+8. explicit hosted-authority operational-readiness truth around the stable `ci-required` contract
+9. a bounded autonomous one-task lane with scheduler bridging, explicit stop/requeue policy, supervised handoff, resume-state artifacts, and an operator proof bundle
+10. a fresh supervised operational re-proof over the bounded one-task lane
 
-## What the repo can honestly claim now
+## Scope honesty
 
-It can honestly claim:
+Current proof scope remains explicitly limited to:
 
-- one external-safe allowlisted task at a time can run through a bounded autonomous one-task lane under supervision,
-- ordinary one-task failures are classified and can trigger bounded self-heal behavior,
-- the repo has measurement artifacts rather than only anecdotal success/failure impressions,
-- benchmark-style one-task runs are now the main proving mode.
+- deterministic local supervised operation
+- bounded multi-project portfolio slices
+- conservative stop-on-risk / stop-on-authority-unsatisfied posture
+- compatibility-preserving self-heal and schema alias normalization contracts
+- safe-lane autonomy only for one allowlisted safe task at a time under supervision
+- operator-readable proof for the bounded one-task lane, not broad autonomy
 
-It still does **not** honestly claim:
+It still does **not** claim autonomy for arbitrary protected/controller/meta task lists, broad unattended production scheduling, arbitrary multi-task autonomous execution, or broad self-hosting control-plane autonomy.
 
-- broad unattended scheduler autonomy,
-- reliable multi-task autonomous execution,
-- self-hosting control-plane autonomy,
-- that the orchestrator is already the default trusted execution path for ongoing task work.
+## Next continuation target
 
-## Immediate direction
+The next tranche should shift from “more safe-lane plumbing” to **execution quality**:
 
-The next slice is a **single-task reliability sprint**.
+1. define an external-style safe one-task evaluation corpus
+2. make the bounded one-task lane behave like a real dev / test / repair / controller loop
+3. improve targeted self-heal quality on ordinary external-safe failures
+4. measure pass rate and failure-class distribution
+5. re-prove the bounded one-task lane on that external-safe corpus
+6. only then decide whether bounded two-task trials are justified
 
-That means:
+## Task 149 checkpoint
 
-- tighten the integrated benchmark scorecard,
-- harden empty-bundle transport failures,
-- normalize runtime-artifact policy,
-- reject helper-only partial completions,
-- then re-run a small one-task reliability pack before resuming the broader roadmap.
+Task 149 establishes the canonical external-safe evaluation manifest that later execution-quality tasks will use as the proving ground for one-task autonomous performance. The manifest carries:
 
-## Why this matters
+- explicit archetype labels for ordinary external-style work
+- allowed execution-lane truth per corpus item
+- expected validation-profile truth per corpus item
+- exact deliverable markdown text that later one-task runs can execute consistently
 
-The first live proof-mode runs showed that the current bottleneck is not missing generic orchestrator features. It is making one-task execution complete cleanly and honestly with minimal manual rescue.
+
+## Task 157 checkpoint
+
+Task 157 wires the strict benchmark scorecard into the live benchmark/session path so promotion decisions are grounded in the same artifacts the orchestrator already emits.
+
+## Next continuation target
+
+Task 158 hardens empty-bundle transport handling so proof-mode runs classify, diagnose, and bounded-retry empty BEGIN_FILE_BUNDLE / END_FILE_BUNDLE responses consistently.
