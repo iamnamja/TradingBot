@@ -37,7 +37,7 @@ After Tasks 124–136, the orchestrator now has bounded deterministic defenses a
 - hosted-authority operational-readiness truth
 - conservative stop when no dependency-ready task is available
 
-## Next policy posture (137–142)
+## Next policy posture (143–148)
 
 The next tranche should **not** broaden into arbitrary autonomy. It should narrow into a safe lane:
 
@@ -45,8 +45,6 @@ The next tranche should **not** broaden into arbitrary autonomy. It should narro
 - the safe lane admits narrow docs/tests/`src/tradingbot` work only, while `agents/` and `src/builder/orchestrator/` remain escalation-first by default
 - self-hosting control-plane edits remain escalation-first unless separately proven safe
 - unattended readiness remains blocked unless real GitHub required-check enforcement is converged
-- a dedicated single-task runner should emit a run ledger, canary metrics, recovery reporting, and deterministic supervised handoff artifacts
+- a dedicated single-task runner should emit a run ledger, canary metrics, explicit escalation artifacts, and deterministic resume-state artifacts
+- resumed one-task runs must be idempotent: no duplicate ledger rows, no duplicate supervised artifacts, and no widened execution scope
 - broader autonomy claims should remain blocked until the safe lane is re-proven green
-
-
-Task 146 note: mixed queues now stop conservatively after at most one unique autonomous-safe task, emit explicit supervised handoff for unsafe ready work, and requeue remaining work without widening the bounded lane.

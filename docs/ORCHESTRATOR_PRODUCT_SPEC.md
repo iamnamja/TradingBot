@@ -8,12 +8,12 @@ Build a reusable orchestration engine that can execute constrained implementatio
 
 - **124–129** freeze compatibility/public-contract posture and re-prove the bounded supervised portfolio slice
 - **130–136** harden convergence around proof-task admission, bundle failure classification, missing-deliverable retry compilation, assertion-to-compatibility repair planning, last-green subset preservation/rollback, hosted-authority operational convergence, and a bounded supervised resilience re-proof
-- **137–141** begin the safe autonomous single-task lane with real required-check truth, an autonomy allowlist, a dedicated one-task runner and ledger, artifact-based canary metrics plus recovery reporting, and deterministic supervised handoff artifacts
+- **137–146** converge the narrow safe autonomous single-task lane: required-check enforcement probing, safe-task-family allowlisting, one-task runner + ledger, canary reporting, supervised handoff, re-proof, real PR smoke proof, scheduler bridging, and stop/requeue policy for mixed queues
 - Product scope remains bounded and truthful; it is still not claiming broad unattended autonomy
 
 ## What the product can honestly claim today
 
-The repo has deterministic proof for a bounded supervised portfolio slice plus convergence hardening:
+The repo has deterministic proof for a bounded supervised portfolio slice plus a narrow one-task autonomous safe lane:
 
 - supervised local-first progression across more than one registered project
 - project-scoped workspace/branch/state/carry-forward isolation
@@ -24,6 +24,8 @@ The repo has deterministic proof for a bounded supervised portfolio slice plus c
 - coupled compatibility-surface planning from assertion evidence
 - last-green subset preservation so retries can roll back only the failing subset
 - explicit operational-readiness truth that blocks unattended claims when required checks are absent or not reported
+- real GitHub enforcement verification showing whether branch rules/protection actually require the configured `ci-required` context on the base branch
+- a bounded scheduler bridge that routes exactly one admitted safe task through the dedicated single-task runner and stops/requeues mixed queues conservatively
 
 The proof is intentionally bounded and does **not** claim:
 
@@ -34,13 +36,9 @@ The proof is intentionally bounded and does **not** claim:
 
 ## Next product-stage focus
 
-Continue toward a **safe autonomous single-task lane**:
+Continue by making the **safe autonomous single-task lane** resumable and idempotent:
 
-- real hosted required-check / branch-protection convergence
-- allowlisted autonomous task-family admission instead of broad self-hosting autonomy
-- a dedicated single-task runner plus persisted run ledger, canary metrics, recovery reporting artifacts, and deterministic supervised handoff artifacts
-- explicit escalation / handoff artifacts for unsafe self-hosting work
-- supervised one-task autonomous proof only after the safe lane is operationally green
-
-
-Task 146 note: mixed queues now stop conservatively after at most one unique autonomous-safe task, emit explicit supervised handoff for unsafe ready work, and requeue remaining work without widening the bounded lane.
+- preserve one-task boundedness on resume/re-entry
+- avoid duplicate ledger rows and duplicate supervised artifacts after interruption
+- keep mixed queues stop/requeue + supervised handoff first
+- only move to operator-facing live canary proof once resume semantics are green

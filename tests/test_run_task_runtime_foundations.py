@@ -14,7 +14,6 @@ def _load_runtime_modules():
     git_ops = importlib.import_module("agents.lib.git_ops")
     provider_client = importlib.import_module("agents.lib.provider_client")
     failure_journal = importlib.import_module("agents.lib.failure_journal")
-    run_single_task = importlib.import_module("agents.run_single_task")
     task_contracts = importlib.import_module("agents.lib.task_contracts")
     failure_artifacts = importlib.import_module("agents.lib.failure_artifacts")
     shell_router = importlib.import_module("agents.lib.shell_router")
@@ -33,7 +32,6 @@ def _load_runtime_modules():
         git_ops,
         provider_client,
         failure_journal,
-        run_single_task,
         task_contracts,
         failure_artifacts,
         shell_router,
@@ -50,7 +48,7 @@ def _load_runtime_modules():
 
 
 def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     def fake_chat(messages, model, provider=None):
         assert messages == [{"role": "user", "content": "x"}]
@@ -63,7 +61,7 @@ def test_provider_client_delegation(monkeypatch) -> None:
 
 
 def test_git_helpers_behavior(monkeypatch) -> None:
-    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, git_ops, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     calls: list[tuple[list[str], bool]] = []
 
     class _Result:
@@ -95,7 +93,7 @@ def test_git_helpers_behavior(monkeypatch) -> None:
 
 
 def test_check_runner_summary(monkeypatch) -> None:
-    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, check_runner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     class _CP:
         def __init__(self, returncode: int, stdout: str, stderr: str):
@@ -118,7 +116,7 @@ def test_check_runner_summary(monkeypatch) -> None:
 
 
 def test_public_surface_still_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     assert callable(run_task.default_provider)
     assert callable(run_task.default_model_for_provider)
     assert callable(run_task.chat_openai)
@@ -149,6 +147,9 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.canonical_required_check_truth)
     assert callable(run_task.evaluate_verification_authority)
     assert callable(run_task.evaluate_hosted_authority_operational_convergence)
+    assert callable(run_task.canonical_repo_enforcement_truth)
+    assert callable(run_task.probe_repo_required_check_enforcement)
+    assert callable(run_task.evaluate_repo_required_check_convergence)
     assert callable(run_task.report_branch_push_ready)
     assert callable(run_task.restore_file_snapshot_subset)
     assert callable(run_task.build_last_green_subset_preservation_plan)
@@ -161,28 +162,18 @@ def test_public_surface_still_available() -> None:
     assert callable(run_task.project_verification_authority_profile)
     assert callable(run_task.project_repo_check_contract)
     assert callable(run_task.evaluate_project_verification_authority)
-    assert callable(run_task.default_single_task_supervised_handoff_path)
-    assert callable(run_task.build_single_task_supervised_handoff_artifact)
-    assert callable(run_task.write_single_task_supervised_handoff_artifact)
-    assert callable(run_task.plan_safe_lane_stop_requeue_policy)
-    assert callable(run_task.default_scheduler_safe_lane_policy_path)
-    assert callable(run_task.build_scheduler_safe_lane_policy_artifact)
-    assert callable(run_task.write_scheduler_safe_lane_policy_artifact)
-    assert callable(run_task.run_scheduler_safe_lane_bridge)
-    assert callable(run_task.execute_safe_lane_scheduler_mix_policy)
-    _, _, _, _, failure_journal, run_single_task, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
-    assert callable(run_single_task.read_single_task_run_ledger)
-    assert callable(run_single_task.build_single_task_canary_metrics)
-    assert callable(run_single_task.write_single_task_canary_metrics)
-    assert callable(run_single_task.build_single_task_supervised_handoff_artifact)
-    assert callable(run_single_task.write_single_task_supervised_handoff_artifact)
-    assert callable(run_single_task.refresh_single_task_reporting_artifacts)
-    assert callable(failure_journal.build_autonomous_single_task_recovery_report)
-    assert callable(failure_journal.write_autonomous_single_task_recovery_report)
+    assert callable(run_task.safe_task_family_allowlist_snapshot)
+    assert callable(run_task.evaluate_autonomous_single_task_admission)
+    assert callable(run_task.task_admission_context)
+    assert callable(run_task.select_single_admissible_safe_task)
+    assert callable(run_task.run_scheduler_safe_single_task_bridge)
+    assert callable(run_task.default_single_task_resume_state_path)
+    assert callable(run_task.read_single_task_resume_state)
+    assert callable(run_task.write_single_task_resume_state)
 
 
 def test_project_merge_helpers_are_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     contract = run_task.resolve_project_contract('tradingbot_monorepo')
     merge_contract = run_task.project_merge_eligibility_contract(contract)
@@ -213,7 +204,7 @@ def test_project_merge_helpers_are_available() -> None:
 
 
 def test_project_contract_contains_workspace_and_isolation_namespaces() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
     contract = run_task.resolve_project_contract("generic_python_external")
 
     assert isinstance(contract["workspace_root"], str)
@@ -223,7 +214,7 @@ def test_project_contract_contains_workspace_and_isolation_namespaces() -> None:
 
 
 def test_task_136_resilience_public_surface_remains_available() -> None:
-    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
     assert callable(run_task.evaluate_proof_task_admission)
     assert callable(run_task.report_proof_task_admission_failure)
@@ -233,3 +224,53 @@ def test_task_136_resilience_public_surface_remains_available() -> None:
     assert callable(run_task.restore_file_snapshot_subset)
     assert callable(run_task.build_last_green_subset_preservation_plan)
     assert callable(run_task.write_last_green_subset_artifact)
+
+
+def test_task_137_github_enforcement_helpers_are_available() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    repo_contract = run_task.project_repo_check_contract(run_task.resolve_project_contract("tradingbot_monorepo"))
+    enforcement_truth = run_task.canonical_repo_enforcement_truth(
+        repo_check_contract=repo_contract,
+        enforcement_probe_available=True,
+        enforcement_probe_status="required_check_context_missing",
+        enforcement_source="github_branch_rules",
+        required_status_checks_rule_present=True,
+        required_status_check_contexts=("wrong-check",),
+    )
+    convergence = run_task.evaluate_repo_required_check_convergence(
+        repo_check_contract=repo_contract,
+        repo_enforcement_truth=enforcement_truth,
+    )
+    operational = run_task.evaluate_hosted_authority_operational_convergence(
+        verification_authority_profile="local_plus_required_ci",
+        repo_check_contract=repo_contract,
+        required_check_truth=run_task.canonical_required_check_truth(
+            verification_authority_profile="local_plus_required_ci",
+            repo_check_contract=repo_contract,
+            required_checks_discovered=True,
+            hosted_checks_reported=True,
+            required_checks_passed=True,
+            hosted_authority_probe_status="satisfied",
+        ),
+        repo_enforcement_truth=enforcement_truth,
+    )
+
+    assert repo_contract["repo_default_branch"] == "main"
+    assert convergence["repo_required_check_enforcement_reason"] == "required_check_context_missing"
+    assert operational["operational_convergence_reason"] == "required_check_enforcement_context_mismatch"
+
+
+def test_task_138_safe_task_family_autonomy_helpers_are_available() -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+
+    snapshot = run_task.safe_task_family_allowlist_snapshot()
+    admission = run_task.task_admission_context(
+        ["src/tradingbot/strategy.py", "tests/test_strategy_v1.py"],
+        task_file="tasks/138_orchestrator_safe_task_family_autonomy_allowlist.md",
+    )
+
+    assert "autonomous_safe" in snapshot["autonomous_single_task_lanes"]
+    assert "src/tradingbot/" in snapshot["allowlisted_prefixes"]
+    assert admission["autonomous_single_task_lane"] == "autonomous_safe"
+    assert admission["autonomy_allowlist_family"] == "tradingbot_code_with_docs_or_tests"
