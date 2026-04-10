@@ -1,14 +1,14 @@
 # Task 157 — orchestrator strict no-manual-intervention scorecard
 
-## Why
+Why
 
 We need a scorecard that reflects real autonomous behavior, not salvaged outcomes after a human steps in. Without a strict scoring rule, the orchestrator can appear healthier than it really is.
 
-## Scope
+Scope
 
 Extend the benchmark artifacts and scoreboarding so that autonomous benchmark results are graded under a strict no-manual-intervention rule.
 
-## Requirements
+Requirements
 
 - Add scorecard fields that clearly separate:
   - total benchmark runs,
@@ -22,8 +22,20 @@ Extend the benchmark artifacts and scoreboarding so that autonomous benchmark re
 - Add a durable scorecard artifact suitable for comparing benchmark sessions over time.
 - Keep compatibility with the existing pass-rate scoreboard and failure digest surfaces.
 
-## Acceptance criteria
+Acceptance criteria
 
 - Tests prove that a manual edit during a benchmark run prevents the run from being counted as an autonomous success.
 - Tests prove that direct completions and self-healed completions are still tracked separately.
 - Docs explain that benchmark promotion decisions are based on this stricter scorecard rather than ad hoc observations.
+
+Implementation notes
+
+- Introduce a durable scorecard artifact with strict fields as well as legacy pass-rate fields for backwards compatibility.
+- Strict autonomous success is counted only when a run completes (direct or self-healed) with no human intervention recorded during that run.
+- Legacy pass-rate and failure digest surfaces remain unchanged; the new artifact adds fields rather than modifying or removing existing ones.
+
+Promotion guidance
+
+- Promotion decisions must use the strict autonomous pass-rate, not the legacy pass-rate.
+- If any human code or content edit occurs during a run (e.g., manual patch, fixture tweak, or artifact rewrite), that run must be considered invalid for autonomous success accounting under the strict rule.
+- Operator dashboards should surface both numbers; however, the strict autonomous pass-rate is the basis for autonomy gating and promotion. The legacy pass-rate remains available for historical comparison and diagnostic trends.
