@@ -93,8 +93,11 @@ class BenchmarkSession:
             self.scorecard.self_healed_completions += 1
             return
 
-        # Default fallthrough: failed run
-        if failed or True:
+        # Default fallthrough: failed run (unknown or explicit failure)
+        if failed:
+            self.scorecard.failed_runs += 1
+        else:
+            # Treat unknown outcome as failure for conservative pass-rate compatibility
             self.scorecard.failed_runs += 1
 
     def write_artifacts(self) -> None:
