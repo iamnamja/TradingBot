@@ -168,3 +168,12 @@ def test_bootstrap_recovery_snapshot_stays_python_first_and_narrow() -> None:
     assert snapshot['recovery_proof_scope'] == 'simple_external_python_workspace'
     assert snapshot['supports_truthful_blocked_then_recovered_state'] is True
     assert snapshot['bootstrap_statuses'] == ['not_started', 'succeeded', 'blocked']
+
+
+def test_tradingbot_workspace_contract_includes_runtime_artifact_policy_paths() -> None:
+    contract = project_workspace_adapter.tradingbot_workspace_contract('.')
+
+    assert '_last_agent_model_output.txt' in contract['artifact_output_paths']
+    assert '_last_agent_file_bundle.txt' in contract['artifact_output_paths']
+    assert '_last_agent_file_bundle_error.txt' in contract['artifact_output_paths']
+    assert '_last_subset_preservation.json' in contract['artifact_output_paths']

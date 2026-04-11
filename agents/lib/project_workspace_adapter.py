@@ -114,7 +114,7 @@ def tradingbot_workspace_contract(workspace_root: str = '.') -> dict[str, object
         validation_commands=['ruff check .', 'pytest -q'],
         acceptance_evidence_commands=['pytest -q tests/test_run_task_runtime_foundations.py'],
         protected_paths=['agents', 'docs', 'tasks', 'src/tradingbot', 'src/builder/orchestrator'],
-        artifact_output_paths=['artifacts', 'tasks/state.json', '_last_agent_model_output.txt', '_last_agent_file_bundle.txt', '_last_agent_file_bundle_error.txt'],
+        artifact_output_paths=['artifacts', 'tasks/state.json', '_last_agent_model_output.txt', '_last_agent_file_bundle.txt', '_last_agent_file_bundle_error.txt', '_last_subset_preservation.json'],
         optional_consumer_policies=['tradingbot_domain_runtime', 'tradingbot_consumer_policy'],
         merge_policy_constraints={
             'allow_autonomous_merge': True,

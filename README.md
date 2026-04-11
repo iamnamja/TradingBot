@@ -10,42 +10,43 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized proof checkpoint is now complete through **Task 156**.
+The synchronized proof checkpoint is now complete through **Task 158**.
 
-The orchestrator now has:
+The bounded supervised slice plus narrow safe autonomous one-task lane now covers:
 
-- a bounded external-safe one-task execution lane,
-- bounded multi-agent dev / test / repair / controller artifacts,
-- external-safe failure taxonomy and targeted self-heal routing,
-- pass-rate scoreboarding and failure digesting,
-- a truthful two-task readiness gate,
-- a bounded lint-only preflight normalization step,
-- and a first benchmark harness proving mode for one-task work.
+- proof-task admission gating on exact deliverable contracts
+- bundle failure classification and targeted retry shaping
+- hosted-authority operational convergence truth around the stable `ci-required` contract
+- safe task-family autonomy allowlisting for ordinary one-task work
+- a dedicated autonomous single-task runner with ledger, canary metrics, recovery reporting, supervised handoff, bounded resume state, and operator proof bundle
+- scheduler routing through that bounded runner when exactly one safe task is ready
+- conservative stop / requeue / supervised handoff for mixed queues
 
-Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for the authoritative current status narrative.
+Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for the authoritative bounded-scope status narrative.
 
 ## What the repo can honestly claim today
 
+Today the repo has deterministic local proof for a bounded supervised multi-project slice plus a narrow one-task autonomous canary lane.
+
 It can honestly claim:
 
-- one external-safe allowlisted task at a time can run through a bounded supervised autonomous lane,
-- the system can classify ordinary one-task failures and attempt bounded self-heal,
-- benchmark-style one-task proving is now the main continuation mode,
-- the repo still preserves a truthful no-go gate against widening to two-task work prematurely.
+- one allowlisted safe task at a time can run under supervision
+- out-of-lane work is explicitly handed back to supervision instead of widened into broader autonomy
+- operators have a small proof bundle showing what the lane can do and what it still refuses to do
 
-It does **not** honestly claim:
+It does **not** claim:
 
-- broad unattended scheduler autonomy,
-- reliable multi-task autonomous execution,
-- self-hosting control-plane autonomy,
-- that the orchestrator is already the default trusted execution path for all future tasks.
+- broad unattended scheduler autonomy
+- arbitrary protected/controller/meta task-family autonomy
+- arbitrary multi-task autonomous execution
+- arbitrary self-hosting control-plane autonomy
 
 ## Next continuation target
 
-Shift from broad proof-mode planning into a **single-task reliability sprint**:
+Shift from “more safe-lane plumbing” to **execution quality**:
 
-- integrate strict scorecarding into the benchmark/session surfaces,
-- harden empty-bundle transport handling,
-- normalize runtime artifact quarantine and subset-preservation leftovers,
-- add a completion-integrity gate so helper-only partials do not look complete,
-- then run a small one-task re-proof pack before resuming the broader roadmap.
+- define a canonical external-safe one-task evaluation corpus
+- make the bounded one-task lane behave like a real dev / test / repair / controller loop
+- improve targeted self-heal quality on ordinary external-safe failures
+- measure pass rate and dominant failure classes
+- only then decide whether bounded two-task trials are justified

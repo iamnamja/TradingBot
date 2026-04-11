@@ -169,3 +169,38 @@ def test_bundle_error_artifact_is_known_safe() -> None:
 
     assert [p.as_posix() for p in classified["known_safe"]] == ["_last_agent_file_bundle_error.txt"]
     assert classified["unknown"] == []
+
+
+def test_subset_preservation_artifact_is_known_safe_and_retained_when_requested() -> None:
+    _, artifact_quarantine = _load_runtime_artifact_modules()
+    quarantine_runtime_artifacts = artifact_quarantine.quarantine_runtime_artifacts
+
+    result = quarantine_runtime_artifacts(
+        [Path("_last_subset_preservation.json")],
+        run_git_command=lambda *args, **kwargs: object(),
+        path_exists=lambda _p: False,
+        unlink_path=lambda _p: None,
+        retain_known_safe=True,
+    )
+
+    assert result["classified"]["unknown"] == []
+    assert result["warnings"]["unknown_artifacts"] == []
+    assert result["warnings"]["retained_known_safe"] == ["_last_subset_preservation.json"]
+    assert result["should_block"] is False
+
+
+def test_subset_preservation_artifact_no_longer_shows_up_as_unknown_noise() -> None:
+    _, artifact_quarantine = _load_runtime_artifact_modules()
+    messages = artifact_quarantine.describe_runtime_artifact_lifecycle(
+        artifact_quarantine.quarantine_runtime_artifacts(
+            [Path("_last_subset_preservation.json")],
+            run_git_command=lambda *args, **kwargs: object(),
+            path_exists=lambda _p: False,
+            unlink_path=lambda _p: None,
+            retain_known_safe=True,
+        )
+    )
+
+    joined = "\n".join(messages)
+    assert "Unknown runtime artifacts remain blocked" not in joined
+    assert "Retained known-safe runtime artifacts" in joined

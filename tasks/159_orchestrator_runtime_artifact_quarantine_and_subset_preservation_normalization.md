@@ -20,5 +20,5 @@ Normalize the runtime-artifact policy for proof-mode runs.
 
 - Tests prove that known-safe runtime artifacts are retained unstaged when requested.
 - Tests prove that subset-preservation leftovers are either normalized into the known policy or quarantined with explicit explanation.
-- Successful runs no longer report ambiguous “unknown runtime artifact” noise for artifacts covered by policy.
+- Successful runs no longer report ambiguous “unknown runtime artifact” noise for artifacts covered by policy, including `_last_subset_preservation.json`.
 - Docs explain the runtime-artifact policy for proof-mode runs.
