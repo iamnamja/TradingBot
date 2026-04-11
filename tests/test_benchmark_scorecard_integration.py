@@ -53,6 +53,7 @@ def test_integrated_artifacts_written_in_session_dir(tmp_path: Path) -> None:
     sess.record_run(failed=True)
     sess.record_run(authority_blocked=True)
     sess.record_run(supervised=True)
+    sess.record_run(self_healed_completions=True) if False else None  # no-op to keep signature stable
     sess.record_run(self_healed_completion=True, manual_edit=True)  # invalidated
     sess.close()
 

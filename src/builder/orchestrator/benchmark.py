@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
+
 from builder.orchestrator.benchmark_scorecard import BenchmarkSession as StrictBenchmarkSession
 
 
@@ -158,16 +159,104 @@ def run_one_task_external_safe_benchmark(
     # Write session artifact
     _write_json(root / "session.json", asdict(session))
 
+    # Integrated strict scorecard wiring
     strict_session = StrictBenchmarkSession(root)
     for result in session.tasks:
-        verdict = str(result.get("verdict", ""))
+        status = result.status
+        details = result.details or {}
         strict_session.record_run(
-            direct_completion=verdict == "completed_direct",
-            self_healed_completion=verdict == "completed_after_self_heal",
-            failed=verdict in ("failed", "failed_autonomous"),
-            authority_blocked=verdict == "authority_blocked",
-            supervised=verdict == "escalated",
-            manual_edit=bool(result.get("manual_intervention", False)),
+            direct_completion=status == "completed_direct",
+            self_healed_completion=status == "completed_after_self_heal",
+            failed=status == "failed" or bool(details.get("failed_autonomous", False)),
+            authority_blocked=status == "authority_blocked",
+            supervised=status == "escalated",
+            manual_edit=bool(details.get("manual_intervention", False)) or status == "manual_intervention",
         )
     strict_session.close()
     return session
+
+
+# Curated minipack for one-task reliability re-proof (stable IDs)
+MINIPACK_ONE_TASK_ITEMS: list[dict[str, str]] = [
+    {"id": "one_task_docs_fix_minimal"},
+    {"id": "one_task_tests_guardrail_update"},
+    {"id": "one_task_code_small_refactor"},
+    {"id": "one_task_lint_normalization"},
+    {"id": "one_task_runtime_artifact_quarantine"},
+]
+
+
+def _blocker_family_for_trial(trial: BenchmarkTaskTrial) -> str:
+    # Map observed trial details to coarse blocker families.
+    status = trial.status
+    details = trial.details or {}
+    text = " ".join(
+        str(details.get(k, "")) for k in ("error", "failure_text", "output", "message")
+    ).lower()
+
+    if status == "authority_blocked":
+        return "authority_gate"
+    if "missing deliverable" in text or "missing required deliverables" in text:
+        return "implementation_bug_missing_deliverable"
+    if "runtime artifact" in text or "artifact" in text:
+        return "repo_hygiene_issue"
+    if status in {"failed", "escalated"}:
+        return "unknown_failure"
+    return "success"
+
+
+def run_reliability_minipack_reproof(
+    *,
+    executor: Callable[[Dict[str, Any]], Dict[str, Any]],
+    artifacts_root: Optional[Path] = None,
+) -> dict[str, Any]:
+    """
+    Run the curated one-task reliability minipack and write a durable re-proof artifact.
+
+    Artifacts written under session dir:
+    - scorecard.json (strict)
+    - scoreboard.json (compat)
+    - reproof.json (decision + blocker families)
+    """
+    session = run_one_task_external_safe_benchmark(
+        MINIPACK_ONE_TASK_ITEMS,
+        artifacts_root=artifacts_root,
+        executor=executor,
+    )
+    root = Path(artifacts_root or ARTIFACTS_ROOT / "sessions" / session.session_id)
+
+    # Load strict scorecard for decision posture
+    scorecard_path = root / "scorecard.json"
+    scorecard: dict[str, Any] = {}
+    if scorecard_path.exists():
+        with scorecard_path.open("r", encoding="utf-8") as f:
+            scorecard = json.load(f)
+
+    # Build blocker-family histogram over non-success trials
+    histogram: dict[str, int] = {}
+    for trial in session.tasks:
+        fam = _blocker_family_for_trial(trial)
+        if fam == "success":
+            continue
+        histogram[fam] = histogram.get(fam, 0) + 1
+
+    total = int(scorecard.get("total_runs", 0) or 0)
+    pass_rate = float(scorecard.get("pass_rate", 0.0) or 0.0)
+    invalidated = int(scorecard.get("invalidated_by_human_intervention", 0) or 0)
+
+    if total < 3:
+        decision = "insufficient_data"
+    elif invalidated > 0 or pass_rate < 0.60:
+        decision = "stay_in_one_task_reliability_mode"
+    else:
+        decision = "resume_broader_roadmap"
+
+    reproof = {
+        "session_id": session.session_id,
+        "created_at": session.created_at,
+        "scorecard": scorecard,
+        "blocker_families": histogram,
+        "go_no_go_decision": decision,
+    }
+    _write_json(root / "reproof.json", reproof)
+    return reproof
