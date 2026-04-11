@@ -1,0 +1,29 @@
+# Task 166 — orchestrator strict no-manual-intervention scorecard
+
+## Why
+
+After the second one-task reliability re-proof, we still need a benchmark truth model that makes it impossible to over-credit runs that only succeeded because a human stepped in mid-run. The scorecard must reflect autonomous reality, not salvaged outcomes.
+
+## Scope
+
+Extend the benchmark/session artifacts so promotion and widening decisions are based on a strict no-manual-intervention scorecard.
+
+## Requirements
+
+- Add or update scorecard fields that clearly separate:
+  - total benchmark runs,
+  - direct completions,
+  - self-healed completions,
+  - failed runs,
+  - supervised or escalated runs,
+  - authority-blocked runs,
+  - runs invalidated by human intervention.
+- Any human code or content edit during a benchmark run must invalidate autonomous success for that run.
+- Keep compatibility with existing benchmark/session artifacts rather than creating a disconnected parallel reporting lane.
+- Persist a durable scorecard artifact suitable for comparing benchmark sessions over time.
+
+## Acceptance criteria
+
+- Tests prove that a manual edit during a benchmark run prevents the run from being counted as an autonomous success.
+- Tests prove that direct completions and self-healed completions are still tracked separately.
+- Docs explain that promotion and widening decisions use this stricter scorecard rather than ad hoc observations.
