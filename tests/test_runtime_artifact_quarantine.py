@@ -160,47 +160,53 @@ def test_quarantine_unknown_only_does_not_require_git_cleanup() -> None:
     assert git_calls == []
 
 
-
-def test_bundle_error_artifact_is_known_safe() -> None:
+def test_typo_artifact_name_is_classified_as_known_safe_under_canonical_name() -> None:
     _, artifact_quarantine = _load_runtime_artifact_modules()
     classify_runtime_artifacts = artifact_quarantine.classify_runtime_artifacts
 
-    classified = classify_runtime_artifacts([Path("_last_agent_file_bundle_error.txt")])
+    classified = classify_runtime_artifacts([Path("_last_agent_file_bundlee_error.txt")])
 
-    assert [p.as_posix() for p in classified["known_safe"]] == ["_last_agent_file_bundle_error.txt"]
+    assert [p.as_posix() for p in classified["known_safe"]] == ["_last_agent_file_bundlee_error.txt"]
     assert classified["unknown"] == []
 
 
-def test_subset_preservation_artifact_is_known_safe_and_retained_when_requested() -> None:
+def test_quarantine_lifecycle_reports_canonical_error_artifact_name() -> None:
     _, artifact_quarantine = _load_runtime_artifact_modules()
     quarantine_runtime_artifacts = artifact_quarantine.quarantine_runtime_artifacts
 
     result = quarantine_runtime_artifacts(
-        [Path("_last_subset_preservation.json")],
+        [Path("_last_agent_file_bundlee_error.txt")],
         run_git_command=lambda *args, **kwargs: object(),
         path_exists=lambda _p: False,
         unlink_path=lambda _p: None,
         retain_known_safe=True,
     )
 
-    assert result["classified"]["unknown"] == []
-    assert result["warnings"]["unknown_artifacts"] == []
-    assert result["warnings"]["retained_known_safe"] == ["_last_subset_preservation.json"]
     assert result["should_block"] is False
+    assert result["warnings"]["retained_known_safe"] == ["_last_agent_file_bundle_error.txt"]
 
 
-def test_subset_preservation_artifact_no_longer_shows_up_as_unknown_noise() -> None:
-    _, artifact_quarantine = _load_runtime_artifact_modules()
-    messages = artifact_quarantine.describe_runtime_artifact_lifecycle(
-        artifact_quarantine.quarantine_runtime_artifacts(
-            [Path("_last_subset_preservation.json")],
-            run_git_command=lambda *args, **kwargs: object(),
-            path_exists=lambda _p: False,
-            unlink_path=lambda _p: None,
-            retain_known_safe=True,
-        )
-    )
+def test_run_task_runtime_artifact_names_include_canonical_error_and_subset() -> None:
+    run_task, artifact_quarantine = _load_runtime_artifact_modules()
 
-    joined = "\n".join(messages)
-    assert "Unknown runtime artifacts remain blocked" not in joined
-    assert "Retained known-safe runtime artifacts" in joined
+    assert "_last_agent_file_bundle_error.txt" in run_task.RUNTIME_ARTIFACT_NAMES
+    assert "_last_subset_preservation.json" in run_task.RUNTIME_ARTIFACT_NAMES
+    assert "_last_agent_file_bundle_error.txt" in artifact_quarantine.KNOWN_SAFE_ARTIFACT_NAMES
+    assert "_last_subset_preservation.json" in artifact_quarantine.KNOWN_SAFE_ARTIFACT_NAMES
+
+
+def test_tradingbot_workspace_contract_artifact_paths_match_runtime_policy() -> None:
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    from agents.lib import project_workspace_adapter  # noqa: WPS433
+
+    contract = project_workspace_adapter.tradingbot_workspace_contract('.')
+    paths = contract["artifact_output_paths"]
+
+    assert "last_output.txt" in paths
+    assert "_last_agent_model_output.txt" in paths
+    assert "_last_agent_file_bundle.txt" in paths
+    assert "_last_agent_file_bundle_error.txt" in paths
+    assert "_last_subset_preservation.json" in paths
+    assert "_last_agent_file_bundlee_error.txt" not in paths
