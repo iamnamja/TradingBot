@@ -20,6 +20,7 @@ def test_manual_edit_during_run_invalidates_autonomous_success(tmp_path: Path) -
 
     scorecard = json.loads((session_dir / "scorecard.json").read_text(encoding="utf-8"))
     scoreboard = json.loads((session_dir / "scoreboard.json").read_text(encoding="utf-8"))
+    promotion = json.loads((session_dir / "promotion.json").read_text(encoding="utf-8"))
 
     assert scorecard["total_runs"] == 2
     assert scorecard["direct_completions"] == 1
@@ -36,6 +37,13 @@ def test_manual_edit_during_run_invalidates_autonomous_success(tmp_path: Path) -
     assert scoreboard["direct_completions"] == 1
     assert scoreboard["self_healed_completions"] == 0
 
+    # Promotion artifact with explicit thresholds and a verdict exists
+    assert "thresholds" in promotion
+    assert "metrics" in promotion
+    assert promotion["metrics"]["total_runs"] == 2
+    # With pass_rate at 0.5 < min_pass_rate, verdict is not ready
+    assert promotion["verdict"] == "not_ready"
+
 
 def test_direct_and_self_healed_tracked_separately(tmp_path: Path) -> None:
     session_dir = tmp_path / "session_separation"
@@ -47,12 +55,17 @@ def test_direct_and_self_healed_tracked_separately(tmp_path: Path) -> None:
     session.close()
 
     scorecard = json.loads((session_dir / "scorecard.json").read_text(encoding="utf-8"))
+    promotion = json.loads((session_dir / "promotion.json").read_text(encoding="utf-8"))
+
     assert scorecard["total_runs"] == 2
     assert scorecard["direct_completions"] == 1
     assert scorecard["self_healed_completions"] == 1
     assert scorecard["successes"] == 2
     assert scorecard["failures"] == 0
     assert abs(scorecard["pass_rate"] - 1.0) < 1e-9
+
+    # With direct_rate == self_healed_rate and pass_rate high, verdict should be conditional
+    assert promotion["verdict"] == "conditionally_ready_under_supervision"
 
 
 def test_benchmark_harness_writes_strict_scorecard_and_invalidates_manual_intervention(tmp_path: Path) -> None:
@@ -95,3 +108,10 @@ def test_benchmark_harness_writes_strict_scorecard_and_invalidates_manual_interv
     assert score2["direct_completions"] == 1
     assert score2["successes"] == 1
     assert score2["failures"] == 0
+
+    # Promotion artifacts and verdicts
+    promo1 = json.loads((tmp_path / "bench1" / "promotion.json").read_text(encoding="utf-8"))
+    promo2 = json.loads((tmp_path / "bench2" / "promotion.json").read_text(encoding="utf-8"))
+
+    assert promo1["verdict"] == "not_ready"
+    assert promo2["verdict"] == "ready_to_be_default"
