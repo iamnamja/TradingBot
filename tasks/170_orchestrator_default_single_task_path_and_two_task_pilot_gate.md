@@ -15,6 +15,13 @@ Add the policy and documentation needed to make the one-task lane the default pa
 - Define a separate explicit gate for any future bounded two-task pilot.
 - Keep the operator-facing truth clear about what is now default, what is still supervised-only, and what remains out of scope.
 
+## Create or update these exact files
+- agents/run_task.py
+- agents/lib/task_queue.py
+- tests/test_task_queue.py
+- tasks/170_orchestrator_default_single_task_path_and_two_task_pilot_gate.md
+- docs/TRADINGBOT_PROJECT_STATE.md
+
 ## Acceptance criteria
 
 - Docs clearly state whether the orchestrator is now the default path for eligible one-task work.

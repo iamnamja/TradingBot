@@ -16,6 +16,13 @@ Use the latest benchmark and re-proof artifacts to identify the dominant current
 - Preserve compatibility seams and public surfaces unless there is a compelling measured reason to change them.
 - Update artifacts or docs so the before/after effect is visible.
 
+## Create or update these exact files
+- agents/run_task.py
+- tests/test_run_task_parsers_and_policies.py
+- tests/test_failure_journal.py
+- tasks/168_orchestrator_top_failure_family_elimination_tranche.md
+- docs/TRADINGBOT_PROJECT_STATE.md
+
 ## Acceptance criteria
 
 - The chosen failure family is named explicitly.

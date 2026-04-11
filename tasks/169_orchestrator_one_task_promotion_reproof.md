@@ -28,6 +28,13 @@ Use concrete metrics in this spirit:
 - low unresolved authority-ambiguity rate,
 - no recurring compatibility seam regressions in the benchmark set.
 
+## Create or update these exact files
+- src/builder/orchestrator/benchmark.py
+- src/builder/orchestrator/benchmark_scorecard.py
+- tests/test_benchmark_scorecard_integration.py
+- tasks/169_orchestrator_one_task_promotion_reproof.md
+- docs/TRADINGBOT_PROJECT_STATE.md
+
 ## Acceptance criteria
 
 - There is a durable promotion artifact with explicit thresholds and a verdict.

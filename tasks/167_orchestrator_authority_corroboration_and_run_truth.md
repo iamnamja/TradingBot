@@ -18,6 +18,13 @@ Improve authority corroboration and run-truth shaping while preserving the rule 
 - Persist the corroboration basis inside benchmark or re-proof artifacts.
 - Keep the runtime conservative: unresolved ambiguity must not be treated as authority success.
 
+## Create or update these exact files
+- agents/run_task.py
+- agents/lib/authority_gate.py
+- tests/test_authority_gate.py
+- tasks/167_orchestrator_authority_corroboration_and_run_truth.md
+- docs/TRADINGBOT_PROJECT_STATE.md
+
 ## Acceptance criteria
 
 - Tests prove that benchmark artifacts record authority corroboration state.
