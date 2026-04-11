@@ -22,6 +22,13 @@ Extend the benchmark/session artifacts so promotion and widening decisions are b
 - Keep compatibility with existing benchmark/session artifacts rather than creating a disconnected parallel reporting lane.
 - Persist a durable scorecard artifact suitable for comparing benchmark sessions over time.
 
+## Create or update these exact files
+- src/builder/orchestrator/benchmark.py
+- src/builder/orchestrator/benchmark_scorecard.py
+- tests/test_benchmark_scorecard_integration.py
+- tasks/166_orchestrator_strict_no_manual_intervention_scorecard.md
+- docs/TRADINGBOT_PROJECT_STATE.md
+
 ## Acceptance criteria
 
 - Tests prove that a manual edit during a benchmark run prevents the run from being counted as an autonomous success.
