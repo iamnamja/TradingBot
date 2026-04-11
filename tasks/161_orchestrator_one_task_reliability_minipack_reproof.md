@@ -15,6 +15,13 @@ Run a small curated reliability minipack and re-measure the one-task lane.
 - Surface the dominant remaining blocker families after the sprint.
 - Produce a short re-proof artifact that says whether the one-task lane is improving enough to continue the broader roadmap or needs another reliability sprint.
 
+## Create or update these exact files
+- src/builder/orchestrator/benchmark.py
+- src/builder/orchestrator/benchmark_scorecard.py
+- tests/test_benchmark_scorecard_integration.py
+- tasks/161_orchestrator_one_task_reliability_minipack_reproof.md
+- docs/TRADINGBOT_PROJECT_STATE.md
+
 ## Acceptance criteria
 
 - There is a durable minipack re-proof artifact.
