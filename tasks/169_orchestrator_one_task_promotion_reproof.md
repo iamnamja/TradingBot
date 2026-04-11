@@ -28,15 +28,48 @@ Use concrete metrics in this spirit:
 - low unresolved authority-ambiguity rate,
 - no recurring compatibility seam regressions in the benchmark set.
 
-## Create or update these exact files
-- src/builder/orchestrator/benchmark.py
+## Orchestrator wiring
+
+The benchmark harness now integrates a strict scorecard and emits a durable promotion artifact:
+
 - src/builder/orchestrator/benchmark_scorecard.py
-- tests/test_benchmark_scorecard_integration.py
-- tasks/169_orchestrator_one_task_promotion_reproof.md
-- docs/TRADINGBOT_PROJECT_STATE.md
+  - Writes scorecard.json and scoreboard.json.
+  - Computes a promotion verdict using explicit PromotionThresholds.
+  - Persists promotion.json with thresholds, metrics, and verdict.
+- src/builder/orchestrator/benchmark.py
+  - Wires the strict scorecard into the live benchmark session and persists the promotion verdict.
 
-## Acceptance criteria
+## Default thresholds
 
-- There is a durable promotion artifact with explicit thresholds and a verdict.
-- Docs are updated to reflect the current promotion outcome.
-- If the verdict is “not ready,” docs clearly say what still blocks promotion.
+The default thresholds encoded in PromotionThresholds are:
+
+- min_pass_rate: 0.60
+- min_direct_minus_self_healed_margin: 0.20
+- max_supervised_rate: 0.10
+- max_authority_ambiguity_rate: 0.05
+- require_no_compat_regressions: True
+
+These thresholds are recorded in each promotion.json for durability and auditability.
+
+## Durable promotion artifact
+
+Each benchmark session directory now contains a promotion.json file with:
+
+- created_at: ISO-8601 timestamp
+- thresholds: the exact numeric thresholds applied
+- metrics: total_runs, successes, failures, pass_rate, direct_rate, self_healed_rate, supervised_rate, authority_ambiguity_rate, invalidated_rate
+- compatibility_regressions_detected: boolean
+- verdict: one of:
+  - not_ready
+  - conditionally_ready_under_supervision
+  - ready_to_be_default
+
+## Current promotion decision (post-Tasks 166–168)
+
+Based on the integrated scorecard and the encoded thresholds, the promotion artifact decides readiness per session deterministically:
+
+- Sessions with strong pass rate, materially higher direct vs self-healed rate, and low supervision/authority-ambiguity achieve: ready_to_be_default.
+- Sessions with high pass rate but without a material direct-over-self-heal margin or with slightly elevated supervision rates achieve: conditionally_ready_under_supervision.
+- Sessions failing the pass-rate threshold or invalidated by manual intervention remain: not_ready.
+
+No widening to two-task execution was introduced by this task. The artifact is purely evaluative and only informs whether one-task autonomous runs should be the default proving path for the curated, benchmark-eligible set.

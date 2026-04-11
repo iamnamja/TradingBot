@@ -201,6 +201,9 @@ def run_one_task_external_safe_benchmark(
             supervised=flags["supervised"],
             manual_edit=flags["manual_edit"],
         )
+    # Persist scoreboard and strict scorecard
     strict_session.close()  # persist scoreboard.json and scorecard.json
+    # Persist a promotion verdict using default thresholds
+    strict_session.persist_promotion_verdict()
 
     return artifact

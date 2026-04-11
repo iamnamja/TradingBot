@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Union
+from typing import Dict, Union
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass
@@ -33,6 +38,31 @@ class Scorecard:
         data["pass_rate"] = round(self.successes() / self.total_runs, 4) if self.total_runs else 0.0
         return data
 
+    def _rates(self) -> Dict[str, float]:
+        total = self.total_runs or 1  # avoid div-by-zero
+        return {
+            "pass_rate": self.pass_rate(),
+            "direct_rate": self.direct_completions / total,
+            "self_healed_rate": self.self_healed_completions / total,
+            "supervised_rate": self.supervised_runs / total,
+            "authority_ambiguity_rate": self.authority_blocked_runs / total,
+            "invalidated_rate": self.invalidated_by_human_intervention / total,
+        }
+
+
+@dataclass(frozen=True)
+class PromotionThresholds:
+    # Minimum autonomous completion rate across the curated one-task set
+    min_pass_rate: float = 0.6
+    # "Materially better" margin for direct vs self-healed completions
+    min_direct_minus_self_healed_margin: float = 0.2
+    # Supervision/escalation rate must remain low
+    max_supervised_rate: float = 0.1
+    # Unresolved authority-ambiguity must remain very low
+    max_authority_ambiguity_rate: float = 0.05
+    # No recurring compatibility seam regressions allowed in the benchmark set
+    require_no_compat_regressions: bool = True
+
 
 class BenchmarkSession:
     """
@@ -41,6 +71,8 @@ class BenchmarkSession:
     This session integrates a strict no-manual-intervention scorecard directly into the
     benchmark session artifact directory. It preserves the existing pass-rate scoreboard
     surface while adding a durable scorecard.json with full, strict counts.
+
+    It also produces a promotion.json artifact with an explicit verdict and thresholds.
     """
 
     def __init__(self, session_dir: Path):
@@ -122,8 +154,74 @@ class BenchmarkSession:
         with (self.session_dir / "scoreboard.json").open("w", encoding="utf-8") as f:
             json.dump(scoreboard, f, indent=2, sort_keys=True)
 
+    @staticmethod
+    def default_thresholds() -> PromotionThresholds:
+        return PromotionThresholds()
+
+    def _promotion_verdict(
+        self,
+        thresholds: PromotionThresholds,
+        *,
+        compatibility_regressions_detected: bool = False,
+    ) -> dict:
+        rates = self.scorecard._rates()
+        pass_rate = rates["pass_rate"]
+        direct_rate = rates["direct_rate"]
+        self_healed_rate = rates["self_healed_rate"]
+        supervised_rate = rates["supervised_rate"]
+        authority_rate = rates["authority_ambiguity_rate"]
+
+        if self.scorecard.total_runs == 0:
+            verdict = "not_ready"
+        elif thresholds.require_no_compat_regressions and compatibility_regressions_detected:
+            verdict = "not_ready"
+        elif pass_rate >= thresholds.min_pass_rate and \
+            (direct_rate - self_healed_rate) >= thresholds.min_direct_minus_self_healed_margin and \
+            supervised_rate <= thresholds.max_supervised_rate and \
+            authority_rate <= thresholds.max_authority_ambiguity_rate:
+            verdict = "ready_to_be_default"
+        elif pass_rate >= thresholds.min_pass_rate and direct_rate >= self_healed_rate:
+            verdict = "conditionally_ready_under_supervision"
+        else:
+            verdict = "not_ready"
+
+        payload = {
+            "created_at": _utc_now_iso(),
+            "thresholds": asdict(thresholds),
+            "metrics": {
+                "total_runs": self.scorecard.total_runs,
+                "successes": self.scorecard.successes(),
+                "failures": self.scorecard.failures(),
+                **rates,
+            },
+            "compatibility_regressions_detected": bool(compatibility_regressions_detected),
+            "verdict": verdict,
+        }
+        return payload
+
+    def persist_promotion_verdict(
+        self,
+        thresholds: PromotionThresholds | None = None,
+        *,
+        compatibility_regressions_detected: bool = False,
+    ) -> dict:
+        """
+        Compute and persist the promotion verdict alongside score artifacts.
+
+        Returns the written payload.
+        """
+        t = thresholds or self.default_thresholds()
+        payload = self._promotion_verdict(t, compatibility_regressions_detected=compatibility_regressions_detected)
+        path = self.session_dir / "promotion.json"
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, sort_keys=True)
+        return payload
+
     def close(self) -> None:
         self.write_artifacts()
+        # Persist a promotion verdict using default thresholds. The orchestrator benchmark
+        # harness may overwrite with a more specialized decision if needed.
+        self.persist_promotion_verdict()
 
 
 def open_session(session_dir: Union[str, Path]) -> BenchmarkSession:
