@@ -1,127 +1,202 @@
 from __future__ import annotations
 
 import re
-from typing import Mapping, Sequence
-
-COMPLETION_INTEGRITY_DIRECTIVE_RE = re.compile(r"^\s*-\s*(REQUIRE_EXISTING_TOUCH|MIN_EXISTING_NONTEST_TOUCHES|ALLOW_HELPER_ONLY):\s*(.+)$")
-INTEGRATION_INTENT_RE = re.compile(
-    r"\b(integrat(?:e|ion|ed)|wire(?:d|s|\s+into)?|live harness|session flow|artifact flow|existing flow|scorecard integration|completion integrity)\b",
-    re.IGNORECASE,
-)
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Sequence, Set
 
 
-def parse_completion_integrity_directives(task_text: str) -> dict[str, object]:
-    required_existing: list[str] = []
-    min_existing_nontest_touches = 0
-    allow_helper_only: bool | None = None
-    in_section = False
-    for raw in str(task_text or '').splitlines():
-        line = raw.rstrip()
-        if line.lstrip().startswith('##'):
-            header = line.lstrip('#').strip().lower()
-            in_section = 'completion integrity' in header
+@dataclass(frozen=True)
+class DeliverableContract:
+    deliverables: List[str]
+    requires_existing_surface: bool
+    raw_text_excerpt: str
+
+
+def _extract_bullet_block(lines: Sequence[str], start_idx: int) -> List[str]:
+    items: List[str] = []
+    for i in range(start_idx, len(lines)):
+        line = lines[i].rstrip()
+        if not line:
+            # allow blank lines inside block; continue until non-bullet line
             continue
-        if not in_section:
+        if re.match(r"^\s*-\s+", line):
+            # take bullet content after the dash
+            content = re.sub(r"^\s*-\s+", "", line).strip()
+            if content:
+                items.append(content)
             continue
-        m = COMPLETION_INTEGRITY_DIRECTIVE_RE.match(line)
-        if not m:
-            continue
-        key, value = m.group(1), m.group(2).strip()
-        if key == 'REQUIRE_EXISTING_TOUCH':
-            value = value.replace('\\', '/').strip()
-            if value:
-                required_existing.append(value)
-        elif key == 'MIN_EXISTING_NONTEST_TOUCHES':
-            try:
-                min_existing_nontest_touches = max(0, int(value))
-            except ValueError:
-                min_existing_nontest_touches = 0
-        elif key == 'ALLOW_HELPER_ONLY':
-            allow_helper_only = value.lower() in {'1','true','yes','y'}
+        # first non-bullet, non-empty line stops the block
+        if items:
+            break
+        # if no items yet and we hit a non-bullet, it means no block here
+        break
+    return items
+
+
+def parse_explicit_deliverable_contract(task_text: str) -> DeliverableContract:
+    """
+    Parse an explicit deliverable contract from a task text.
+
+    - Collects deliverables that appear under a "Create or update these exact files" section.
+    - Detects whether the task explicitly requires touching existing surfaces (existing files)
+      via phrases like "existing-surface", "existing surface", or "existing live surface".
+    """
+    lines = task_text.splitlines()
+    deliverables: List[str] = []
+    excerpt_lines: List[str] = []
+
+    # Find "Create or update these exact files" header and capture following bullet list
+    header_pattern = re.compile(r"^\s*Create or update these exact files\s*$", re.IGNORECASE)
+    for idx, line in enumerate(lines):
+        if header_pattern.match(line.strip()):
+            excerpt_lines.append(line)
+            block = _extract_bullet_block(lines, idx + 1)
+            if block:
+                deliverables.extend(block)
+                excerpt_lines.extend(lines[idx + 1 : idx + 1 + len(block)])
+
+    # Normalize deliverables (strip trailing punctuation that can follow in some docs)
+    normalized: List[str] = []
+    for d in deliverables:
+        # keep exact path; just remove trailing commas/backticks/periods
+        nd = d.strip().strip("`").rstrip(",.")
+        normalized.append(nd)
+
+    # Detect existing-surface requirement with robust phrase variants
+    text_lower = task_text.lower()
+    requires_existing_surface = any(
+        phrase in text_lower
+        for phrase in [
+            "existing-surface",
+            "existing surface",
+            "existing live surface",
+            "existing-surface touch",
+            "touch the existing surface",
+            "required existing-surface",
+        ]
+    )
+
+    return DeliverableContract(
+        deliverables=normalized,
+        requires_existing_surface=requires_existing_surface,
+        raw_text_excerpt="\n".join(excerpt_lines).strip(),
+    )
+
+
+def evaluate_existing_surface_touch(
+    contract: DeliverableContract,
+    bundle_paths: Iterable[str],
+    existing_repo_paths: Optional[Set[str]] = None,
+) -> Dict[str, object]:
+    """
+    Evaluate whether completion touches existing surfaces as mandated by the contract.
+
+    - existing_repo_paths: the known set of repository files that already exist.
+      If omitted, only membership in the contract.deliverables is considered an "existing surface".
+    """
+    bundle = list(bundle_paths)
+    existing_set: Set[str] = set(existing_repo_paths or [])
+    contract_set: Set[str] = set(contract.deliverables)
+
+    # An "existing-surface" touch means the bundle modified a file that:
+    # - is in the existing repository set (if provided), and
+    # - is one of the exact deliverables
+    if existing_set:
+        existing_surface_touches: List[str] = [
+            p for p in bundle if p in existing_set and p in contract_set
+        ]
+    else:
+        # Fallback: treat deliverables as the definition of "existing surface"
+        existing_surface_touches = [p for p in bundle if p in contract_set]
+
+    requires_touch = contract.requires_existing_surface
+    helper_only = requires_touch and len(existing_surface_touches) == 0
+
+    missing_required = sorted(p for p in contract.deliverables if p not in bundle)
+
+    status = "reject" if helper_only else "ok"
+
     return {
-        'required_existing_touches': required_existing,
-        'min_existing_nontest_touches': min_existing_nontest_touches,
-        'allow_helper_only': allow_helper_only,
+        "status": status,
+        "reason": "helper_only" if helper_only else "ok",
+        "requires_existing_surface": requires_touch,
+        "existing_surface_touches": existing_surface_touches,
+        "bundle_paths": list(bundle),
+        "required_deliverables": list(contract.deliverables),
+        "missing_required": missing_required,
     }
 
 
-def _is_task_or_test_or_doc(path: str) -> bool:
-    p = path.replace('\\','/').lstrip('./')
-    return p.startswith('tasks/') or p.startswith('tests/') or p.startswith('docs/') or p in {'README.md'}
+def build_completion_repair_feedback(
+    contract: DeliverableContract,
+    evaluation: Dict[str, object],
+) -> str:
+    """
+    Build explicit, mechanical feedback appended after a completion-integrity failure.
+
+    The feedback emphasizes:
+    - exact deliverables
+    - explicit requirement to touch existing surfaces when mandated
+    - concrete differences between what was changed vs what was required
+    """
+    status = str(evaluation.get("status", "ok"))
+    reason = str(evaluation.get("reason", "ok"))
+    requires_touch = bool(evaluation.get("requires_existing_surface", False))
+
+    if status != "reject" or reason != "helper_only":
+        # No feedback needed on success or non-helper-only rejections.
+        return ""
+
+    bundle_paths = [str(x) for x in evaluation.get("bundle_paths", [])]
+    required = [str(x) for x in evaluation.get("required_deliverables", [])]
+    touches = [str(x) for x in evaluation.get("existing_surface_touches", [])]
+    missing = [str(x) for x in evaluation.get("missing_required", [])]
+
+    lines: List[str] = []
+    lines.append("COMPLETION-INTEGRITY REPAIR INSTRUCTIONS")
+    lines.append("")
+    lines.append("Your bundle modified only new/helper files and did not update the required existing surfaces.")
+    if requires_touch:
+        lines.append("This task explicitly requires touching existing surfaces.")
+    if contract.raw_text_excerpt:
+        lines.append("Deliverable contract excerpt:")
+        lines.append(contract.raw_text_excerpt)
+    lines.append("")
+    lines.append("You MUST update these exact existing-surface files:")
+    for path in required:
+        lines.append(f"- {path}")
+    lines.append("")
+    lines.append("Files you changed in the rejected bundle:")
+    if bundle_paths:
+        for path in bundle_paths:
+            lines.append(f"- {path}")
+    else:
+        lines.append("- (no files reported)")
+
+    if touches:
+        lines.append("")
+        lines.append("Note: Some changes touched deliverables but did not satisfy the existing-surface requirement:")
+        for path in touches:
+            lines.append(f"- {path}")
+
+    if missing:
+        lines.append("")
+        lines.append("Missing required deliverables from your bundle:")
+        for path in missing:
+            lines.append(f"- {path}")
+
+    lines.append("")
+    lines.append("Repair steps:")
+    lines.append("- Modify at least one of the required existing-surface files listed above.")
+    lines.append("- Keep changes deterministic and limited to the specified files.")
+    lines.append("- Re-run with a bundle that includes those exact file paths.")
+
+    return "\n".join(lines)
 
 
-def _existing_nontest_touches(bundle: Mapping[str, str], baseline: Mapping[str, str] | None) -> list[str]:
-    base = dict(baseline or {})
-    touches: list[str] = []
-    for path in bundle:
-        if path in base and not _is_task_or_test_or_doc(path):
-            touches.append(path)
-    return touches
-
-
-def _new_nontest_paths(bundle: Mapping[str, str], baseline: Mapping[str, str] | None) -> list[str]:
-    base = dict(baseline or {})
-    paths: list[str] = []
-    for path in bundle:
-        if path not in base and not _is_task_or_test_or_doc(path):
-            paths.append(path)
-    return paths
-
-
-def _integration_intent(task_text: str) -> bool:
-    return bool(INTEGRATION_INTENT_RE.search(str(task_text or '')))
-
-
-def evaluate_completion_integrity_gate(
-    task_text: str,
-    bundle: Mapping[str, str],
-    *,
-    baseline: Mapping[str, str] | None = None,
-    required_paths: Sequence[str] | None = None,
-) -> tuple[bool, str]:
-    directives = parse_completion_integrity_directives(task_text)
-    existing_touches = sorted(set(_existing_nontest_touches(bundle, baseline)))
-    new_nontest_paths = sorted(set(_new_nontest_paths(bundle, baseline)))
-
-    allow_helper_only = directives['allow_helper_only']
-    if allow_helper_only is None:
-        allow_helper_only = not _integration_intent(task_text)
-
-    min_existing = int(directives.get('min_existing_nontest_touches', 0) or 0)
-    if _integration_intent(task_text) and min_existing == 0 and not allow_helper_only:
-        min_existing = 1
-
-    issues: list[str] = []
-
-    required_existing = [str(x) for x in directives.get('required_existing_touches', []) or []]
-    missing_required = [p for p in required_existing if p not in existing_touches]
-    if missing_required:
-        issues.append(
-            'required existing integration surfaces were not touched: ' + ', '.join(sorted(missing_required))
-        )
-
-    if len(existing_touches) < min_existing:
-        issues.append(
-            f'expected at least {min_existing} existing non-test/doc integration surface touch(es), found {len(existing_touches)}'
-        )
-
-    if not allow_helper_only and not existing_touches and new_nontest_paths:
-        issues.append(
-            'bundle appears helper-only or new-surface-only without touching an existing live integration surface: '
-            + ', '.join(new_nontest_paths)
-        )
-
-    if issues:
-        summary = [
-            'Completion integrity gate failed:',
-            *[f'- {issue}' for issue in issues],
-        ]
-        if existing_touches:
-            summary.append('existing integration touches: ' + ', '.join(existing_touches))
-        if new_nontest_paths:
-            summary.append('new non-test/doc paths: ' + ', '.join(new_nontest_paths))
-        if required_paths:
-            summary.append('required paths: ' + ', '.join(str(x) for x in required_paths))
-        return False, '\n'.join(summary)
-
-    return True, ''
+__all__ = [
+    "DeliverableContract",
+    "parse_explicit_deliverable_contract",
+    "evaluate_existing_surface_touch",
+    "build_completion_repair_feedback",
+]

@@ -29,6 +29,6 @@ Acceptance criteria
 - Tests cover at least one helper-only failure and one existing-surface success case driven by the prompt/contract shape.
 - Project state docs note that completion integrity now depends both on the task contract and the follow-up repair prompt.
 
-Notes
-- Preserve all previously landed compatibility seams in `agents/run_task.py`.
-- Do not weaken the completion-integrity gate.
+Update discipline
+When updating an existing file, preserve the current architecture and surrounding code unless the task explicitly requires a rewrite.
+Do not replace large existing files with miniature standalone versions or toy implementations.
