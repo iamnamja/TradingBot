@@ -4536,113 +4536,115 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
     except Exception:
         _partition = None  # type: ignore[assignment]
 
-    # Normalize required paths (stable, canonical, deduped)
-    normalized_required: List[str] = []
+    # Canonicalize and dedupe required paths (preserve deterministic ordering)
     seen_required: set[str] = set()
+    normalized_required: List[str] = []
     for raw in required_paths or []:
-        if not isinstance(raw, str) or not raw.strip():
+        if not isinstance(raw, str):
             continue
-        canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
+        token = raw.strip().replace("\\", "/")
+        if not token:
+            continue
+        canonical = _canonical_docs_path_for(token)
         if canonical in seen_required:
             continue
         seen_required.add(canonical)
         normalized_required.append(canonical)
 
-    # Normalize protected targets into a list of dicts with canonical path; dedupe by (path, mode, method_name)
-    normalized_protected: List[dict[str, object]] = []
-    seen_protected_entries: set[tuple[str, str, str]] = set()
-    for target in protected_targets or []:
-        if isinstance(target, dict):
-            raw_path = target.get("path")
-            if not isinstance(raw_path, str) or not raw_path.strip():
-                continue
-            canonical_path = _canonical_docs_path_for(raw_path.strip().replace("\\", "/"))
-            mode = str(target.get("mode", "") or "").strip()
-            method_name = str(target.get("method_name", "") or "").strip()
-            dedupe_key = (canonical_path, mode, method_name)
-            if dedupe_key in seen_protected_entries:
-                continue
-            seen_protected_entries.add(dedupe_key)
-            target_copy: dict[str, object] = dict(target)
-            target_copy["path"] = canonical_path
-            normalized_protected.append(target_copy)
-        elif isinstance(target, str) and target.strip():
-            canonical_path = _canonical_docs_path_for(target.strip().replace("\\", "/"))
-            dedupe_key = (canonical_path, "", "")
-            if dedupe_key in seen_protected_entries:
-                continue
-            seen_protected_entries.add(dedupe_key)
-            normalized_protected.append({"path": canonical_path})
+    # Canonicalize protected targets into a list of dicts with at least {"path": <canonical>}
+    normalized_protected_targets: List[dict[str, object]] = []
+    seen_targets: set[tuple[str, str, str]] = set()
+    if protected_targets:
+        for entry in protected_targets:
+            if isinstance(entry, dict):
+                raw_path = str(entry.get("path", "") or "").strip()
+                if not raw_path:
+                    continue
+                canonical = _canonical_docs_path_for(raw_path.replace("\\", "/"))
+                mode = str(entry.get("mode", "") or "").strip()
+                method_name = str(entry.get("method_name", "") or "").strip()
+                key = (canonical, mode, method_name)
+                if key in seen_targets:
+                    continue
+                seen_targets.add(key)
+                item = dict(entry)
+                item["path"] = canonical
+                normalized_protected_targets.append(item)
+            elif isinstance(entry, str) and entry.strip():
+                canonical = _canonical_docs_path_for(entry.strip().replace("\\", "/"))
+                key = (canonical, "", "")
+                if key in seen_targets:
+                    continue
+                seen_targets.add(key)
+                normalized_protected_targets.append({"path": canonical})
 
-    # Attempt to use external partitioner if available; fall back silently on errors.
-    if callable(_partition):
-        try:
-            normal, protected = _partition(
-                required_paths=normalized_required,
-                protected_targets=normalized_protected,
-                protected_meta_paths=(
-                    "agents/run_task.py",
-                    "agents/lib/shell_router.py",
-                    "agents/lib/bundle_parser.py",
-                    "agents/lib/protected_file_policy.py",
-                ),
-            )
-            # Re-normalize outputs from delegate to enforce canonical docs mapping and deterministic order.
-            normalized_normal: List[str] = []
-            normalized_protected_paths: List[str] = []
-            seen_normal: set[str] = set()
-            seen_protected: set[str] = set()
-            for raw in normal or []:
-                if not isinstance(raw, str) or not raw.strip():
-                    continue
-                canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
-                if canonical in seen_normal:
-                    continue
-                seen_normal.add(canonical)
-                normalized_normal.append(canonical)
-            for raw in protected or []:
-                if not isinstance(raw, str) or not raw.strip():
-                    continue
-                canonical = _canonical_docs_path_for(raw.strip().replace("\\", "/"))
-                if canonical in seen_protected:
-                    continue
-                seen_protected.add(canonical)
-                normalized_protected_paths.append(canonical)
-            return normalized_normal, normalized_protected_paths
-        except Exception:
-            # Delegate misbehavior should not abort the run; continue with local fallback.
-            pass
-
-    # Local conservative fallback: treat hard-coded meta harness files as protected.
-    meta_harness_paths = {
+    # Hard-coded protected meta harness files (always treated as protected)
+    protected_meta_paths = {
         "agents/run_task.py",
         "agents/lib/shell_router.py",
         "agents/lib/bundle_parser.py",
         "agents/lib/protected_file_policy.py",
     }
-    protected_explicit: set[str] = set()
-    for target in normalized_protected:
-        maybe = target.get("path")
-        if isinstance(maybe, str) and maybe.strip():
-            protected_explicit.add(maybe.strip().replace("\\", "/"))
 
-    normal_out: List[str] = []
-    protected_out: List[str] = []
-    seen_normal_out: set[str] = set()
-    seen_protected_out: set[str] = set()
+    # Try external partitioner first (authoritative if available)
+    if callable(_partition):
+        try:
+            normal, protected = _partition(
+                required_paths=normalized_required,
+                protected_targets=normalized_protected_targets,
+                protected_meta_paths=tuple(sorted(protected_meta_paths)),
+            )
+            # Re-normalize delegate outputs (canonicalize, dedupe, sort)
+            seen_n: set[str] = set()
+            norm_normal: List[str] = []
+            for p in normal or []:
+                if not isinstance(p, str):
+                    continue
+                c = _canonical_docs_path_for(p.strip().replace("\\", "/"))
+                if c and c not in seen_n:
+                    seen_n.add(c)
+                    norm_normal.append(c)
+
+            seen_p: set[str] = set()
+            norm_protected: List[str] = []
+            for p in protected or []:
+                if not isinstance(p, str):
+                    continue
+                c = _canonical_docs_path_for(p.strip().replace("\\", "/"))
+                if c and c not in seen_p:
+                    seen_p.add(c)
+                    norm_protected.append(c)
+
+            # Deterministic order
+            return sorted(norm_normal), sorted(norm_protected)
+        except Exception:
+            # Delegate failure should not abort execution; fall back locally.
+            pass
+
+    # Local conservative fallback: treat explicit protected + meta harness files as protected
+    explicit_protected_paths = {
+        str(t.get("path")).strip().replace("\\", "/")
+        for t in normalized_protected_targets
+        if isinstance(t, dict) and str(t.get("path", "")).strip()
+    }
+
+    out_normal: List[str] = []
+    out_protected: List[str] = []
+    seen_out_n: set[str] = set()
+    seen_out_p: set[str] = set()
 
     for path in normalized_required:
-        is_protected = path in protected_explicit or path in meta_harness_paths
-        if is_protected:
-            if path not in seen_protected_out:
-                protected_out.append(path)
-                seen_protected_out.add(path)
+        if path in explicit_protected_paths or path in protected_meta_paths:
+            if path not in seen_out_p:
+                seen_out_p.add(path)
+                out_protected.append(path)
         else:
-            if path not in seen_normal_out:
-                normal_out.append(path)
-                seen_normal_out.add(path)
+            if path not in seen_out_n:
+                seen_out_n.add(path)
+                out_normal.append(path)
 
-    return normal_out, protected_out
+    # Deterministic order
+    return sorted(out_normal), sorted(out_protected)
 def _local_branch_exists(branch: str) -> bool:
     try:
         out = capture(["git", "branch", "--list", branch]).strip()
@@ -4747,8 +4749,7 @@ def _emit_failure_artifact_messages(
         protected_targets_identified: List[str] | None = None,
     ) -> None:
         # Be resilient: never raise, always attempt to persist minimal diagnostics/placeholders.
-        # This replacement avoids hard dependency on optional external helpers that may vary across environments.
-
+        # Ensure JSON artifacts exist and contain a `placeholder: true` flag, overwriting stale non-JSON content.
         should_create_placeholders = bool(create_placeholders or before_model_output)
 
         task_file_path = Path(task_file).as_posix() if task_file else ""
@@ -4756,7 +4757,6 @@ def _emit_failure_artifact_messages(
         protected_targets_list: List[str] = [str(x).strip() for x in (protected_targets_identified or []) if str(x).strip()]
         normalized_reason = (reason or "").strip() or "failure occurred before artifact content was produced"
 
-        # Conservative checkpoint snapshot for downstream batch runners.
         checkpoint_transition = "failed_before_model_output" if before_model_output else "failed"
         category_text = str(failure_category or "").strip()
 
@@ -4784,127 +4784,128 @@ def _emit_failure_artifact_messages(
             "resume_gate": "manual_intervention_required",
         }
 
-        def _write_json(path: Path, payload: dict) -> None:
+        def _load_json_or_empty(path: Path) -> dict:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception:
+                return {}
+            try:
+                data = json.loads(text)
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
+
+        def _write_json_safely(path: Path, payload: dict) -> None:
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
             except Exception:
-                # Do not propagate filesystem issues to the main flow.
                 pass
 
-        # Create minimal placeholders if requested and missing.
-        if should_create_placeholders and not last_output_path.exists():
-            output_payload = {
-                "placeholder": True,
-                "artifact_kind": "model_output_placeholder",
-                "status": "unavailable",
-                "reason": normalized_reason,
-                "task_file": task_file_path,
-                "failure_category": category_text,
-                "protected_files": protected_files_list,
-                "before_model_output": bool(before_model_output),
-                "normal_bundle_attempted": bool(normal_bundle_attempted),
-                "protected_execution_attempted": bool(protected_execution_attempted),
-                "mixed_task": bool(mixed_task),
-                "protected_targets_identified": protected_targets_list,
-                "batch_checkpoint": dict(base_checkpoint),
-                "batch_state": {
-                    "persisted": False,
-                    "resumable": False,
-                    "resume_hint": "",
-                    "next_task_may_proceed": False,
-                    "checkpoint_transition": checkpoint_transition,
-                    "accepted_task_pr_flow_completed": False,
-                    "required_checks_passed": False,
-                    "merged_to_main": False,
-                    "clean_main_reset_completed": False,
-                    "resume_reason": "failure",
-                    "resume_target": task_file_path,
-                    "resume_gate": "manual_intervention_required",
-                },
-            }
-            _write_json(last_output_path, output_payload)
-
-        if should_create_placeholders and not last_bundle_path.exists():
-            bundle_payload = {
-                "placeholder": True,
-                "artifact_kind": "file_bundle_placeholder",
-                "status": "unavailable",
-                "kind": "file_bundle",
-                "reason": normalized_reason,
-                "task_file": task_file_path,
-                "failure_category": category_text,
-                "protected_files": protected_files_list,
-                "before_model_output": bool(before_model_output),
-                "normal_bundle_attempted": bool(normal_bundle_attempted),
-                "protected_execution_attempted": bool(protected_execution_attempted),
-                "mixed_task": bool(mixed_task),
-                "protected_targets_identified": protected_targets_list,
-                "files": [],
-                "batch_checkpoint": dict(base_checkpoint),
-                "batch_state": {
-                    "persisted": False,
-                    "resumable": False,
-                    "resume_hint": "",
-                    "next_task_may_proceed": False,
-                    "checkpoint_transition": checkpoint_transition,
-                    "accepted_task_pr_flow_completed": False,
-                    "required_checks_passed": False,
-                    "merged_to_main": False,
-                    "clean_main_reset_completed": False,
-                    "resume_reason": "failure",
-                    "resume_target": task_file_path,
-                    "resume_gate": "manual_intervention_required",
-                },
-            }
-            _write_json(last_bundle_path, bundle_payload)
-
-        # Ensure checkpoint/state fields remain conservative if placeholders already exist.
         if should_create_placeholders:
-            for artifact_path in (last_output_path, last_bundle_path):
-                try:
-                    if not artifact_path.exists():
-                        continue
-                    payload_text = artifact_path.read_text(encoding="utf-8")
-                    data = json.loads(payload_text) if payload_text.strip() else {}
-                    if not isinstance(data, dict):
-                        data = {}
-                except Exception:
-                    data = {}
+            # last_output_path: ensure JSON with placeholder true
+            existing_output = _load_json_or_empty(last_output_path)
+            output_payload = dict(existing_output) if isinstance(existing_output, dict) else {}
+            output_payload["placeholder"] = True
+            output_payload["artifact_kind"] = output_payload.get("artifact_kind") or "model_output_placeholder"
+            output_payload["status"] = "unavailable"
+            output_payload["reason"] = normalized_reason
+            output_payload["task_file"] = task_file_path
+            output_payload["failure_category"] = category_text
+            output_payload["protected_files"] = protected_files_list
+            output_payload["before_model_output"] = bool(before_model_output)
+            output_payload["normal_bundle_attempted"] = bool(normal_bundle_attempted)
+            output_payload["protected_execution_attempted"] = bool(protected_execution_attempted)
+            output_payload["mixed_task"] = bool(mixed_task)
+            output_payload["protected_targets_identified"] = protected_targets_list
 
-                checkpoint = dict(base_checkpoint)
-                existing_checkpoint = data.get("batch_checkpoint")
-                if isinstance(existing_checkpoint, dict):
-                    checkpoint.update(existing_checkpoint or {})
-                checkpoint["next_task_may_proceed"] = False
-                checkpoint["transition"] = checkpoint_transition
-                checkpoint["failure_category"] = category_text or str(checkpoint.get("failure_category", ""))
-                if not str(checkpoint.get("reason", "")).strip():
-                    checkpoint["reason"] = normalized_reason
-                checkpoint["accepted_task_pr_flow_completed"] = bool(checkpoint.get("accepted_task_pr_flow_completed", False))
-                checkpoint["required_checks_passed"] = bool(checkpoint.get("required_checks_passed", False))
-                checkpoint["merged_to_main"] = bool(checkpoint.get("merged_to_main", False))
-                checkpoint["clean_main_reset_completed"] = False
-                checkpoint["resume_reason"] = str(checkpoint.get("resume_reason", "failure") or "failure")
-                checkpoint["resume_target"] = str(checkpoint.get("resume_target", task_file_path) or task_file_path)
-                checkpoint["resume_gate"] = str(checkpoint.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
-                data["batch_checkpoint"] = checkpoint
+            checkpoint = dict(base_checkpoint)
+            existing_checkpoint = output_payload.get("batch_checkpoint")
+            if isinstance(existing_checkpoint, dict):
+                checkpoint.update(existing_checkpoint or {})
+            checkpoint["next_task_may_proceed"] = False
+            checkpoint["transition"] = checkpoint_transition
+            checkpoint["failure_category"] = category_text or str(checkpoint.get("failure_category", ""))
+            if not str(checkpoint.get("reason", "")).strip():
+                checkpoint["reason"] = normalized_reason
+            checkpoint["accepted_task_pr_flow_completed"] = bool(checkpoint.get("accepted_task_pr_flow_completed", False))
+            checkpoint["required_checks_passed"] = bool(checkpoint.get("required_checks_passed", False))
+            checkpoint["merged_to_main"] = bool(checkpoint.get("merged_to_main", False))
+            checkpoint["clean_main_reset_completed"] = False
+            checkpoint["resume_reason"] = str(checkpoint.get("resume_reason", "failure") or "failure")
+            checkpoint["resume_target"] = str(checkpoint.get("resume_target", task_file_path) or task_file_path)
+            checkpoint["resume_gate"] = str(checkpoint.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
+            output_payload["batch_checkpoint"] = checkpoint
 
-                state = data.get("batch_state")
-                if not isinstance(state, dict):
-                    state = {}
-                state["next_task_may_proceed"] = False
-                state["checkpoint_transition"] = checkpoint_transition
-                state["accepted_task_pr_flow_completed"] = bool(state.get("accepted_task_pr_flow_completed", False))
-                state["required_checks_passed"] = bool(state.get("required_checks_passed", False))
-                state["merged_to_main"] = bool(state.get("merged_to_main", False))
-                state["clean_main_reset_completed"] = False
-                state["resume_reason"] = str(state.get("resume_reason", "failure") or "failure")
-                state["resume_target"] = str(state.get("resume_target", task_file_path) or task_file_path)
-                state["resume_gate"] = str(state.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
-                data["batch_state"] = state
+            state = output_payload.get("batch_state")
+            if not isinstance(state, dict):
+                state = {}
+            state["next_task_may_proceed"] = False
+            state["checkpoint_transition"] = checkpoint_transition
+            state["accepted_task_pr_flow_completed"] = bool(state.get("accepted_task_pr_flow_completed", False))
+            state["required_checks_passed"] = bool(state.get("required_checks_passed", False))
+            state["merged_to_main"] = bool(state.get("merged_to_main", False))
+            state["clean_main_reset_completed"] = False
+            state["resume_reason"] = str(state.get("resume_reason", "failure") or "failure")
+            state["resume_target"] = str(state.get("resume_target", task_file_path) or task_file_path)
+            state["resume_gate"] = str(state.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
+            output_payload["batch_state"] = state
 
-                _write_json(artifact_path, data)
+            _write_json_safely(last_output_path, output_payload)
+
+            # last_bundle_path: ensure JSON with placeholder true
+            existing_bundle = _load_json_or_empty(last_bundle_path)
+            bundle_payload = dict(existing_bundle) if isinstance(existing_bundle, dict) else {}
+            bundle_payload["placeholder"] = True
+            bundle_payload["artifact_kind"] = bundle_payload.get("artifact_kind") or "file_bundle_placeholder"
+            bundle_payload["status"] = "unavailable"
+            bundle_payload["kind"] = "file_bundle"
+            bundle_payload["reason"] = normalized_reason
+            bundle_payload["task_file"] = task_file_path
+            bundle_payload["failure_category"] = category_text
+            bundle_payload["protected_files"] = protected_files_list
+            bundle_payload["before_model_output"] = bool(before_model_output)
+            bundle_payload["normal_bundle_attempted"] = bool(normal_bundle_attempted)
+            bundle_payload["protected_execution_attempted"] = bool(protected_execution_attempted)
+            bundle_payload["mixed_task"] = bool(mixed_task)
+            bundle_payload["protected_targets_identified"] = protected_targets_list
+            files_field = bundle_payload.get("files")
+            if not isinstance(files_field, list):
+                bundle_payload["files"] = []
+
+            checkpoint_b = dict(base_checkpoint)
+            existing_checkpoint_b = bundle_payload.get("batch_checkpoint")
+            if isinstance(existing_checkpoint_b, dict):
+                checkpoint_b.update(existing_checkpoint_b or {})
+            checkpoint_b["next_task_may_proceed"] = False
+            checkpoint_b["transition"] = checkpoint_transition
+            checkpoint_b["failure_category"] = category_text or str(checkpoint_b.get("failure_category", ""))
+            if not str(checkpoint_b.get("reason", "")).strip():
+                checkpoint_b["reason"] = normalized_reason
+            checkpoint_b["accepted_task_pr_flow_completed"] = bool(checkpoint_b.get("accepted_task_pr_flow_completed", False))
+            checkpoint_b["required_checks_passed"] = bool(checkpoint_b.get("required_checks_passed", False))
+            checkpoint_b["merged_to_main"] = bool(checkpoint_b.get("merged_to_main", False))
+            checkpoint_b["clean_main_reset_completed"] = False
+            checkpoint_b["resume_reason"] = str(checkpoint_b.get("resume_reason", "failure") or "failure")
+            checkpoint_b["resume_target"] = str(checkpoint_b.get("resume_target", task_file_path) or task_file_path)
+            checkpoint_b["resume_gate"] = str(checkpoint_b.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
+            bundle_payload["batch_checkpoint"] = checkpoint_b
+
+            state_b = bundle_payload.get("batch_state")
+            if not isinstance(state_b, dict):
+                state_b = {}
+            state_b["next_task_may_proceed"] = False
+            state_b["checkpoint_transition"] = checkpoint_transition
+            state_b["accepted_task_pr_flow_completed"] = bool(state_b.get("accepted_task_pr_flow_completed", False))
+            state_b["required_checks_passed"] = bool(state_b.get("required_checks_passed", False))
+            state_b["merged_to_main"] = bool(state_b.get("merged_to_main", False))
+            state_b["clean_main_reset_completed"] = False
+            state_b["resume_reason"] = str(state_b.get("resume_reason", "failure") or "failure")
+            state_b["resume_target"] = str(state_b.get("resume_target", task_file_path) or task_file_path)
+            state_b["resume_gate"] = str(state_b.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
+            bundle_payload["batch_state"] = state_b
+
+            _write_json_safely(last_bundle_path, bundle_payload)
 
         # Friendly console notes; never raise.
         if last_output_path.exists():
@@ -4921,7 +4922,6 @@ def _emit_failure_artifact_messages(
             if bundle_error_path.exists():
                 print(f"Bundle transport diagnostics saved to: {bundle_error_path}")
         except Exception:
-            # Path resolution issues should not impact the run outcome.
             pass
 def _cleanup_runtime_artifacts_for_commit(paths: List[Path], keep_runtime_artifacts: bool | None = None) -> None:
     exports = _artifact_quarantine_exports()

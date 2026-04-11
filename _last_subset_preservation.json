@@ -1,18 +1,28 @@
 {
   "applied_subset_paths": [
-    "src/builder/orchestrator/benchmark.py",
-    "tests/test_orchestrator_benchmark.py"
+    "agents/run_task.py",
+    "tests/test_run_task_parsers_and_policies.py",
+    "tests/test_failure_journal.py",
+    "tasks/168_orchestrator_top_failure_family_elimination_tranche.md",
+    "docs/TRADINGBOT_PROJECT_STATE.md"
   ],
   "assertion_target_category": "unclassified",
   "bounded": true,
   "chosen_repair_target": "broad_builder_repair",
-  "last_known_good_subset_paths": [],
-  "preserved_subset_paths": [],
-  "repair_strategy": "syntax_import_lint_repair",
-  "rollback_scope_limited": false,
-  "rollback_subset_paths": [
-    "src/builder/orchestrator/benchmark.py",
-    "tests/test_orchestrator_benchmark.py"
+  "last_known_good_subset_paths": [
+    "tasks/168_orchestrator_top_failure_family_elimination_tranche.md",
+    "docs/TRADINGBOT_PROJECT_STATE.md"
   ],
-  "task_file": "tasks/156_orchestrator_one_task_autonomous_benchmark_harness.md"
+  "preserved_subset_paths": [
+    "tasks/168_orchestrator_top_failure_family_elimination_tranche.md",
+    "docs/TRADINGBOT_PROJECT_STATE.md"
+  ],
+  "repair_strategy": "collection_import_contract_repair",
+  "rollback_scope_limited": true,
+  "rollback_subset_paths": [
+    "agents/run_task.py",
+    "tests/test_run_task_parsers_and_policies.py",
+    "tests/test_failure_journal.py"
+  ],
+  "task_file": "tasks/168_orchestrator_top_failure_family_elimination_tranche.md"
 }
