@@ -1,28 +1,18 @@
 {
   "applied_subset_paths": [
     "src/builder/orchestrator/benchmark.py",
-    "src/builder/orchestrator/benchmark_scorecard.py",
-    "tests/test_benchmark_scorecard_integration.py",
-    "tasks/161_orchestrator_one_task_reliability_minipack_reproof.md",
-    "docs/TRADINGBOT_PROJECT_STATE.md"
+    "tests/test_orchestrator_benchmark.py"
   ],
   "assertion_target_category": "unclassified",
   "bounded": true,
   "chosen_repair_target": "broad_builder_repair",
-  "last_known_good_subset_paths": [
-    "tasks/161_orchestrator_one_task_reliability_minipack_reproof.md",
-    "docs/TRADINGBOT_PROJECT_STATE.md"
-  ],
-  "preserved_subset_paths": [
-    "tasks/161_orchestrator_one_task_reliability_minipack_reproof.md",
-    "docs/TRADINGBOT_PROJECT_STATE.md"
-  ],
-  "repair_strategy": "ci_verification_recheck",
-  "rollback_scope_limited": true,
+  "last_known_good_subset_paths": [],
+  "preserved_subset_paths": [],
+  "repair_strategy": "syntax_import_lint_repair",
+  "rollback_scope_limited": false,
   "rollback_subset_paths": [
     "src/builder/orchestrator/benchmark.py",
-    "src/builder/orchestrator/benchmark_scorecard.py",
-    "tests/test_benchmark_scorecard_integration.py"
+    "tests/test_orchestrator_benchmark.py"
   ],
-  "task_file": "tasks/161_orchestrator_one_task_reliability_minipack_reproof.md"
+  "task_file": "tasks/156_orchestrator_one_task_autonomous_benchmark_harness.md"
 }
