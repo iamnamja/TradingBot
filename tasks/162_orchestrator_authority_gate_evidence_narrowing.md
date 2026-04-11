@@ -1,21 +1,11 @@
-# Task 162: orchestrator authority-gate evidence narrowing
+# Task 162: Orchestrator authority-gate evidence narrowing
 
 Goal
 
 Reduce false or over-broad authority blocks in the one-task lane by requiring narrower, more explicit evidence classification before the runner stops a task for authority reasons.
 
-Why this matters
-
-The first reliability sprint improved transport, artifact hygiene, benchmark scorecarding, and completion integrity. The next biggest drag on one-task autonomy is that authority-style blocks can still stop otherwise-fixable tasks too early or with reasoning that is too broad to be actionable.
-
-Create or update these exact files
-- agents/run_task.py
-- agents/lib/authority_gate.py
-- tests/test_authority_gate.py
-- tasks/162_orchestrator_authority_gate_evidence_narrowing.md
-- docs/TRADINGBOT_PROJECT_STATE.md
-
 Scope
+
 - Introduce a narrow classifier for authority-gate evidence categories.
 - Distinguish at least:
   - no_checks_reported
@@ -26,13 +16,26 @@ Scope
 - For ambiguous evidence, prefer a bounded retry or a clearer failure artifact rather than an over-broad authority stop.
 - Preserve the conservative project posture. This task should reduce noisy blocking, not weaken true authority gating.
 
-Acceptance criteria
-- There is a dedicated authority-gate helper surface in `agents/lib/authority_gate.py`.
-- `agents/run_task.py` uses the narrowed authority-gate classification instead of broad ad hoc checks.
-- Tests cover explicit block, ambiguous evidence, and no-checks-reported paths.
-- Project state docs explain that authority gating is still conservative but now more explicit and narrower.
+Implementation notes
 
-Notes
-- Keep this task narrowly runtime-facing.
-- Do not widen to multi-task logic.
-- Do not weaken required-check enforcement.
+- A dedicated helper is exposed at `agents/lib/authority_gate.py`.
+- The helper provides:
+  - `AuthorityEvidenceCategory` enum of narrow categories.
+  - `classify_authority_evidence(evidence)` to normalize incoming signals.
+  - `decide_authority_gate(evidence)` to return a structured decision with:
+    - `hard_block` (bool),
+    - `category` (enum),
+    - `reason` (str),
+    - `suggest_retry` (bool),
+    - `retry_limit` (int).
+- Only explicit required-check failures or explicit policy blocks result in a hard stop.
+- Ambiguous or missing signals prefer a bounded, low-amplitude retry to corroborate authority evidence.
+
+Why this matters
+
+The first reliability sprint improved transport, artifact hygiene, benchmark scorecarding, and completion integrity. The next biggest drag on one-task autonomy is that authority-style blocks can still stop otherwise-fixable tasks too early or with reasoning that is too broad to be actionable. By narrowing evidence categories and requiring explicit signals for hard blocks, we reduce noisy stops while preserving true authority protections.
+
+Acceptance
+
+- Helper surface exists and is covered by tests for explicit block, ambiguous evidence, and no-checks-reported paths.
+- Runner logic can consume this helper to stay conservative while being more precise.
