@@ -1,19 +1,7 @@
-# Task 162: orchestrator authority-gate evidence narrowing
+Task 162: Orchestrator authority-gate evidence narrowing
 
 Goal
-
 Reduce false or over-broad authority blocks in the one-task lane by requiring narrower, more explicit evidence classification before the runner stops a task for authority reasons.
-
-Why this matters
-
-The first reliability sprint improved transport, artifact hygiene, benchmark scorecarding, and completion integrity. The next biggest drag on one-task autonomy is that authority-style blocks can still stop otherwise-fixable tasks too early or with reasoning that is too broad to be actionable.
-
-Create or update these exact files
-- agents/run_task.py
-- agents/lib/authority_gate.py
-- tests/test_authority_gate.py
-- tasks/162_orchestrator_authority_gate_evidence_narrowing.md
-- docs/TRADINGBOT_PROJECT_STATE.md
 
 Scope
 - Introduce a narrow classifier for authority-gate evidence categories.
@@ -26,13 +14,16 @@ Scope
 - For ambiguous evidence, prefer a bounded retry or a clearer failure artifact rather than an over-broad authority stop.
 - Preserve the conservative project posture. This task should reduce noisy blocking, not weaken true authority gating.
 
-Acceptance criteria
-- There is a dedicated authority-gate helper surface in `agents/lib/authority_gate.py`.
-- `agents/run_task.py` uses the narrowed authority-gate classification instead of broad ad hoc checks.
-- Tests cover explicit block, ambiguous evidence, and no-checks-reported paths.
-- Project state docs explain that authority gating is still conservative but now more explicit and narrower.
+Implementation notes
+- A dedicated helper surface is added at agents/lib/authority_gate.py providing:
+  - classify_authority_evidence(evidence) -> AuthorityGateDecision
+  - should_hard_block(evidence) -> bool
+  - AuthorityEvidenceCategory enum for the four categories above.
+- The design keeps default posture conservative: policy blocks and explicit required-check failures still stop execution. Ambiguous or missing evidence does not hard-block.
 
-Notes
-- Keep this task narrowly runtime-facing.
-- Do not widen to multi-task logic.
-- Do not weaken required-check enforcement.
+Tests
+- tests/test_authority_gate.py covers explicit block, ambiguous evidence, no-checks-reported, and policy block paths.
+
+Runtime-facing discipline
+- This task remains runtime-facing and does not widen to multi-task logic.
+- Required-check enforcement remains intact; only ambiguous evidence is softened to reduce noisy blocking.
