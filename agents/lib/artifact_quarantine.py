@@ -8,8 +8,28 @@ KNOWN_SAFE_ARTIFACT_NAMES = (
     "_last_agent_model_output.txt",
     "_last_agent_file_bundle.txt",
     "_last_agent_file_bundle_error.txt",
-        "_last_subset_preservation.json",
+    "_last_subset_preservation.json",
 )
+
+LEGACY_RUNTIME_ARTIFACT_NAME_ALIASES = {
+    "_last_agent_file_bundlee_error.txt": "_last_agent_file_bundle_error.txt",
+}
+
+
+def normalize_runtime_artifact_name(name: str) -> str:
+    return str(LEGACY_RUNTIME_ARTIFACT_NAME_ALIASES.get(str(name), str(name)))
+
+
+def _normalized_names(paths: Iterable[Path]) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        normalized = normalize_runtime_artifact_name(path.name)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        names.append(normalized)
+    return names
 
 
 def classify_runtime_artifacts(
@@ -17,12 +37,12 @@ def classify_runtime_artifacts(
     *,
     known_safe_names: Iterable[str] = KNOWN_SAFE_ARTIFACT_NAMES,
 ) -> dict[str, list[Path]]:
-    safe = {str(name) for name in known_safe_names}
+    safe = {normalize_runtime_artifact_name(str(name)) for name in known_safe_names}
     known_safe: list[Path] = []
     unknown: list[Path] = []
 
     for path in paths:
-        if path.name in safe:
+        if normalize_runtime_artifact_name(path.name) in safe:
             known_safe.append(path)
         else:
             unknown.append(path)
@@ -72,8 +92,8 @@ def quarantine_runtime_artifacts(
         "quarantined": quarantined,
         "retained": retained,
         "warnings": {
-            "quarantined_known_safe": [p.as_posix() for p in classified["known_safe"]],
-            "retained_known_safe": [p.as_posix() for p in retained],
+            "quarantined_known_safe": _normalized_names(classified["known_safe"]),
+            "retained_known_safe": _normalized_names(retained),
             "unknown_artifacts": [p.as_posix() for p in unknown],
         },
         "lifecycle": {
