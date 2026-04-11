@@ -30,7 +30,7 @@ class Scorecard:
         data = asdict(self)
         data["successes"] = self.successes()
         data["failures"] = self.failures()
-        data["pass_rate"] = round(self.pass_rate(), 4)
+        data["pass_rate"] = round(self.successes() / self.total_runs, 4) if self.total_runs else 0.0
         return data
 
 
@@ -71,8 +71,7 @@ class BenchmarkSession:
 
         if manual_edit:
             self.scorecard.invalidated_by_human_intervention += 1
-            # If it doesn't already fall into another explicit non-success bucket,
-            # count it as a failed run for scoreboard parity.
+            # If caller didn't specify another explicit non-success bucket, count it as failure.
             if not (failed or authority_blocked or supervised):
                 self.scorecard.failed_runs += 1
             return
