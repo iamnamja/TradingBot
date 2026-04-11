@@ -12,7 +12,7 @@ The current monorepo contains:
 
 ## Current state
 
-- **Tasks 124–166 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes malformed and empty bundle failures, preserves last-known-good subsets during retries, maintains bounded autonomous one-task execution, adds benchmark scorecard integration, improves authority-gate evidence handling, hardens deliverable contracts and completion prompts, normalizes runtime artifact hygiene, completes a second one-task reliability minipack re-proof, and moves benchmark decisions onto a strict no-manual-intervention scorecard.
+- **Tasks 124–167 are complete in bounded supervised scope:** the repo now freezes public/tested compatibility surfaces, gates proof tasks on exact deliverable contracts, distinguishes malformed and empty bundle failures, preserves last-known-good subsets during retries, maintains bounded autonomous one-task execution, adds benchmark scorecard integration, improves authority-gate evidence handling, hardens deliverable contracts and completion prompts, normalizes runtime artifact hygiene, completes a second one-task reliability minipack re-proof, moves benchmark decisions onto a strict no-manual-intervention scorecard, and records explicit hosted-authority corroboration state at benchmark time.
 
 The current bounded slice now demonstrates:
 
@@ -62,6 +62,23 @@ Tasks 157–165 improved the one-task lane materially, but the second minipack r
   - scorecard.json: durable strict counts (total runs, direct, self-healed, failed, supervised/escalated, authority-blocked, invalidated-by-human).
   - scoreboard.json: legacy-compatible pass-rate surface retained for continuity.
 - Any human edit during a run invalidates the run for autonomous success accounting. Only untouched direct or self-healed completions contribute to promotion pass rate.
+
+## Benchmark-time authority corroboration model
+
+To reduce hosted-authority ambiguity noise without weakening conservative discipline, the benchmark/re-proof artifacts now persist an explicit corroboration basis sourced from the hosted-authority and required-check truth surfaces:
+
+- corroboration states recorded:
+  - likely_cli_timing_artifact: hosted checks not yet reported (e.g., transient GH CLI settle window); retry is suggested, not success.
+  - unresolved_authority_ambiguity: insufficient or conflicting evidence; bounded retry only.
+  - confirmed_authority_block: explicit policy block or required-check failure; hard block.
+- persisted fields (when applicable):
+  - authority_corroboration: {state, category, decision, note, evidence, ok, step}
+  - batch_checkpoint.authority_corroboration_state (and mirrored authority_* fields)
+- conservative runtime posture:
+  - All ambiguity/timing-artifact cases are recorded but do not count as authority success and do not unlock widening.
+  - Only confirmed hosted-authority satisfaction combined with local validation can mark a run as eligible to widen.
+
+This corroboration state is derived using enriched helpers in the authority-gate module and wired through the runner’s failure/re-proof artifact writer. The strict scorecard remains the source of truth for promotion/widening eligibility.
 
 ## Repository map
 [src]
@@ -211,266 +228,227 @@ tests/test_task_contracts.py
 tests/test_task_eval_corpus.py
 tests/test_task_queue.py
 tests/test_validator_plugins.py
+END_FILE
+FILE: agents/lib/final_acceptance.py
+from __future__ import annotations
 
-[agents]
-agents/__init__.py
-agents/lib/agent_router.py
-agents/lib/artifact_quarantine.py
-agents/lib/authority_gate.py
-agents/lib/batch_executor.py
-agents/lib/batch_state.py
-agents/lib/bundle_parser.py
-agents/lib/bundle_repair.py
-agents/lib/check_runner.py
-agents/lib/claim_discipline.py
-agents/lib/completion_integrity.py
-agents/lib/controller.py
-agents/lib/controller_contract.py
-agents/lib/controller_repair.py
-agents/lib/controller_strict_mode.py
-agents/lib/failure_artifacts.py
-agents/lib/failure_classifier.py
-agents/lib/failure_journal.py
-agents/lib/final_acceptance.py
-agents/lib/git_ops.py
-agents/lib/git_workflow.py
-agents/lib/manifest_planner.py
-agents/lib/multi_agent_contract.py
-agents/lib/multi_agent_loop.py
-agents/lib/project_registry.py
-agents/lib/project_workspace_adapter.py
-agents/lib/protected_file_policy.py
-agents/lib/protected_lane.py
-agents/lib/provider_client.py
-agents/lib/public_compat.py
-agents/lib/repair_loop.py
-agents/lib/repair_planner.py
-agents/lib/safe_lint_preflight.py
-agents/lib/semantic_preflight.py
-agents/lib/shell_router.py
-agents/lib/spec_mode.py
-agents/lib/task_contracts.py
-agents/lib/task_eval_corpus.py
-agents/lib/task_queue.py
-agents/lib/validator_runner.py
-agents/lib/verifier.py
-agents/prompts/system.md
-agents/run_single_task.py
-agents/run_task.py
+from pathlib import Path
+from typing import Any, Literal, Mapping, Sequence
 
-[tasks]
-tasks/001_project_structure.md
-tasks/002_config_settings.md
-tasks/003_market_hours_guard.md
-tasks/004_data_layer.md
-tasks/005_indicators.md
-tasks/006_strategy_v1.md
-tasks/007_llm_advisor.md
-tasks/008_risk_gate.md
-tasks/009_execution_engine.md
-tasks/010_e2e_cycle_logging.md
-tasks/011_alpaca_broker_adapter.md
-tasks/012_portfolio_state_loader.md
-tasks/013_position_sizing_and_intent_planner.md
-tasks/014_paper_trading_cycle_command.md
-tasks/015_orchestrator_state_and_backlog_tracker.md
-tasks/016_review_compliance_checker.md
-tasks/017_failure_classifier.md
-tasks/018_pr_ci_merge_manager.md
-tasks/019_repair_workflow.md
-tasks/020_generic_project_adapter_layer.md
-tasks/021_orchestrator_entrypoint_and_loop.md
-tasks/022_orchestrator_decision_audit.md
-tasks/023_orchestrator_resume_recovery.md
-tasks/024_orchestrator_policy_engine.md
-tasks/025_multi_project_adapter_examples.md
-tasks/026_orchestrator_dry_run_mode.md
-tasks/027_orchestrator_execute_task_workflow.md
-tasks/028_orchestrator_command_runner_and_ci_integration.md
-tasks/029_orchestrator_approval_checkpoint_flow.md
-tasks/030_orchestrator_full_simulation_over_backlog.md
-tasks/031_orchestrator_real_task_execution.md
-tasks/032_orchestrator_execution_result_normalization.md
-tasks/033_orchestrator_real_review_and_compliance_gate.md
-tasks/034_orchestrator_branch_and_worktree_guardrails.md
-tasks/035_orchestrator_pr_creation_workflow.md
-tasks/036_orchestrator_resume_after_approval.md
-tasks/037_orchestrator_persistent_backlog_state.md
-tasks/038_orchestrator_run_loop_cli.md
-tasks/038a_orchestrator_run_loop_engine.md
-tasks/038b_orchestrator_run_loop_cli_surface.md
-tasks/038c_orchestrator_run_loop_decision_logging.md
-tasks/038d0_protected_method_insertion_recovery.md
-tasks/038d_orchestrator_import_symbol_preflight.md
-tasks/039_orchestrator_harness_hardening_umbrella.md
-tasks/039a_orchestrator_protected_method_edit_engine.md
-tasks/039b_orchestrator_protected_api_semantic_preflight.md
-tasks/039c_orchestrator_machine_readable_task_contracts.md
-tasks/040_orchestrator_end_to_end_integration_harness.md
-tasks/041_orchestrator_multi_project_hardening.md
-tasks/041a_orchestrator_project_config_schema.md
-tasks/041b_orchestrator_multi_project_adapter_tests.md
-tasks/042_orchestrator_harness_modularization_umbrella.md
-tasks/042a_orchestrator_extract_runtime_foundations.md
-tasks/042b_orchestrator_extract_parsers_and_policies.md
-tasks/042c_orchestrator_extract_semantic_preflight.md
-tasks/042d_orchestrator_thin_run_task_shell_and_parity.md
-tasks/043_orchestrator_runtime_artifact_quarantine.md
-tasks/044_orchestrator_spec_execution_two_phase_umbrella.md
-tasks/044a_orchestrator_spec_mode_capture.md
-tasks/044b_orchestrator_execution_mode_frozen_task.md
-tasks/045_orchestrator_failure_journal_and_raw_retry_context.md
-tasks/046_orchestrator_project_bootstrap_adapter.md
-tasks/047_orchestrator_verification_plugins.md
-tasks/048_orchestrator_safe_parallelism.md
-tasks/049_orchestrator_run_task_shell_convergence_umbrella.md
-tasks/049a_orchestrator_run_task_export_and_wrapper_dedupe.md
-tasks/049b_orchestrator_run_task_final_shell_routing_extraction.md
-tasks/050_orchestrator_public_interface_freeze.md
-tasks/051_orchestrator_docs_status_normalization.md
-tasks/052_orchestrator_second_project_portability_proof.md
-tasks/053_orchestrator_stable_seam_registry.md
-tasks/054_orchestrator_task_seam_preflight_linter.md
-tasks/054a_orchestrator_meta_harness_lane_gate.md
-tasks/054b_orchestrator_bundle_preflight_localized_repair.md
-tasks/055_orchestrator_reliability_and_autonomy_umbrella.md
-tasks/055a_orchestrator_harness_contract_freeze.md
-tasks/055b_orchestrator_task_family_classifier_prompt_compiler_and_split_strategy.md
-tasks/055c_orchestrator_seam_manifest_and_semantic_contract_validator.md
-tasks/056_orchestrator_failure_classifier_and_remediation_planner.md
-tasks/057_orchestrator_localized_repair_and_failure_artifacts.md
-tasks/058_orchestrator_backlog_readiness_and_state_engine.md
-tasks/059_orchestrator_ci_pr_merge_controller.md
-tasks/060_orchestrator_autonomy_loop_integration.md
-tasks/061_orchestrator_continuation_reset_and_numbering_sync.md
-tasks/062_orchestrator_integrated_capabilities_e2e.md
-tasks/063_orchestrator_failure_journal_live_seam.md
-tasks/064_orchestrator_safe_parallelism_review_integration.md
-tasks/065_orchestrator_runtime_artifact_quarantine_integration.md
-tasks/065a_orchestrator_deliverable_completeness_enforcement.md
-tasks/066_orchestrator_package_extraction_prep.md
-tasks/067_orchestrator_canonical_docs_path_policy.md
-tasks/067a_orchestrator_protected_method_mode_and_failure_artifact_fix.md
-tasks/068_orchestrator_task_scope_and_split_heuristics.md
-tasks/068a_orchestrator_protected_lane_execution_hardening.md
-tasks/068b_orchestrator_duplicate_bundle_normalization_and_repair.md
-tasks/068c_orchestrator_controller_decomposition_and_first_extraction.md
-tasks/069_orchestrator_controller_decomposition_second_extraction.md
-tasks/070_orchestrator_task_list_manifest_and_queue_model.md
-tasks/070a_orchestrator_exact_deliverable_parser_and_completion_gate.md
-tasks/070b_orchestrator_runtime_artifact_retention_and_visibility.md
-tasks/071_orchestrator_batch_state_persistence_and_resume.md
-tasks/071a_orchestrator_user_facing_runtime_artifact_retention_switch.md
-tasks/072_orchestrator_per_task_checkpoint_and_branch_isolation.md
-tasks/073_orchestrator_batch_failure_policy_and_continue_gate.md
-tasks/074_orchestrator_batch_runner_cli_and_summary_artifacts.md
-tasks/074a_orchestrator_merge_ready_validation_profile.md
-tasks/074b_orchestrator_post_green_validation_retry_loop.md
-tasks/074c_orchestrator_committed_state_parity_and_unexpected_artifact_gate.md
-tasks/075_orchestrator_backlog_execution_end_to_end_proof.md
-tasks/076_orchestrator_final_acceptance_reviewer_and_report.md
-tasks/077_orchestrator_targeted_self_heal_for_acceptance_failures.md
-tasks/078_orchestrator_batch_executor_loop_and_acceptance_controller.md
-tasks/079_orchestrator_autonomous_pr_merge_and_main_reset_gate.md
-tasks/080_orchestrator_batch_resume_after_merge_and_manual_resolution.md
-tasks/081_orchestrator_controller_decomposition_third_extraction.md
-tasks/082_orchestrator_autonomous_backlog_runner_proof.md
-tasks/083_orchestrator_controller_contract_canonicalization.md
-tasks/084_orchestrator_non_reexecuting_retryable_self_heal_channel.md
-tasks/085_orchestrator_merge_posture_truth_persistence_and_resume_contract.md
-tasks/086_orchestrator_semantic_failure_digest_and_controller_repair_context.md
-tasks/087_orchestrator_controller_task_strict_mode_and_patch_quality_gate.md
-tasks/088_orchestrator_controller_decomposition_fourth_extraction.md
-tasks/089_orchestrator_hardened_autonomous_short_manifest_proof.md
-tasks/090_orchestrator_multi_agent_role_contract_and_handoff_state.md
-tasks/091_orchestrator_builder_verifier_controller_loop.md
-tasks/092_orchestrator_verification_authority_and_ci_required_checks.md
-tasks/093_orchestrator_repair_strategy_router_and_failure_lane_selection.md
-tasks/094_orchestrator_project_workspace_adapter_and_bootstrap_contract_v2.md
-tasks/095_orchestrator_dependency_aware_manifest_planner.md
-tasks/096_orchestrator_task_family_router_and_agent_selection.md
-tasks/097_orchestrator_second_project_multi_agent_portability_proof.md
-tasks/098_orchestrator_standalone_package_boundary_and_consumer_bridge.md
-tasks/099_orchestrator_multi_agent_portability_proof_sync.md
-tasks/100_orchestrator_public_surface_freeze_and_compatibility_aliases.md
-tasks/101_orchestrator_collection_error_and_import_repair_lane.md
-tasks/102_orchestrator_proof_sync_contract_validator_and_claim_guard.md
-tasks/103_orchestrator_real_hosted_ci_authority_integration.md
-tasks/104_orchestrator_result_shape_and_manifest_schema_normalization.md
-tasks/105_orchestrator_targeted_repair_planner_and_minimal_patch_selection.md
-tasks/106_orchestrator_external_workspace_bootstrap_recovery_proof.md
-tasks/107_orchestrator_supervised_mixed_manifest_autonomy_reproof.md
-tasks/108_orchestrator_role_handoff_artifact_envelopes_and_persistence.md
-tasks/109_orchestrator_tester_critique_bundle_and_focused_replay_lane.md
-tasks/110_orchestrator_repair_memory_and_duplicate_attempt_suppression.md
-tasks/111_orchestrator_task_admission_and_decomposition_gate.md
-tasks/112_orchestrator_repo_check_contract_and_hosted_authority_probe.md
-tasks/113_orchestrator_multi_role_ordinary_task_execution_loop.md
-tasks/114_orchestrator_cross_task_context_carry_forward_and_repo_memory.md
-tasks/115_orchestrator_supervised_end_to_end_ordinary_manifest_autonomy_reproof.md
-tasks/116_orchestrator_project_registry_and_per_project_contract.md
-tasks/117_orchestrator_project_scoped_state_branch_and_workspace_isolation.md
-tasks/118_orchestrator_backlog_intake_and_next_task_selection_policy.md
-tasks/119_orchestrator_dependency_graph_and_decomposition_planner.md
-tasks/120_orchestrator_repair_planner_ranking_and_rollback_to_last_green.md
-tasks/121_orchestrator_project_aware_validation_matrix_and_authority_profiles.md
-tasks/122_orchestrator_hosted_authority_convergence_and_merge_eligibility_proof.md
-tasks/123_orchestrator_supervised_multi_project_portfolio_scheduler_reproof.md
-tasks/124_orchestrator_public_compatibility_contract_freeze.md
-tasks/125_orchestrator_schema_alias_normalization_layer.md
-tasks/126_orchestrator_canonical_stop_status_and_decision_vocabulary.md
-tasks/127_orchestrator_assertion_driven_self_heal_targeting.md
-tasks/128_orchestrator_green_gated_claim_discipline.md
-tasks/129_orchestrator_supervised_portfolio_reproof_retry.md
-tasks/130_orchestrator_proof_task_admission_and_exact_deliverable_gate.md
-tasks/131_orchestrator_empty_underfilled_bundle_failure_classification.md
-tasks/132_orchestrator_missing_deliverable_retry_compiler.md
-tasks/133_orchestrator_assertion_to_compatibility_surface_planner.md
-tasks/134_orchestrator_last_green_subset_preservation_and_rollback.md
-tasks/135_orchestrator_hosted_authority_operational_convergence_probe.md
-tasks/136_orchestrator_supervised_resilience_reproof.md
-tasks/137_orchestrator_real_github_required_check_convergence.md
-tasks/138_orchestrator_safe_task_family_autonomy_allowlist.md
-tasks/139_orchestrator_autonomous_single_task_runner_and_ledger.md
-tasks/140_orchestrator_single_task_canary_metrics_and_reporting.md
-tasks/141_orchestrator_escalation_artifact_and_supervised_handoff_lane.md
-tasks/142_orchestrator_supervised_safe_lane_single_task_reproof.md
-tasks/143_orchestrator_github_settle_window_and_dual_surface_probe.md
-tasks/144_orchestrator_real_pr_required_check_smoke_proof.md
-tasks/145_orchestrator_scheduler_bridge_to_safe_single_task_runner.md
-tasks/146_orchestrator_safe_lane_stop_requeue_and_supervised_mix_policy.md
-tasks/147_orchestrator_single_task_resume_and_idempotent_reentry.md
-tasks/148_orchestrator_live_canary_corpus_and_operator_proof_bundle.md
-tasks/149_orchestrator_external_safe_corpus_and_eval_manifest.md
-tasks/150_orchestrator_one_task_multi_agent_dev_test_repair_loop.md
-tasks/151_orchestrator_external_safe_failure_taxonomy_and_self_heal_router.md
-tasks/152_orchestrator_one_task_pass_rate_scoreboard_and_failure_digest.md
-tasks/153_orchestrator_external_safe_corpus_reliability_reproof.md
-tasks/154_orchestrator_two_task_readiness_gate_and_phase_transition.md
-tasks/155_orchestrator_safe_lint_preflight_normalization.md
-tasks/156_orchestrator_one_task_autonomous_benchmark_harness.md
-tasks/157_orchestrator_benchmark_scorecard_integration.md
-tasks/157_orchestrator_strict_no_manual_intervention_scorecard.md
-tasks/158_orchestrator_authority_corroboration_and_run_truth.md
-tasks/158_orchestrator_empty_bundle_transport_retry_and_classifier.md
-tasks/159_orchestrator_runtime_artifact_quarantine_and_subset_preservation_normalization.md
-tasks/159_orchestrator_top_failure_family_elimination_tranche.md
-tasks/160_orchestrator_completion_integrity_gate.md
-tasks/160_orchestrator_one_task_promotion_reproof.md
-tasks/161_orchestrator_benchmark_scorecard_integration.md
-tasks/161_orchestrator_one_task_reliability_minipack_reproof.md
-tasks/162_orchestrator_authority_gate_evidence_narrowing.md
-tasks/162_orchestrator_empty_bundle_transport_retry_and_classifier.md
-tasks/163_orchestrator_deliverable_contract_and_completion_prompt_hardening.md
-tasks/163_orchestrator_runtime_artifact_quarantine_and_subset_preservation_normalization.md
-tasks/164_orchestrator_completion_integrity_gate.md
-tasks/164_orchestrator_runtime_artifact_hygiene_and_typo_normalization.md
-tasks/165_orchestrator_one_task_reliability_minipack_reproof.md
-tasks/165_orchestrator_one_task_reliability_minipack_reproof_v2.md
-tasks/166_orchestrator_strict_no_manual_intervention_scorecard.md
-tasks/167_orchestrator_authority_corroboration_and_run_truth.md
-tasks/168_orchestrator_top_failure_family_elimination_tranche.md
-tasks/169_orchestrator_one_task_promotion_reproof.md
-tasks/170_orchestrator_default_single_task_path_and_two_task_pilot_gate.md
-tasks/README.md
-tasks/TASK_CLEANUP_055_068.md
+from agents.lib.controller_contract import AcceptanceDecision, coerce_acceptance_decision, coerce_post_task_decision
+from agents.lib.controller_repair import build_controller_repair_context, choose_repair_strategy
+
+AcceptanceFailureClass = Literal[
+    "missing_required_in_head",
+    "required_only_in_worktree",
+    "unexpected_tracked_artifact",
+    "merge_ready_validation_failed",
+]
+CANONICAL_ROOT_DOC_FILES = {"README.md"}
+CANONICAL_NARRATIVE_DOC_PREFIXES = ("ORCHESTRATOR_", "TRADINGBOT_")
+
+
+def canonical_docs_path_for(path: str) -> str:
+    normalized = str(path or "").strip().replace("\\", "/")
+    if not normalized.endswith(".md"):
+        return normalized
+    if "/" in normalized:
+        return normalized
+    if normalized in CANONICAL_ROOT_DOC_FILES:
+        return normalized
+    filename = Path(normalized).name
+    if filename.startswith(CANONICAL_NARRATIVE_DOC_PREFIXES):
+        return f"docs/{filename}"
+    return normalized
+
+
+def normalize_paths(paths: Sequence[str] | None) -> list[str]:
+    """
+    Normalize and filter path-like tokens defensively.
+
+    - Converts slashes and trims whitespace
+    - Canonicalizes narrative docs at repo root
+    - Drops tokens that do not look like repo file paths (e.g., branch names like 'main')
+      by requiring at least a '/' or a '.' in the token.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in paths or ():
+        path = str(raw or "").strip().replace("\\", "/")
+        if not path:
+            continue
+        # Filter out obvious non-path tokens (e.g., 'main' from mocked git output)
+        if "/" not in path and "." not in path:
+            continue
+        canonical = canonical_docs_path_for(path)
+        if canonical not in seen:
+            out.append(canonical)
+            seen.add(canonical)
+    return out
+
+
+def classify_branch_diff_paths(
+    branch_diff_paths: Sequence[str] | None,
+    required_paths: Sequence[str] | None,
+) -> dict[str, list[str]]:
+    required = set(normalize_paths(required_paths))
+    diff = normalize_paths(branch_diff_paths)
+    required_present: list[str] = []
+    unexpected: list[str] = []
+    for path in diff:
+        if path in required:
+            required_present.append(path)
+        else:
+            unexpected.append(path)
+    missing_required = sorted(path for path in required if path not in required_present)
+    return {
+        "required_present": required_present,
+        "missing_required": missing_required,
+        "unexpected": unexpected,
+    }
+
+
+def committed_state_parity_issues(
+    *,
+    validated_required_paths: Sequence[str] | None,
+    head_diff_paths: Sequence[str] | None,
+    working_tree_paths: Sequence[str] | None,
+    strict_required_worktree_only: bool = True,
+) -> list[str]:
+    issues: list[str] = []
+    required = set(normalize_paths(validated_required_paths))
+    head = set(normalize_paths(head_diff_paths))
+    worktree = set(normalize_paths(working_tree_paths))
+    missing_in_head = sorted(path for path in required if path not in head)
+    if missing_in_head:
+        issues.append("Required deliverables are not present in committed HEAD diff: " + ", ".join(missing_in_head))
+    if strict_required_worktree_only:
+        worktree_only_required = sorted(path for path in required if path in worktree and path not in head)
+        if worktree_only_required:
+            issues.append(
+                "Required deliverables exist only in working tree (validated but uncommitted): " + ", ".join(worktree_only_required)
+            )
+    unexpected_head = sorted(path for path in head if path not in required)
+    if unexpected_head:
+        issues.append(
+            "Unexpected paths found in committed HEAD diff (outside validated required paths): " + ", ".join(unexpected_head)
+        )
+    return issues
+
+
+def classify_final_acceptance_failure(report: Mapping[str, Any]) -> dict[str, object]:
+    decision = str(report.get("acceptance_decision") or "")
+    note = str(report.get("note") or "")
+    failure_class: AcceptanceFailureClass = "merge_ready_validation_failed"
+    if decision != "accepted":
+        for token, klass in (
+            ("missing_required_in_head", "missing_required_in_head"),
+            ("required_only_in_worktree", "required_only_in_worktree"),
+            ("unexpected_tracked_artifact", "unexpected_tracked_artifact"),
+        ):
+            if token in note:
+                failure_class = klass  # type: ignore[assignment]
+                break
+    return {
+        "decision": decision or "retryable_failure",
+        "failure_class": failure_class,
+        "note": note,
+    }
+
+
+def build_final_acceptance_report(
+    *,
+    task_file: str,
+    required_paths: list[str],
+    head_diff_paths: list[str],
+    working_tree_paths: list[str],
+    validation_profile: Mapping[str, Any],
+    unexpected_tracked_artifact_findings: list[str] | None = None,
+    manual_patch_required: bool = False,
+) -> dict[str, object]:
+    """
+    Build a conservative acceptance report from validation truth and diff signals.
+    """
+    required_paths = list(required_paths or [])
+    head_diff_paths = list(head_diff_paths or [])
+    working_tree_paths = list(working_tree_paths or [])
+    unexpected_tracked_artifact_findings = list(unexpected_tracked_artifact_findings or [])
+
+    # Default acceptance to the validation result; diff-issues can downgrade.
+    passed = bool(validation_profile.get("passed", False))
+    decision: AcceptanceDecision = "accepted" if passed else "retryable_failure"
+    note_parts: list[str] = []
+
+    parity = classify_branch_diff_paths(head_diff_paths, required_paths)
+    parity_issues = committed_state_parity_issues(
+        validated_required_paths=required_paths,
+        head_diff_paths=head_diff_paths,
+        working_tree_paths=working_tree_paths,
+        strict_required_worktree_only=True,
+    )
+    if parity_issues:
+        note_parts.extend(parity_issues)
+        decision = "retryable_failure"
+
+    if unexpected_tracked_artifact_findings:
+        note_parts.append("Unexpected tracked artifact(s): " + ", ".join(sorted(unexpected_tracked_artifact_findings)))
+        decision = "retryable_failure"
+
+    if manual_patch_required:
+        decision = "manual_patch"  # delegated lane handoff
+
+    return {
+        "task_file": str(task_file or ""),
+        "validated_required_paths": list(required_paths),
+        "head_diff_paths": list(head_diff_paths),
+        "working_tree_paths": list(working_tree_paths),
+        "parity": parity,
+        "acceptance_decision": decision,
+        "note": "; ".join(note_parts).strip(),
+        "validation_profile": dict(validation_profile),
+    }
+
+
+def build_acceptance_self_heal_context(report: Mapping[str, Any]) -> dict[str, object]:
+    route = choose_repair_strategy(
+        kind="final_acceptance",
+        message=str(report.get("note") or ""),
+        category="final_acceptance",
+        touched_files=list(report.get("head_diff_paths") or ()),
+        task_file=str(report.get("task_file") or ""),
+    )
+    return build_controller_repair_context(
+        kind="final_acceptance",
+        message=str(report.get("note") or ""),
+        category="final_acceptance",
+        touched_files=list(report.get("head_diff_paths") or ()),
+        task_file=str(report.get("task_file") or ""),
+    ) | {"repair_route": route}
+
+
+def build_final_acceptance_failure_feedback(report: Mapping[str, Any]) -> str:
+    decision = classify_final_acceptance_failure(report)
+    note = str(decision.get("note") or "")
+    if not note:
+        if str(decision.get("decision") or "") != "accepted":
+            return "Final acceptance failed for unspecified reasons."
+        return "Final acceptance passed."
+    return f"Final acceptance failed: {note}"
+
+
+def report_final_acceptance_failure(report: Mapping[str, Any]) -> None:
+    text = build_final_acceptance_failure_feedback(report)
+    if text.strip():
+        print(text)
+
+
+def build_final_acceptance_retry_feedback(report: Mapping[str, Any]) -> dict[str, object]:
+    decision = classify_final_acceptance_failure(report)
+    issues_text = build_final_acceptance_failure_feedback(report)
+    should_stop = bool(str(decision.get("decision") or "") == "manual_patch")
+    return {
+        "acceptance_decision": str(decision.get("decision") or "retryable_failure"),
+        "issues_text": issues_text,
+        "feedback_text": issues_text,
+        "should_stop": should_stop,
+    }
