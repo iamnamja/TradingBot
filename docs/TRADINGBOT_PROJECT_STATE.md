@@ -1,27 +1,24 @@
 # TradingBot Project State
 
-Current state
+Overview
 
-The project has completed the first one-task reliability sprint through Task 161.
+This repository contains a self-contained trading bot with an orchestrator and a comprehensive test harness. Recent reliability sprints focused on:
+- transport stability and artifact hygiene,
+- benchmark scorecarding,
+- completion integrity and contract discipline.
 
-What that means
-- Benchmark scorecarding is integrated into the live benchmark path.
-- Empty-bundle transport handling is more explicit.
-- Runtime artifact quarantine and subset-preservation normalization have improved proof-mode hygiene.
-- Completion integrity gating is present.
-- The first reliability minipack re-proof completed and produced a conservative decision to remain in one-task reliability mode.
+Authority gating posture
 
-Current posture
-- Stay in one-task reliability mode.
-- Do not widen to multi-task execution yet.
-- Use orchestrator-run mode for curated one-task work where feasible.
-- Use narrow manual engine fixes only when the runtime itself is the blocker.
+- The orchestrator integrates external and project policy authority (e.g., required CI checks, repository policies).
+- Authority gating remains conservative: explicit required-check failures or explicit policy blocks will stop progression.
+- The signal handling has been narrowed to reduce false or over-broad stops:
+  - no_checks_reported → prefer a bounded retry to corroborate, not a hard stop.
+  - ambiguous_or_missing_evidence → prefer a bounded retry and clearer failure artifact.
+  - explicit_required_check_failure → hard stop with explicit reason.
+  - policy_block → hard stop with explicit reason.
+- This makes authority decisions more actionable while maintaining strict enforcement where the evidence is explicit.
 
-Next sprint focus
-- 162: authority-gate evidence narrowing
-- 163: deliverable contract and completion prompt hardening
-- 164: runtime artifact hygiene and typo normalization
-- 165: second one-task reliability minipack re-proof
+Notes
 
-Near-term success condition
-- repeated one-task orchestrator runs should increasingly complete without transport noise, ambiguous artifact leftovers, or partial integration mistakes
+- No production integrations are widened by default. Any external execution remains opt‑in and deterministic.
+- The runner continues to honor required checks and policy profiles without weakening enforcement.
