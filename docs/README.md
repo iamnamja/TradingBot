@@ -1,16 +1,15 @@
-# Docs Index Addendum
+# Docs README
 
-## Current roadmap slice
+The documentation set currently reflects a staged one-task reliability program.
 
-- `ORCHESTRATOR_ROADMAP_149_154.md` — execution-quality tranche after the bounded one-task proof bundle
-- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task execution quality first, bounded multi-task second, standalone app later
+Latest completed reliability tranche
+- 157 through 161
 
-## Current continuation note
+Current active follow-up tranche
+- 162 through 165
 
-Tasks 137–148 created and converged a bounded autonomous one-task lane, but the next priority is not broader autonomy. It is making the current lane complete ordinary external-safe tasks with a credible pass rate and targeted self-heal behavior.
-
-## Current next-step note
-
-The next tranche should focus on an external-safe evaluation corpus, a real one-task dev/test/repair/controller loop, measured pass-rate artifacts, and a go / no-go gate before bounded two-task trials.
-
-- `ORCHESTRATOR_ROADMAP_157_161.md` — single-task reliability stabilization tranche after the initial benchmark scorecard and transport hardening work
+Most important docs
+- `TRADINGBOT_PROJECT_STATE.md`
+- `ORCHESTRATOR_PHASE_DIRECTION.md`
+- `ORCHESTRATOR_ROADMAP_162_165.md`
+- `ORCHESTRATOR_PRODUCT_SPEC.md`
