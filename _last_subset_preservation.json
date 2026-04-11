@@ -1,22 +1,18 @@
 {
   "applied_subset_paths": [
-    "agents/lib/authority_gate.py",
-    "tests/test_authority_gate.py",
-    "tasks/162_orchestrator_authority_gate_evidence_narrowing.md",
-    "docs/TRADINGBOT_PROJECT_STATE.md"
+    "src/builder/orchestrator/benchmark.py",
+    "tests/test_orchestrator_benchmark.py"
   ],
   "assertion_target_category": "unclassified",
   "bounded": true,
   "chosen_repair_target": "broad_builder_repair",
   "last_known_good_subset_paths": [],
   "preserved_subset_paths": [],
-  "repair_strategy": "ci_verification_recheck",
+  "repair_strategy": "syntax_import_lint_repair",
   "rollback_scope_limited": false,
   "rollback_subset_paths": [
-    "agents/lib/authority_gate.py",
-    "tests/test_authority_gate.py",
-    "tasks/162_orchestrator_authority_gate_evidence_narrowing.md",
-    "docs/TRADINGBOT_PROJECT_STATE.md"
+    "src/builder/orchestrator/benchmark.py",
+    "tests/test_orchestrator_benchmark.py"
   ],
-  "task_file": "tasks/162_orchestrator_authority_gate_evidence_narrowing.md"
+  "task_file": "tasks/156_orchestrator_one_task_autonomous_benchmark_harness.md"
 }

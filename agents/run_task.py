@@ -836,6 +836,48 @@ def canonical_required_check_truth(**kwargs: Any) -> Dict[str, object]:
     return dict(_impl(**kwargs))
 
 
+def classify_authority_evidence(*, message: str = "", evidence: Mapping[str, Any] | None = None, ok: bool = False, step: str = "") -> Dict[str, object]:
+    import inspect
+    from agents.lib.authority_gate import classify_authority_evidence as _impl  # type: ignore
+
+    payload = {
+        "message": message,
+        "evidence": dict(evidence or {}),
+        "ok": bool(ok),
+        "step": str(step),
+    }
+    params = inspect.signature(_impl).parameters
+    call_kwargs = {k: v for k, v in payload.items() if k in params}
+    result = _impl(**call_kwargs)
+    if isinstance(result, Mapping):
+        return dict(result)
+    return {"category": str(result)}
+
+
+def decide_authority_gate(*, classification: Mapping[str, Any] | None = None, message: str = "", evidence: Mapping[str, Any] | None = None, ok: bool = False, step: str = "") -> Dict[str, object]:
+    import inspect
+    from agents.lib.authority_gate import decide_authority_gate as _impl  # type: ignore
+
+    category = ""
+    if isinstance(classification, Mapping):
+        category = str(classification.get("category", "") or "")
+
+    payload = {
+        "classification": dict(classification or {}),
+        "category": category,
+        "message": message,
+        "evidence": dict(evidence or {}),
+        "ok": bool(ok),
+        "step": str(step),
+    }
+    params = inspect.signature(_impl).parameters
+    call_kwargs = {k: v for k, v in payload.items() if k in params}
+    result = _impl(**call_kwargs)
+    if isinstance(result, Mapping):
+        return dict(result)
+    return {"decision": str(result)}
+
+
 def evaluate_verification_authority(**kwargs: Any) -> Dict[str, object]:
     from agents.lib.git_workflow import evaluate_verification_authority as _impl  # type: ignore
 
@@ -852,7 +894,46 @@ def wait_for_required_checks(runner, **kwargs: Any) -> Dict[str, object]:
     from agents.lib.git_workflow import wait_for_required_checks as _impl  # type: ignore
 
     result = _impl(runner, **kwargs)
-    return {"ok": bool(result.ok), "step": str(result.step), "message": str(result.message), "evidence": dict(result.evidence or {})}
+    evidence = dict(result.evidence or {})
+    classification = classify_authority_evidence(
+        message=str(result.message),
+        evidence=evidence,
+        ok=bool(result.ok),
+        step=str(result.step),
+    )
+    decision = decide_authority_gate(
+        classification=classification,
+        message=str(result.message),
+        evidence=evidence,
+        ok=bool(result.ok),
+        step=str(result.step),
+    )
+
+    if isinstance(classification, Mapping):
+        category = str(classification.get("category", "") or "")
+        if category:
+            evidence["authority_evidence_category"] = category
+
+    ok_value = bool(result.ok)
+    step_value = str(result.step)
+    message_value = str(result.message)
+
+    if isinstance(decision, Mapping):
+        decision_text = str(decision.get("decision", "") or "")
+        if decision_text:
+            evidence["authority_gate_decision"] = decision_text
+        note = str(decision.get("note", "") or "")
+        if note:
+            evidence["authority_gate_note"] = note
+            message_value = note
+        if "ok" in decision:
+            ok_value = bool(decision.get("ok"))
+        elif "allow" in decision:
+            ok_value = bool(decision.get("allow"))
+        if "step" in decision and str(decision.get("step", "")).strip():
+            step_value = str(decision.get("step"))
+
+    return {"ok": ok_value, "step": step_value, "message": message_value, "evidence": evidence}
 
 
 def coerce_verification_authority_profile(value: Any, default: str = "local_only") -> str:
