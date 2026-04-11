@@ -34,3 +34,9 @@ Extend the benchmark/session artifacts so promotion and widening decisions are b
 - Tests prove that a manual edit during a benchmark run prevents the run from being counted as an autonomous success.
 - Tests prove that direct completions and self-healed completions are still tracked separately.
 - Docs explain that promotion and widening decisions use this stricter scorecard rather than ad hoc observations.
+
+## Implementation notes
+
+- The strict scorecard is persisted to scorecard.json in each benchmark session directory alongside a legacy-compatible scoreboard.json.
+- Any manual edit flips a run into the "invalidated_by_human_intervention" bucket and removes it from autonomous success counts, even if execution otherwise succeeded.
+- The benchmark harness wires the strict scorecard writer directly into session persistence to keep artifacts cohesive and durable.
