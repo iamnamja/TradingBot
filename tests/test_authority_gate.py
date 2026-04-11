@@ -3,6 +3,7 @@ from agents.lib.authority_gate import (
     AuthorityGateDecision,
     classify_authority_evidence,
     decide_authority_gate,
+    determine_corroboration_state,
 )
 
 
@@ -59,3 +60,32 @@ def test_ambiguous_or_missing_evidence_prefers_bounded_retry():
     assert decision.suggest_retry is True
     assert decision.retry_limit == 1
     assert decision.category == AuthorityEvidenceCategory.AMBIGUOUS_OR_MISSING_EVIDENCE
+
+
+def test_corroboration_state_and_enriched_decision_mapping():
+    # Hosted authority not yet reported -> likely CLI timing artifact (bounded retry, not success)
+    evidence = {
+        "required_checks_configured": True,
+        "repo_check_contract_configured": True,
+        "required_checks_discovered": False,
+        "required_checks_not_yet_reported": True,
+        "hosted_authority_probe_status": "not_yet_reported",
+    }
+    category = classify_authority_evidence(evidence)
+
+    state = determine_corroboration_state(evidence=evidence, message="required checks not yet reported", ok=False, step="wait_for_required_checks")
+    assert state == "likely_cli_timing_artifact"
+
+    enriched = decide_authority_gate(
+        classification={"category": category.value},
+        message="required checks not yet reported",
+        evidence=evidence,
+        ok=False,
+        step="wait_for_required_checks",
+    )
+    assert isinstance(enriched, dict)
+    assert enriched["corroboration_state"] == "likely_cli_timing_artifact"
+    assert enriched["category"] == category.value
+    # Runtime remains conservative: ambiguity/timing artifacts are not success
+    assert enriched["ok"] is False
+    assert enriched["decision"] == "bounded_retry"
