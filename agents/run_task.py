@@ -5529,6 +5529,23 @@ def main() -> int:
             prev_files = files
             continue
 
+        ok_completion, completion_msg = evaluate_completion_integrity_gate(
+            task_text,
+            files,
+            baseline=baseline,
+            required_paths=required,
+        )
+        if not ok_completion:
+            _report_failure("completion_integrity", completion_msg, touched_files=required, task_file=task_path.as_posix())
+            task_text = _append_task_feedback(task_text, completion_msg)
+            if _repeat_limit_exceeded(violation_counts, "completion_integrity", args.policy_block_limit):
+                print("\n? Stopping early: repeated completion integrity failures. Recommended action: manual_patch")
+                print("Model output saved to: _last_agent_model_output.txt")
+                print("Parsed file bundle saved to: _last_agent_file_bundle.txt")
+                return 1
+            prev_files = files
+            continue
+
         if bool(strict_mode_context.get("enabled")):
             strict_issues = controller_strict_preapply_issues(files, touched_paths=required)
             if strict_issues:
@@ -6075,4 +6092,22 @@ def write_live_canary_operator_proof_bundle(*args, **kwargs):
 def run_live_canary_corpus_and_operator_proof_bundle(*args, **kwargs):
     from agents.run_single_task import run_live_canary_corpus_and_operator_proof_bundle as _impl
     return _impl(*args, **kwargs)
+
+
+def parse_completion_integrity_directives(task_text: str) -> Dict[str, object]:
+    from agents.lib.completion_integrity import parse_completion_integrity_directives as _impl
+
+    return dict(_impl(task_text))
+
+
+def evaluate_completion_integrity_gate(
+    task_text: str,
+    bundle: Mapping[str, str],
+    *,
+    baseline: Mapping[str, str] | None = None,
+    required_paths: Sequence[str] | None = None,
+) -> Tuple[bool, str]:
+    from agents.lib.completion_integrity import evaluate_completion_integrity_gate as _impl
+
+    return _impl(task_text, bundle, baseline=baseline, required_paths=required_paths)
 

@@ -61,10 +61,6 @@ Task 149 establishes the canonical external-safe evaluation manifest that later 
 - exact deliverable markdown text that later one-task runs can execute consistently
 
 
-## Task 157 checkpoint
+## Task 160 checkpoint
 
-Task 157 wires the strict benchmark scorecard into the live benchmark/session path so promotion decisions are grounded in the same artifacts the orchestrator already emits.
-
-## Next continuation target
-
-Task 158 hardens empty-bundle transport handling so proof-mode runs classify, diagnose, and bounded-retry empty BEGIN_FILE_BUNDLE / END_FILE_BUNDLE responses consistently.
+Task 160 adds a completion-integrity gate so the one-task runner can reject helper-only or new-surface-only bundles when the task clearly requires wiring into an existing live integration surface.
