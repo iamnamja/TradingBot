@@ -122,3 +122,13 @@ def test_describe_runtime_artifact_lifecycle_for_retained_and_blocked_states() -
 
     assert "Retained known-safe runtime artifacts" in retained[0]
     assert "Unknown runtime artifacts remain blocked" in blocked[0]
+
+
+def test_classify_runtime_artifacts_includes_subset_preservation_artifact() -> None:
+    artifact_quarantine = _load_artifact_quarantine_module()
+    classified = artifact_quarantine.classify_runtime_artifacts(
+        [Path("_last_subset_preservation.json")]
+    )
+
+    assert [p.name for p in classified["known_safe"]] == ["_last_subset_preservation.json"]
+    assert classified["unknown"] == []
