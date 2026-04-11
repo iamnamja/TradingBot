@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized proof checkpoint is now complete through **Task 158**.
+The synchronized proof checkpoint is now complete through **Task 159**.
 
 The bounded supervised slice plus narrow safe autonomous one-task lane now covers:
 
@@ -50,3 +50,8 @@ Shift from “more safe-lane plumbing” to **execution quality**:
 - improve targeted self-heal quality on ordinary external-safe failures
 - measure pass rate and dominant failure classes
 - only then decide whether bounded two-task trials are justified
+
+
+## Current stabilization note
+
+The next manual stabilization checkpoint is a completion-integrity gate so helper-only or new-surface-only bundles do not count as complete for tasks that require live integration into existing surfaces.

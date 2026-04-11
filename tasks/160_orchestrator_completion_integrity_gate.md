@@ -1,22 +1,21 @@
-# Task 160 — orchestrator completion integrity gate
+# Task 160 — Orchestrator completion integrity gate
 
-## Why
-
-The Task 157 live run showed a failure mode where the orchestrator generated a plausible helper and passing tests but did not integrate the change into the actual benchmark/session surfaces required by the task. We need the system to distinguish partial helper-only success from true task completion.
+## Goal
+Prevent helper-only or new-surface-only bundles from being accepted as complete when the task clearly requires wiring into an existing live integration surface.
 
 ## Scope
+- add a completion-integrity gate in the `agents.run_task` validation path after import validation and before writing files
+- add a small helper module for parsing completion-integrity directives and evaluating the gate
+- support machine-readable directives for tasks that need strict integration requirements
+- keep the gate conservative and narrowly targeted so ordinary helper-only tasks can still pass when appropriate
 
-Add a completion-integrity gate for proof-mode tasks.
+## Completion Integrity Gate
+- `REQUIRE_EXISTING_TOUCH: <path>` — path to an existing live surface that must be touched
+- `MIN_EXISTING_NONTEST_TOUCHES: <int>` — minimum number of existing non-test/doc surfaces that must be edited
+- `ALLOW_HELPER_ONLY: true|false` — whether a helper-only/new-surface-only bundle is acceptable
 
-## Requirements
-
-- Evaluate whether changed files actually cover the task’s required integration surfaces, not just local helper/test additions.
-- Allow narrow task-specific deliverable contracts to declare required integration targets.
-- Treat helper-only partials as incomplete when the task requires benchmark/session/runtime integration.
-- Keep the rule conservative and compatible with the existing proof-task admission model.
-
-## Acceptance criteria
-
-- Tests prove that helper-plus-test-only outputs are rejected for tasks that require integration into live benchmark/session paths.
-- Tests prove that true integrated completions still pass the integrity gate.
-- Task outputs and docs explain why a run was marked incomplete when coverage is too narrow.
+## Acceptance
+- helper-only integration bundles are rejected with a retryable `completion_integrity` failure
+- tasks with explicit directives can force required existing surface touches
+- the gate does not break ordinary non-integration tasks
+- focused tests cover directive parsing and helper-only rejection/acceptance

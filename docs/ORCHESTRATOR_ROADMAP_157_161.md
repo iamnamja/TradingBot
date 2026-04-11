@@ -1,9 +1,11 @@
-# Orchestrator Roadmap 157–161
+# Orchestrator Roadmap 157-161
 
-## Reliability sprint
+## Single-task reliability stabilization tranche
 
-- **157** benchmark scorecard integration into the live benchmark/session path.
-- **158** empty bundle transport retry and classifier hardening.
-- **159** runtime artifact quarantine and subset-preservation normalization, including policy treatment for known-safe proof-mode leftovers.
-- **160** completion integrity gate for one-task proof-mode runs.
-- **161** one-task reliability minipack re-proof.
+- **157** Benchmark scorecard integration into the live benchmark/session flow
+- **158** Empty bundle transport retry and classifier hardening
+- **159** Runtime artifact quarantine and subset-preservation normalization
+- **160** Completion integrity gate to reject helper-only partial integrations
+- **161** One-task reliability minipack re-proof after the stabilization tranche
+
+This tranche is intentionally narrow. It is not about widening autonomy; it is about making one-task execution honest, diagnosable, and repeatable.

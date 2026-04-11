@@ -47,10 +47,8 @@
 - **154** `orchestrator_two_task_readiness_gate_and_phase_transition`
 
 
-## Single-task reliability sprint
+## One-task reliability stabilization tranche
 
-- **155** `orchestrator_safe_lint_preflight_normalization`
-- **156** `orchestrator_one_task_autonomous_benchmark_harness`
 - **157** `orchestrator_benchmark_scorecard_integration`
 - **158** `orchestrator_empty_bundle_transport_retry_and_classifier`
 - **159** `orchestrator_runtime_artifact_quarantine_and_subset_preservation_normalization`

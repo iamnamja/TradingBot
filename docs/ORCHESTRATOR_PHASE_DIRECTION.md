@@ -70,4 +70,6 @@ The next tranche should optimize for:
 Anything that does not materially improve those four outcomes is lower priority.
 
 
-Current manual stabilization order is 157 benchmark scorecard integration, 158 empty-bundle transport retry/classifier hardening, 159 runtime artifact policy normalization (including subset-preservation leftovers), and 160 completion integrity gating before wider orchestrator-run proof resumes.
+## Current stabilization focus
+
+The current manual stabilization tranche includes a completion-integrity gate specifically to stop green helper-only partial implementations from being mistaken for full task completion.
