@@ -18,3 +18,7 @@ The next tranche should focus on:
 - supervised dev/test role separation
 - two-task canary scorecard truth
 - bounded pilot re-proof before broader widening
+
+## Current execution note
+
+Delete the stale duplicate 157–165 planning files before starting Task 171 so the canonical task sequence stays clean.

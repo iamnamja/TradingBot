@@ -36,6 +36,19 @@ That means:
 - The repo has an explicit concept of a future bounded two-task pilot gate.
 - The default one-task path and the future pilot path are documented separately.
 - The project has not claimed broad multi-task autonomy.
+- The next sequential tranche is deliberately scoped to bounded supervised two-task pilot preparation only.
+
+## Immediate continuation guardrails
+
+Before continuing, remove the stale duplicate task files from the 157–165 transition period so task numbering and execution history stay canonical.
+
+Then keep the next tranche ordered like this:
+
+1. Task 171 — tighten pilot admission truth
+2. Task 172 — lock adjacent-task handoff truth
+3. Task 173 — lock supervised builder/verifier role sequencing for the bounded pilot lane
+4. Task 174 — add pilot-canary scorecard truth
+5. Task 175 — run the bounded pilot re-proof and product checkpoint
 
 ## What still blocks the next phase
 
@@ -46,6 +59,10 @@ Before a bounded two-task pilot can be justified, the repo still needs:
 - explicit supervised dev/test role separation for pilot work,
 - a durable two-task canary scorecard,
 - and a bounded pilot re-proof.
+
+## Product-direction checkpoint
+
+The standalone orchestrator-as-its-own-app phase remains blocked until the bounded supervised two-task pilot is explicitly re-proven.
 
 ## Next continuation direction
 

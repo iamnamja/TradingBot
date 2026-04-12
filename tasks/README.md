@@ -39,9 +39,17 @@ The repo still contains stale duplicate planning task files from the 157–165 t
 - tasks/164_orchestrator_completion_integrity_gate.md
 - tasks/165_orchestrator_one_task_reliability_minipack_reproof.md
 
+Execution discipline for the current tranche
+
+- Treat Task 170 as the current truth boundary: one-task work is conditionally ready under supervision, while bounded two-task work is still blocked pending proof.
+- Start with Tasks 171–173 to harden admission, adjacent handoff, and supervised role sequencing before touching pilot scorecard promotion logic.
+- Do not start Task 174 until the bounded pilot admission, handoff, and role surfaces exist in the runtime.
+- Do not start Task 175 until Task 174 has produced explicit pilot-canary metrics and durable comparison artifacts.
+- Do not widen beyond the bounded two-task pilot or imply general multi-task autonomy anywhere in this tranche.
+
 Working mode
 
 - Treat the repo as conditionally ready under supervision for one-task work, not broadly autonomous.
 - Default to orchestrator-run mode for curated tasks when the runtime is stable enough.
 - Use manual patches only when the runtime or policy surface itself is the blocker.
-- Do not widen to bounded two-task pilot execution until the dedicated pilot admission, handoff, role-split, canary, and re-proof tasks say so.
+- If `_last_subset_preservation.json` enters a branch diff, restore it from `origin/main` so runtime artifacts do not ship.
