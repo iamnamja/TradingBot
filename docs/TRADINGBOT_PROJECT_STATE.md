@@ -37,13 +37,20 @@ That means:
 - The default one-task path and the future pilot path are documented separately.
 - The project has not claimed broad multi-task autonomy.
 
+## Runtime seams now shaping the next phase
+
+- The existing Task 170 gate already lives in `agents.lib.task_queue`; the next task should refine that gate rather than invent a new pilot controller.
+- The runtime already exposes adjacent-task truth through `depends_on`, `next_task_may_proceed`, and supervised handoff artifacts.
+- The runtime already exposes explicit `controller` / `builder` / `verifier` role surfaces for bounded supervised work.
+- The benchmark and promotion surfaces already exist in `src/builder/orchestrator/benchmark.py` and `benchmark_scorecard.py`.
+
 ## What still blocks the next phase
 
 Before a bounded two-task pilot can be justified, the repo still needs:
 
 - a mechanical pilot-admission truth surface,
 - a deterministic adjacent-task handoff contract,
-- explicit supervised dev/test role separation for pilot work,
+- explicit supervised builder/verifier role separation for pilot work,
 - a durable two-task canary scorecard,
 - and a bounded pilot re-proof.
 

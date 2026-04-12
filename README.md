@@ -47,6 +47,6 @@ Shift from one-task promotion truth into **bounded two-task pilot preparation un
 
 - mechanize the explicit two-task pilot admission gate
 - make dependency handoff between adjacent tasks explicit and durable
-- split dev/test agent roles for bounded supervised pilot work
-- measure the pilot with a real canary scorecard
+- split the existing builder/verifier roles explicitly for bounded supervised pilot work
+- measure the pilot with a real canary scorecard on the same benchmark lane
 - only then decide whether a bounded supervised two-task pilot is justified
