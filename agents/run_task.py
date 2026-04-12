@@ -4760,8 +4760,8 @@ def _emit_failure_artifact_messages(
         mixed_task: bool = False,
         protected_targets_identified: List[str] | None = None,
     ) -> None:
-        # Be resilient: never raise, always attempt to persist minimal diagnostics/placeholders.
-        # Ensure JSON artifacts exist and contain a `placeholder: true` flag, overwriting stale non-JSON content.
+        # Resilient artifact emission: never raise, always attempt to persist minimal diagnostics/placeholders.
+
         should_create_placeholders = bool(create_placeholders or before_model_output)
 
         task_file_path = Path(task_file).as_posix() if task_file else ""
@@ -4796,18 +4796,20 @@ def _emit_failure_artifact_messages(
             "resume_gate": "manual_intervention_required",
         }
 
-        def _load_json_or_empty(path: Path) -> dict:
+        def _read_existing_json(path: Path) -> dict:
             try:
                 text = path.read_text(encoding="utf-8")
             except Exception:
                 return {}
             try:
                 data = json.loads(text)
-                return data if isinstance(data, dict) else {}
+                if isinstance(data, dict):
+                    return data
             except Exception:
-                return {}
+                pass
+            return {}
 
-        def _write_json_safely(path: Path, payload: dict) -> None:
+        def _write_json(path: Path, payload: dict) -> None:
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
@@ -4815,8 +4817,8 @@ def _emit_failure_artifact_messages(
                 pass
 
         if should_create_placeholders:
-            # last_output_path: ensure JSON with placeholder true
-            existing_output = _load_json_or_empty(last_output_path)
+            # Prepare model output placeholder payload
+            existing_output = _read_existing_json(last_output_path)
             output_payload = dict(existing_output) if isinstance(existing_output, dict) else {}
             output_payload["placeholder"] = True
             output_payload["artifact_kind"] = output_payload.get("artifact_kind") or "model_output_placeholder"
@@ -4834,7 +4836,8 @@ def _emit_failure_artifact_messages(
             checkpoint = dict(base_checkpoint)
             existing_checkpoint = output_payload.get("batch_checkpoint")
             if isinstance(existing_checkpoint, dict):
-                checkpoint.update(existing_checkpoint or {})
+                for k, v in existing_checkpoint.items():
+                    checkpoint[k] = v
             checkpoint["next_task_may_proceed"] = False
             checkpoint["transition"] = checkpoint_transition
             checkpoint["failure_category"] = category_text or str(checkpoint.get("failure_category", ""))
@@ -4863,10 +4866,10 @@ def _emit_failure_artifact_messages(
             state["resume_gate"] = str(state.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
             output_payload["batch_state"] = state
 
-            _write_json_safely(last_output_path, output_payload)
+            _write_json(last_output_path, output_payload)
 
-            # last_bundle_path: ensure JSON with placeholder true
-            existing_bundle = _load_json_or_empty(last_bundle_path)
+            # Prepare file bundle placeholder payload
+            existing_bundle = _read_existing_json(last_bundle_path)
             bundle_payload = dict(existing_bundle) if isinstance(existing_bundle, dict) else {}
             bundle_payload["placeholder"] = True
             bundle_payload["artifact_kind"] = bundle_payload.get("artifact_kind") or "file_bundle_placeholder"
@@ -4888,7 +4891,8 @@ def _emit_failure_artifact_messages(
             checkpoint_b = dict(base_checkpoint)
             existing_checkpoint_b = bundle_payload.get("batch_checkpoint")
             if isinstance(existing_checkpoint_b, dict):
-                checkpoint_b.update(existing_checkpoint_b or {})
+                for k, v in existing_checkpoint_b.items():
+                    checkpoint_b[k] = v
             checkpoint_b["next_task_may_proceed"] = False
             checkpoint_b["transition"] = checkpoint_transition
             checkpoint_b["failure_category"] = category_text or str(checkpoint_b.get("failure_category", ""))
@@ -4917,7 +4921,7 @@ def _emit_failure_artifact_messages(
             state_b["resume_gate"] = str(state_b.get("resume_gate", "manual_intervention_required") or "manual_intervention_required")
             bundle_payload["batch_state"] = state_b
 
-            _write_json_safely(last_bundle_path, bundle_payload)
+            _write_json(last_bundle_path, bundle_payload)
 
         # Friendly console notes; never raise.
         if last_output_path.exists():

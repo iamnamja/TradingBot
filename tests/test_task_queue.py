@@ -208,3 +208,112 @@ def test_two_task_phase_transition_plans_conservatively() -> None:
     assert go["transition_allowed"] is True
     assert go["next_phase"] == "two_task_pilot"
     assert go["bounded_limit"] == 2
+
+
+def test_two_task_pilot_ineligible_when_promotion_verdict_below_required() -> None:
+    run_task = _run_task_module()
+
+    payload = {
+        "verdict": "not_ready",
+        "metrics": {
+            "supervised_rate": 0.02,
+            "authority_ambiguity_rate": 0.0,
+            "compatibility_regressions": False,
+        },
+        "thresholds": {
+            "max_supervised_rate": 0.10,
+            "max_authority_ambiguity_rate": 0.05,
+        },
+    }
+    ev = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=True, promotion_payload=payload)
+    assert ev["allowed"] is False
+    assert "verdict_below_threshold" in ev["reasons"]
+
+
+def test_two_task_pilot_ineligible_when_rates_above_ceiling() -> None:
+    run_task = _run_task_module()
+
+    # Supervised rate above threshold
+    payload = {
+        "verdict": "ready_to_be_default",
+        "metrics": {
+            "supervised_rate": 0.20,
+            "authority_ambiguity_rate": 0.00,
+            "compatibility_regressions": False,
+        },
+        "thresholds": {
+            "max_supervised_rate": 0.10,
+            "max_authority_ambiguity_rate": 0.05,
+        },
+    }
+    ev = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=True, promotion_payload=payload)
+    assert ev["allowed"] is False
+    assert "supervised_rate_above_threshold" in ev["reasons"]
+
+    # Authority ambiguity above threshold
+    payload2 = {
+        "verdict": "ready_to_be_default",
+        "metrics": {
+            "supervised_rate": 0.00,
+            "authority_ambiguity_rate": 0.10,
+            "compatibility_regressions": False,
+        },
+        "thresholds": {
+            "max_supervised_rate": 0.10,
+            "max_authority_ambiguity_rate": 0.05,
+        },
+    }
+    ev2 = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=True, promotion_payload=payload2)
+    assert ev2["allowed"] is False
+    assert "authority_ambiguity_rate_above_threshold" in ev2["reasons"]
+
+
+def test_two_task_pilot_blocked_on_compatibility_regressions_even_if_verdict_qualifies() -> None:
+    run_task = _run_task_module()
+
+    payload = {
+        "verdict": "ready_to_be_default",
+        "metrics": {
+            "supervised_rate": 0.00,
+            "authority_ambiguity_rate": 0.00,
+            "compatibility_regressions": True,
+        },
+        "thresholds": {
+            "max_supervised_rate": 0.10,
+            "max_authority_ambiguity_rate": 0.05,
+        },
+    }
+    ev = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=True, promotion_payload=payload)
+    assert ev["allowed"] is False
+    assert "compatibility_regressions_block" in ev["reasons"]
+
+
+def test_two_task_operator_flag_and_hard_cap_remain_in_force() -> None:
+    run_task = _run_task_module()
+
+    payload = {
+        "verdict": "ready_to_be_default",
+        "metrics": {
+            "supervised_rate": 0.01,
+            "authority_ambiguity_rate": 0.01,
+            "compatibility_regressions": False,
+        },
+        "thresholds": {
+            "max_supervised_rate": 0.10,
+            "max_authority_ambiguity_rate": 0.05,
+        },
+    }
+
+    # Missing operator flag blocks
+    blocked = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=False, promotion_payload=payload)
+    assert blocked["allowed"] is False
+    assert "missing_explicit_operator_flag" in blocked["preconditions"]
+
+    # With flag, hard cap at 2 remains enforced even if higher requested
+    allowed = run_task.evaluate_two_task_readiness_gate(
+        operator_pilot_flag=True,
+        promotion_payload=payload,
+        bounded_limit_requested=99,
+    )
+    assert allowed["allowed"] is True
+    assert allowed["bounded_limit"] == 2

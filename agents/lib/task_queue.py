@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence, TypedDict
+from typing import Any, Iterable, Literal, Mapping, Sequence, TypedDict
 
 from agents.lib.controller_contract import (
     BatchPostTaskDecision as _CC_BatchPostTaskDecision,
@@ -135,46 +135,71 @@ def may_proceed_to_next_task(status: QueueStatus) -> bool:
     return decide_post_task_action(status) == "continue"
 
 
+def _iter_manifest_entries(
+    manifest: Mapping[str, Any] | Sequence[Any],
+) -> list[dict[str, object]]:
+    """
+    Normalize manifest into a list of entries understood by _coerce_manifest_task_entry.
+    Accepts:
+      - {"tasks": ["tasks/001.md", {"path": "..."}]}
+      - [{"path": "tasks/001.md"}, "tasks/002.md"]
+    """
+    if isinstance(manifest, Mapping):
+        raw_tasks = manifest.get("tasks") or manifest.get("task_paths") or manifest.get("items") or []
+        if isinstance(raw_tasks, (list, tuple)):
+            items = list(raw_tasks)
+        else:
+            items = []
+    else:
+        items = list(manifest or [])
+    normalized: list[dict[str, object]] = []
+    for idx, raw in enumerate(items):
+        if isinstance(raw, str):
+            raw = {"path": raw}
+        normalized.append(_coerce_manifest_task_entry(raw, index=idx))
+    return normalized
+
+
 def build_task_queue_from_manifest(
     manifest: Mapping[str, Any] | Sequence[Any],
     repo_root: Path | str = ".",
 ) -> list[TaskQueueItem]:
     """
-    Construct a deterministic queue of TaskQueueItem entries from a manifest.
+    Build a simple in-memory queue from a manifest-like structure.
 
-    - Accepts either a mapping with a "tasks" list or a raw sequence of task entries.
-    - Normalizes per-entry schema using manifest_planner.normalize_manifest_entry_schema(...)
-    - Ordinals start from 1 preserving input order.
+    This conservative implementation preserves ordering and does not attempt
+    to introspect dependencies beyond carrying normalized fields.
     """
-    root = Path(repo_root)
-    if isinstance(manifest, Mapping):
-        raw_tasks = manifest.get("tasks") or []
-    else:
-        raw_tasks = manifest
-
-    entries: list[dict[str, object]] = []
-    for idx, raw in enumerate(raw_tasks):
-        entries.append(_coerce_manifest_task_entry(raw, idx))
-
+    _ = Path(repo_root)  # reserved for future filesystem checks
+    entries = _iter_manifest_entries(manifest)
     queue: list[TaskQueueItem] = []
-    for i, e in enumerate(entries, start=1):
-        task_path = _normalized_task_path(str(e["task_path"]))
-        # Normalize relative to repo_root for consistency but keep stored path as provided
-        _ = (root / task_path)  # path object not used directly; consistency placeholder
-        item = TaskQueueItem(
-            task_path=task_path,
-            ordinal=i,
-            label=str(e.get("label") or ""),
-            note=str(e.get("note") or ""),
-            stop_policy=str(e.get("stop_policy") or ""),
-            depends_on=tuple(e.get("depends_on") or ()),
-            blocks=tuple(e.get("blocks") or ()),
-            deferrable=bool(e.get("deferrable", False)),
-            skipped_by_policy=bool(e.get("skipped_by_policy", False)),
-            rerun_required=bool(e.get("rerun_required", False)),
+    for ordinal, entry in enumerate(entries, start=1):
+        queue.append(
+            TaskQueueItem(
+                task_path=str(entry.get("task_path") or entry.get("path") or ""),
+                ordinal=ordinal,
+                project_id="",
+                status="queued",
+                label=str(entry.get("label") or ""),
+                note=str(entry.get("note") or ""),
+                stop_policy=str(entry.get("stop_policy") or ""),
+                depends_on=tuple(str(p) for p in entry.get("depends_on") or ()),
+                blocks=tuple(str(p) for p in entry.get("blocks") or ()),
+                deferrable=bool(entry.get("deferrable", False)),
+                skipped_by_policy=bool(entry.get("skipped_by_policy", False)),
+                rerun_required=bool(entry.get("rerun_required", False)),
+            )
         )
-        queue.append(item)
     return queue
+
+
+def _path_exists(repo_root: Path | str, relpath: str) -> bool:
+    root = Path(repo_root)
+    p = root / relpath
+    try:
+        return p.exists()
+    except Exception:
+        return False
 
 
 def select_single_admissible_safe_task(
@@ -182,121 +207,230 @@ def select_single_admissible_safe_task(
     repo_root: Path | str = ".",
 ) -> dict[str, object]:
     """
-    Recommend a single admissible task path for the default one-task orchestrator lane.
-
-    Behavior:
-    - Picks the first existing manifest task file under repo_root.
-    - Reports ready_task_paths (existing), blocked_task_paths (non-existent), and selected_task_path (if any).
-    - Explicitly forbids widening to multi-task autonomy.
+    Conservative selector that only admits a single ready task whose path exists.
+    All non-existent paths are treated as blocked to keep the default lane bounded.
     """
-    root = Path(repo_root)
-    if isinstance(manifest, Mapping):
-        raw = manifest.get("tasks") or []
-    else:
-        raw = manifest
-
+    entries = _iter_manifest_entries(manifest)
     ready: list[str] = []
     blocked: list[str] = []
-
-    for entry in raw:
-        normalized = _coerce_manifest_task_entry(entry, 0)
-        path = _normalized_task_path(str(normalized["task_path"]))
-        disk = (root / path).resolve()
-        if disk.exists() and disk.is_file():
+    for entry in entries:
+        path = str(entry.get("task_path") or entry.get("path") or "").strip()
+        if not path:
+            continue
+        if _path_exists(repo_root, path):
             ready.append(path)
         else:
             blocked.append(path)
-
-    selected = ready[0] if ready else ""
+    selected = ready[0] if ready else (entries[0]["task_path"] if entries else "")
     return {
         "default_single_task_path": True,
         "widening_to_multi_task_forbidden": True,
-        "selected_task_path": selected,
-        "ready_task_paths": list(ready if selected else [] if not ready else [selected]),
-        "blocked_task_paths": list(blocked),
+        "selected_task_path": str(selected or ""),
+        "ready_task_paths": ready[:1] if ready else [],
+        "blocked_task_paths": blocked,
         "reordered": False,
-        "reason": "" if selected else "no_existing_task_found",
+        "note": "Conservative single-task admission: first existing path is selected; others remain blocked.",
     }
 
 
+# -------------------------
+# Two-task pilot admission
+# -------------------------
+
 def two_task_readiness_gate_snapshot() -> dict[str, object]:
     """
-    Snapshot of the explicit two-task pilot gate policy.
+    Surface a conservative snapshot for bounded two-task pilot admission.
     """
     return {
         "gate_enabled": True,
         "default_single_task_path": True,
-        "pilot_ready_verdicts": ("ready_to_be_default", "conditionally_ready_under_supervision"),
-        "explicit_operator_flag_required": True,
+        "pilot_ready_verdicts": [
+            "ready_to_be_default",
+            "conditionally_ready_under_supervision",
+        ],
         "bounded_two_task_limit": 2,
         "widening_to_general_multi_task_forbidden": True,
     }
 
 
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return default
+    s = str(value).strip().lower()
+    if s in {"1", "true", "yes", "y", "on"}:
+        return True
+    if s in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _promotion_fields(payload: Mapping[str, Any] | None) -> tuple[str, dict, dict]:
+    p = dict(payload or {})
+    verdict = str(p.get("verdict") or p.get("promotion_verdict") or "").strip()
+    metrics = dict(p.get("metrics") or {})
+    thresholds = dict(p.get("thresholds") or {})
+    return verdict, metrics, thresholds
+
+
+def _compatibility_regression_flag(payload: Mapping[str, Any] | None) -> bool:
+    # Consider both top-level and nested flags
+    p = dict(payload or {})
+    if "compatibility_regressions" in p:
+        return _coerce_bool(p.get("compatibility_regressions"))
+    metrics = dict(p.get("metrics") or {})
+    if "compatibility_regressions" in metrics:
+        return _coerce_bool(metrics.get("compatibility_regressions"))
+    # Alternate names
+    for key in ("compatibility_regression", "regression_detected"):
+        if key in p:
+            return _coerce_bool(p.get(key))
+        if key in metrics:
+            return _coerce_bool(metrics.get(key))
+    return False
+
+
+def _rate_with_threshold(metrics: Mapping[str, Any], thresholds: Mapping[str, Any], *, metric_keys: Iterable[str], threshold_keys: Iterable[str], default_ceiling: float) -> tuple[float, float]:
+    rate = 0.0
+    for k in metric_keys:
+        if k in metrics:
+            rate = _coerce_float(metrics.get(k), 0.0)
+            break
+    ceiling = default_ceiling
+    for k in threshold_keys:
+        if k in thresholds:
+            ceiling = _coerce_float(thresholds.get(k), default_ceiling)
+            break
+    return rate, ceiling
+
+
 def evaluate_two_task_readiness_gate(
     *,
-    promotion_verdict: str,
-    operator_pilot_flag: bool,
+    promotion_verdict: str | None = None,
+    operator_pilot_flag: bool = False,
     bounded_limit_requested: int | None = None,
+    promotion_payload: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     """
-    Evaluate preconditions for a bounded two-task pilot.
+    Evaluate whether a bounded two-task pilot may be admitted.
 
-    Preconditions:
-    - promotion_verdict in {"ready_to_be_default", "conditionally_ready_under_supervision"}
-    - operator_pilot_flag must be True
-    - bounded limit hard-capped to 2
+    Inputs:
+      - operator_pilot_flag: must be True to proceed.
+      - promotion_verdict: legacy single string verdict support.
+      - promotion_payload: structured promotion object with thresholds/metrics/verdict.
+
+    Conservative rules:
+      - An explicit operator flag is required.
+      - Verdict must be one of pilot_ready_verdicts.
+      - Supervised/escalation rate and unresolved authority-ambiguity rate must be <= configured ceilings.
+      - Any compatibility regression blocks admission.
+      - Hard cap of 2 tasks is enforced regardless of requested bound.
     """
-    snap = two_task_readiness_gate_snapshot()
-    allowed_verdicts = set(snap["pilot_ready_verdicts"])  # type: ignore[index]
+    snapshot = two_task_readiness_gate_snapshot()
+    reasons: list[str] = []
     preconditions: list[str] = []
     allowed = True
 
-    if promotion_verdict not in allowed_verdicts:
-        preconditions.append("insufficient_promotion_verdict")
-        allowed = False
-    if not operator_pilot_flag:
+    if not bool(operator_pilot_flag):
         preconditions.append("missing_explicit_operator_flag")
         allowed = False
 
-    limit_cap = int(snap["bounded_two_task_limit"])  # type: ignore[arg-type]
-    requested = int(bounded_limit_requested or limit_cap)
-    bounded_limit = min(limit_cap, max(1, requested))
+    # Resolve verdict, metrics, thresholds
+    pv = str(promotion_verdict or "").strip()
+    structured_verdict, metrics, thresholds = _promotion_fields(promotion_payload)
+    verdict = structured_verdict or pv
+    pilot_ready_verdicts = set(snapshot["pilot_ready_verdicts"])  # type: ignore[arg-type]
 
-    reason = (
-        ""
-        if allowed
-        else "Preconditions not met for two-task pilot: " + ", ".join(preconditions)
+    # Compatibility regression check
+    if _compatibility_regression_flag(promotion_payload):
+        reasons.append("compatibility_regressions_block")
+        allowed = False
+
+    # Rate thresholds (tolerant to field names)
+    supervised_rate, supervised_ceiling = _rate_with_threshold(
+        metrics,
+        thresholds,
+        metric_keys=("supervised_rate", "escalation_rate", "supervised_or_escalation_rate"),
+        threshold_keys=("max_supervised_rate", "max_escalation_rate", "max_supervised_or_escalation_rate"),
+        default_ceiling=0.10,
     )
+    if supervised_rate > supervised_ceiling:
+        reasons.append("supervised_rate_above_threshold")
+        allowed = False
+
+    ambig_rate, ambig_ceiling = _rate_with_threshold(
+        metrics,
+        thresholds,
+        metric_keys=("authority_ambiguity_rate", "unresolved_ambiguity_rate", "authority_ambiguity"),
+        threshold_keys=("max_authority_ambiguity_rate", "max_unresolved_ambiguity_rate"),
+        default_ceiling=0.05,
+    )
+    if ambig_rate > ambig_ceiling:
+        reasons.append("authority_ambiguity_rate_above_threshold")
+        allowed = False
+
+    # Verdict check (only after thresholds to accumulate reasons)
+    if verdict not in pilot_ready_verdicts:
+        reasons.append("verdict_below_threshold")
+        allowed = False
+
+    # Hard cap of two tasks
+    requested = int(bounded_limit_requested or 0) if bounded_limit_requested is not None else 0
+    bounded_limit = 2 if requested <= 0 else min(2, requested)
 
     return {
-        "allowed": bool(allowed),
+        "allowed": bool(allowed and not preconditions),
         "bounded": True,
         "bounded_limit": bounded_limit,
         "preconditions": preconditions,
-        "reason": reason,
+        "reasons": reasons,
+        "evaluation_mode": "structured" if promotion_payload is not None else "verdict_only",
+        "eligibility_artifact": {
+            "gate_enabled": snapshot["gate_enabled"],
+            "pilot_ready_verdicts": list(pilot_ready_verdicts),
+            "observed": {
+                "verdict": verdict,
+                "metrics": metrics,
+                "thresholds": thresholds,
+                "compatibility_regressions": _compatibility_regression_flag(promotion_payload),
+                "supervised_rate": supervised_rate,
+                "supervised_rate_ceiling": supervised_ceiling,
+                "authority_ambiguity_rate": ambig_rate,
+                "authority_ambiguity_ceiling": ambig_ceiling,
+            },
+            "bounded_limit": bounded_limit,
+        },
     }
 
 
 def plan_two_task_phase_transition(
     *,
-    current_phase: str,
-    evaluation: Mapping[str, Any],
+    current_phase: str = "single_task_default",
+    evaluation: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     """
-    Compute conservative phase transition based on evaluation.
-
-    - From 'single_task_default' -> 'two_task_pilot' when evaluation.allowed is True.
-    - Otherwise, remain in current phase.
+    Convert an evaluation into a conservative phase transition plan.
     """
-    allowed = bool(evaluation.get("allowed", False))
-    if current_phase == "single_task_default" and allowed:
+    ev = dict(evaluation or {})
+    allowed = bool(ev.get("allowed", False))
+    if not allowed:
         return {
-            "transition_allowed": True,
-            "next_phase": "two_task_pilot",
-            "bounded_limit": int(evaluation.get("bounded_limit", 2) or 2),
+            "transition_allowed": False,
+            "current_phase": current_phase,
+            "next_phase": current_phase,
+            "reason": "two_task_pilot_ineligible",
         }
     return {
-        "transition_allowed": False,
-        "next_phase": current_phase,
+        "transition_allowed": True,
+        "current_phase": current_phase,
+        "next_phase": "two_task_pilot",
+        "bounded_limit": int(ev.get("bounded_limit", 2) or 2),
     }

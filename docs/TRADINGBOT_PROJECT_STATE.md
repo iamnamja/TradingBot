@@ -23,7 +23,7 @@ The current monorepo contains:
 
 ## Honest current posture
 
-The one-task lane is **conditionally ready under supervision** for benchmark-eligible work.
+The one-task lane is conditionally ready under supervision for benchmark-eligible work.
 
 That means:
 
@@ -57,3 +57,15 @@ Before a bounded two-task pilot can be justified, the repo still needs:
 ## Next continuation direction
 
 The next tranche should focus on bounded two-task pilot preparation under supervision, not on broad widening.
+
+## Task 171 status: mechanical pilot admission and eligibility truth
+
+- Two-task pilot admission is now mechanical and conservative, not subjective.
+- The runtime extends the Task 170 gate to evaluate a structured promotion/admission payload (reusing the one-task promotion artifact produced by the strict scorecard).
+- Eligibility reuses one-task promotion truth:
+  - promotion verdict,
+  - supervised or escalation rate,
+  - unresolved authority-ambiguity rate,
+  - and compatibility-regression state.
+- The explicit operator flag and a hard cap of 2 tasks remain in force.
+- When ineligible, explicit threshold reasons are returned, and an eligibility artifact is produced for durable, serializable comparison with future canary benchmark results.
