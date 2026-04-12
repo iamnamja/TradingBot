@@ -13,8 +13,8 @@ Tasks 157–170 materially strengthened the one-task lane and added a promotion 
 
 The next tranche should focus on:
 
-- pilot admission truth
-- adjacent-task handoff truth
-- supervised dev/test role separation
-- two-task canary scorecard truth
-- bounded pilot re-proof before broader widening
+- pilot admission truth that reuses the existing promotion artifact
+- adjacent-task handoff truth that reuses current proceed-state and supervised-handoff surfaces
+- supervised builder/verifier role separation with controller authority preserved
+- two-task canary scorecard truth on the same benchmark lane
+- bounded pilot re-proof before broader widening or productization
