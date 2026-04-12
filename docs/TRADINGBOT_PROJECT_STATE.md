@@ -55,3 +55,34 @@ This means the one‑task lane remains the recommended default under light super
 
 - No widening to two‑task execution; this task only adds a formal, explicit promotion decision artifact.
 - All changes are additive and backward‑compatible with existing benchmark artifacts and scoreboards.
+
+## Post‑Task 170 — orchestrator default single‑task path and two‑task pilot gate
+
+- Default path for eligible one‑task work:
+  - The orchestrator’s bounded one‑task lane is now the default path for benchmark‑eligible tasks under light supervision.
+  - “Eligible” means the task meets the same external‑safe constraints used by the curated benchmark (deliverable contract intact, protected/meta harness untouched, and validation profile available).
+  - Operator supervision remains in place; default does not imply unattended widening.
+  - Machine‑readable helpers are available: select_single_admissible_safe_task(...) recommends one eligible task without widening.
+
+- Explicit two‑task pilot gate (not a general widening):
+  - Any future two‑task execution must pass an explicit gate. The code exposes a machine‑readable snapshot and evaluation helper:
+    - two_task_readiness_gate_snapshot() — documents the policy, allowed promotion verdicts, and the strict bounded limit (2).
+    - evaluate_two_task_readiness_gate(...) — requires both:
+      - a qualifying promotion verdict in {ready_to_be_default, conditionally_ready_under_supervision}, and
+      - an explicit operator pilot flag.
+    - plan_two_task_phase_transition(...) — computes a conservative phase transition only when the gate is satisfied.
+  - The pilot is strictly bounded to two tasks and remains opt‑in. Widening to general multi‑task autonomy is explicitly out of scope.
+
+- Operator‑facing truth:
+  - Default: orchestrator one‑task lane for eligible work, with light supervision.
+  - Still supervised‑only: any work that touches protected/meta harness or violates the exact deliverable contract.
+  - Out of scope: broad multi‑task autonomy; not claimed or enabled by this task.
+
+These policies are encoded in agents.lib.task_queue and surfaced through thin public wrappers in agents.run_task for compatibility with tests and automation.
+
+### Additional implementation notes
+
+- A light selector is provided to choose a single admissible safe task without widening:
+  - select_single_admissible_safe_task(manifest, repo_root=".") picks the first existing manifest task path and reports blocked/non‑existent entries.
+- Controller‑contract symbol parity is preserved; task_queue now explicitly re‑exports BatchPostTaskDecision for test and API compatibility.
+- Snapshot helpers are deterministic and return primitive values, keeping pytest and ruff checks green.

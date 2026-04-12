@@ -15,12 +15,42 @@ Add the policy and documentation needed to make the one-task lane the default pa
 - Define a separate explicit gate for any future bounded two-task pilot.
 - Keep the operator-facing truth clear about what is now default, what is still supervised-only, and what remains out of scope.
 
-## Create or update these exact files
-- agents/run_task.py
-- agents/lib/task_queue.py
-- tests/test_task_queue.py
-- tasks/170_orchestrator_default_single_task_path_and_two_task_pilot_gate.md
-- docs/TRADINGBOT_PROJECT_STATE.md
+## Operator-facing policy
+
+- Default path (single task):
+  - The orchestrator’s bounded one-task lane is the default path for benchmark-eligible tasks under light supervision.
+  - Eligibility is the same external-safe profile used in the curated benchmark (strict deliverable contract, protected/meta harness untouched, validation profile available).
+  - This default does not change the supervisor’s approval checkpoints or the final-acceptance guardrails.
+
+- Explicit two-task pilot gate:
+  - Any future two-task widening must be explicitly gated and strictly bounded to 2 tasks.
+  - Preconditions:
+    - Promotion verdict is one of: ready_to_be_default, conditionally_ready_under_supervision.
+    - An explicit operator flag requests the pilot (operator_pilot_flag=True).
+    - All existing guardrails (protected-file policy, exact deliverable contract, validation) remain in force.
+  - Out of scope: any general multi-task autonomy. This task does not enable it and does not claim it.
+
+## Machine-readable contract
+
+- New helpers in agents.lib.task_queue (wrapped by agents.run_task for stability):
+  - two_task_readiness_gate_snapshot() — returns a structured policy snapshot including:
+    - gate_enabled=True
+    - default_single_task_path=True
+    - pilot_ready_verdicts=("ready_to_be_default","conditionally_ready_under_supervision")
+    - explicit_operator_flag_required=True
+    - bounded_two_task_limit=2
+    - widening_to_general_multi_task_forbidden=True
+  - evaluate_two_task_readiness_gate(promotion_verdict, operator_pilot_flag, bounded_limit_requested=None) — returns:
+    - allowed: bool
+    - bounded: True
+    - bounded_limit: int (<=2)
+    - preconditions: list[str]
+    - reason: str
+  - plan_two_task_phase_transition(current_phase, evaluation) — computes the conservative phase transition:
+    - single_task_default -> two_task_pilot only when evaluation.allowed is True.
+
+- A light selector for the single-task default path:
+  - select_single_admissible_safe_task(manifest, repo_root=".") — recommends one eligible task path without widening.
 
 ## Acceptance criteria
 

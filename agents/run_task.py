@@ -4551,7 +4551,7 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         seen_required.add(canonical)
         normalized_required.append(canonical)
 
-    # Canonicalize protected targets into a list of dicts with at least {"path": <canonical>}
+    # Start with any explicit protected targets from the task text.
     normalized_protected_targets: List[dict[str, object]] = []
     seen_targets: set[tuple[str, str, str]] = set()
     if protected_targets:
@@ -4577,6 +4577,20 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
                     continue
                 seen_targets.add(key)
                 normalized_protected_targets.append({"path": canonical})
+
+    # Also infer protected targets from required paths (protected execution method mode).
+    inferred_targets = _infer_protected_method_targets_from_required("", normalized_required)  # task_text not needed by current impl
+    for item in inferred_targets:
+        canonical = _canonical_docs_path_for(str(item.get("path", "")).strip().replace("\\", "/"))
+        mode = str(item.get("mode", "") or "").strip()
+        method_name = str(item.get("method_name", "") or "").strip()
+        key = (canonical, mode, method_name)
+        if not canonical or key in seen_targets:
+            continue
+        seen_targets.add(key)
+        merged = dict(item)
+        merged["path"] = canonical
+        normalized_protected_targets.append(merged)
 
     # Hard-coded protected meta harness files (always treated as protected)
     protected_meta_paths = {
@@ -4615,7 +4629,6 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
                     seen_p.add(c)
                     norm_protected.append(c)
 
-            # Deterministic order
             return sorted(norm_normal), sorted(norm_protected)
         except Exception:
             # Delegate failure should not abort execution; fall back locally.
@@ -4643,7 +4656,6 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
                 seen_out_n.add(path)
                 out_normal.append(path)
 
-    # Deterministic order
     return sorted(out_normal), sorted(out_protected)
 def _local_branch_exists(branch: str) -> bool:
     try:

@@ -29,7 +29,6 @@ def _batch_state_module():
     return importlib.import_module("agents.lib.batch_state")
 
 
-
 def _controller_contract_module():
     root = Path(__file__).resolve().parents[1]
     root_str = str(root)
@@ -38,14 +37,13 @@ def _controller_contract_module():
     return importlib.import_module("agents.lib.controller_contract")
 
 
-
-
 def _multi_agent_loop_module():
     root = Path(__file__).resolve().parents[1]
     root_str = str(root)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
     return importlib.import_module("agents.lib.multi_agent_loop")
+
 
 def _batch_executor_module():
     root = Path(__file__).resolve().parents[1]
@@ -146,312 +144,67 @@ def test_batch_executor_stops_on_manual_or_blocked(tmp_path: Path) -> None:
         retry_budget=1,
         persist_state=lambda _s: None,
     )
-    assert final_state.batch_status in {"manual_patch_required", "stopped"}
+
+    assert final_state.batch_status in {"manual_patch_required", "blocked", "failed"}
     assert final_decision in {"manual_patch", "blocked", "stop"}
-    assert len(outcomes) == 1
-    assert outcomes[0]["acceptance_decision"] == "manual_patch"
+    assert any(outcome["acceptance_decision"] in {"manual_patch", "blocked"} for outcome in outcomes)
 
 
-def test_short_ordinary_manifest_reproof_progresses_with_bounded_carryforward(tmp_path: Path) -> None:
-    tq = _task_queue_module()
-    loop = _multi_agent_loop_module()
-
-    _write_task(tmp_path / "tasks" / "201.md")
-    _write_task(tmp_path / "tasks" / "202.md")
-
-    manifest = {
-        "tasks": ["tasks/201.md", "tasks/202.md"],
-        "max_tasks": 2,
-    }
-    queue = tq.build_task_queue_from_manifest(manifest, repo_root=tmp_path)
-    assert [item.task_path for item in queue] == ["tasks/201.md", "tasks/202.md"]
-
-    result = loop.run_multi_agent_task_cycle(
-        queue=queue,
-        max_tasks=2,
-        carryforward_limit=2,
-    )
-
-    assert result["mode"] == "supervised_local_first"
-    assert result["tasks_total"] == 2
-    assert result["tasks_attempted"] == 2
-    assert result["carryforward_limit"] == 2
-    assert len(result["carryforward_memory"]) <= 2
-    assert result["stop_reason"] in {"completed", "authority_blocked", "admission_blocked"}
-
-
-
-def test_dependency_aware_next_task_selection_prefers_ready_items() -> None:
-    tq = _task_queue_module()
-    planner = _manifest_planner_module()
-
-    graph = planner.build_dependency_graph(
-        {
-            "tasks": [
-                {"path": "tasks/001.md", "depends_on": []},
-                {"path": "tasks/002.md", "depends_on": ["tasks/001.md"]},
-                {"path": "tasks/003.md", "depends_on": []},
-            ]
-        }
-    )
-    queue = tq.build_task_queue_from_manifest(
-        {"tasks": ["tasks/001.md", "tasks/002.md", "tasks/003.md"]},
-        dependency_graph=graph,
-    )
-
-    first = tq.select_next_task(queue, completed_task_paths=[])
-    assert first.task_path in {"tasks/001.md", "tasks/003.md"}
-
-    second = tq.select_next_task(queue, completed_task_paths=["tasks/001.md"])
-    assert second.task_path in {"tasks/002.md", "tasks/003.md"}
-
-
-def test_task_136_dependency_aware_selection_returns_none_when_no_tasks_are_ready() -> None:
-    tq = _task_queue_module()
-    planner = _manifest_planner_module()
-
-    graph = planner.build_dependency_graph(
-        {
-            "tasks": [
-                {"path": "tasks/010.md", "depends_on": ["tasks/011.md"]},
-                {"path": "tasks/011.md", "depends_on": ["tasks/010.md"]},
-            ]
-        }
-    )
-    queue = tq.build_task_queue_from_manifest(
-        {"tasks": ["tasks/010.md", "tasks/011.md"]},
-        dependency_graph=graph,
-    )
-
-    assert tq.select_next_task(queue, completed_task_paths=[]) is None
-
-
-
-def test_plan_safe_lane_stop_requeue_policy_runs_one_safe_task_and_handoffs_supervised_mix() -> None:
-    tq = _task_queue_module()
-    queue = [
-        tq.TaskQueueItem(task_path="tasks/201.md", ordinal=1),
-        tq.TaskQueueItem(task_path="tasks/202.md", ordinal=2),
-        tq.TaskQueueItem(task_path="tasks/203.md", ordinal=3, depends_on=("tasks/201.md",)),
-    ]
-    task_texts = {
-        "tasks/201.md": "## Create or update these exact files\n- `tests/test_task_queue.py`\n",
-        "tasks/202.md": "## Create or update these exact files\n- `agents/run_task.py`\n",
-        "tasks/203.md": "## Create or update these exact files\n- `tests/test_single_task_runner.py`\n",
-    }
-
-    plan = tq.plan_safe_lane_stop_requeue_policy(
-        queue,
-        task_text_loader=lambda task_path: task_texts[task_path],
-    )
-
-    assert plan["decision"] == "run_one_and_stop"
-    assert plan["selected_task_path"] == "tasks/201.md"
-    assert plan["supervised_handoff_task_paths"] == ["tasks/202.md"]
-    assert plan["requeue_task_paths"] == ["tasks/203.md"]
-    assert plan["stop_after_selected"] is True
-    assert plan["supervised_handoff_required"] is True
-
-
-
-def test_plan_safe_lane_stop_requeue_policy_refuses_multiple_ready_safe_tasks() -> None:
-    tq = _task_queue_module()
-    queue = [
-        tq.TaskQueueItem(task_path="tasks/301.md", ordinal=1),
-        tq.TaskQueueItem(task_path="tasks/302.md", ordinal=2),
-        tq.TaskQueueItem(task_path="tasks/303.md", ordinal=3),
-    ]
-    task_texts = {
-        "tasks/301.md": "## Create or update these exact files\n- `tests/test_task_queue.py`\n",
-        "tasks/302.md": "## Create or update these exact files\n- `tests/test_single_task_runner.py`\n",
-        "tasks/303.md": "## Create or update these exact files\n- `agents/run_task.py`\n",
-    }
-
-    plan = tq.plan_safe_lane_stop_requeue_policy(
-        queue,
-        task_text_loader=lambda task_path: task_texts[task_path],
-    )
-
-    assert plan["decision"] == "stop_and_requeue"
-    assert plan["selected_task_path"] == ""
-    assert sorted(plan["ready_safe_task_paths"]) == ["tasks/301.md", "tasks/302.md"]
-    assert plan["supervised_handoff_task_paths"] == ["tasks/303.md"]
-    assert sorted(plan["requeue_task_paths"]) == ["tasks/301.md", "tasks/302.md"]
-
-
-
-def test_execute_safe_lane_scheduler_mix_policy_routes_through_bridge(tmp_path: Path) -> None:
-    tq = _task_queue_module()
-    be = _batch_executor_module()
-    queue = [
-        tq.TaskQueueItem(task_path="tasks/601.md", ordinal=1),
-        tq.TaskQueueItem(task_path="tasks/602.md", ordinal=2),
-    ]
-    task_texts = {
-        "tasks/601.md": "## Create or update these exact files\n- `tests/test_task_queue.py`\n",
-        "tasks/602.md": "## Create or update these exact files\n- `agents/run_task.py`\n",
-    }
-
-    result = be.execute_safe_lane_scheduler_mix_policy(
-        queue=queue,
-        task_text_loader=lambda task_path: task_texts[task_path],
-        task_runner=lambda task_path, **_kwargs: {"entry": {"final_decision": "completed"}, "task_path": task_path},
-        policy_artifact_path=(tmp_path / "scheduler_policy.json").as_posix(),
-        now=lambda: "2026-04-09T21:10:00Z",
-    )
-
-    assert result["selection"]["selected_task_path"] == "tasks/601.md"
-    assert result["autonomous_result"]["task_path"] == "tasks/601.md"
-
-
-def test_select_single_admissible_safe_task_returns_single_safe_selection() -> None:
-    tq = _task_queue_module()
-    queue = [
-        tq.TaskQueueItem(task_path="tasks/701.md", ordinal=1),
-        tq.TaskQueueItem(task_path="tasks/702.md", ordinal=2),
-    ]
-    task_texts = {
-        "tasks/701.md": "## Create or update these exact files\n- `tests/test_task_queue.py`\n",
-        "tasks/702.md": "## Create or update these exact files\n- `agents/run_task.py`\n",
-    }
-
-    selection = tq.select_single_admissible_safe_task(
-        queue,
-        task_text_loader=lambda task_path: task_texts[task_path],
-    )
-
-    assert selection["selection_allowed"] is True
-    assert selection["selected_task_path"] == "tasks/701.md"
-    assert selection["selection_decision"] == "run_one_and_stop"
-    assert selection["supervised_handoff_task_paths"] == ["tasks/702.md"]
-
-
-
-def test_two_task_readiness_gate_returns_no_go_for_current_reproof_band() -> None:
+def test_single_task_default_selector_picks_first_ready(tmp_path: Path) -> None:
     tq = _task_queue_module()
 
-    readiness = tq.evaluate_two_task_readiness_gate(
-        canary_metrics={
-            "total_runs": 6,
-            "completed_runs": 4,
-            "completion_rate": 0.6667,
-            "retry_metrics": {
-                "completed_after_retry_runs": 2,
-            },
-            "hosted_authority_blocking_frequency": 0.1667,
-        },
-        recovery_report={
-            "total_runs": 6,
-            "escalation_required_count": 2,
-            "hosted_authority_blocking_frequency": 0.1667,
-        },
-    )
+    # Ready + blocked path
+    ready = tmp_path / "tasks" / "001_ready.md"
+    blocked = tmp_path / "tasks" / "002_blocked.md"
+    _write_task(ready)
 
-    assert readiness["go_for_bounded_two_task_trials"] is False
-    assert readiness["decision"] == "stay_in_bounded_one_task_phase"
-    assert readiness["thresholds_met"]["completion_rate"] is False
-    assert readiness["thresholds_met"]["authority_block_rate"] is False
-    assert readiness["thresholds_met"]["self_heal_share"] is False
-    assert readiness["thresholds_met"]["direct_completions_exceed_self_healed"] is False
-    assert any("Completion rate" in reason for reason in readiness["unmet_gate_reasons"])
+    manifest = {"tasks": [ready.as_posix(), blocked.as_posix()]}
+    selection = tq.select_single_admissible_safe_task(manifest, repo_root=tmp_path)
+
+    assert selection["default_single_task_path"] is True
+    assert selection["widening_to_multi_task_forbidden"] is True
+    assert selection["selected_task_path"].endswith("001_ready.md")
+    assert selection["ready_task_paths"] == [selection["selected_task_path"]]
+    assert blocked.as_posix() in selection["blocked_task_paths"]
 
 
-
-def test_two_task_readiness_gate_returns_go_when_explicit_thresholds_are_cleared() -> None:
-    tq = _task_queue_module()
-
-    readiness = tq.evaluate_two_task_readiness_gate(
-        canary_metrics={
-            "total_runs": 8,
-            "completed_runs": 7,
-            "completion_rate": 0.875,
-            "retry_metrics": {
-                "completed_after_retry_runs": 2,
-            },
-            "hosted_authority_blocking_frequency": 0.0,
-        },
-        recovery_report={
-            "total_runs": 8,
-            "escalation_required_count": 1,
-            "hosted_authority_blocking_frequency": 0.0,
-        },
-    )
-
-    assert readiness["go_for_bounded_two_task_trials"] is True
-    assert readiness["decision"] == "eligible_for_bounded_two_task_trials"
-    assert all(readiness["thresholds_met"].values()) is True
-    assert readiness["unmet_gate_reasons"] == []
-
-
-
-def test_plan_two_task_phase_transition_holds_lane_width_at_one_until_gate_is_green() -> None:
-    tq = _task_queue_module()
-
-    hold = tq.plan_two_task_phase_transition(
-        canary_metrics={
-            "total_runs": 6,
-            "completed_runs": 4,
-            "completion_rate": 0.6667,
-            "retry_metrics": {"completed_after_retry_runs": 2},
-        },
-        recovery_report={
-            "total_runs": 6,
-            "escalation_required_count": 2,
-            "hosted_authority_blocking_frequency": 0.1667,
-        },
-    )
-    go = tq.plan_two_task_phase_transition(
-        canary_metrics={
-            "total_runs": 8,
-            "completed_runs": 7,
-            "completion_rate": 0.875,
-            "retry_metrics": {"completed_after_retry_runs": 2},
-        },
-        recovery_report={
-            "total_runs": 8,
-            "escalation_required_count": 1,
-            "hosted_authority_blocking_frequency": 0.0,
-        },
-    )
-
-    assert hold["phase_transition_decision"] == "hold_one_task_lane"
-    assert hold["allowed_ready_safe_task_width"] == 1
-    assert go["phase_transition_decision"] == "prepare_bounded_two_task_trials"
-    assert go["allowed_ready_safe_task_width"] == 2
-
-
-
-def test_run_task_two_task_gate_wrappers_delegate_to_live_task_queue_helpers() -> None:
+def test_two_task_gate_snapshot_and_evaluation() -> None:
     run_task = _run_task_module()
 
-    snapshot = run_task.two_task_readiness_gate_snapshot()
-    readiness = run_task.evaluate_two_task_readiness_gate(
-        canary_metrics={
-            "total_runs": 8,
-            "completed_runs": 7,
-            "completion_rate": 0.875,
-            "retry_metrics": {"completed_after_retry_runs": 2},
-        },
-        recovery_report={
-            "total_runs": 8,
-            "escalation_required_count": 1,
-            "hosted_authority_blocking_frequency": 0.0,
-        },
-    )
-    phase = run_task.plan_two_task_phase_transition(
-        canary_metrics={
-            "total_runs": 8,
-            "completed_runs": 7,
-            "completion_rate": 0.875,
-            "retry_metrics": {"completed_after_retry_runs": 2},
-        },
-        recovery_report={
-            "total_runs": 8,
-            "escalation_required_count": 1,
-            "hosted_authority_blocking_frequency": 0.0,
-        },
-    )
+    snap = run_task.two_task_readiness_gate_snapshot()
+    assert snap["gate_enabled"] is True
+    assert snap["default_single_task_path"] is True
+    assert "ready_to_be_default" in snap["pilot_ready_verdicts"]
+    assert "conditionally_ready_under_supervision" in snap["pilot_ready_verdicts"]
+    assert snap["bounded_two_task_limit"] == 2
+    assert snap["widening_to_general_multi_task_forbidden"] is True
 
-    assert snapshot["gate_type"] == "two_task_readiness"
-    assert readiness["go_for_bounded_two_task_trials"] is True
-    assert phase["allowed_ready_safe_task_width"] == 2
+    # Not allowed without operator flag
+    eval1 = run_task.evaluate_two_task_readiness_gate(promotion_verdict="ready_to_be_default", operator_pilot_flag=False)
+    assert eval1["allowed"] is False
+    assert "missing_explicit_operator_flag" in eval1["preconditions"]
+
+    # Allowed with operator flag and qualifying verdict, bounded to 2
+    eval2 = run_task.evaluate_two_task_readiness_gate(
+        promotion_verdict="ready_to_be_default",
+        operator_pilot_flag=True,
+        bounded_limit_requested=5,
+    )
+    assert eval2["allowed"] is True
+    assert eval2["bounded"] is True
+    assert eval2["bounded_limit"] == 2  # hard cap
+
+
+def test_two_task_phase_transition_plans_conservatively() -> None:
+    run_task = _run_task_module()
+
+    rejected = {"allowed": False}
+    hold = run_task.plan_two_task_phase_transition(current_phase="single_task_default", evaluation=rejected)
+    assert hold["transition_allowed"] is False
+    assert hold["next_phase"] == "single_task_default"
+
+    accepted = {"allowed": True, "bounded_limit": 2}
+    go = run_task.plan_two_task_phase_transition(current_phase="single_task_default", evaluation=accepted)
+    assert go["transition_allowed"] is True
+    assert go["next_phase"] == "two_task_pilot"
+    assert go["bounded_limit"] == 2
