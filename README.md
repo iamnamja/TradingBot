@@ -10,47 +10,43 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized reliability checkpoint is now complete through **Task 165**.
+The synchronized reliability-and-promotion checkpoint is now complete through **Task 170**.
 
-The bounded supervised slice plus the narrow safe autonomous one-task lane now covers:
+The repo can now honestly claim a materially hardened **one-task lane** with:
 
 - proof-task admission gating on exact deliverable contracts
-- bundle failure classification and targeted retry shaping
-- hosted-authority operational convergence truth around the stable `ci-required` contract
-- safe task-family autonomy allowlisting for ordinary one-task work
-- a dedicated autonomous single-task runner with ledger, scorecard, canary metrics, recovery reporting, supervised handoff, bounded resume state, and operator proof bundles
-- scheduler routing through that bounded runner when exactly one safe task is ready
-- conservative stop / requeue / supervised handoff for mixed queues
-- completion integrity gating for tasks that require live-surface integration
-- runtime artifact hygiene normalization
-- two sequential one-task reliability re-proofs
+- strict no-manual-intervention benchmark scoring
+- deliverable-contract and completion-integrity enforcement
+- authority corroboration and conservative run truth
+- empty-bundle retry shaping and durable transport diagnostics
+- runtime-artifact hygiene and subset-preservation normalization
+- a threshold-based promotion artifact for the one-task lane
+- a defined default-path posture for eligible one-task work and an explicit future two-task pilot gate
 
-Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` for the authoritative bounded-scope status narrative.
+Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative.
 
 ## What the repo can honestly claim today
 
-Today the repo has deterministic local proof for a bounded supervised multi-project slice plus a narrow one-task autonomous lane that has undergone repeated reliability re-proofs.
+Today the repo can honestly claim:
 
-It can honestly claim:
-
-- one allowlisted safe task at a time can run under supervision
-- out-of-lane work is explicitly handed back to supervision instead of widened into broader autonomy
-- operators have proof artifacts showing what the lane can do and what it still refuses to do
-- the project is still in one-task reliability mode rather than broad autonomous expansion
+- benchmark-eligible one-task work is conditionally ready under supervision
+- the orchestrator can complete real one-task runs and self-heal some failures
+- widening beyond one-task still requires explicit proof, not aspiration
+- a bounded future two-task pilot is defined conceptually, but not yet proven operationally
 
 It does **not** claim:
 
-- broad unattended scheduler autonomy
-- arbitrary protected/controller/meta task-family autonomy
-- arbitrary multi-task autonomous execution
-- arbitrary self-hosting control-plane autonomy
+- broad unattended multi-task autonomy
+- general multi-agent role orchestration across arbitrary tasks
+- full self-hosting control-plane autonomy
+- a finished standalone orchestrator product
 
 ## Next continuation target
 
-Stay in **one-task reliability mode** for another slice:
+Shift from one-task promotion truth into **bounded two-task pilot preparation under supervision**:
 
-- tighten strict no-manual scorecard truth
-- improve authority corroboration and run-truth classification
-- eliminate the dominant remaining one-task failure family
-- run a formal promotion re-proof
-- only then decide whether eligible one-task work should become the default orchestrator path and whether a bounded two-task pilot is justified
+- mechanize the explicit two-task pilot admission gate
+- make dependency handoff between adjacent tasks explicit and durable
+- split dev/test agent roles for bounded supervised pilot work
+- measure the pilot with a real canary scorecard
+- only then decide whether a bounded supervised two-task pilot is justified

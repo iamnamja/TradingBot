@@ -2,13 +2,19 @@
 
 ## Current roadmap slice
 
-- `ORCHESTRATOR_ROADMAP_166_170.md` — third one-task reliability sprint and promotion decision slice
-- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task execution quality first, bounded multi-task second, standalone app later
+- `ORCHESTRATOR_ROADMAP_171_175.md` — bounded supervised two-task pilot preparation slice
+- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task truth first, bounded two-task pilot second, standalone app later
 
 ## Current continuation note
 
-Tasks 157–165 materially strengthened the one-task lane and produced two reliability re-proofs, but the current honest posture is still one-task reliability mode rather than bounded multi-task widening.
+Tasks 157–170 materially strengthened the one-task lane and added a promotion verdict plus an explicit future two-task pilot gate.
 
 ## Current next-step note
 
-The next tranche should focus on strict scorecard truth, authority corroboration, elimination of the dominant remaining one-task failure family, and a formal promotion re-proof before any default-path switch or two-task pilot gate.
+The next tranche should focus on:
+
+- pilot admission truth
+- adjacent-task handoff truth
+- supervised dev/test role separation
+- two-task canary scorecard truth
+- bounded pilot re-proof before broader widening
