@@ -4,25 +4,26 @@
 
 The orchestrator is still not a broad autonomous app platform.
 
-Its near-term product role remains a **bounded supervised execution engine** for benchmark-eligible one-task external-safe work.
+Its near-term product role is now more specific:
+
+- default supervised proving path for benchmark-eligible one-task work,
+- bounded-preparation engine for a future supervised two-task pilot,
+- not yet a general-purpose autonomous builder.
 
 ## Near-term product goal
 
-The immediate goal is to make one-task autonomous execution reliable enough that we can trust the orchestrator to complete small benchmark-eligible tasks end to end and honestly know when we still need supervision.
+The immediate goal is to prove that the orchestrator can manage the smallest credible adjacent two-task pilot under supervision without losing scorecard truth or scope honesty.
 
 ## Promotion target
 
-A credible near-term promotion target is:
+A credible next promotion target is:
 
-- the orchestrator becomes the default supervised execution path for benchmark-eligible one-task work,
-- the strict no-manual-intervention scorecard becomes the main truth for promotion decisions,
-- multi-task and app-shell ambitions remain gated behind later proof.
+- the orchestrator remains the default supervised proving path for one-task eligible work,
+- and becomes conditionally eligible for a bounded supervised two-task pilot if the new pilot tranche succeeds.
 
 ## Current constraints
 
-- one-task only
-- external-safe only
-- supervised truth and compatibility seams remain critical
-- hosted-authority ambiguity must still be handled conservatively
-- helper-only local success is not enough when the task requires integration into live benchmark or session surfaces
-- broad multi-task or self-hosting autonomy is still out of scope
+- no broad unattended multi-task autonomy
+- no broad multi-agent autonomy claims
+- no standalone app-shell/product phase yet
+- conservative authority and compatibility truth still dominate widening decisions
