@@ -12,7 +12,7 @@ Upgrade the existing Task 170 gate into a durable, threshold-based eligibility t
 
 - Reuse the existing Task 170 gate helpers in `agents.lib.task_queue` and their wrappers in `agents.run_task`.
 - Reuse the promotion artifact already emitted by `src/builder/orchestrator/benchmark_scorecard.py` (`promotion.json` with thresholds, metrics, and verdict).
-- Do **not** create a second disconnected pilot-admission subsystem.
+- Do not create a second disconnected pilot-admission subsystem.
 
 ## Requirements
 
@@ -26,16 +26,9 @@ Upgrade the existing Task 170 gate into a durable, threshold-based eligibility t
 - Preserve the explicit operator flag requirement and the hard cap of 2 tasks.
 - Return threshold reasons explicitly when the pilot is ineligible.
 - Persist or return a serializable eligibility artifact that can later be compared to canary benchmark results.
-- Do **not** permit general multi-task widening.
+- Do not permit general multi-task widening.
 
-## Create or update these exact files
-- agents/lib/task_queue.py
-- agents/run_task.py
-- tests/test_task_queue.py
-- tasks/171_orchestrator_two_task_pilot_admission_and_eligibility_truth.md
-- docs/TRADINGBOT_PROJECT_STATE.md
-
-## Acceptance criteria
+## Acceptance notes
 
 - Tests prove the two-task pilot is declared ineligible when the promotion verdict is below the required level.
 - Tests prove the two-task pilot is declared ineligible when supervised-rate or authority-ambiguity thresholds are above the allowed ceiling.
