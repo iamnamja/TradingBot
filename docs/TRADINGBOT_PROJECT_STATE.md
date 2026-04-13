@@ -23,7 +23,7 @@ The current monorepo contains:
 
 ## Honest current posture
 
-The one-task lane is conditionally ready under supervision for benchmark-eligible work.
+The one-task lane is **conditionally ready under supervision** for benchmark-eligible work.
 
 That means:
 
@@ -37,20 +37,13 @@ That means:
 - The default one-task path and the future pilot path are documented separately.
 - The project has not claimed broad multi-task autonomy.
 
-## Runtime seams now shaping the next phase
-
-- The existing Task 170 gate already lives in `agents.lib.task_queue`; the next task should refine that gate rather than invent a new pilot controller.
-- The runtime already exposes adjacent-task truth through `depends_on`, `next_task_may_proceed`, and supervised handoff artifacts.
-- The runtime already exposes explicit `controller` / `builder` / `verifier` role surfaces for bounded supervised work.
-- The benchmark and promotion surfaces already exist in `src/builder/orchestrator/benchmark.py` and `benchmark_scorecard.py`.
-
 ## What still blocks the next phase
 
 Before a bounded two-task pilot can be justified, the repo still needs:
 
 - a mechanical pilot-admission truth surface,
 - a deterministic adjacent-task handoff contract,
-- explicit supervised builder/verifier role separation for pilot work,
+- explicit supervised dev/test role separation for pilot work,
 - a durable two-task canary scorecard,
 - and a bounded pilot re-proof.
 
@@ -58,14 +51,15 @@ Before a bounded two-task pilot can be justified, the repo still needs:
 
 The next tranche should focus on bounded two-task pilot preparation under supervision, not on broad widening.
 
-## Task 171 status: mechanical pilot admission and eligibility truth
 
-- Two-task pilot admission is now mechanical and conservative, not subjective.
-- The runtime extends the Task 170 gate to evaluate a structured promotion/admission payload (reusing the one-task promotion artifact produced by the strict scorecard).
-- Eligibility reuses one-task promotion truth:
-  - promotion verdict,
-  - supervised or escalation rate,
-  - unresolved authority-ambiguity rate,
-  - and compatibility-regression state.
-- The explicit operator flag and a hard cap of 2 tasks remain in force.
-- When ineligible, explicit threshold reasons are returned, and an eligibility artifact is produced for durable, serializable comparison with future canary benchmark results.
+## Task 172 execution discipline update
+
+Fresh reruns showed a repeat failure family for Task 172: adjacent-handoff logic is a valid next seam, but the implementation must preserve the repo's frozen multi-agent/public surfaces while adding the new bounded A->B handoff behavior.
+
+So Task 172 should now be treated explicitly as an **extension-only** change:
+- preserve frozen/public surfaces in `agents.lib.multi_agent_contract`,
+- preserve existing single-task reporting/proof helpers in `agents.run_single_task`,
+- preserve existing queue/controller behavior in `agents.lib.task_queue`,
+- and add adjacent-task handoff truth only as a bounded additive seam.
+
+This keeps the task aligned with the honest project posture: bounded two-task pilot preparation under supervision, not broad refactoring or widening.

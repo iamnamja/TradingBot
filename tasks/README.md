@@ -25,14 +25,6 @@ Next sequential tranche
 - 174 — orchestrator two-task canary scorecard and benchmark
 - 175 — orchestrator bounded two-task pilot re-proof and product checkpoint
 
-Execution note for the next tranche
-
-- Do not run pilot execution work before Task 171 is merged.
-- Task 171 should upgrade the existing Task 170 gate, not invent a second pilot-admission subsystem.
-- Task 172 should reuse existing adjacent-task truth (`depends_on`, `next_task_may_proceed`, and supervised handoff artifacts) rather than inventing a generic scheduler.
-- Task 173 should reuse the existing `controller` / `builder` / `verifier` role model rather than introducing new autonomous role types.
-- Tasks 174–175 should extend the existing benchmark and promotion surfaces rather than creating a disconnected reporting lane.
-
 Duplicate-task cleanup note
 
 The repo still contains stale duplicate planning task files from the 157–165 transition period. They are not canonical and should be deleted before continuing. The cleanup list is:
@@ -50,6 +42,13 @@ The repo still contains stale duplicate planning task files from the 157–165 t
 Working mode
 
 - Treat the repo as conditionally ready under supervision for one-task work, not broadly autonomous.
-- Default to orchestrator-run mode for curated one-task work when the runtime is stable enough.
+- Default to orchestrator-run mode for curated tasks when the runtime is stable enough.
 - Use manual patches only when the runtime or policy surface itself is the blocker.
-- Do not widen to bounded two-task pilot execution until the dedicated admission, handoff, role-split, canary, and re-proof tasks say so.
+- Do not widen to bounded two-task pilot execution until the dedicated pilot admission, handoff, role-split, canary, and re-proof tasks say so.
+
+
+Task 172 execution note
+
+- Treat Task 172 as a bounded extension task.
+- Preserve existing frozen/public contract surfaces in `multi_agent_contract.py`, `run_single_task.py`, and `task_queue.py`.
+- Add adjacent A->B handoff truth on top of those surfaces; do not replace them with slimmer alternate contracts.
