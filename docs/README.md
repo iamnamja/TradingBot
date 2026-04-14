@@ -2,9 +2,9 @@
 
 ## Current roadmap slice
 
-- `ORCHESTRATOR_ROADMAP_176_180.md` — bounded supervised two-task pilot operation and corpus re-proof slice
-- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task truth first, bounded two-task pilot operation second, cautious widening later, standalone app last
-- `ORCHESTRATOR_BOUNDED_TWO_TASK_PILOT_OPERATIONS.md` — operator-facing rules, artifact expectations, and working cadence for the 176–180 tranche
+- `ORCHESTRATOR_ROADMAP_181_185.md` — reliability-first hardening slice after bounded two-task corpus re-proof
+- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task truth first, bounded two-task pilot second, reliability hardening next, cautious capability widening later, standalone app last
+- `ORCHESTRATOR_RELIABILITY_FIRST_181_185.md` — operator-facing rules, artifact expectations, and working cadence for the 181–185 tranche
 
 ## Current continuation note
 
@@ -18,26 +18,34 @@ Tasks 171–175 completed bounded supervised two-task pilot preparation and re-p
 - Task 174: two-task canary scorecard and benchmark artifacts
 - Task 175: bounded two-task pilot re-proof and product-direction checkpoint
 
-Tasks 176–180 operationalize the pilot over a real curated corpus and record a cautious widening checkpoint:
+Tasks 176–180 operationalized the pilot over a real curated corpus and recorded a cautious widening checkpoint:
 - Task 176: exact two-task pilot runner and pair-level session ledger
 - Task 177: curated adjacent-pair corpus and admission manifest
 - Task 178: supervised-intervention artifact and pilot failure digest
 - Task 179: real bounded corpus benchmark artifacts under `two_task/bounded_corpus`
 - Task 180: bounded two-task corpus re-proof and `bounded_corpus_promotion.json` widening checkpoint
 
+Tasks 181–185 now shift to reliability first:
+- Task 181: failure-family taxonomy and repair-target selection
+- Task 182: public/import compatibility guardrails for additive benchmark and runner work
+- Task 183: resume-safe attempt checkpoint and recovery re-entry truth
+- Task 184: reliability benchmark and regression matrix for one-task and bounded two-task runs
+- Task 185: reliability checkpoint and explicit capability-resume gate
+
 ## Current next-step note
 
 The near-term focus stays conservative:
 
-- operationalize the bounded two-task pilot with an exact runner and pair ledger
-- keep adjacent-task handoff explicit and durable
-- preserve supervised builder/verifier role separation
-- accumulate real two-task corpus evidence, not just synthetic canary truth
-- only consider widening after bounded pilot corpus artifacts justify the next step
+- reduce recurring compatibility and task-admission regressions
+- improve repair-target precision instead of broad fallback patching
+- make interrupted or partially-green runs resume from explicit checkpoints
+- measure reliability with retry count, supervision rate, and recurring failure-family evidence
+- only consider capability widening after the reliability checkpoint says the runtime is materially more stable
 
-The immediate operator-facing reference for this slice is `ORCHESTRATOR_BOUNDED_TWO_TASK_PILOT_OPERATIONS.md`.
+The immediate operator-facing reference for this slice is `ORCHESTRATOR_RELIABILITY_FIRST_181_185.md`.
 
 ## Product-direction checkpoint
 
 - Bounded two-task pilot verdict: ready for a bounded supervised two-task pilot on the curated corpus.
-- Widening checkpoint: cautiously consider widening the curated pair corpus only while staying supervised and only when corpus metrics are within conservative thresholds. Broad unattended multi-task autonomy remains blocked. Standalone orchestrator-as-its-own-app remains blocked.
+- Reliability-first checkpoint: stabilize runtime behavior and reduce recurring failure families before any new capability tranche.
+- Widening checkpoint: cautiously consider widening only after the post-185 reliability gate is satisfied. Broad unattended multi-task autonomy remains blocked. Standalone orchestrator-as-its-own-app remains blocked.

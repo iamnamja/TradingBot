@@ -54,26 +54,19 @@ This means:
   - Real bounded corpus pilot (entrypoint `builder.orchestrator.bounded_corpus_benchmark.run_bounded_two_task_corpus_benchmark(...)`):
     - `two_task/bounded_corpus/pairs.json`
     - `two_task/bounded_corpus/summary.json`
-    - `two_task/bounded_corpus/bounded_corpus_promotion.json` (durable widening checkpoint and conservative verdict)
+    - `two_task/bounded_corpus/bounded_corpus_promotion.json`
 
 Compatibility note: the canary and corpus benchmarks write only `canary_*` or `two_task/bounded_corpus/*` artifacts and never modify the strict one-task `scorecard.json`, `scoreboard.json`, or `promotion.json` files.
 
-## Bounded two-task pilot re-proof (Tasks 175–180)
+## Reliability-first continuation checkpoint (post-Task 180)
 
-- Verdict: ready for a bounded supervised two-task pilot on the curated adjacent-pair corpus.
-- Rationale: admission/handoff/role-split truth is explicit and measured; canary trials and real corpus runs produce durable artifacts; supervision remains required.
-- Widening checkpoint: only cautiously widen the curated corpus while staying supervised and only when corpus metrics justify it. Broad unattended multi-task autonomy remains blocked. Standalone orchestrator productization remains blocked.
-- Product checkpoint: the orchestrator continues to operate inside the monorepo with an explicit consumer bridge; the standalone app phase remains blocked pending broader multi-task autonomy proof.
+The project is now at the right point to prioritize runtime reliability over immediate capability widening.
 
-## Immediate continuation target
+Why this is the next step:
 
-Operate the bounded supervised two-task pilot and gather corpus evidence:
-
-- 176 — bounded two-task pilot runner and pair ledger
-- 177 — curated adjacent-pair corpus and admission manifest
-- 178 — supervised intervention artifact and pilot failure digest
-- 179 — real bounded two-task corpus benchmark
-- 180 — bounded two-task corpus re-proof and widening checkpoint
+- the repo now has bounded one-task and two-task proof surfaces, so the next bottleneck is less about inventing new pilot artifacts and more about reducing recurring orchestration failures,
+- recent work showed that benchmark compatibility, import/public contract drift, and exact proof-task admission rules can still derail otherwise-reasonable tasks,
+- the next tranche should therefore harden runtime classification, compatibility guardrails, and resume/re-entry paths before any new role-routing or deeper task-chain claims are attempted.
 
 ## What still blocks the next phase
 
@@ -82,27 +75,30 @@ Before broad multi-task autonomy or product extraction can be justified, the rep
 - sustained two-task corpus evidence from real bounded pilot runs across curated adjacent-task pairs,
 - lower supervised-intervention rates on the bounded pilot lane,
 - durable pair-level ledgers that distinguish autonomous progress from operator help,
-- additional authority-corroboration truth and failure-family elimination for multi-task sequences beyond the first adjacent pair.
+- additional authority-corroboration truth and failure-family elimination for multi-task sequences beyond the first adjacent pair,
+- sharper failure-family classification so repair selection lands on the correct surface more often,
+- better resume-safe recovery so partially-successful runs re-enter from precise checkpoints instead of broad retries.
 
-## Operator workflow for the current tranche
+## Immediate continuation target (Tasks 181–185)
 
-Use the current tranche conservatively:
+Operate a reliability-first tranche before any capability widening:
+
+- 181 — classify recurring failure families and choose narrower repair targets
+- 182 — harden import/public benchmark compatibility contracts and additive-surface guarantees
+- 183 — persist resume-safe attempt checkpoints and recovery re-entry truth
+- 184 — benchmark one-task and bounded two-task reliability by failure family, retry count, and supervision rate
+- 185 — record a reliability checkpoint and explicit gate for when capability widening may resume
+
+## Operator workflow for the next tranche
+
+Use the next tranche conservatively:
 
 - review merged-main snapshots first,
 - plan narrowly from the uploaded source-of-truth files,
 - patch docs/tasks/code only as needed,
 - validate on a clean branch,
 - inspect diffs before merge,
-- and preserve branch and runtime-artifact hygiene.
+- preserve branch and runtime-artifact hygiene,
+- and keep any reliability instrumentation additive to the existing one-task and two-task truth surfaces.
 
-Operational reference: `docs/ORCHESTRATOR_BOUNDED_TWO_TASK_PILOT_OPERATIONS.md`
-
-## Two-task pilot benchmark entrypoints and artifacts
-
-- One-task strict scorecard session wiring remains unchanged and is the source of truth for the one-task lane.
-- Two-task canary entry: `builder.orchestrator.benchmark.run_two_task_canary_benchmark(...)`
-  - Artifacts: `canary_trials.json`, `canary_scorecard.json`, `canary_promotion.json`
-- Two-task real bounded corpus entry: `builder.orchestrator.bounded_corpus_benchmark.run_bounded_two_task_corpus_benchmark(...)`
-  - Artifacts: `two_task/bounded_corpus/pairs.json`, `two_task/bounded_corpus/summary.json`, `two_task/bounded_corpus/bounded_corpus_promotion.json`
-
-The corpus promotion artifact records a conservative verdict and an explicit widening checkpoint with blocked areas enumerated.
+Operational reference: `docs/ORCHESTRATOR_RELIABILITY_FIRST_181_185.md`

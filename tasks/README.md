@@ -1,29 +1,38 @@
-# Tasks README
+# Tasks Index
 
-## Current execution order for the bounded supervised two-task pilot operation tranche
+## Current completed tranche
 
-Use this order after Task 175:
+Tasks 176–180 completed the bounded supervised two-task pilot proof slice:
 
-1. `tasks/176_orchestrator_bounded_two_task_pilot_runner_and_pair_ledger.md`
-2. `tasks/177_orchestrator_curated_adjacent_pair_corpus_and_admission_manifest.md`
-3. `tasks/178_orchestrator_supervised_intervention_artifact_and_pilot_failure_digest.md`
-4. `tasks/179_orchestrator_real_bounded_two_task_corpus_benchmark.md`
-5. `tasks/180_orchestrator_bounded_two_task_corpus_reproof_and_widening_checkpoint.md`
+- 176 — exact two-task pilot runner and pair-level session ledger
+- 177 — curated adjacent-pair corpus and admission manifest
+- 178 — supervised intervention artifact and pilot failure digest
+- 179 — real bounded two-task corpus benchmark
+- 180 — bounded two-task corpus re-proof and widening checkpoint
 
-## Important note
+## Current next tranche
 
-Do **not** widen straight from Task 175 into broad multi-task autonomy or standalone-product work.
+The next tranche is reliability first, capability next.
 
-The next tranche is specifically about operationalizing the already-approved bounded supervised two-task pilot, gathering real pair-level evidence, and keeping supervision truth explicit.
+### 181–185 reliability-first tranche
 
-## Standard numbered-task run command
+- `tasks/181_orchestrator_failure_family_taxonomy_and_repair_target_selection.md`
+- `tasks/182_orchestrator_import_contract_and_additive_compatibility_guardrails.md`
+- `tasks/183_orchestrator_resume_checkpoint_and_attempt_state_reentry.md`
+- `tasks/184_orchestrator_reliability_benchmark_and_regression_matrix.md`
+- `tasks/185_orchestrator_reliability_checkpoint_and_capability_resume_gate.md`
 
-Use:
+## Standard run command
+
+Use this command for numbered orchestrator tasks:
 
 `py -m agents.run_task <task-file> --push --keep-runtime-artifacts --provider openai --model gpt-5`
 
-## Branch hygiene reminder
+## Working rules
 
-- Keep branch diffs narrow.
+- Review merged-main snapshots first.
+- Prefer narrow fixes.
+- Preserve branch cleanliness.
 - Do not ship runtime scratch artifacts.
-- If `_last_subset_preservation.json` appears in a branch diff, restore it from `origin/main` so it drops out of the change set.
+- If `_last_subset_preservation.json` appears in a branch diff and is tracked, restore it from `origin/main`.
+- For proof or re-proof tasks, include an exact `Create or update these exact files` section before attempting execution.
