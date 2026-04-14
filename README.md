@@ -24,7 +24,7 @@ The repo can now honestly claim a materially hardened one-task lane with:
 - a defined default-path posture for eligible one-task work and an explicit two-task pilot gate
 - a bounded supervised two-task canary benchmark flow and re-proof checkpoint integrated alongside the one-task artifacts
 
-Use `tasks/README.md` as the canonical task-order index and `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative.
+Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_BOUNDED_TWO_TASK_PILOT_OPERATIONS.md` as the operator-facing guide for the 176–180 tranche.
 
 ## What the repo can honestly claim today
 
