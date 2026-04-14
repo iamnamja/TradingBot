@@ -284,3 +284,47 @@ def parse_method_insertion_bundle(
         i += 1
 
     raise error_cls("Method insertion response did not include BEGIN_METHOD / END_METHOD block.")
+
+
+def parse_transport_payload(
+    *,
+    text: str,
+    transport: str,
+    normalize_newlines: Callable[[str], str],
+    file_bundle_begin: str,
+    file_bundle_end: str,
+    file_header_re: Pattern[str],
+    file_end: str,
+    error_cls: Type[Exception],
+    existing_files: Dict[str, str] | None = None,
+) -> Dict[str, str]:
+    transport_value = str(transport or "file_bundle").strip().lower() or "file_bundle"
+    if transport_value == "patch":
+        from agents.lib.patch_apply import materialize_patch_apply_payload
+
+        return materialize_patch_apply_payload(
+            text=text,
+            existing_files=existing_files or {},
+            normalize_newlines=normalize_newlines,
+            error_cls=error_cls,
+        )
+
+    return parse_file_bundle(
+        text=text,
+        normalize_newlines=normalize_newlines,
+        file_bundle_begin=file_bundle_begin,
+        file_bundle_end=file_bundle_end,
+        file_header_re=file_header_re,
+        file_end=file_end,
+        error_cls=error_cls,
+    )
+
+
+def looks_like_alternate_patch_transport(
+    *,
+    text: str,
+    normalize_newlines: Callable[[str], str],
+) -> bool:
+    from agents.lib.patch_apply import looks_like_patch_apply_payload
+
+    return looks_like_patch_apply_payload(text=text, normalize_newlines=normalize_newlines)
