@@ -94,3 +94,8 @@ The provider client exposes a small public declaration helper:
 - `agents.lib.provider_client.declared_transport_contract(provider=None, model=None)` → returns the model profile id, output transport, and transport contract tokens for runner/CLI inspection.
 
 This is an explicit contract declaration, not a promise of broader autonomy or transport changes by default.
+
+### Task 188 execution note
+
+Task 188 has been split into 188a and 188b so the normal-lane parser/apply adapter can be proven before protected runner integration.
+

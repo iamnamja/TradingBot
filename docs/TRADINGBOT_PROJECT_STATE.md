@@ -113,3 +113,12 @@ The repo now includes an explicit model-profile registry and transport-contract 
 - Provider-facing helper: `agents.lib.provider_client.declared_transport_contract(...)` returns the model profile id, output transport, and transport contract tokens that the runner can inspect.
 
 This declaration makes the expected output transport explicit while preserving the known-good GPT file-bundle behavior as the default path.
+
+## Task 188 split note
+
+Task 188 is being executed in two steps:
+- 188a for normal-lane Codex patch transport parser/apply adapter work
+- 188b for protected runner integration after the adapter path is proven
+
+This is a task-shape hardening move, not a capability widening claim.
+

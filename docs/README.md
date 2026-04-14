@@ -48,3 +48,12 @@ The harness now declares model/profile transport expectations explicitly:
 - Public declaration: `agents.lib.provider_client.declared_transport_contract(...)` returns `model_profile_id`, `output_transport`, and `transport_contract`.
 
 This formalizes the output-transport contract without changing the default proven GPT bundle behavior.
+
+## Task 188 split note
+
+Task 188 has been split into:
+- `188a_orchestrator_codex_patch_transport_parser_and_apply_adapter.md`
+- `188b_orchestrator_run_task_dual_transport_selection_and_protected_surface_integration.md`
+
+This split keeps the parser/apply adapter work in the normal lane first and defers protected `agents/run_task.py` integration to a separate step.
+
