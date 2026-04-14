@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized reliability-and-promotion checkpoint is now complete through Task 186.
+The synchronized reliability-and-promotion checkpoint is now complete through Task 187.
 
 The repo can now honestly claim a materially hardened one-task lane with:
 
@@ -83,3 +83,14 @@ The focus is:
 - dual transport compatibility (`FILE:/END_FILE` bundle mode and Codex-style patch mode)
 - provider/model capability negotiation and safe fallback
 - a conservative checkpoint after those contracts are in place
+
+### Explicit model profiles and output transport (Task 187)
+
+A minimal model-profile registry now exists under `agents/lib/model_profiles.py` with two families:
+- GPT-style file-bundle mode (default, strict `FILE:/END_FILE` transport)
+- Codex-style patch/apply mode (declared contract; not enabled as the default runner path)
+
+The provider client exposes a small public declaration helper:
+- `agents.lib.provider_client.declared_transport_contract(provider=None, model=None)` → returns the model profile id, output transport, and transport contract tokens for runner/CLI inspection.
+
+This is an explicit contract declaration, not a promise of broader autonomy or transport changes by default.

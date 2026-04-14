@@ -13,8 +13,8 @@ def test_extractors_find_values_current_snapshot():
     docs_readme_text = Path("docs/README.md").read_text(encoding="utf-8")
 
     # Completed-through should be 185 from README and state doc (accepting different phrasings)
-    assert extract_completed_through_task(readme_text) == 186
-    assert extract_completed_through_task(state_text) == 186
+    assert extract_completed_through_task(readme_text) == 187
+    assert extract_completed_through_task(state_text) == 187
 
     # Active tranche should be 186–190 across docs (hyphen or en-dash both acceptable)
     assert extract_active_tranche(readme_text) == (186, 190)
@@ -35,10 +35,10 @@ def test_detects_completed_through_drift(tmp_path: Path):
     # Create a modified README that incorrectly references a different "complete through Task" number
     readme_text = Path("README.md").read_text(encoding="utf-8")
     # Replace the specific "complete through Task 186" phrasing; fall back to "post-Task 186" if needed
-    if "complete through Task 186" in readme_text:
-        mutated = readme_text.replace("complete through Task 186", "complete through Task 187")
+    if "complete through Task 187" in readme_text:
+        mutated = readme_text.replace("complete through Task 187", "complete through Task 188")
     else:
-        mutated = readme_text.replace("post-Task 186", "post-Task 187")
+        mutated = readme_text.replace("post-Task 187", "post-Task 188")
 
     mutated_path = tmp_path / "README.md"
     mutated_path.write_text(mutated, encoding="utf-8")

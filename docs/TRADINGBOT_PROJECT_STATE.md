@@ -10,7 +10,7 @@ The current monorepo contains:
 - Numbered implementation tasks (`tasks`)
 - Documentation and project-state tracking (`docs`)
 
-## Current state (post-Task 186)
+## Current state (post-Task 187)
 
 - Tasks 157–185 are complete in bounded supervised scope.
 - The repo now has:
@@ -105,13 +105,11 @@ Use the next tranche conservatively:
 
 Operational reference: `docs/ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md`
 
-## Next-tranche rationale
+## Model-profile and transport declaration (Task 187)
 
-The next bottleneck is no longer “prove bounded one-task/two-task exists.” It is “make the repo stop tripping over recurring contract drift.”
+The repo now includes an explicit model-profile registry and transport-contract declaration:
 
-Two concrete symptoms now justify this tranche:
+- Registry module: `agents/lib/model_profiles.py` with GPT-style file-bundle (default) and Codex-style patch/apply families.
+- Provider-facing helper: `agents.lib.provider_client.declared_transport_contract(...)` returns the model profile id, output transport, and transport contract tokens that the runner can inspect.
 
-- repeated manual cleanup of stale status headlines in `README.md` and `docs/TRADINGBOT_PROJECT_STATE.md`
-- a failed `gpt-5-codex` run that reached model output but failed bundle transport because the harness still assumes a strict `FILE:/END_FILE` text bundle contract for all models
-
-The right next move is to harden narrative consistency and model/output-contract compatibility before trying to widen behavior.
+This declaration makes the expected output transport explicit while preserving the known-good GPT file-bundle behavior as the default path.

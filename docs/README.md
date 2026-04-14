@@ -11,7 +11,6 @@
 Tasks 181–185 completed the reliability-first tranche:
 - Task 181: failure-family taxonomy and repair-target selection
 - Task 182: public/import compatibility guardrails for orchestrator benchmark surfaces
-- Task 183: resume-safe attempt checkpoint and recovery re-entry truth
 - Task 184: reliability benchmark and regression matrix for one-task and bounded two-task runs
 - Task 185: reliability checkpoint and explicit gate for when capability widening may resume
 
@@ -41,4 +40,11 @@ The near-term focus stays conservative:
 - make model/profile incompatibility explicit and diagnosable instead of failing late in bundle transport
 - only consider capability widening after the post-190 checkpoint says the model/contract layer is materially more stable
 
-The immediate operator-facing reference for this slice is `ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md`.
+## Explicit model-profile declaration (Task 187)
+
+The harness now declares model/profile transport expectations explicitly:
+
+- Registry: `agents/lib/model_profiles.py` with GPT-style file-bundle (default) and Codex-style patch/apply families.
+- Public declaration: `agents.lib.provider_client.declared_transport_contract(...)` returns `model_profile_id`, `output_transport`, and `transport_contract`.
+
+This formalizes the output-transport contract without changing the default proven GPT bundle behavior.
