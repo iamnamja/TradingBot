@@ -1,58 +1,33 @@
-# Task 188a — codex patch payload fixture parser and apply adapter (normal lane)
+# Task 188a — orchestrator captured alternate payload fixture normalizer and apply adapter
 
 ## Why
 
-Repeated attempts to execute the original Task 188a failed before lint/tests because the model confused the *subject being implemented* with the *response transport it should use for the task run*.
+Repeated attempts to execute this task have failed before code validation because the model response drifted away from the runner’s required `FILE:` / `END_FILE` bundle contract.
 
-We need a narrower normal-lane step that proves the parser/adapter logic on captured Codex-style patch payloads **without** touching protected runner surfaces and **without** changing the task-response format used by this orchestrator.
+The next safe step is to prove the parsing and normalization logic using captured alternate-payload fixtures while keeping the task itself firmly in the normal file-bundle lane.
 
 ## Scope
 
-Implement a fixture-driven Codex patch payload parser/apply adapter in the normal lane only.
-
-This task is intentionally limited to:
-- additive helper logic for parsing and normalizing Codex-style patch/apply payload text,
-- fixture-driven tests,
-- additive documentation of the narrowed intent.
-
-This task does **not** integrate the new adapter into `agents/run_task.py` or change the active default transport.
-
-## Delivery contract for this task run
-
-Even though this task is about Codex-style patch/apply payloads, the assistant must still deliver **this task's changes** using the standard repository task response format:
-
-- `BEGIN_FILE_BUNDLE`
-- `FILE: <path>`
-- file contents
-- `END_FILE`
-- `END_FILE_BUNDLE`
-
-Do **not** respond in unified diff form, patch blocks, `apply_patch` blocks, or any non-`FILE:` transport for this task run.
-
-The patch/apply payload is the implementation subject, not the response format.
+Add a fixture-driven parser/normalizer and apply adapter for captured non-bundle payloads, without changing runner transport selection yet.
 
 ## Runtime seams to reuse
 
-- Reuse the explicit model-profile and transport-contract declaration added in Task 187.
-- Reuse existing bundle and parsing vocabulary where possible, but keep this task in normal non-protected files.
-- Reuse additive helper/test patterns already used in the reliability tranche.
+- Reuse the current GPT file-bundle parser unchanged for bundle-mode tasks.
+- Reuse current safety checks after files are materialized.
+- Reuse model-profile and transport declaration from Task 187 as metadata only.
 
 ## Requirements
 
-- Add a narrow helper that can parse and normalize a Codex-style patch/apply payload captured as plain text fixture input.
-- The helper must return a deterministic, machine-consumable structure that later tasks can feed into runner integration.
-- Support at least:
-  - extraction of one or more file targets,
-  - extraction of replacement/apply operations or normalized patch sections,
-  - explicit failure signaling when the payload is malformed or incomplete.
-- Keep the work additive and normal-lane only.
-- Add tests using static fixtures or inline text samples.
-- Preserve the proven GPT file-bundle default path exactly.
+- Add helper/library support for parsing and normalizing captured alternate payloads represented as text fixtures.
+- Keep GPT file-bundle mode intact and default for the proven path.
+- Add tests that would have caught the previous non-bundle payload mismatch in helper/library surfaces.
+- Keep all work in the normal lane; do not touch `agents/run_task.py` yet.
 
 ## Create or update these exact files
 
-- `agents/lib/codex_patch_adapter.py`
-- `tests/test_codex_patch_adapter.py`
+- `agents/lib/bundle_parser.py`
+- `agents/lib/patch_apply.py`
+- `tests/test_run_task_dual_transport.py`
 - `README.md`
 - `docs/TRADINGBOT_PROJECT_STATE.md`
 - `docs/README.md`
@@ -60,25 +35,30 @@ The patch/apply payload is the implementation subject, not the response format.
 
 ## Non-goals
 
-- Do not modify `agents/run_task.py`.
-- Do not modify protected method-mode parsing or insertion machinery.
-- Do not enable Codex transport selection yet.
-- Do not weaken strict GPT file-bundle parsing.
-- Do not respond using diff/patch text instead of normal file bundles.
+- Do not modify `agents/run_task.py` in this task.
+- Do not remove the strict GPT file-bundle path.
+- Do not broaden capability claims beyond additive helper compatibility.
+- Do not implement provider/model fallback logic yet.
 
 ## Acceptance criteria
 
-- A normal-lane helper exists for parsing and normalizing Codex-style patch/apply payload text.
-- Tests cover at least one valid payload and one malformed payload.
-- The default GPT file-bundle execution path remains unchanged.
-- Docs describe this as a parser/adapter proof step, not a transport switch.
+- Helper/library surfaces can parse at least two payload shapes when given an explicit transport hint in tests or callers outside `agents/run_task.py`.
+- GPT bundle mode remains green and unchanged.
+- Alternate-payload parsing/normalization is additive and validated by tests.
+
+## Delivery contract hardening
+
+This run must still be delivered using the existing standard `FILE:` / `END_FILE` bundle format.
+
+- The very first line of the assistant response must be `BEGIN_FILE_BUNDLE`.
+- Do not emit prose before `BEGIN_FILE_BUNDLE`.
+- Do not answer this task using diff output, raw `apply_patch` blocks, or any non-bundle transport.
+- The alternate payload style is the subject being implemented and tested, not the response transport for this task run.
+- The current run remains in the normal file-bundle lane so the orchestrator can validate and apply produced files.
 
 ## Implementation notes
 
-- Favor fixture-driven parser normalization over broad runtime integration.
-- Return explicit structured data rather than side effects.
-- Keep file targets and operation ordering deterministic.
-
-## Implementation intent note
-
-This task has been deliberately narrowed after repeated bundle-transport failures. The correct success condition is proving the parser/adapter logic in isolation, not changing the orchestrator’s own response transport or protected runner behavior.
+- Prefer fixture-driven tests that feed captured alternate payload text into helper/library surfaces and assert normalized parsed operations or materialized file results.
+- Keep parser/apply logic additive to the existing bundle parser rather than weakening bundle parsing rules.
+- If needed, introduce a small adapter entrypoint in `agents/lib/bundle_parser.py` that dispatches between bundle parsing and alternate-payload parsing based on an explicit transport hint supplied by tests or callers outside `agents/run_task.py`.
+- Avoid repeated use of the literal strings `patch`, `apply_patch`, or `diff` in code comments unless required by tests.
