@@ -59,3 +59,14 @@ Record a durable contract-and-model-transport checkpoint and next-slice gate.
 
 - Keep the checkpoint additive and conservative, similar in tone to the bounded-corpus and reliability checkpoints.
 - It is acceptable for the default verdict to remain conditionally ready under supervision if the evidence is incomplete.
+
+## Implementation result
+
+- Add `src/builder/orchestrator/model_transport_checkpoint.py` with:
+  - `collect_model_transport_evidence()`
+  - `evaluate_model_transport_checkpoint(evidence)`
+  - `write_model_transport_checkpoint(base_dir, evaluation, evidence_snapshot=None)`
+- Add `tests/test_model_transport_checkpoint.py` covering current-snapshot evidence collection, conservative verdicting, and artifact writing.
+- Artifact path: `reliability/model_transport_checkpoint.json`
+- Default checkpoint verdict: `conditionally_ready_under_supervision`
+

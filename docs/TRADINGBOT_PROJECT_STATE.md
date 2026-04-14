@@ -122,3 +122,20 @@ Task 188 is being executed in two steps:
 
 This is a task-shape hardening move, not a capability widening claim.
 
+## Contract and model transport checkpoint (Task 190)
+
+A durable contract/model-transport checkpoint is now available via `src/builder/orchestrator/model_transport_checkpoint.py` and the additive artifact `reliability/model_transport_checkpoint.json`.
+
+Checkpoint verdict: **conditionally ready under supervision**.
+
+Interpretation:
+- docs/status consistency enforcement is in place
+- model-profile explicitness and declared transport contracts exist
+- Codex-style patch transport is declared and supported through the adapter path
+- provider/model mismatch diagnostics and safe fallback discipline exist
+- the proven GPT file-bundle path remains preserved
+
+Blocked areas remain explicit:
+- broad unattended multi-task autonomy
+- standalone orchestrator productization
+
