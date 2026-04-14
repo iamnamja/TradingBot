@@ -10,7 +10,7 @@ The current monorepo contains:
 - Numbered implementation tasks (`tasks`)
 - Documentation and project-state tracking (`docs`)
 
-## Current state (post-Task 186)
+## Current state (post-Task 187)
 
 - Tasks 157–185 are complete in bounded supervised scope.
 - The repo now has:
