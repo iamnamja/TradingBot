@@ -1,25 +1,30 @@
-# Orchestrator Roadmap 171-175
+# Orchestrator Roadmap — Tasks 171–175
 
 ## Current tranche posture
 
-This tranche remains about **bounded supervised two-task pilot preparation**, not broad multi-task autonomy.
+The repo is past the one-task promotion checkpoint and is now in bounded two-task pilot preparation under supervision.
 
-The intended order is still:
+The order for this tranche is now:
 
-- 171 — pilot admission and eligibility truth
+- 171 — two-task pilot admission and eligibility truth
 - 172 — dependency-aware adjacent-task handoff contract
-- 173 — supervised dev/test role split for bounded pilot
+- 173a — controller-contract compatibility for bounded pilot
+- 173b — supervised dev/test role split for bounded pilot
 - 174 — two-task canary scorecard and benchmark
 - 175 — bounded two-task pilot re-proof and product checkpoint
 
-## Execution discipline for 173
+## Why 173 was split
 
-Task 173 must be treated the same way Task 172 ultimately had to be treated:
+Fresh Task 173 reruns showed the main risk was not the pilot role split itself, but the shared controller-contract compatibility surface in `agents.lib.multi_agent_contract.py`.
 
-- additive extension only,
-- preserve frozen/public contract surfaces,
-- preserve single-task reporting/proof helpers,
-- preserve older compatibility keys and defaulting behavior,
-- and avoid rewriting shared controller-contract modules into slimmer alternate APIs.
+So 173 is now sequenced in two passes:
 
-The goal of 173 is to make the supervised builder/verifier split explicit for the bounded pilot, not to redesign the repository's multi-agent contract surface.
+- first re-prove and preserve compatibility,
+- then add the bounded pilot role split additively.
+
+## Guardrails for the remaining tranche
+
+- Do not weaken or replace frozen/public controller-contract surfaces while adding bounded pilot behavior.
+- Reuse existing `builder` / `verifier` / `controller` semantics rather than inventing new autonomous role types.
+- Keep all bounded-pilot work supervised and conservative.
+- Do not widen into general multi-task or general multi-agent autonomy before 175.

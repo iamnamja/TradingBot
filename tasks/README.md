@@ -1,17 +1,14 @@
 # Tasks README
 
-## Current continuation order
+## Current execution order for the bounded two-task pilot tranche
 
-- 171 — two-task pilot admission and eligibility truth
-- 172 — dependency-aware adjacent-task handoff contract
-- 173 — supervised dev/test role split for bounded pilot
-- 174 — two-task canary scorecard and benchmark
-- 175 — bounded two-task pilot re-proof and product checkpoint
+Use this order after Task 172:
 
-## Execution note for 173
+1. `tasks/173a_orchestrator_controller_contract_compatibility_for_bounded_pilot.md`
+2. `tasks/173b_orchestrator_supervised_dev_test_role_split_for_bounded_pilot.md`
+3. `tasks/174_orchestrator_two_task_canary_scorecard_and_benchmark.md`
+4. `tasks/175_orchestrator_bounded_two_task_pilot_reproof_and_product_checkpoint.md`
 
-Task 173 is an **extension-only** bounded pilot task.
+## Important note
 
-It must preserve existing frozen/public controller-contract and single-task reporting surfaces while adding explicit supervised builder/verifier separation for the bounded pilot lane.
-
-Do not simplify or replace shared contract helpers when implementing Task 173.
+Do **not** run `tasks/173_orchestrator_supervised_dev_test_role_split_for_bounded_pilot.md` directly anymore. It has been superseded by the ordered `173a` then `173b` split so the compatibility spine is handled before the pilot behavior step.
