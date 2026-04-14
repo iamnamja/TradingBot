@@ -10,9 +10,9 @@ The current monorepo contains:
 - Numbered implementation tasks (`tasks`)
 - Documentation and project-state tracking (`docs`)
 
-## Current state (post-Task 175)
+## Current state (post-Task 180)
 
-- Tasks 157–175 are complete in bounded supervised scope.
+- Tasks 157–180 are complete in bounded supervised scope.
 - The repo now has:
   - a strict no-manual-intervention one-task scorecard,
   - deliverable-contract and completion-integrity enforcement,
@@ -24,43 +24,50 @@ The current monorepo contains:
   - a bounded adjacent-task A->B handoff contract,
   - a supervised builder/verifier role split scoped for the pilot,
   - a durable two-task canary scorecard and benchmark artifacts integrated into the existing benchmark session directory,
-  - and a bounded two-task pilot re-proof with an explicit canary promotion payload.
+  - a real bounded two-task pilot runner exercised over a curated adjacent-pair corpus,
+  - a bounded two-task pilot re-proof with explicit canary and corpus-backed promotion payloads.
 
 ## Honest current posture
 
 - One-task lane: conditionally ready under supervision for benchmark-eligible work (default path).
-- Two-task lane (bounded pilot): ready for a bounded supervised two-task pilot, governed by admission, handoff, and role-split truth and measured by conservative canary scorecards and `canary_promotion.json`.
+- Two-task lane (bounded pilot): ready for a bounded supervised two-task pilot on the curated adjacent-pair corpus, governed by admission, handoff, and role-split truth and measured by conservative canary scorecards and corpus-backed `two_task/bounded_corpus` artifacts.
 
 This means:
 
 - one-task work remains the default proving path under light supervision,
-- the two-task pilot can proceed in a bounded, supervised manner,
+- the two-task pilot can proceed in a bounded, supervised manner on the curated corpus,
 - broad multi-task autonomy is still not justified,
 - and the standalone orchestrator-app phase remains blocked behind stronger multi-task autonomy proof.
 
-## Separation of one-task truth and two-task canary truth
+## Separation of one-task truth and two-task pilot truth
 
 - One-task benchmark and promotion artifacts remain the source of truth for the already-proven lane. They persist into:
   - `scorecard.json` (strict no-manual-intervention counts),
   - `scoreboard.json` (pass-rate compatibility surface),
   - `promotion.json` (promotion verdict for one-task lane).
 
-- Two-task canary pilot artifacts are persisted alongside the one-task artifacts, without altering the one-task surfaces:
-  - `canary_trials.json` (per-attempt durable truth),
-  - `canary_scorecard.json` (pilot attempts, completions, blocked admissions, ineligible attempts, handoff-incomplete/incompatible failures, supervised interventions),
-  - `canary_promotion.json` (bounded-pilot readiness verdict and thresholds).
+- Two-task pilot artifacts are persisted alongside the one-task artifacts, without altering the one-task surfaces:
+  - Canary pilot (entrypoint in the benchmark module):
+    - `canary_trials.json`
+    - `canary_scorecard.json`
+    - `canary_promotion.json`
+  - Real bounded corpus pilot (entrypoint `builder.orchestrator.bounded_corpus_benchmark.run_bounded_two_task_corpus_benchmark(...)`):
+    - `two_task/bounded_corpus/pairs.json`
+    - `two_task/bounded_corpus/summary.json`
+    - `two_task/bounded_corpus/bounded_corpus_promotion.json` (durable widening checkpoint and conservative verdict)
 
-Compatibility note: the canary benchmark writes only `canary_*` artifacts and never modifies the strict one-task `scorecard.json`, `scoreboard.json`, or `promotion.json` files.
+Compatibility note: the canary and corpus benchmarks write only `canary_*` or `two_task/bounded_corpus/*` artifacts and never modify the strict one-task `scorecard.json`, `scoreboard.json`, or `promotion.json` files.
 
-## Bounded two-task pilot re-proof (Task 175)
+## Bounded two-task pilot re-proof (Tasks 175–180)
 
-- Verdict: ready for a bounded supervised two-task pilot.
-- Rationale: admission/handoff/role-split truth is explicit and measured; initial canary trials and scorecards are durable and conservative; supervision remains required.
+- Verdict: ready for a bounded supervised two-task pilot on the curated adjacent-pair corpus.
+- Rationale: admission/handoff/role-split truth is explicit and measured; canary trials and real corpus runs produce durable artifacts; supervision remains required.
+- Widening checkpoint: only cautiously widen the curated corpus while staying supervised and only when corpus metrics justify it. Broad unattended multi-task autonomy remains blocked. Standalone orchestrator productization remains blocked.
 - Product checkpoint: the orchestrator continues to operate inside the monorepo with an explicit consumer bridge; the standalone app phase remains blocked pending broader multi-task autonomy proof.
 
 ## Immediate continuation target
 
-The next active work is not broad widening. It is bounded supervised two-task pilot operation and evidence gathering through Tasks 176–180:
+Operate the bounded supervised two-task pilot and gather corpus evidence:
 
 - 176 — bounded two-task pilot runner and pair ledger
 - 177 — curated adjacent-pair corpus and admission manifest
@@ -90,12 +97,12 @@ Use the current tranche conservatively:
 
 Operational reference: `docs/ORCHESTRATOR_BOUNDED_TWO_TASK_PILOT_OPERATIONS.md`
 
-## Two-task canary benchmark entrypoint and artifacts
+## Two-task pilot benchmark entrypoints and artifacts
 
-- Entry: `builder.orchestrator.benchmark.run_two_task_canary_benchmark(...)`
-- Artifacts (persisted under the same session directory used by one-task benchmarks):
-  - `canary_trials.json`
-  - `canary_scorecard.json`
-  - `canary_promotion.json`
+- One-task strict scorecard session wiring remains unchanged and is the source of truth for the one-task lane.
+- Two-task canary entry: `builder.orchestrator.benchmark.run_two_task_canary_benchmark(...)`
+  - Artifacts: `canary_trials.json`, `canary_scorecard.json`, `canary_promotion.json`
+- Two-task real bounded corpus entry: `builder.orchestrator.bounded_corpus_benchmark.run_bounded_two_task_corpus_benchmark(...)`
+  - Artifacts: `two_task/bounded_corpus/pairs.json`, `two_task/bounded_corpus/summary.json`, `two_task/bounded_corpus/bounded_corpus_promotion.json`
 
-The canary scorecard captures explicit ineligibility and admission-blocked attempts so that pilot gating and widening decisions are based on explicit, durable truth rather than intuition.
+The corpus promotion artifact records a conservative verdict and an explicit widening checkpoint with blocked areas enumerated.

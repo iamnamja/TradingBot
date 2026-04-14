@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 from pathlib import Path
 
 from builder.orchestrator.benchmark import run_one_task_external_safe_benchmark, run_two_task_canary_benchmark
 from builder.orchestrator.benchmark_scorecard import BenchmarkSession as StrictBenchmarkSession
+from builder.orchestrator.bounded_corpus_benchmark import run_bounded_two_task_corpus_benchmark
 
 
 def test_manual_edit_during_run_invalidates_autonomous_success(tmp_path: Path) -> None:
@@ -208,3 +211,41 @@ def test_canary_does_not_modify_strict_one_task_artifacts(tmp_path: Path) -> Non
     assert (canary_root / "canary_scorecard.json").exists()
     assert (canary_root / "canary_promotion.json").exists()
     assert (canary_root / "canary_trials.json").exists()
+
+
+def test_bounded_corpus_benchmark_writes_promotion_artifact(tmp_path: Path, monkeypatch) -> None:
+    # Inject a fake bounded pilot runner to avoid external dependencies during tests.
+    mod = types.ModuleType("agents.lib.bounded_pilot")
+
+    def _fake_runner(pair: dict[str, object], session_dir: str | None = None) -> dict[str, object]:
+        pid = pair.get("id")
+        if pid == "p1":
+            return {"admitted": True, "completed": True, "handoff_failure": False, "supervised_intervention": False}
+        if pid == "p2":
+            return {"admitted": True, "completed": False, "handoff_failure": True, "supervised_intervention": True}
+        return {"admitted": False, "completed": False, "handoff_failure": False, "supervised_intervention": False, "status": "blocked"}
+
+    setattr(mod, "run_bounded_two_task_pilot", _fake_runner)
+    sys.modules["agents.lib.bounded_pilot"] = mod
+
+    pairs = [
+        {"id": "p1", "eligible": True},
+        {"id": "p2", "eligible": True},
+        {"id": "p3", "eligible": False},
+    ]
+
+    summary = run_bounded_two_task_corpus_benchmark(session_dir=str(tmp_path), pairs=pairs)
+    artifacts_dir = Path(summary["artifacts_dir"])
+
+    assert (artifacts_dir / "pairs.json").exists()
+    assert (artifacts_dir / "summary.json").exists()
+    assert (artifacts_dir / "bounded_corpus_promotion.json").exists()
+
+    promo = json.loads((artifacts_dir / "bounded_corpus_promotion.json").read_text(encoding="utf-8"))
+    assert "verdict" in promo
+    assert "thresholds" in promo
+    assert "metrics" in promo
+    assert "widening_checkpoint" in promo
+    assert promo["metrics"]["total_pairs"] == 3
+    assert promo["widening_checkpoint"]["broad_unattended_multi_task_autonomy_blocked"] is True
+    assert promo["widening_checkpoint"]["standalone_orchestrator_productization_blocked"] is True
