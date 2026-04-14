@@ -10,9 +10,9 @@ The current monorepo contains:
 - Numbered implementation tasks (`tasks`)
 - Documentation and project-state tracking (`docs`)
 
-## Current state (post-Task 187)
+## Current state (post-Task 190)
 
-- Tasks 157–185 are complete in bounded supervised scope.
+- Tasks 157–190 are complete in bounded supervised scope.
 - The repo now has:
   - a strict no-manual-intervention one-task scorecard,
   - deliverable-contract and completion-integrity enforcement,
@@ -26,40 +26,26 @@ The current monorepo contains:
   - a durable two-task canary scorecard and benchmark artifacts integrated into the existing benchmark session directory,
   - a real bounded two-task pilot runner exercised over a curated adjacent-pair corpus,
   - a bounded two-task pilot re-proof with explicit canary and corpus-backed promotion payloads,
-  - import/public compatibility guardrails for orchestrator benchmark surfaces to prevent additive regressions (Task 182),
-  - reliability benchmark artifacts and a regression matrix (Task 184),
-  - a durable post-185 reliability checkpoint and explicit capability-resume gate (Task 185).
+  - reliability benchmark artifacts and a regression matrix,
+  - docs-status guarding,
+  - explicit model-profile and transport declaration,
+  - additive dual-transport support,
+  - provider/model capability negotiation and fallback diagnostics,
+  - a durable contract/model transport checkpoint (Task 190).
 
 ## Honest current posture
 
 - One-task lane: conditionally ready under supervision for benchmark-eligible work (default path).
 - Two-task lane (bounded pilot): ready for a bounded supervised two-task pilot on the curated adjacent-pair corpus, governed by admission, handoff, and role-split truth and measured by conservative canary scorecards and corpus-backed `two_task/bounded_corpus` artifacts.
-- Reliability checkpoint (Task 185): conditionally ready under supervision to plan a cautious, bounded capability-widening slice. This does not unblock unattended multi-task autonomy or standalone productization.
+- Contract/model transport checkpoint (Task 190): conditionally ready under supervision to plan a stability-and-observability tranche. This does not unblock unattended multi-task autonomy or standalone productization.
 
 This means:
 
 - one-task work remains the default proving path under light supervision,
 - the two-task pilot can proceed in a bounded, supervised manner on the curated corpus,
-- any widening remains bounded and cautious, based on reliability evidence,
+- the transport/model layer is more explicit than before but still not operationally robust,
 - broad multi-task autonomy is still not justified,
-- and the standalone orchestrator-app phase remains blocked behind stronger multi-task autonomy proof.
-
-## Reliability-first continuation checkpoint (Tasks 181–185)
-
-A reliability tranche has been completed with the following evaluation:
-
-- recurring failure-family reduction: evaluated via best-effort deltas when previous reliability snapshots exist; otherwise treated conservatively,
-- retry-count improvement: tracked explicitly in the reliability matrix,
-- supervision/intervention rate: tracked by lane and normalized by run count,
-- compatibility-regression reduction: tracked explicitly and normalized by run count,
-- resume-safe recovery behavior: inferred from resume-related failure-family counts; ambiguous signals default to a safe restart posture.
-
-Artifact paths:
-
-- `reliability/one_task_reliability.json`
-- `reliability/two_task_reliability.json`
-- `reliability/reliability_matrix.json`
-- `reliability/reliability_checkpoint.json` (Task 185)
+- and the standalone orchestrator-app phase remains blocked behind stronger autonomy and runtime proof.
 
 ## What still blocks the next phase
 
@@ -69,73 +55,29 @@ Before broad multi-task autonomy or product extraction can be justified, the rep
 - lower supervised-intervention rates on the bounded pilot lane,
 - durable pair-level ledgers that distinguish autonomous progress from operator help,
 - additional authority-corroboration truth and failure-family elimination for multi-task sequences beyond the first adjacent pair,
-- sharper failure-family classification so repair selection lands on the correct surface more often,
 - better resume-safe recovery so partially-successful runs re-enter from precise checkpoints instead of broad retries,
-- elimination of repeated docs/status narrative drift,
-- and explicit model/output-transport compatibility so Codex-style models do not fail on a GPT-specific file-bundle contract.
+- transport-failure observability that preserves non-empty raw output or explains why it is empty,
+- explicit protected-method preflight and fallback traces,
+- faster diagnosis of bundle vs method-insertion vs capture failures,
+- and a measurable reduction in transport-related empty-output failures.
 
-## Docs status guard
+## Immediate continuation target (Tasks 191–195)
 
-To prevent recurring headline drift, a deterministic docs-status guard validates current-state headlines and tranche references across `README.md`, this state document, and tranche/index docs. The guard fails on drift and is covered by tests; it does not attempt to auto-edit narrative sections. Run locally with: `python -m agents.lib.docs_status_guard`. The guard treats hyphen and en-dash consistently for range normalization and reports only for manual correction.
+Run a transport-stability and observability tranche before any broader autonomy claims resume:
 
-Operational reference: `agents/lib/docs_status_guard.py`. Tests: `tests/test_docs_status_guard.py`.
+- 191 — raw model output capture integrity and non-empty artifact guarantee
+- 192 — transport failure artifact expansion and parser-path observability
+- 193 — protected-method preflight, fallback tracing, and retry discipline
+- 194 — transport health benchmark and recurring failure-family corpus
+- 195 — transport stability checkpoint and cautious autonomy-resume gate
 
-## Immediate continuation target (Tasks 186–190)
+## Why this tranche exists
 
-Run a contract-and-model-compatibility hardening tranche before any cautious widening resumes:
+The project now has enough contract/model clarity to see the real runtime problem:
 
-- 186 — docs status headline consistency guard
-- 187 — model profile registry and output transport contract declaration
-- 188 — Codex patch/apply transport and dual-mode output parsing
-- 189 — provider capability negotiation and safe model fallback diagnostics
-- 190 — contract and model-transport checkpoint plus cautious next-slice gate
+- automated runs on some protected-surface and transport-sensitive tasks still fail before lint/tests,
+- `_last_model_capability.txt` can report the selected model/transport as compatible,
+- while `_last_agent_model_output.txt` can still end up effectively empty,
+- and the parsed bundle artifact may reduce to `BEGIN_FILE_BUNDLE / END_FILE_BUNDLE` with no file entries.
 
-## Operator workflow for the next tranche
-
-Use the next tranche conservatively:
-
-- review merged-main snapshots first,
-- plan narrowly from the uploaded source-of-truth files,
-- patch docs/tasks/code only as needed,
-- validate on a clean branch,
-- inspect diffs before merge,
-- preserve branch and runtime-artifact hygiene,
-- keep all new transport/model compatibility work additive to the proven GPT file-bundle path,
-- and do not interpret Codex compatibility as broad autonomy.
-
-Operational reference: `docs/ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md`
-
-## Model-profile and transport declaration (Task 187)
-
-The repo now includes an explicit model-profile registry and transport-contract declaration:
-
-- Registry module: `agents/lib/model_profiles.py` with GPT-style file-bundle (default) and Codex-style patch/apply families.
-- Provider-facing helper: `agents.lib.provider_client.declared_transport_contract(...)` returns the model profile id, output transport, and transport contract tokens that the runner can inspect.
-
-This declaration makes the expected output transport explicit while preserving the known-good GPT file-bundle behavior as the default path.
-
-## Task 188 split note
-
-Task 188 is being executed in two steps:
-- 188a for normal-lane Codex patch transport parser/apply adapter work
-- 188b for protected runner integration after the adapter path is proven
-
-This is a task-shape hardening move, not a capability widening claim.
-
-## Contract and model transport checkpoint (Task 190)
-
-A durable contract/model-transport checkpoint is now available via `src/builder/orchestrator/model_transport_checkpoint.py` and the additive artifact `reliability/model_transport_checkpoint.json`.
-
-Checkpoint verdict: **conditionally ready under supervision**.
-
-Interpretation:
-- docs/status consistency enforcement is in place
-- model-profile explicitness and declared transport contracts exist
-- Codex-style patch transport is declared and supported through the adapter path
-- provider/model mismatch diagnostics and safe fallback discipline exist
-- the proven GPT file-bundle path remains preserved
-
-Blocked areas remain explicit:
-- broad unattended multi-task autonomy
-- standalone orchestrator productization
-
+That means the next bottleneck is not “model selection” in the abstract. It is “capture, persistence, and observability of transport failures.”

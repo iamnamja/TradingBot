@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized reliability-and-promotion checkpoint is now complete through Task 187.
+The synchronized reliability-and-promotion checkpoint is now complete through Task 190.
 
 The repo can now honestly claim a materially hardened one-task lane with:
 
@@ -24,15 +24,11 @@ The repo can now honestly claim a materially hardened one-task lane with:
 - a defined default-path posture for eligible one-task work and an explicit two-task pilot gate
 - a bounded supervised two-task canary benchmark flow and re-proof checkpoint integrated alongside the one-task artifacts
 - a real bounded two-task pilot runner exercised over a curated adjacent-pair corpus with a durable corpus benchmark and promotion/checkpoint artifact
-- reliability-first import/public compatibility guardrails across benchmark and bounded-corpus entrypoints (Task 182)
-- a dedicated reliability benchmark and regression matrix (Task 184)
-- an explicit post-185 reliability checkpoint and capability-resume gate (Task 185)
+- reliability-first import/public compatibility guardrails across benchmark and bounded-corpus entrypoints
+- docs-status headline consistency guarding
+- explicit model-profile declaration, dual-transport support, provider/model capability negotiation, and a conservative contract/model transport checkpoint through Task 190
 
-Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md` as the operator-facing guide for the next tranche.
-
-## Docs status guard (Task 186)
-
-A deterministic docs-status consistency guard now validates that top-level status headlines remain synchronized across `README.md`, `docs/TRADINGBOT_PROJECT_STATE.md`, and tranche/index docs. It fails on drift rather than attempting auto-rewrites. See `agents/lib/docs_status_guard.py` and the tests in `tests/test_docs_status_guard.py`. To run locally: `python -m agents.lib.docs_status_guard`. The guard normalizes hyphen/en-dash usage for tranche ranges and is intentionally conservative: it validates and reports but never edits docs.
+Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_TRANSPORT_STABILITY_AND_OBSERVABILITY_191_195.md` as the operator-facing guide for the next tranche.
 
 ## What the repo can honestly claim today
 
@@ -41,71 +37,31 @@ Today the repo can honestly claim:
 - benchmark-eligible one-task work is conditionally ready under supervision
 - the orchestrator can complete real one-task runs and self-heal some failures
 - a bounded supervised two-task pilot lane is ready and explicitly measured by canary and corpus-backed artifacts
-- widening beyond one-task still requires explicit proof, not aspiration
-- a post-reliability checkpoint exists with an explicit resume gate verdict
+- docs status consistency is guarded
+- model profiles and transport contracts are explicit
+- protected-method and bundle transport failures are now diagnosable enough to justify a focused observability tranche
+- widening beyond the current bounded scope still requires proof, not aspiration
 
 It does not claim:
 
 - broad unattended multi-task autonomy
 - general multi-agent role orchestration across arbitrary tasks
+- fully reliable protected-method transport under automation
 - full self-hosting control-plane autonomy
 - a finished standalone orchestrator product
 
-## Reliability checkpoint and capability-resume gate (Task 185)
+## Contract/model transport checkpoint (Task 190)
 
-- Gate inputs: reliability matrix artifacts under `reliability/` plus existing one-task and two-task pilot artifacts.
-- Explicit evaluation categories:
-  - recurring failure-family reduction (best-effort delta vs previous where available),
-  - retry-count improvement,
-  - supervision/intervention rate,
-  - compatibility-regression reduction,
-  - resume-safe recovery behavior.
-- Verdict (conservative): conditionally ready under supervision. A cautious bounded next capability slice may be planned only under supervision and only if reliability metrics remain within the conservative thresholds captured by the checkpoint. Broad unattended multi-task autonomy stays blocked. Standalone productization remains blocked.
+- Checkpoint verdict: conditionally ready under supervision.
+- Meaning: a cautious bounded next slice may be planned only if it is aimed at stabilizing transport behavior and observability rather than widening autonomy.
+- Blocked areas remain explicit: broad unattended multi-task autonomy and standalone productization stay blocked.
 
 ## Next continuation target
 
-Stay conservative while fixing recurring contract drift and model-transport mismatch before any new capability widening:
+Stay conservative and focus on runner stability and fast observability:
 
-- eliminate repeated README/project-state headline drift with an explicit docs-status consistency guard
-- define explicit model profiles and output-transport contracts instead of assuming one file-bundle mode for every model
-- add a Codex-compatible patch/apply transport path while preserving the proven GPT file-bundle path
-- add provider/model capability negotiation and safe fallback or explicit diagnostics when a selected model cannot satisfy the task transport contract
-- record a post-transport checkpoint before resuming any cautious bounded capability widening
-
-### Contract and model-compat tranche note (Tasks 186–190)
-
-This next tranche is still reliability work. It is not broad capability expansion.
-
-The focus is:
-
-- status/narrative consistency validation
-- model-profile awareness
-- dual transport compatibility (`FILE:/END_FILE` bundle mode and Codex-style patch mode)
-- provider/model capability negotiation and safe fallback
-- a conservative checkpoint after those contracts are in place
-
-### Explicit model profiles and output transport (Task 187)
-
-A minimal model-profile registry now exists under `agents/lib/model_profiles.py` with two families:
-- GPT-style file-bundle mode (default, strict `FILE:/END_FILE` transport)
-- Codex-style patch/apply mode (declared contract; not enabled as the default runner path)
-
-The provider client exposes a small public declaration helper:
-- `agents.lib.provider_client.declared_transport_contract(provider=None, model=None)` → returns the model profile id, output transport, and transport contract tokens for runner/CLI inspection.
-
-This is an explicit contract declaration, not a promise of broader autonomy or transport changes by default.
-
-### Task 188 execution note
-
-Task 188 has been split into 188a and 188b so the normal-lane parser/apply adapter can be proven before protected runner integration.
-
-### Contract and model transport checkpoint (Task 190)
-
-A conservative contract/model-transport checkpoint is now available via:
-- `src/builder/orchestrator/model_transport_checkpoint.py`
-- `reliability/model_transport_checkpoint.json`
-
-Checkpoint verdict: **conditionally ready under supervision**.
-
-This means cautious bounded planning may resume, but broad unattended multi-task autonomy and standalone productization remain blocked.
-
+- make raw model-output capture non-empty or explicitly diagnosable on every transport failure
+- add durable transport-failure artifacts that explain exactly what parser path and contract were attempted
+- make protected-method transport preflight and fallback behavior explicit before expensive retries
+- benchmark transport health and recurring failure families over real runs
+- only reopen any next capability slice after transport stability is measurably improved

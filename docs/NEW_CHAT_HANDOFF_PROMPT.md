@@ -4,11 +4,11 @@ Use the latest merged main snapshots as source of truth. I will upload current `
 
 Current state:
 
-- repo is complete through Task 185,
+- repo is complete through Task 190,
 - the one-task lane is conditionally ready under supervision,
-- the bounded supervised two-task pilot is ready in bounded supervised scope,
+- the bounded supervised two-task pilot remains valid in bounded supervised scope,
 - the reliability-first tranche 181–185 is complete,
-- a post-185 reliability checkpoint exists and the verdict is still conservative: conditionally ready under supervision,
+- the contract/model compatibility tranche 186–190 is complete,
 - the project still does **not** claim broad unattended multi-task autonomy,
 - standalone orchestrator-as-its-own-app work remains blocked.
 
@@ -22,26 +22,29 @@ Honest posture right now:
 
 Most recent important lessons:
 
-- repeated manual fixes were needed because `README.md` and `docs/TRADINGBOT_PROJECT_STATE.md` can drift on status headlines,
-- a `gpt-5-codex` run did not prove generic Codex compatibility; it failed in bundle transport because the harness still assumes a strict GPT-style file bundle,
-- the provider/model selection layer may be flexible, but the output-contract layer is not yet sufficiently model-aware.
+- repeated docs/status drift required a guard,
+- model profiles and transport contracts needed to become explicit,
+- capability negotiation and fallback now exist,
+- but transport failures can still occur before lint/tests with effectively empty raw output and empty parsed bundles,
+- so the next bottleneck is observability and capture integrity, not autonomy widening.
 
 Next planned tranche:
 
-- 186 orchestrator_docs_status_headline_consistency_guard
-- 187 orchestrator_model_profile_registry_and_output_transport_contract
-- 188 orchestrator_codex_patch_transport_and_dual_mode_output_parsing
-- 189 orchestrator_provider_capability_negotiation_and_safe_model_fallback
-- 190 orchestrator_contract_and_model_transport_checkpoint_and_next_slice_gate
+- 191 orchestrator_raw_model_output_capture_integrity_and_nonempty_artifact_guarantee
+- 192 orchestrator_transport_failure_artifact_expansion_and_parser_path_observability
+- 193 orchestrator_protected_method_preflight_fallback_tracing_and_retry_discipline
+- 194 orchestrator_transport_health_benchmark_and_failure_family_corpus
+- 195 orchestrator_transport_stability_checkpoint_and_cautious_autonomy_resume_gate
 
 Strategic direction:
 
 - Phase A: truthful one-task path
 - Phase B: bounded supervised two-task pilot
 - Phase C: reliability-first hardening complete through 185
-- Phase D: contract and model-compatibility hardening through 190
-- Phase E: only after the post-190 checkpoint, consider a cautious bounded next capability slice
-- Phase F: standalone orchestrator app remains later and blocked
+- Phase D: contract/model compatibility hardening complete through 190
+- Phase E: transport stability and observability hardening through 195
+- Phase F: only after the post-195 checkpoint, consider a cautious bounded next capability slice
+- Phase G: standalone orchestrator app remains later and blocked
 
 How we’ve been working together:
 
@@ -64,11 +67,3 @@ How we’ve been working together:
 - If `_last_subset_preservation.json` appears in a branch diff, restore it from `origin/main` so it disappears from the branch diff.
 - The cadence we’ve been using is:
   zip -> exact apply/validate/merge steps -> run next task -> inspect branch diff -> merge or narrow-fix -> continue
-
-What to do in the new chat:
-
-- Review the uploaded current-main snapshots first.
-- Keep numbering aligned from 186 onward.
-- Do not drift into broad multi-task autonomy or standalone product claims.
-- Keep the next tranche focused on docs/status consistency, explicit model profiles, dual transport support, and a conservative post-transport checkpoint.
-- After I merge the new planning/docs patch, I will provide the same files again from updated `main`.
