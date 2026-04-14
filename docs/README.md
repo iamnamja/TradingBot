@@ -62,5 +62,11 @@ These reduce broad repair attempts and reinforce protected and one-task proof su
 
 - Explicit import/public compatibility guardrails for orchestrator benchmark surfaces
 - Canary and corpus benchmarks remain additive, never mutating strict one-task artifacts
-- Tests enforce import stability and artifact-path discipline (POSIX-normalized checks avoid OS-specific regressions)
-- Compatibility aliases and explicit exports protect shared import surfaces going forward
+- Tests enforce import stability and OS-agnostic artifact path discipline (POSIX-normalized checks avoid OS-specific regressions)
+- Compatibility aliases and explicit module exports protect shared import surfaces going forward
+
+## Reliability-first addition (Task 183)
+
+- New attempt/resume state helpers: agents/lib/resume_state.py and agents/lib/attempt_state.py
+- Tests: tests/test_attempt_state_resume.py
+- Behavior: durable resume checkpoints with conservative re-entry planning. Ambiguous or unsafe state forces safe restart; partial progress resumes at an explicit intended surface.

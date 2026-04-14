@@ -123,3 +123,11 @@ Task 182 adds explicit import/public compatibility guardrails across benchmark e
 - Bounded-corpus benchmark writes exclusively to `two_task/bounded_corpus/` and emits a conservative promotion/checkpoint artifact.
 - Tests ensure import stability and OS-agnostic artifact path discipline.
 - Compatibility aliases and explicit module exports prevent accidental import-surface regression.
+
+## Reliability-first addition (Task 183)
+
+Task 183 adds explicit attempt-state persistence and resume-safe checkpoints:
+
+- Implementation: agents/lib/resume_state.py (serialized checkpoint objects), agents/lib/attempt_state.py (persistence and re-entry planner)
+- Tests: tests/test_attempt_state_resume.py
+- Behavior: distinguishes fresh execution, retry-after-failure, resume-after-partial, and manual-intervention; records last safe transition and intended surface; chooses conservative restart if state is ambiguous or unsafe.

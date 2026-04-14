@@ -51,3 +51,8 @@ Persist resume-safe attempt checkpoints and recovery re-entry truth.
 ## Implementation notes
 
 - Prefer explicit serialized state objects and transition markers over implicit inference from scratch artifacts alone.
+
+## Implementation snapshot (added)
+
+- New helpers: `agents/lib/resume_state.py` (checkpoint objects) and `agents/lib/attempt_state.py` (persistence + conservative re-entry planner).
+- Tests: `tests/test_attempt_state_resume.py` verifies one successful resume path (resume from a safe prechecks-passed checkpoint) and one conservative fallback path (manual intervention forces safe restart).

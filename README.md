@@ -78,3 +78,16 @@ Import/public surface guardrails were added for orchestrator benchmark and bound
 - Bounded-corpus benchmark remains additive and writes only under `two_task/bounded_corpus/`.
 - Tests enforce import stability and artifact-path discipline across OSes using POSIX-normalized checks.
 - Compatibility aliases and explicit exports are preferred to preserve import/public surfaces.
+
+### Reliability-first hardening note (Task 183)
+
+Resume-safe attempt checkpoints and conservative re-entry truth were added:
+
+- Code: agents/lib/resume_state.py, agents/lib/attempt_state.py
+- Tests: tests/test_attempt_state_resume.py
+
+Behavior:
+
+- Records explicit checkpoints that capture last safe transition and intended re-entry surface.
+- Distinguishes fresh execution, retry after failure, resume after partial progress, and manual intervention before resume.
+- When state is ambiguous or unsafe, defaults to a safe restart instead of optimistic resume.
