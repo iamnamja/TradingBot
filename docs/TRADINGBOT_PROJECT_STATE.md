@@ -19,9 +19,9 @@ The current monorepo contains:
   - authority corroboration and conservative run truth,
   - narrowed top one-task failure-family handling,
   - a durable one-task promotion verdict,
-  - a documented default-path plus explicit future two-task pilot gate,
-  - a mechanical two-task pilot admission truth surface,
-  - and an additive adjacent-task A->B handoff contract.
+  - an explicit default one-task path,
+  - a conservative two-task pilot admission gate,
+  - and a bounded adjacent-task A->B handoff contract.
 
 ## Honest current posture
 
@@ -31,43 +31,34 @@ That means:
 
 - one-task work can now be treated as the default proving path for eligible tasks under light supervision,
 - bounded two-task pilot preparation is underway,
-- but widening beyond the bounded supervised pilot still requires explicit proof,
-- and the standalone orchestrator-app phase remains blocked behind bounded multi-task proof.
+- but broad multi-task autonomy is still not justified,
+- and the standalone orchestrator-app phase remains blocked behind bounded two-task pilot proof.
 
 ## What still blocks the next phase
 
 Before a bounded two-task pilot can be justified, the repo still needs:
 
-- explicit supervised dev/test role separation for pilot work,
+- explicit supervised builder/verifier role separation for pilot work,
 - a durable two-task canary scorecard,
 - and a bounded pilot re-proof.
 
-## Next continuation direction
-
-The next tranche should focus on bounded two-task pilot preparation under supervision, not on broad widening.
-
 ## Task 173 execution discipline update
 
-Fresh reruns showed a repeat failure family for Task 173: making the dev/test split explicit is the correct next seam, but the implementation keeps drifting into replacements of frozen controller-contract and single-task reporting surfaces.
+Fresh reruns showed that the original single Task 173 was still too broad.
 
-So Task 173 should now be treated explicitly as an extension-only change:
+The intended pilot behavior was valid:
+- map pilot `dev` to `builder`
+- map pilot `test` to `verifier`
+- keep `controller` as the only approval authority
+- keep the pilot bounded and supervised
 
-- preserve frozen/public surfaces in `agents.lib.multi_agent_contract`,
-- preserve existing single-task reporting and proof helpers in `agents.run_single_task`,
-- preserve existing compatibility behavior in `agents.lib.multi_agent_loop`,
-- and add the supervised builder/verifier split only as a bounded additive seam.
+But the single task kept mixing two jobs:
+- preserving/restoring the shared controller-contract compatibility surface
+- adding the bounded pilot role-sequence behavior
 
-This keeps the task aligned with the honest project posture: bounded two-task pilot preparation under supervision, not broad refactoring or widening.
+Those jobs are now split:
 
-## Task 173 supervised dev/test role split for bounded pilot
+- `173a`: controller-contract compatibility for bounded pilot
+- `173b`: supervised dev/test role split for bounded pilot
 
-This task makes the pilot’s dev/test split explicit without inventing new role types:
-
-- “dev” is treated as the existing builder role and “test” as the existing verifier role.
-- Controller remains the sole authority to approve the next transition; specialist-to-specialist hops do not bypass the controller gate.
-- The pilot role sequence is explicit, inspectable, and bounded to the supervised lane. Supported sequences are:
-  - builder → verifier → controller
-  - verifier → builder → controller
-- The runtime stops conservatively when an unsupported sequence is requested or when controller authority would be bypassed.
-- This change does not claim general autonomous multi-agent execution; it is a supervised, bounded pilot-only split reused through the existing builder/verifier/controller model.
-- Any new checkpoint or artifact must append fields rather than replacing existing single-task or controller-contract surfaces.
+This keeps the work aligned with the repo's honest posture: additive bounded pilot preparation under supervision, not broad contract refactoring.
