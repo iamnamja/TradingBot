@@ -49,3 +49,11 @@ The immediate operator-facing reference for this slice is `ORCHESTRATOR_RELIABIL
 - Bounded two-task pilot verdict: ready for a bounded supervised two-task pilot on the curated corpus.
 - Reliability-first checkpoint: stabilize runtime behavior and reduce recurring failure families before any new capability tranche.
 - Widening checkpoint: cautiously consider widening only after the post-185 reliability gate is satisfied. Broad unattended multi-task autonomy remains blocked. Standalone orchestrator-as-its-own-app remains blocked.
+
+## Reliability-first addition (Task 181)
+
+- New classification and narrow repair-target helpers: agents/lib/repair_targeting.py
+- Persisted classification truth for later reuse by repair logic
+- Tests: tests/test_repair_targeting.py
+
+These reduce broad repair attempts and reinforce protected and one-task proof surfaces.

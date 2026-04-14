@@ -102,3 +102,13 @@ Use the next tranche conservatively:
 - and keep any reliability instrumentation additive to the existing one-task and two-task truth surfaces.
 
 Operational reference: `docs/ORCHESTRATOR_RELIABILITY_FIRST_181_185.md`
+
+## Reliability-first addition (Task 181)
+
+Task 181 adds a durable failure-family taxonomy and conservative repair-target selection:
+
+- Implementation: agents/lib/repair_targeting.py (classification, short codes, target selection, persistence)
+- Tests: tests/test_repair_targeting.py
+- Behavior: narrows default repair surfaces per family, reduces broad fallback repairs, preserves protected and one-task proof surfaces.
+
+These helpers are additive and can be reused by the existing repair planner without broader orchestrator rewrites.
