@@ -22,6 +22,15 @@ Tasks 186–190 now target the next contract bottlenecks:
 - Task 189: provider/model capability negotiation and safe fallback diagnostics
 - Task 190: contract and model-transport checkpoint plus cautious next-slice gate
 
+## Status guard note
+
+Top-level repo status headlines are now validated by a small, deterministic guard. It checks for headline/task-number consistency across:
+- `README.md`
+- `docs/TRADINGBOT_PROJECT_STATE.md`
+- tranche/index docs that reference the active 186–190 slice
+
+The guard fails on drift; it does not attempt to rewrite docs. See `agents/lib/docs_status_guard.py` and `tests/test_docs_status_guard.py`. Run locally with: `python -m agents.lib.docs_status_guard`. It normalizes hyphen/en-dash variation in ranges and only reports inconsistencies for human follow-up.
+
 ## Current next-step note
 
 The near-term focus stays conservative:

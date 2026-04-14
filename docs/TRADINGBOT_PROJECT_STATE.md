@@ -10,7 +10,7 @@ The current monorepo contains:
 - Numbered implementation tasks (`tasks`)
 - Documentation and project-state tracking (`docs`)
 
-## Current state (post-Task 185)
+## Current state (post-Task 186)
 
 - Tasks 157–185 are complete in bounded supervised scope.
 - The repo now has:
@@ -73,6 +73,12 @@ Before broad multi-task autonomy or product extraction can be justified, the rep
 - better resume-safe recovery so partially-successful runs re-enter from precise checkpoints instead of broad retries,
 - elimination of repeated docs/status narrative drift,
 - and explicit model/output-transport compatibility so Codex-style models do not fail on a GPT-specific file-bundle contract.
+
+## Docs status guard
+
+To prevent recurring headline drift, a deterministic docs-status guard validates current-state headlines and tranche references across `README.md`, this state document, and tranche/index docs. The guard fails on drift and is covered by tests; it does not attempt to auto-edit narrative sections. Run locally with: `python -m agents.lib.docs_status_guard`. The guard treats hyphen and en-dash consistently for range normalization and reports only for manual correction.
+
+Operational reference: `agents/lib/docs_status_guard.py`. Tests: `tests/test_docs_status_guard.py`.
 
 ## Immediate continuation target (Tasks 186–190)
 

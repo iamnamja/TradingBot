@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized reliability-and-promotion checkpoint is now complete through Task 185.
+The synchronized reliability-and-promotion checkpoint is now complete through Task 186.
 
 The repo can now honestly claim a materially hardened one-task lane with:
 
@@ -29,6 +29,10 @@ The repo can now honestly claim a materially hardened one-task lane with:
 - an explicit post-185 reliability checkpoint and capability-resume gate (Task 185)
 
 Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md` as the operator-facing guide for the next tranche.
+
+## Docs status guard (Task 186)
+
+A deterministic docs-status consistency guard now validates that top-level status headlines remain synchronized across `README.md`, `docs/TRADINGBOT_PROJECT_STATE.md`, and tranche/index docs. It fails on drift rather than attempting auto-rewrites. See `agents/lib/docs_status_guard.py` and the tests in `tests/test_docs_status_guard.py`. To run locally: `python -m agents.lib.docs_status_guard`. The guard normalizes hyphen/en-dash usage for tranche ranges and is intentionally conservative: it validates and reports but never edits docs.
 
 ## What the repo can honestly claim today
 
