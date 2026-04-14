@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized reliability-and-promotion checkpoint is now complete through Task 180.
+The synchronized reliability-and-promotion checkpoint is now complete through Task 182.
 
 The repo can now honestly claim a materially hardened one-task lane with:
 
@@ -24,6 +24,7 @@ The repo can now honestly claim a materially hardened one-task lane with:
 - a defined default-path posture for eligible one-task work and an explicit two-task pilot gate
 - a bounded supervised two-task canary benchmark flow and re-proof checkpoint integrated alongside the one-task artifacts
 - a real bounded two-task pilot runner exercised over a curated adjacent-pair corpus with a durable corpus benchmark and promotion/checkpoint artifact
+- reliability-first import/public compatibility guardrails across benchmark and bounded-corpus entrypoints (Task 182)
 
 Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_RELIABILITY_FIRST_181_185.md` as the operator-facing guide for the next tranche.
 
@@ -67,3 +68,13 @@ A durable orchestrator failure-family taxonomy and a conservative repair-target 
 - Tests: tests/test_repair_targeting.py
 
 The taxonomy classifies recurring failures (admission, import/public surface, artifact path/shape, benchmark compatibility, protected/static contract, and resume/re-entry) and maps them to narrow default repair surfaces. The behavior reduces broad repair attempts and preserves protected and one-task proof surfaces.
+
+### Reliability-first hardening note (Task 182)
+
+Import/public surface guardrails were added for orchestrator benchmark and bounded-corpus entrypoints:
+
+- One-task benchmark preserves strict scorecard and promotion artifacts.
+- Two-task canary benchmark writes only `canary_*` artifacts and does not modify strict one-task artifacts.
+- Bounded-corpus benchmark remains additive and writes only under `two_task/bounded_corpus/`.
+- Tests enforce import stability and artifact-path discipline across OSes using POSIX-normalized checks.
+- Compatibility aliases and explicit exports are preferred to preserve import/public surfaces.
