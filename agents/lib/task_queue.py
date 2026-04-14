@@ -434,3 +434,83 @@ def plan_two_task_phase_transition(
         "next_phase": "two_task_pilot",
         "bounded_limit": int(ev.get("bounded_limit", 2) or 2),
     }
+
+def _proceed_truth_from_result(result: Mapping[str, Any] | None) -> bool | None:
+    src = dict(result or {})
+    raw = src.get("next_task_may_proceed")
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw or "").strip().lower()
+    if not text:
+        return None
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return None
+
+
+def classify_adjacent_task_handoff(
+    queue: Sequence[TaskQueueItem],
+    *,
+    completed_results: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, dict[str, object]]:
+    reports: dict[str, dict[str, object]] = {}
+    results = dict(completed_results or {})
+    by_path = {item.task_path: idx for idx, item in enumerate(queue)}
+
+    for idx, item in enumerate(queue):
+        if not item.depends_on:
+            continue
+
+        deps = list(item.depends_on)
+        dep = deps[0] if deps else ""
+        proceed = _proceed_truth_from_result(results.get(dep))
+
+        dependency_present = dep in by_path if dep else False
+        adjacent = dependency_present and by_path[dep] == idx - 1 if dep else False
+
+        if not deps:
+            handoff_state = "handoff_incomplete"
+            reason = "No dependency declared for adjacent handoff."
+            may_proceed = False
+        elif len(deps) > 1:
+            handoff_state = "handoff_incompatible"
+            reason = "Multiple dependencies are not supported by the adjacent A->B contract."
+            may_proceed = False
+        elif proceed is None:
+            handoff_state = "handoff_incomplete"
+            reason = "Dependency finished without reporting proceed-state truth."
+            may_proceed = False
+        elif proceed is False:
+            handoff_state = "handoff_incompatible"
+            reason = "Dependency explicitly blocked progression (next_task_may_proceed=False)."
+            may_proceed = False
+        else:
+            handoff_state = "handoff_ready"
+            reason = "Dependency is adjacent and reported proceed-state truth allowing progression."
+            may_proceed = True
+
+        reports[item.task_path] = {
+            "handoff_state": handoff_state,
+            "next_task_may_proceed": may_proceed,
+            "depends_on": deps,
+            "dependency_present_in_queue": bool(dependency_present),
+            "adjacent_in_queue_order": bool(adjacent),
+            "implicated_paths": [],
+            "verification_authority_profile": "",
+            "reason": reason,
+        }
+
+    return reports
+
+
+def adjacent_task_may_start(
+    item: TaskQueueItem,
+    *,
+    queue: Sequence[TaskQueueItem],
+    completed_results: Mapping[str, Mapping[str, Any]] | None,
+) -> bool:
+    reports = classify_adjacent_task_handoff(queue, completed_results=completed_results)
+    report = reports.get(item.task_path)
+    return bool(report and report.get("handoff_state") == "handoff_ready" and report.get("next_task_may_proceed") is True)

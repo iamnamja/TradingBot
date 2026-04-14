@@ -920,24 +920,34 @@ def _real_pr_smoke_satisfied(smoke: Mapping[str, object] | None = None) -> bool:
 
 def build_live_canary_operator_proof_bundle(
     *,
-    real_pr_smoke: Mapping[str, object] | None = None,
-    safe_result: Mapping[str, object] | None = None,
-    escalation_result: Mapping[str, object] | None = None,
+    real_pr_smoke: Mapping[str, object],
+    safe_result: Mapping[str, object],
+    escalation_result: Mapping[str, object],
+    generated_at: str,
     proof_bundle_path: str | Path | None = None,
-    generated_at: str = "",
 ) -> dict[str, object]:
     smoke = dict(real_pr_smoke or {})
     safe_payload = dict(safe_result or {})
     escalation_payload = dict(escalation_result or {})
+
     safe_entry = dict(safe_payload.get("entry", {}) or {})
     escalation_entry = dict(escalation_payload.get("entry", {}) or {})
     canary_metrics = dict(escalation_payload.get("canary_metrics", {}) or safe_payload.get("canary_metrics", {}) or {})
     recovery_report = dict(escalation_payload.get("recovery_report", {}) or safe_payload.get("recovery_report", {}) or {})
     supervised_handoff = dict(escalation_payload.get("supervised_handoff", {}) or safe_payload.get("supervised_handoff", {}) or {})
-    smoke_status = _real_pr_smoke_status(smoke)
-    smoke_satisfied = _real_pr_smoke_satisfied(smoke)
-    safe_completed = str(safe_entry.get("final_decision", "") or "") == "completed" and bool(dict(safe_entry.get("validation", {}) or {}).get("execution_invoked", False))
-    escalation_explicit = str(escalation_entry.get("final_decision", "") or "") in {"escalation_required", "blocked_supervised_only"} and bool(supervised_handoff.get("handoff_required", dict(escalation_entry.get("escalation", {}) or {}).get("required", False)))
+
+    required_status = str(smoke.get("required_check_contract_status", "") or "").strip()
+    smoke_satisfied = required_status in {"ok", "passed", "success", "satisfied"}
+
+    safe_completed = (
+        str(safe_entry.get("final_decision", "") or "") == "completed"
+        and bool(dict(safe_entry.get("validation", {}) or {}).get("execution_invoked", False))
+    )
+    escalation_explicit = (
+        str(escalation_entry.get("final_decision", "") or "") in {"escalation_required", "blocked_supervised_only"}
+        and bool(supervised_handoff.get("handoff_required", dict(escalation_entry.get("escalation", {}) or {}).get("required", False)))
+    )
+
     claim_blockers: list[str] = []
     if not smoke_satisfied:
         claim_blockers.append("real_github_required_check_not_yet_satisfied")
@@ -945,16 +955,23 @@ def build_live_canary_operator_proof_bundle(
         claim_blockers.append("safe_canary_case_not_completed")
     if not escalation_explicit:
         claim_blockers.append("explicit_out_of_lane_escalation_case_missing")
+
     bounded_claim_ready = not claim_blockers
-    ledger_path = str(escalation_payload.get("ledger_path") or safe_payload.get("ledger_path") or DEFAULT_SINGLE_TASK_LEDGER_PATH)
-    bundle_path = str(proof_bundle_path or default_operator_proof_bundle_path(ledger_path=ledger_path))
-    return {
+
+    resolved_ledger_path = str(
+        escalation_payload.get("ledger_path")
+        or safe_payload.get("ledger_path")
+        or DEFAULT_SINGLE_TASK_LEDGER_PATH
+    )
+    bundle_path = str(proof_bundle_path or default_operator_proof_bundle_path(ledger_path=resolved_ledger_path))
+
+    bundle = {
         "schema_version": OPERATOR_PROOF_BUNDLE_SCHEMA_VERSION,
         "bundle_type": "bounded_single_task_operator_proof_bundle",
         "generated_at": str(generated_at or ""),
         "proof_bundle_path": bundle_path,
         "bounded_claim": "The orchestrator can run one allowlisted safe task at a time under supervised real-GitHub conditions.",
-        "bounded_claim_ready": bounded_claim_ready,
+        "bounded_claim_ready": bool(bounded_claim_ready),
         "claim_blockers": claim_blockers,
         "refused_claims": [
             "broad unattended scheduler autonomy",
@@ -963,7 +980,7 @@ def build_live_canary_operator_proof_bundle(
         ],
         "hosted_authority": {
             "required_check_context": str(smoke.get("required_check_context", "ci-required") or "ci-required"),
-            "status": smoke_status,
+            "status": required_status or "unknown",
             "satisfied": smoke_satisfied,
             "pull_request_url": str(smoke.get("pull_request_url", "") or ""),
             "pull_request_number": int(smoke.get("pull_request_number", 0) or 0),
@@ -988,7 +1005,7 @@ def build_live_canary_operator_proof_bundle(
             "bounded_to_one_task_at_a_time": int(canary_metrics.get("total_runs", 0) or 0) <= 2,
         },
         "durable_artifacts": {
-            "ledger_path": ledger_path,
+            "ledger_path": resolved_ledger_path,
             "canary_metrics_path": str(escalation_payload.get("canary_metrics_path", safe_payload.get("canary_metrics_path", "")) or ""),
             "recovery_report_path": str(escalation_payload.get("recovery_report_path", safe_payload.get("recovery_report_path", "")) or ""),
             "supervised_handoff_path": str(escalation_payload.get("supervised_handoff_path", safe_payload.get("supervised_handoff_path", "")) or ""),
@@ -1002,11 +1019,21 @@ def build_live_canary_operator_proof_bundle(
             "hosted_authority_blocked_runs": int(recovery_report.get("hosted_authority_blocked_runs", 0) or 0),
         },
         "operator_next_action": (
-            "Use the bounded one-task lane only for allowlisted ordinary work and keep out-of-lane work in the supervised/manual lane."
+            "Continue bounded supervised use."
             if bounded_claim_ready
-            else "Do not widen autonomy claims; inspect claim_blockers and continue under supervised/manual handling."
+            else "Do not widen autonomy claims; inspect claim_blockers."
         ),
+        "real_pr_smoke": smoke,
+        "safe_result": safe_payload,
+        "escalation_result": escalation_payload,
     }
+
+    if proof_bundle_path:
+        target = Path(bundle_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    return bundle
 
 
 def write_live_canary_operator_proof_bundle(bundle: Mapping[str, object], *, proof_bundle_path: str | Path | None = None) -> str:
