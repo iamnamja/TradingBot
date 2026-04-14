@@ -9,8 +9,10 @@ from agents.lib.model_profiles import (
     CONTRACT_STRICT_FILE_BUNDLE,
     TRANSPORT_FILE_BUNDLE,
     TRANSPORT_PATCH,
+    TRANSPORT_METHOD_INSERTION,
     get_model_profile as _profiles_get_model_profile,
     output_transport_from_profile as _profiles_output_transport,
+    supported_transports_from_profile as _profiles_supported_transports,
     transport_contract_from_profile as _profiles_transport_contract,
 )
 
@@ -201,6 +203,61 @@ def declared_transport_contract(provider: str | None = None, model: str | None =
     }
 
 
+
+def negotiate_model_capability(
+    provider: str | None = None,
+    model: str | None = None,
+    *,
+    required_transport: str = TRANSPORT_FILE_BUNDLE,
+    allow_fallback: bool = True,
+) -> Dict[str, object]:
+    """Return an explicit compatibility or fallback decision for the selected model."""
+    p, m = _coerce_provider_model(provider, model)
+    profile = model_profile_for(p, m)
+    supported = tuple(_profiles_supported_transports(profile))
+    required = (required_transport or TRANSPORT_FILE_BUNDLE).strip().lower() or TRANSPORT_FILE_BUNDLE
+    compatible = required in supported
+    result: Dict[str, object] = {
+        "provider": p,
+        "requested_model": m,
+        "requested_profile_id": str(profile.get("id") or ""),
+        "requested_output_transport": _profiles_output_transport(profile),
+        "requested_transport_contract": _profiles_transport_contract(profile),
+        "required_transport": required,
+        "supported_transports": list(supported),
+        "compatible": compatible,
+        "fallback_applied": False,
+        "selected_provider": p,
+        "selected_model": m,
+        "selected_profile_id": str(profile.get("id") or ""),
+        "selected_output_transport": _profiles_output_transport(profile),
+        "selected_transport_contract": _profiles_transport_contract(profile),
+        "reason": "compatible" if compatible else "requested model profile does not support required transport",
+        "status": "compatible" if compatible else "mismatch",
+    }
+    if compatible or not allow_fallback:
+        return result
+
+    fallback_model = os.getenv("TRADINGBOT_SAFE_FALLBACK_MODEL", "").strip()
+    if not fallback_model and p == "openai" and required in {TRANSPORT_FILE_BUNDLE, TRANSPORT_METHOD_INSERTION}:
+        fallback_model = default_model_for_provider(p)
+
+    if fallback_model and fallback_model.strip().lower() != m.strip().lower():
+        fb_profile = model_profile_for(p, fallback_model)
+        fb_supported = tuple(_profiles_supported_transports(fb_profile))
+        if required in fb_supported:
+            result.update({
+                "compatible": True,
+                "fallback_applied": True,
+                "selected_model": fallback_model,
+                "selected_profile_id": str(fb_profile.get("id") or ""),
+                "selected_output_transport": _profiles_output_transport(fb_profile),
+                "selected_transport_contract": _profiles_transport_contract(fb_profile),
+                "reason": f"fallback selected because {m} does not support required transport {required}",
+                "status": "fallback",
+            })
+    return result
+
 # ---- Thin provider chat wrappers (test-friendly stubs) ----
 
 
@@ -248,6 +305,7 @@ __all__ = [
     "output_transport_for_model",
     "transport_contract_for_model",
     "declared_transport_contract",
+    "negotiate_model_capability",
     # public transport/contract constants
     "TRANSPORT_FILE_BUNDLE",
     "TRANSPORT_PATCH",

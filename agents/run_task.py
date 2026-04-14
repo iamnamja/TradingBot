@@ -66,6 +66,7 @@ RUNTIME_ARTIFACT_NAMES = (
     "_last_agent_model_output.txt",
     "_last_agent_file_bundle.txt",
     "_last_agent_file_bundle_error.txt",
+    "_last_model_capability.txt",
     "_last_subset_preservation.json",
 )
 
@@ -428,6 +429,49 @@ def declared_transport_contract(provider: str | None = None, model: str | None =
         "transport_contract": "strict_file_bundle",
     }
 
+
+
+def negotiate_model_capability(
+    provider: str | None = None,
+    model: str | None = None,
+    *,
+    required_transport: str = "file_bundle",
+    allow_fallback: bool = True,
+) -> Dict[str, object]:
+    try:
+        from agents.lib.provider_client import negotiate_model_capability as _negotiate_model_capability  # type: ignore
+    except Exception:
+        _negotiate_model_capability = None  # type: ignore[assignment]
+
+    if callable(_negotiate_model_capability):
+        try:
+            payload = _negotiate_model_capability(provider=provider, model=model, required_transport=required_transport, allow_fallback=allow_fallback)
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            pass
+
+    decl = declared_transport_contract(provider=provider, model=model)
+    selected_transport = str(decl.get("output_transport") or "file_bundle")
+    compatible = required_transport in {selected_transport, "file_bundle"}
+    return {
+        "provider": decl.get("provider", provider or default_provider()),
+        "requested_model": decl.get("model", model or default_model_for_provider(provider or default_provider())),
+        "requested_profile_id": decl.get("model_profile_id", "gpt_file_bundle"),
+        "requested_output_transport": selected_transport,
+        "requested_transport_contract": decl.get("transport_contract", "strict_file_bundle"),
+        "required_transport": required_transport,
+        "supported_transports": [selected_transport],
+        "compatible": compatible,
+        "fallback_applied": False,
+        "selected_provider": decl.get("provider", provider or default_provider()),
+        "selected_model": decl.get("model", model or default_model_for_provider(provider or default_provider())),
+        "selected_profile_id": decl.get("model_profile_id", "gpt_file_bundle"),
+        "selected_output_transport": selected_transport,
+        "selected_transport_contract": decl.get("transport_contract", "strict_file_bundle"),
+        "reason": "fallback wrapper",
+        "status": "compatible" if compatible else "mismatch",
+    }
 
 def parse_transport_payload(
     text: str,
@@ -2119,8 +2163,17 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     last_output_path = Path(last_output_path)
     expected_path = str(expected_path)
     expected_method_name = str(expected_method_name)
+    _remove_model_capability_diagnostic_artifact(last_output_path)
+    negotiation = negotiate_model_capability(provider=provider, model=model, required_transport="method_insertion", allow_fallback=True)
+    if not bool(negotiation.get("compatible", False)):
+        _write_model_capability_diagnostic_artifact(last_output_path=last_output_path, negotiation=negotiation, note="protected method insertion preflight mismatch")
+        raise FileBundleError("Protected method insertion transport mismatch before execution: " + str(negotiation.get("reason", "unknown mismatch")))
+    provider = str(negotiation.get("selected_provider", provider) or provider)
+    model = str(negotiation.get("selected_model", model) or model)
     out = chat(messages, model=model, provider=provider)
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
+    if bool(negotiation.get("fallback_applied", False)) or len(normalize_newlines(out).strip()) == 0:
+        _write_model_capability_diagnostic_artifact(last_output_path=last_output_path, negotiation=negotiation, raw_output=out, note="method insertion request completed")
     try:
         return parse_method_insertion_bundle(out, expected_path, expected_method_name)
     except Exception as exc:
@@ -2144,6 +2197,8 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     )
     out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
     last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
+    if len(normalize_newlines(out2).strip()) == 0:
+        _write_model_capability_diagnostic_artifact(last_output_path=last_output_path, negotiation=negotiation, raw_output=out2, note="method insertion retry completed")
     retry_error = None
     try:
         return parse_method_insertion_bundle(out2, expected_path, expected_method_name)
@@ -2185,7 +2240,6 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         expected_method_name,
         context=f"Model returned malformed method insertion bundle after retry: {retry_error}; raw-text recovery",
     )
-
 
 def validate_python_syntax(bundle: Dict[str, str]) -> Tuple[bool, str]:
     issues: List[str] = []
@@ -4182,6 +4236,7 @@ def request_and_parse_bundle(
 ) -> Dict[str, str]:
     last_output_path = Path(last_output_path)
     _remove_bundle_transport_diagnostic_artifact(last_output_path)
+    _remove_model_capability_diagnostic_artifact(last_output_path)
     allowed_paths = [
         p.strip().replace("\\", "/")
         for p in (expected_paths or [])
@@ -4191,6 +4246,12 @@ def request_and_parse_bundle(
 
     transport_decl = declared_transport_contract(provider=provider, model=model)
     selected_transport = str(transport_decl.get("output_transport", "file_bundle") or "file_bundle").strip().lower() or "file_bundle"
+    negotiation = negotiate_model_capability(provider=provider, model=model, required_transport=selected_transport, allow_fallback=True)
+    if not bool(negotiation.get("compatible", False)):
+        _write_model_capability_diagnostic_artifact(last_output_path=last_output_path, negotiation=negotiation, note="preflight transport mismatch before model execution")
+        raise FileBundleError("Model capability mismatch before execution: " + str(negotiation.get("reason", "unknown mismatch")))
+    provider = str(negotiation.get("selected_provider", provider) or provider)
+    model = str(negotiation.get("selected_model", model) or model)
 
     gate_ok, gate_message = enforce_meta_file_task_gate(allowed_paths, forbidden_paths)
     if not gate_ok:
@@ -4395,6 +4456,8 @@ def request_and_parse_bundle(
 
     out = chat(messages, model=model, provider=provider)
     initial_raw_output = out
+    if bool(negotiation.get("fallback_applied", False)) or len(normalize_newlines(out).strip()) == 0:
+        _write_model_capability_diagnostic_artifact(last_output_path=last_output_path, negotiation=negotiation, raw_output=out, note="bundle request completed")
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
 
     try:
@@ -4760,6 +4823,46 @@ def _choose_agent_branch(task_stem: str, push: bool) -> str:
         candidate = f"{base}-r{idx}"
     return candidate
 
+
+
+def _model_capability_artifact_path(last_output_path: Path) -> Path:
+    return Path(last_output_path).with_name("_last_model_capability.txt")
+
+
+def _write_model_capability_diagnostic_artifact(
+    *,
+    last_output_path: Path,
+    negotiation: Dict[str, object],
+    raw_output: str | None = None,
+    note: str = "",
+) -> Path:
+    path = _model_capability_artifact_path(last_output_path)
+    raw = normalize_newlines(str(raw_output or ""))
+    lines = [
+        f"status: {negotiation.get('status', '')}",
+        f"provider: {negotiation.get('provider', '')}",
+        f"requested_model: {negotiation.get('requested_model', '')}",
+        f"selected_model: {negotiation.get('selected_model', '')}",
+        f"required_transport: {negotiation.get('required_transport', '')}",
+        f"selected_output_transport: {negotiation.get('selected_output_transport', '')}",
+        f"fallback_applied: {bool(negotiation.get('fallback_applied', False))}",
+        f"compatible: {bool(negotiation.get('compatible', False))}",
+        f"reason: {negotiation.get('reason', '')}",
+        f"raw_output_length: {len(raw)}",
+    ]
+    if note:
+        lines.append(f"note: {note}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return path
+
+
+def _remove_model_capability_diagnostic_artifact(last_output_path: Path) -> None:
+    path = _model_capability_artifact_path(last_output_path)
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception:
+        pass
 
 def _bundle_transport_error_path(last_output_path: Path) -> Path:
     return Path(last_output_path).with_name("_last_agent_file_bundle_error.txt")
