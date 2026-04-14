@@ -1,51 +1,54 @@
 # Orchestrator Phase Direction
 
-## Agreed phase order
+## Why this document exists
 
-1. Prove the one-task lane honestly.
-2. Prove a bounded supervised two-task pilot honestly.
-3. Improve runtime reliability and reduce recurring orchestration failure families.
-4. Only then reopen cautious capability widening beyond the bounded adjacent-pair corpus.
-5. Keep standalone orchestrator-app work blocked until broader autonomy proof exists.
+The project now has:
 
-## Why the order stays this way
+- a supervised, measured one-task default lane,
+- a bounded supervised two-task pilot lane with canary and real corpus artifacts,
+- and a completed reliability-first tranche through Task 185.
 
-The project goal remains long-run autonomous orchestration across multiple tasks and agent roles. The repo is not there yet.
+The honest next move is still not broad autonomy. The next move is to remove recurring contract drift before capability widening resumes.
 
-The bounded supervised two-task pilot now exists and has corpus-backed evidence. That means the next bottleneck is no longer the absence of a pilot lane. The next bottleneck is runtime reliability:
+## Agreed priority order
 
-- compatibility drift across shared public surfaces,
-- repair targeting that can still land on the wrong layer,
-- proof-task admission and exact-deliverable contract failures,
-- interrupted runs that do not yet resume from a precise checkpoint as reliably as they should.
+### Phase A — Keep one-task execution truthful and stable
+This remains the base layer.
 
-Because of that, the immediate next tranche is reliability first, capability next.
+The one-task lane is conditionally ready under supervision, and its benchmark/promotion truth remains authoritative.
 
-## What reliability first means here
+### Phase B — Prove a bounded supervised two-task pilot
+This phase is complete enough to operate conservatively.
 
-Reliability first does not mean stopping progress. It means making the existing one-task and bounded two-task lanes more dependable before claiming deeper autonomy.
+The goal was never arbitrary scheduling. The goal was a measured adjacent-task pilot with explicit admission, handoff, supervised role split, and durable artifacts.
 
-This includes:
+### Phase C — Reliability-first hardening
+This phase is now complete through Task 185.
 
-- sharper failure-family taxonomy,
-- narrower repair-target selection,
-- stronger public/import compatibility guardrails,
+The repo added:
+
+- failure-family targeting,
+- benchmark/public-surface compatibility guardrails,
 - resume-safe attempt checkpoints,
-- reliability benchmarks that measure retry count, intervention rate, and recurring failure families.
+- a reliability benchmark,
+- and a post-185 capability-resume gate.
 
-## What capability next means later
+### Phase D — Contract and model-compatibility hardening
+This is the current next phase.
 
-Only after the reliability tranche materially improves runtime stability should the repo consider:
+The repo now needs to eliminate two recurring contract failures before any new widening:
 
-- widening the curated two-task corpus further,
-- allowing limited dynamic role routing within a bounded policy surface,
-- exploring carefully-curated three-step chains,
-- or any broader sequencing beyond the current adjacent-pair pilot.
+- repeated docs/status headline drift across `README.md` and `docs/TRADINGBOT_PROJECT_STATE.md`
+- model/output-transport mismatch, especially Codex-style model output versus the current strict `FILE:/END_FILE` bundle contract
 
-## Still blocked
+The goal is not broad capability yet. The goal is to make the runtime and narrative contracts more explicit and less fragile.
 
-The following remain blocked for now:
+### Phase E — Cautious bounded capability widening
+This comes only after the contract/model layer is materially more stable.
 
-- broad unattended multi-task autonomy,
-- arbitrary multi-agent role orchestration across open-ended tasks,
-- standalone orchestrator-as-its-own-app productization.
+Any widening remains bounded, supervised, and backed by explicit checkpoint evidence.
+
+### Phase F — Standalone orchestrator productization
+This still comes later.
+
+The orchestrator should only be wrapped as its own operator-facing app after broader multi-task proof exists and the runtime contracts are stable enough to support it.
