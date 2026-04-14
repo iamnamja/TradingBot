@@ -1,0 +1,73 @@
+{
+  "version": "v1",
+  "pairs": [
+    {
+      "id": "pair-001",
+      "task_a": {
+        "id": "171",
+        "path": "tasks/171_orchestrator_two_task_pilot_admission_and_eligibility_truth.md"
+      },
+      "task_b": {
+        "id": "172",
+        "path": "tasks/172_orchestrator_dependency_aware_two_task_handoff_contract.md"
+      },
+      "relation": "handoff_compatible",
+      "benchmark_eligible": true,
+      "supervision": {
+        "profile": "supervised_dev_test"
+      },
+      "notes": "Admission then dependency handoff; canonical positive adjacency."
+    },
+    {
+      "id": "pair-002",
+      "task_a": {
+        "id": "170",
+        "path": "tasks/170_orchestrator_default_single_task_path_and_two_task_pilot_gate.md"
+      },
+      "task_b": {
+        "id": "171",
+        "path": "tasks/171_orchestrator_two_task_pilot_admission_and_eligibility_truth.md"
+      },
+      "relation": "handoff_incompatible",
+      "benchmark_eligible": false,
+      "supervision": {
+        "profile": "screened_out"
+      },
+      "notes": "Ordering not admissible; gate precedes admission truth, treat as incompatible."
+    },
+    {
+      "id": "pair-003",
+      "task_a": {
+        "id": "174",
+        "path": "tasks/174_orchestrator_two_task_canary_scorecard_and_benchmark.md"
+      },
+      "task_b": {
+        "id": "175",
+        "path": "tasks/175_orchestrator_bounded_two_task_pilot_reproof_and_product_checkpoint.md"
+      },
+      "relation": "handoff_compatible",
+      "benchmark_eligible": true,
+      "supervision": {
+        "profile": "benchmark_candidate"
+      },
+      "notes": "Benchmark/canary seam leading to pilot product checkpoint."
+    },
+    {
+      "id": "pair-004",
+      "task_a": {
+        "id": "169",
+        "path": "tasks/169_orchestrator_one_task_promotion_reproof.md"
+      },
+      "task_b": {
+        "id": "172",
+        "path": "tasks/172_orchestrator_dependency_aware_two_task_handoff_contract.md"
+      },
+      "relation": "blocked",
+      "benchmark_eligible": false,
+      "supervision": {
+        "profile": "blocked"
+      },
+      "notes": "Promotion reproof does not directly hand off to dependency contract; blocked adjacency."
+    }
+  ]
+}
