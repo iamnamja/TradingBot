@@ -10,9 +10,9 @@ The current monorepo contains:
 - Numbered implementation tasks (`tasks`)
 - Documentation and project-state tracking (`docs`)
 
-## Current state (post-Task 174)
+## Current state (post-Task 175)
 
-- Tasks 157–174 are complete in bounded supervised scope.
+- Tasks 157–175 are complete in bounded supervised scope.
 - The repo now has:
   - a strict no-manual-intervention one-task scorecard,
   - deliverable-contract and completion-integrity enforcement,
@@ -22,18 +22,21 @@ The current monorepo contains:
   - an explicit default one-task path,
   - a conservative two-task pilot admission gate,
   - a bounded adjacent-task A->B handoff contract,
-  - and a durable two-task canary scorecard and benchmark artifacts integrated into the existing benchmark session directory.
+  - a supervised builder/verifier role split scoped for the pilot,
+  - a durable two-task canary scorecard and benchmark artifacts integrated into the existing benchmark session directory,
+  - and a bounded two-task pilot re-proof with an explicit canary promotion payload.
 
 ## Honest current posture
 
-The one-task lane is conditionally ready under supervision for benchmark-eligible work.
+- One-task lane: conditionally ready under supervision for benchmark-eligible work (default path).
+- Two-task lane (bounded pilot): ready for a bounded supervised two-task pilot, governed by admission, handoff, and role-split truth and measured by conservative canary scorecards and canary_promotion.json verdicts.
 
-That means:
+This means:
 
-- one-task work can now be treated as the default proving path for eligible tasks under light supervision,
-- bounded two-task pilot preparation is underway,
-- but broad multi-task autonomy is still not justified,
-- and the standalone orchestrator-app phase remains blocked behind bounded two-task pilot proof.
+- one-task work remains the default proving path under light supervision,
+- the two-task pilot can proceed in a bounded, supervised manner,
+- broad multi-task autonomy is still not justified,
+- and the standalone orchestrator-app phase remains blocked behind stronger multi-task autonomy proof.
 
 ## Separation of one-task truth and two-task canary truth
 
@@ -42,43 +45,26 @@ That means:
   - `scoreboard.json` (pass-rate compatibility surface),
   - `promotion.json` (promotion verdict for one-task lane).
 
-- Two-task canary pilot artifacts are now persisted alongside the one-task artifacts, without altering the one-task surfaces:
+- Two-task canary pilot artifacts are persisted alongside the one-task artifacts, without altering the one-task surfaces:
+  - `canary_trials.json` (per-attempt records: admission, eligibility, handoff state, supervision),
   - `canary_scorecard.json` (pilot attempts, completions, blocked admissions, ineligible attempts, handoff-incomplete/incompatible failures, supervised interventions),
-  - `canary_promotion.json` (bounded-pilot readiness verdict and thresholds),
-  - `canary_trials.json` (durable per-attempt records for later analysis and reproof of thresholds).
-
-This keeps the proven one-task lane unchanged while enabling honest supervised evaluation for the bounded two-task pilot.
+  - `canary_promotion.json` (bounded-pilot readiness verdict and thresholds).
 
 Compatibility note: the canary benchmark writes only `canary_*` artifacts and never modifies the strict one-task `scorecard.json`, `scoreboard.json`, or `promotion.json` files.
 
+## Bounded two-task pilot re-proof (Task 175)
+
+- Verdict: ready for a bounded supervised two-task pilot.
+- Rationale: admission/handoff/role-split truth is explicit and measured; initial canary trials and scorecards are durable and conservative; supervision remains required.
+- Product checkpoint: the orchestrator continues to operate inside the monorepo with an explicit consumer bridge; the standalone app phase remains blocked pending broader multi-task autonomy proof.
+
 ## What still blocks the next phase
 
-Before a bounded two-task pilot can be justified broadly, the repo still needs:
+Before broad multi-task autonomy or product extraction can be justified, the repo still needs:
 
-- explicit supervised builder/verifier role separation for pilot work,
-- a durable two-task canary scorecard (added in Task 174),
-- a bounded pilot re-proof (targeted in Task 175).
-
-## Task 173 execution discipline update
-
-Fresh reruns showed that the original single Task 173 was still too broad.
-
-The intended pilot behavior was valid:
-- map pilot `dev` to `builder`
-- map pilot `test` to `verifier`
-- keep `controller` as the only approval authority
-- keep the pilot bounded and supervised
-
-But the single task kept mixing two jobs:
-- preserving/restoring the shared controller-contract compatibility surface
-- adding the bounded pilot role-sequence behavior
-
-Those jobs are now split:
-
-- `173a`: controller-contract compatibility for bounded pilot
-- `173b`: supervised dev/test role split for bounded pilot
-
-This keeps the work aligned with the repo's honest posture: additive bounded pilot preparation under supervision, not broad contract refactoring.
+- sustained canary pass-rate with stable handoff quality across diverse adjacent-task pairs,
+- lower supervised-intervention rates on the pilot lane,
+- additional authority-corroboration truth and failure-family elimination for multi-task sequences.
 
 ## Two-task canary benchmark entrypoint and artifacts
 
