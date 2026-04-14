@@ -8,6 +8,14 @@ Once the real bounded two-task pilot runner has been exercised over a curated pa
 
 Run a corpus-backed bounded two-task re-proof and record a conservative widening checkpoint.
 
+## Runtime seams to reuse
+
+- Reuse the exact bounded two-task pilot runner from Task 176.
+- Reuse the curated adjacent-pair corpus from Task 177.
+- Reuse the supervised-intervention and failure-digest truth from Task 178.
+- Reuse the real bounded corpus benchmark artifacts from Task 179.
+- Reuse the existing benchmark/promotion artifact style already present in the repo.
+
 ## Requirements
 
 - Use the real bounded pilot evidence from Tasks 176–179.
@@ -21,15 +29,40 @@ Run a corpus-backed bounded two-task re-proof and record a conservative widening
   - broad multi-task autonomy remains blocked unless the evidence explicitly justifies a later tranche,
   - standalone productization remains blocked.
 - Reuse the benchmark/promotion artifact style already present in the repo.
+- Keep one-task truth surfaces unchanged.
+- Keep the existing Task 179 bounded corpus benchmark entrypoint additive; do not replace the one-task or canary benchmark compatibility surfaces.
+
+## Artifact expectations
+
+- Treat the Task 179 bounded corpus benchmark outputs as the evidence source.
+- Add a durable bounded-corpus promotion/checkpoint artifact alongside the bounded corpus benchmark outputs.
+- The widening checkpoint must explicitly state:
+  - the bounded two-task corpus verdict,
+  - whether the curated corpus may widen while staying supervised,
+  - that broad unattended multi-task autonomy remains blocked,
+  - that standalone orchestrator productization remains blocked.
+
+## Create or update these exact files
+
+- `src/builder/orchestrator/bounded_corpus_benchmark.py`
+- `tests/test_benchmark_scorecard_integration.py`
+- `README.md`
+- `docs/TRADINGBOT_PROJECT_STATE.md`
+- `docs/README.md`
+- `tasks/180_orchestrator_bounded_two_task_corpus_reproof_and_widening_checkpoint.md`
 
 ## Non-goals
 
 - Do not claim broad autonomous multi-task readiness.
 - Do not unblock the standalone orchestrator product.
 - Do not skip from bounded two-task corpus evidence directly to arbitrary scheduling.
+- Do not redesign or replace the one-task benchmark compatibility surface.
+- Do not redesign or replace the bounded two-task canary compatibility surface.
 
 ## Acceptance criteria
 
 - The re-proof artifact contains an explicit bounded-two-task corpus verdict.
+- The bounded corpus benchmark path writes a durable promotion/checkpoint artifact for the corpus evidence.
 - Docs record an explicit widening checkpoint and what remains blocked.
 - Scope honesty is preserved: broader autonomy and product extraction remain blocked unless the evidence clearly justifies the next step.
+- `README.md` and `docs/TRADINGBOT_PROJECT_STATE.md` do not overclaim broad multi-task autonomy or standalone orchestrator product readiness.
