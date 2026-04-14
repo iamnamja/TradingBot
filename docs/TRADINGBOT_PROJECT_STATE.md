@@ -29,7 +29,7 @@ The current monorepo contains:
 ## Honest current posture
 
 - One-task lane: conditionally ready under supervision for benchmark-eligible work (default path).
-- Two-task lane (bounded pilot): ready for a bounded supervised two-task pilot, governed by admission, handoff, and role-split truth and measured by conservative canary scorecards and canary_promotion.json verdicts.
+- Two-task lane (bounded pilot): ready for a bounded supervised two-task pilot, governed by admission, handoff, and role-split truth and measured by conservative canary scorecards and `canary_promotion.json`.
 
 This means:
 
@@ -62,9 +62,20 @@ Compatibility note: the canary benchmark writes only `canary_*` artifacts and ne
 
 Before broad multi-task autonomy or product extraction can be justified, the repo still needs:
 
-- sustained canary pass-rate with stable handoff quality across diverse adjacent-task pairs,
-- lower supervised-intervention rates on the pilot lane,
-- additional authority-corroboration truth and failure-family elimination for multi-task sequences.
+- sustained two-task corpus evidence from real bounded pilot runs across curated adjacent-task pairs,
+- lower supervised-intervention rates on the bounded pilot lane,
+- durable pair-level ledgers that distinguish autonomous progress from operator help,
+- additional authority-corroboration truth and failure-family elimination for multi-task sequences beyond the first adjacent pair.
+
+## Next continuation tranche (planned)
+
+The next tranche is not broad multi-task widening. It is bounded supervised two-task pilot operation and evidence gathering:
+
+- 176 — bounded two-task pilot runner and pair ledger
+- 177 — curated adjacent-pair corpus and admission manifest
+- 178 — supervised intervention artifact and pilot failure digest
+- 179 — real bounded two-task corpus benchmark
+- 180 — bounded two-task corpus re-proof and widening checkpoint
 
 ## Two-task canary benchmark entrypoint and artifacts
 
