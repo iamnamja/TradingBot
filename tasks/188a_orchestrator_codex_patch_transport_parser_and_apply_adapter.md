@@ -42,3 +42,18 @@ Add a Codex-compatible patch/apply adapter and dual-mode parsing primitives with
 - The repo can parse at least two transport modes in helper/library surfaces.
 - GPT bundle mode remains green and unchanged.
 - Codex patch/apply parsing is additive and validated by tests.
+
+## Delivery contract hardening
+
+This task is about **implementing support for patch/apply transport**, but the assistant must still deliver its own code changes using the **existing standard `FILE:` / `END_FILE` bundle format** for this task run.
+
+- Do **not** answer this task using patch/diff output.
+- Do **not** emit raw `apply_patch` blocks as the task response format.
+- The patch/apply format is the **subject being implemented**, not the transport contract for the task output itself.
+- The current run must remain in the normal file-bundle lane so the orchestrator can validate and apply the produced files.
+
+## Implementation notes
+
+- Prefer fixture-driven parser tests that feed raw patch/apply text into helper/library surfaces and assert normalized parsed operations or materialized file results.
+- Keep parser/apply logic additive to the existing bundle parser rather than weakening bundle parsing rules.
+- If needed, introduce a small adapter entrypoint in `agents/lib/bundle_parser.py` that dispatches between bundle parsing and patch/apply parsing based on an explicit transport hint supplied by tests or callers outside `agents/run_task.py`.
