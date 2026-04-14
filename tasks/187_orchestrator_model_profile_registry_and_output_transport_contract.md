@@ -53,3 +53,10 @@ Define model profiles and an explicit output transport contract layer.
 ## Implementation notes
 
 - Favor explicit profile metadata over string-matching spread across the codebase.
+
+## Implementation result
+
+- Added `agents/lib/model_profiles.py` with explicit profiles and transport-contract metadata.
+- Added provider helpers in `agents/lib/provider_client.py` to declare the output transport/contract for a selected provider+model.
+- Kept the GPT-style strict file-bundle as the default path; Codex patch/apply remains declared but not enabled by default.
+- Included tests in `tests/test_model_profiles.py` verifying both GPT-style and Codex-style expectations.

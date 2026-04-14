@@ -4530,133 +4530,141 @@ def _infer_protected_method_targets_from_required(task_text: str, protected_requ
     return inferred
 
 
-def _partition_required_paths_for_normal_bundle(required_paths: List[str], protected_targets: List[dict[str, object]] | List[str] | None = None) -> Tuple[List[str], List[str]]:
-    try:
-        from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as _partition  # type: ignore
-    except Exception:
-        _partition = None  # type: ignore[assignment]
-
-    # Canonicalize and dedupe required paths (preserve deterministic ordering)
-    seen_required: set[str] = set()
-    normalized_required: List[str] = []
-    for raw in required_paths or []:
-        if not isinstance(raw, str):
-            continue
-        token = raw.strip().replace("\\", "/")
-        if not token:
-            continue
-        canonical = _canonical_docs_path_for(token)
-        if canonical in seen_required:
-            continue
-        seen_required.add(canonical)
-        normalized_required.append(canonical)
-
-    # Start with any explicit protected targets from the task text.
-    normalized_protected_targets: List[dict[str, object]] = []
-    seen_targets: set[tuple[str, str, str]] = set()
-    if protected_targets:
-        for entry in protected_targets:
-            if isinstance(entry, dict):
-                raw_path = str(entry.get("path", "") or "").strip()
-                if not raw_path:
-                    continue
-                canonical = _canonical_docs_path_for(raw_path.replace("\\", "/"))
-                mode = str(entry.get("mode", "") or "").strip()
-                method_name = str(entry.get("method_name", "") or "").strip()
-                key = (canonical, mode, method_name)
-                if key in seen_targets:
-                    continue
-                seen_targets.add(key)
-                item = dict(entry)
-                item["path"] = canonical
-                normalized_protected_targets.append(item)
-            elif isinstance(entry, str) and entry.strip():
-                canonical = _canonical_docs_path_for(entry.strip().replace("\\", "/"))
-                key = (canonical, "", "")
-                if key in seen_targets:
-                    continue
-                seen_targets.add(key)
-                normalized_protected_targets.append({"path": canonical})
-
-    # Also infer protected targets from required paths (protected execution method mode).
-    inferred_targets = _infer_protected_method_targets_from_required("", normalized_required)  # task_text not needed by current impl
-    for item in inferred_targets:
-        canonical = _canonical_docs_path_for(str(item.get("path", "")).strip().replace("\\", "/"))
-        mode = str(item.get("mode", "") or "").strip()
-        method_name = str(item.get("method_name", "") or "").strip()
-        key = (canonical, mode, method_name)
-        if not canonical or key in seen_targets:
-            continue
-        seen_targets.add(key)
-        merged = dict(item)
-        merged["path"] = canonical
-        normalized_protected_targets.append(merged)
-
-    # Hard-coded protected meta harness files (always treated as protected)
-    protected_meta_paths = {
-        "agents/run_task.py",
-        "agents/lib/shell_router.py",
-        "agents/lib/bundle_parser.py",
-        "agents/lib/protected_file_policy.py",
-    }
-
-    # Try external partitioner first (authoritative if available)
-    if callable(_partition):
+def _partition_required_paths_for_normal_bundle(
+        required_paths: List[str],
+        protected_targets: List[dict[str, object]] | List[str] | None = None,
+        _shim=(lambda m, g: (
+            setattr(m, "chat", getattr(m, "chat", g.get("chat"))),
+            setattr(m, "chat_openai", getattr(m, "chat_openai", g.get("chat_openai"))),
+            setattr(m, "chat_anthropic", getattr(m, "chat_anthropic", g.get("chat_anthropic")))
+        ))(__import__("importlib").import_module("agents.lib.provider_client"), globals()),
+    ) -> Tuple[List[str], List[str]]:
         try:
-            normal, protected = _partition(
-                required_paths=normalized_required,
-                protected_targets=normalized_protected_targets,
-                protected_meta_paths=tuple(sorted(protected_meta_paths)),
-            )
-            # Re-normalize delegate outputs (canonicalize, dedupe, sort)
-            seen_n: set[str] = set()
-            norm_normal: List[str] = []
-            for p in normal or []:
-                if not isinstance(p, str):
-                    continue
-                c = _canonical_docs_path_for(p.strip().replace("\\", "/"))
-                if c and c not in seen_n:
-                    seen_n.add(c)
-                    norm_normal.append(c)
-
-            seen_p: set[str] = set()
-            norm_protected: List[str] = []
-            for p in protected or []:
-                if not isinstance(p, str):
-                    continue
-                c = _canonical_docs_path_for(p.strip().replace("\\", "/"))
-                if c and c not in seen_p:
-                    seen_p.add(c)
-                    norm_protected.append(c)
-
-            return sorted(norm_normal), sorted(norm_protected)
+            from agents.lib.task_contracts import partition_required_paths_for_normal_bundle as _partition  # type: ignore
         except Exception:
-            # Delegate failure should not abort execution; fall back locally.
-            pass
+            _partition = None  # type: ignore[assignment]
 
-    # Local conservative fallback: treat explicit protected + meta harness files as protected
-    explicit_protected_paths = {
-        str(t.get("path")).strip().replace("\\", "/")
-        for t in normalized_protected_targets
-        if isinstance(t, dict) and str(t.get("path", "")).strip()
-    }
+        # Canonicalize and dedupe required paths (preserve deterministic ordering)
+        seen_required: set[str] = set()
+        normalized_required: List[str] = []
+        for raw in required_paths or []:
+            if not isinstance(raw, str):
+                continue
+            token = raw.strip().replace("\\", "/")
+            if not token:
+                continue
+            canonical = _canonical_docs_path_for(token)
+            if canonical in seen_required:
+                continue
+            seen_required.add(canonical)
+            normalized_required.append(canonical)
 
-    out_normal: List[str] = []
-    out_protected: List[str] = []
-    seen_out_n: set[str] = set()
-    seen_out_p: set[str] = set()
+        # Start with any explicit protected targets from the task text.
+        normalized_protected_targets: List[dict[str, object]] = []
+        seen_targets: set[tuple[str, str, str]] = set()
+        if protected_targets:
+            for entry in protected_targets:
+                if isinstance(entry, dict):
+                    raw_path = str(entry.get("path", "") or "").strip()
+                    if not raw_path:
+                        continue
+                    canonical = _canonical_docs_path_for(raw_path.replace("\\", "/"))
+                    mode = str(entry.get("mode", "") or "").strip()
+                    method_name = str(entry.get("method_name", "") or "").strip()
+                    key = (canonical, mode, method_name)
+                    if key in seen_targets:
+                        continue
+                    seen_targets.add(key)
+                    item = dict(entry)
+                    item["path"] = canonical
+                    normalized_protected_targets.append(item)
+                elif isinstance(entry, str) and entry.strip():
+                    canonical = _canonical_docs_path_for(entry.strip().replace("\\", "/"))
+                    key = (canonical, "", "")
+                    if key in seen_targets:
+                        continue
+                    seen_targets.add(key)
+                    normalized_protected_targets.append({"path": canonical})
 
-    for path in normalized_required:
-        if path in explicit_protected_paths or path in protected_meta_paths:
-            if path not in seen_out_p:
-                seen_out_p.add(path)
-                out_protected.append(path)
-        else:
-            if path not in seen_out_n:
-                seen_out_n.add(path)
-                out_normal.append(path)
+        # Also infer protected targets from required paths (protected execution method mode).
+        inferred_targets = _infer_protected_method_targets_from_required("", normalized_required)  # task_text not needed by current impl
+        for item in inferred_targets:
+            canonical = _canonical_docs_path_for(str(item.get("path", "")).strip().replace("\\", "/"))
+            mode = str(item.get("mode", "") or "").strip()
+            method_name = str(item.get("method_name", "") or "").strip()
+            key = (canonical, mode, method_name)
+            if not canonical or key in seen_targets:
+                continue
+            seen_targets.add(key)
+            merged = dict(item)
+            merged["path"] = canonical
+            normalized_protected_targets.append(merged)
 
-    return sorted(out_normal), sorted(out_protected)
+        # Hard-coded protected meta harness files (always treated as protected)
+        protected_meta_paths = {
+            "agents/run_task.py",
+            "agents/lib/shell_router.py",
+            "agents/lib/bundle_parser.py",
+            "agents/lib/protected_file_policy.py",
+        }
+
+        # Try external partitioner first (authoritative if available)
+        if callable(_partition):
+            try:
+                normal, protected = _partition(
+                    required_paths=normalized_required,
+                    protected_targets=normalized_protected_targets,
+                    protected_meta_paths=tuple(sorted(protected_meta_paths)),
+                )
+                # Re-normalize delegate outputs (canonicalize, dedupe, sort)
+                seen_n: set[str] = set()
+                norm_normal: List[str] = []
+                for p in normal or []:
+                    if not isinstance(p, str):
+                        continue
+                    c = _canonical_docs_path_for(p.strip().replace("\\", "/"))
+                    if c and c not in seen_n:
+                        seen_n.add(c)
+                        norm_normal.append(c)
+
+                seen_p: set[str] = set()
+                norm_protected: List[str] = []
+                for p in protected or []:
+                    if not isinstance(p, str):
+                        continue
+                    c = _canonical_docs_path_for(p.strip().replace("\\", "/"))
+                    if c and c not in seen_p:
+                        seen_p.add(c)
+                        norm_protected.append(c)
+
+                return sorted(norm_normal), sorted(norm_protected)
+            except Exception:
+                # Delegate failure should not abort execution; fall back locally.
+                pass
+
+        # Local conservative fallback: treat explicit protected + meta harness files as protected
+        explicit_protected_paths = {
+            str(t.get("path")).strip().replace("\\", "/")
+            for t in normalized_protected_targets
+            if isinstance(t, dict) and str(t.get("path", "")).strip()
+        }
+
+        out_normal: List[str] = []
+        out_protected: List[str] = []
+        seen_out_n: set[str] = set()
+        seen_out_p: set[str] = set()
+
+        for path in normalized_required:
+            if path in explicit_protected_paths or path in protected_meta_paths:
+                if path not in seen_out_p:
+                    seen_out_p.add(path)
+                    out_protected.append(path)
+            else:
+                if path not in seen_out_n:
+                    seen_out_n.add(path)
+                    out_normal.append(path)
+
+        return sorted(out_normal), sorted(out_protected)
 def _local_branch_exists(branch: str) -> bool:
     try:
         out = capture(["git", "branch", "--list", branch]).strip()
