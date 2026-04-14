@@ -79,3 +79,12 @@ These reduce broad repair attempts and reinforce protected and one-task proof su
   - reliability/two_task_reliability.json
   - reliability/reliability_matrix.json
 - Captures retry totals, supervision/intervention rate, recurring failure-family counts, admission-block frequency, and compatibility-regression frequency for both one-task and bounded two-task contexts.
+
+## Reliability checkpoint and resume gate (Task 185)
+
+- New gate evaluation helpers in reliability benchmark module:
+  - `evaluate_reliability_resume_gate(...)`
+  - `write_reliability_checkpoint(...)`
+- New durable artifact:
+  - `reliability/reliability_checkpoint.json`
+- Gate verdict (conservative): conditionally ready under supervision. Any capability widening is bounded and cautious; broad unattended multi-task autonomy remains blocked; standalone orchestrator app extraction remains blocked.

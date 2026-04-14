@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized reliability-and-promotion checkpoint is now complete through Task 184.
+The synchronized reliability-and-promotion checkpoint is now complete through Task 185.
 
 The repo can now honestly claim a materially hardened one-task lane with:
 
@@ -25,6 +25,8 @@ The repo can now honestly claim a materially hardened one-task lane with:
 - a bounded supervised two-task canary benchmark flow and re-proof checkpoint integrated alongside the one-task artifacts
 - a real bounded two-task pilot runner exercised over a curated adjacent-pair corpus with a durable corpus benchmark and promotion/checkpoint artifact
 - reliability-first import/public compatibility guardrails across benchmark and bounded-corpus entrypoints (Task 182)
+- a dedicated reliability benchmark and regression matrix (Task 184)
+- an explicit post-185 reliability checkpoint and capability-resume gate (Task 185)
 
 Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_RELIABILITY_FIRST_181_185.md` as the operator-facing guide for the next tranche.
 
@@ -36,6 +38,7 @@ Today the repo can honestly claim:
 - the orchestrator can complete real one-task runs and self-heal some failures
 - a bounded supervised two-task pilot lane is ready and explicitly measured by canary and corpus-backed artifacts
 - widening beyond one-task still requires explicit proof, not aspiration
+- a post-reliability checkpoint exists with an explicit resume gate verdict
 
 It does not claim:
 
@@ -49,6 +52,17 @@ It does not claim:
 - Bounded two-task pilot verdict (canary + corpus): ready for a bounded supervised two-task pilot on the curated adjacent-pair corpus, under supervision, using the explicit admission, handoff, role-split, and pilot truth persisted in `canary_*` artifacts and the bounded-corpus `bounded_corpus_promotion.json`.
 - Widening checkpoint: cautious widening of the curated pair corpus may be considered only under supervision and only when corpus metrics remain within conservative thresholds. Broad unattended multi-task autonomy remains blocked. Standalone orchestrator-as-its-own-app remains blocked.
 - Product-direction checkpoint: the orchestrator continues to operate inside this monorepo with a stable boundary and consumer bridge until broader multi-task autonomy proof is achieved.
+
+## Reliability checkpoint and capability-resume gate (Task 185)
+
+- Gate inputs: reliability matrix artifacts under `reliability/` plus existing one-task and two-task pilot artifacts.
+- Explicit evaluation categories:
+  - recurring failure-family reduction (best-effort delta vs previous where available),
+  - retry-count improvement,
+  - supervision/intervention rate,
+  - compatibility-regression reduction,
+  - resume-safe recovery behavior.
+- Verdict (conservative): conditionally ready under supervision. A cautious bounded next capability slice may be planned only under supervision and only if reliability metrics remain within the conservative thresholds captured by the checkpoint. Broad unattended multi-task autonomy stays blocked. Standalone productization remains blocked.
 
 ## Next continuation target
 
@@ -111,3 +125,11 @@ A dedicated reliability benchmark and regression matrix were added:
 - Tests: tests/test_reliability_benchmark.py
 
 These artifacts remain additive and do not overwrite existing one-task scorecard/promotion or two-task canary/corpus artifacts.
+
+### Reliability checkpoint artifact (Task 185)
+
+- Code: `src/builder/orchestrator/reliability_benchmark.py` now includes:
+  - `evaluate_reliability_resume_gate(matrix, previous_matrix=None, thresholds=None)`
+  - `write_reliability_checkpoint(base_dir, evaluation, matrix_snapshot=None)`
+- Artifact: `reliability/reliability_checkpoint.json`
+- Default gate verdict: conditionally ready under supervision; any capability widening remains bounded and cautious. Unattended multi-task autonomy and standalone productization remain blocked.
