@@ -1,67 +1,38 @@
 # Docs Index Addendum
 
+## Active tranche
+
+Current active tranche: 191-195.
+
 ## Current roadmap slice
 
-- `ORCHESTRATOR_ROADMAP_186_190.md` — contract and model-compatibility hardening after the post-185 reliability gate
-- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task truth first, bounded two-task pilot second, reliability hardening next, contract/model compatibility next, cautious capability widening later, standalone app last
-- `ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md` — operator-facing rules, artifact expectations, and working cadence for the 186–190 tranche
+- `ORCHESTRATOR_ROADMAP_191_195.md` — transport stability and observability hardening after the post-190 checkpoint
+- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task truth first, bounded two-task pilot second, reliability hardening next, contract/model compatibility next, transport stability and observability next, cautious capability widening later, standalone app last
+- `ORCHESTRATOR_TRANSPORT_STABILITY_AND_OBSERVABILITY_191_195.md` — operator-facing rules, artifact expectations, and working cadence for the 191–195 tranche
 
 ## Current continuation note
 
-Tasks 181–185 completed the reliability-first tranche:
-- Task 181: failure-family taxonomy and repair-target selection
-- Task 182: public/import compatibility guardrails for orchestrator benchmark surfaces
-- Task 184: reliability benchmark and regression matrix for one-task and bounded two-task runs
-- Task 185: reliability checkpoint and explicit gate for when capability widening may resume
-
-Tasks 186–190 now target the next contract bottlenecks:
+Tasks 186–190 completed the contract/model compatibility tranche:
 - Task 186: docs status headline consistency guard
 - Task 187: model profile registry and output transport contract declaration
-- Task 188: Codex patch/apply transport and dual-mode output parsing
+- Task 188a: normal-lane alternate payload parser and apply adapter
+- Task 188b: runner transport selection from declared contract
 - Task 189: provider/model capability negotiation and safe fallback diagnostics
-- Task 190: contract and model-transport checkpoint plus cautious next-slice gate
+- Task 190: contract and model transport checkpoint plus conservative next-slice gate
 
-## Status guard note
-
-Top-level repo status headlines are now validated by a small, deterministic guard. It checks for headline/task-number consistency across:
-- `README.md`
-- `docs/TRADINGBOT_PROJECT_STATE.md`
-- tranche/index docs that reference the active 186–190 slice
-
-The guard fails on drift; it does not attempt to rewrite docs. See `agents/lib/docs_status_guard.py` and `tests/test_docs_status_guard.py`. Run locally with: `python -m agents.lib.docs_status_guard`. It normalizes hyphen/en-dash variation in ranges and only reports inconsistencies for human follow-up.
+Tasks 191–195 now target the next operational bottleneck:
+- Task 191: raw model-output capture integrity and non-empty artifact guarantee
+- Task 192: transport failure artifact expansion and parser-path observability
+- Task 193: protected-method preflight, fallback tracing, and retry discipline
+- Task 194: transport health benchmark and recurring failure-family corpus
+- Task 195: transport stability checkpoint and cautious autonomy-resume gate
 
 ## Current next-step note
 
 The near-term focus stays conservative:
 
-- stop repeated docs/status narrative drift
-- stop assuming one output contract for every model family
-- keep the proven GPT file-bundle path intact while adding Codex-compatible transport additively
-- make model/profile incompatibility explicit and diagnosable instead of failing late in bundle transport
-- only consider capability widening after the post-190 checkpoint says the model/contract layer is materially more stable
-
-## Explicit model-profile declaration (Task 187)
-
-The harness now declares model/profile transport expectations explicitly:
-
-- Registry: `agents/lib/model_profiles.py` with GPT-style file-bundle (default) and Codex-style patch/apply families.
-- Public declaration: `agents.lib.provider_client.declared_transport_contract(...)` returns `model_profile_id`, `output_transport`, and `transport_contract`.
-
-This formalizes the output-transport contract without changing the default proven GPT bundle behavior.
-
-## Task 188 split note
-
-Task 188 has been split into:
-- `188a_orchestrator_codex_patch_transport_parser_and_apply_adapter.md`
-- `188b_orchestrator_run_task_dual_transport_selection_and_protected_surface_integration.md`
-
-This split keeps the parser/apply adapter work in the normal lane first and defers protected `agents/run_task.py` integration to a separate step.
-
-## Contract and model transport checkpoint (Task 190)
-
-A conservative contract/model-transport checkpoint is now recorded via:
-- `src/builder/orchestrator/model_transport_checkpoint.py`
-- `reliability/model_transport_checkpoint.json`
-
-The current checkpoint posture remains **conditionally ready under supervision**. This means cautious bounded planning may resume, but unattended multi-task autonomy and standalone productization remain blocked.
-
+- make transport failures observable instead of opaque
+- guarantee either non-empty raw output capture or an explicit explanation of why capture is empty
+- distinguish bundle parsing, method insertion, capability mismatch, and persistence failures quickly
+- keep all new instrumentation additive and low-risk
+- only consider capability widening after the post-195 checkpoint says transport stability is materially improved
