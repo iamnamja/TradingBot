@@ -74,6 +74,12 @@ Before broad multi-task autonomy or product extraction can be justified, the rep
 - elimination of repeated docs/status narrative drift,
 - and explicit model/output-transport compatibility so Codex-style models do not fail on a GPT-specific file-bundle contract.
 
+## Docs status guard
+
+To prevent recurring headline drift, a deterministic docs-status guard validates current-state headlines and tranche references across `README.md`, this state document, and tranche/index docs. The guard fails on drift and is covered by tests; it does not attempt to auto-edit narrative sections. Run locally with: `python -m agents.lib.docs_status_guard`. The guard treats hyphen and en-dash consistently for range normalization and reports only for manual correction.
+
+Operational reference: `agents/lib/docs_status_guard.py`. Tests: `tests/test_docs_status_guard.py`.
+
 ## Immediate continuation target (Tasks 186–190)
 
 Run a contract-and-model-compatibility hardening tranche before any cautious widening resumes:
