@@ -57,3 +57,8 @@ Record an explicit post-reliability checkpoint and capability-resume gate.
 ## Implementation notes
 
 - Keep the checkpoint additive and conservative, similar in tone to the bounded-corpus checkpoint.
+- Artifact: `reliability/reliability_checkpoint.json` produced via the reliability benchmark module.
+- Public surface: new helpers
+  - `evaluate_reliability_resume_gate(matrix, previous_matrix=None, thresholds=None)`
+  - `write_reliability_checkpoint(base_dir, evaluation, matrix_snapshot=None)`
+- Default gate verdict (without previous improvement evidence): `conditional_under_supervision`.
