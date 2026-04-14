@@ -58,3 +58,12 @@ Stay conservative while keeping the scope fixed and improving runtime reliabilit
 - persist resume-safe attempt state and recovery checkpoints so interrupted or partially-green runs can re-enter precisely
 - benchmark bounded one-task and two-task reliability by failure family, retry count, and supervision rate
 - only reopen capability widening after the reliability checkpoint shows lower intervention and fewer recurring compatibility failures
+
+### Reliability-first hardening note (Task 181)
+
+A durable orchestrator failure-family taxonomy and a conservative repair-target selection map have been added:
+
+- Code: agents/lib/repair_targeting.py
+- Tests: tests/test_repair_targeting.py
+
+The taxonomy classifies recurring failures (admission, import/public surface, artifact path/shape, benchmark compatibility, protected/static contract, and resume/re-entry) and maps them to narrow default repair surfaces. The behavior reduces broad repair attempts and preserves protected and one-task proof surfaces.
