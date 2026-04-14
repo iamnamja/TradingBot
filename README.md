@@ -32,7 +32,7 @@ Today the repo can honestly claim:
 
 - benchmark-eligible one-task work is conditionally ready under supervision
 - the orchestrator can complete real one-task runs and self-heal some failures
-- a bounded supervised two-task pilot lane has a conservative canary scorecard and re-proof checkpoint
+- a bounded supervised two-task pilot lane is ready and explicitly measured by canary artifacts
 - widening beyond one-task still requires explicit proof, not aspiration
 
 It does not claim:
@@ -44,14 +44,15 @@ It does not claim:
 
 ## Two-task pilot re-proof verdict and product checkpoint
 
-- Bounded two-task pilot verdict: ready for a bounded supervised two-task pilot, under supervision, using the explicit admission, handoff, and role-split truth persisted in canary artifacts and canary_promotion.json.
+- Bounded two-task pilot verdict: ready for a bounded supervised two-task pilot, under supervision, using the explicit admission, handoff, role-split, and canary truth persisted in canary artifacts and `canary_promotion.json`.
 - Product-direction checkpoint: the standalone orchestrator-as-its-own-app phase remains blocked. The orchestrator continues to operate inside this monorepo with a stable boundary and consumer bridge until broader multi-task autonomy proof is achieved.
 
 ## Next continuation target
 
-Remain conservative while exercising the bounded supervised two-task pilot:
+Stay conservative while moving from pilot preparation into bounded supervised pilot operation:
 
-- continue to refine the pilot admission gate and adjacent-task handoff contract using canary trials
-- keep builder/verifier role split explicit and supervised
-- keep writing durable canary scorecards and promotion payloads
-- only widen scope when artifacts justify the next step
+- add an exact two-task pilot runner and pair-level session ledger
+- define a curated adjacent-pair corpus and admission manifest for real pilot exercise
+- persist supervised-intervention truth explicitly so human help never gets misclassified as autonomous success
+- benchmark the real bounded pilot runner against the curated pair corpus
+- only consider widening after that real pilot corpus produces durable evidence
