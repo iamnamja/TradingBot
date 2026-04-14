@@ -1,6 +1,0 @@
-diff --git a/src/tradingbot/run.py b/src/tradingbot/run.py
---- a/src/tradingbot/run.py
-+++ b/src/tradingbot/run.py
-@@
--    llm_advisor = NoopLLMAdvisor()
-+    _llm_advisor = NoopLLMAdvisor()
