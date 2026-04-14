@@ -207,3 +207,169 @@ def run_one_task_external_safe_benchmark(
     strict_session.persist_promotion_verdict()
 
     return artifact
+
+
+def run_two_task_canary_benchmark(
+    tasks: Iterable[Dict[str, Any]],
+    select: Optional[Iterable[str]] = None,
+    artifacts_root: Optional[Path] = None,
+    executor: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Bounded two-task canary benchmark harness.
+
+    Writes durable canary artifacts alongside the one-task benchmark session structure:
+    - canary_trials.json
+    - canary_scorecard.json
+    - canary_promotion.json
+
+    The one-task strict scorecard and promotion artifacts are not modified by this entrypoint.
+    """
+    session_id = str(uuid.uuid4())
+    created_at = _utc_now_iso()
+
+    # Task selection
+    selected_ids: Optional[set[str]] = set(select) if select is not None else None
+    task_list: List[Dict[str, Any]] = []
+    for t in tasks:
+        tid = str(t.get("id") or t.get("task_id") or "")
+        if not tid:
+            continue
+        if selected_ids is not None and tid not in selected_ids:
+            continue
+        task_list.append({**t, "id": tid})
+
+    # Prepare artifact path; reuse session layout
+    root = artifacts_root or ARTIFACTS_ROOT / "sessions" / session_id
+    root = Path(root)
+    _ensure_dir(root)
+
+    trials: List[Dict[str, Any]] = []
+
+    counts = {
+        "pilot_attempts": 0,
+        "ineligible_attempts": 0,
+        "admissions_blocked": 0,
+        "pilot_completions": 0,
+        "handoff_incomplete_failures": 0,
+        "handoff_incompatible_failures": 0,
+        "supervised_interventions": 0,
+        "total": 0,
+    }
+
+    for spec in task_list:
+        tid = spec["id"]
+        started_at = _utc_now_iso()
+
+        result: Dict[str, Any]
+        if executor is None:
+            result = {}
+        else:
+            try:
+                result = executor(spec) or {}
+            except Exception as exc:
+                result = {"error": str(exc)}
+
+        eligible = bool(result.get("eligible_for_pilot", False))
+        admitted = bool(result.get("admitted", False))
+        blocked_admission = bool(result.get("blocked_admission", False)) or (eligible and not admitted)
+        completed = bool(result.get("completed", False))
+        handoff_status = str(result.get("handoff_status", "") or "")
+        supervised = bool(result.get("supervised", False))
+
+        ended_at = _utc_now_iso()
+
+        trial = {
+            "task_id": tid,
+            "eligible_for_pilot": eligible,
+            "admitted": admitted,
+            "blocked_admission": blocked_admission,
+            "completed": completed,
+            "handoff_status": handoff_status,
+            "supervised": supervised,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "details": result,
+        }
+        trials.append(trial)
+
+        counts["total"] += 1
+        if eligible:
+            counts["pilot_attempts"] += 1
+            if admitted:
+                if completed:
+                    counts["pilot_completions"] += 1
+                else:
+                    if handoff_status == "incomplete":
+                        counts["handoff_incomplete_failures"] += 1
+                    elif handoff_status == "incompatible":
+                        counts["handoff_incompatible_failures"] += 1
+            else:
+                if blocked_admission:
+                    counts["admissions_blocked"] += 1
+        else:
+            counts["ineligible_attempts"] += 1
+
+        if supervised:
+            counts["supervised_interventions"] += 1
+
+    # Persist trials
+    _write_json(root / "canary_trials.json", trials)
+
+    # Build scorecard with rates
+    pilot_attempts = counts["pilot_attempts"] or 0
+    denom = pilot_attempts if pilot_attempts > 0 else 1
+    scorecard = {
+        "session_id": session_id,
+        "created_at": created_at,
+        "total_tasks": counts["total"],
+        "metrics": dict(counts),
+        "rates": {
+            "pilot_completion_rate": counts["pilot_completions"] / denom,
+            "admission_block_rate": counts["admissions_blocked"] / denom,
+            "ineligible_rate": counts["ineligible_attempts"] / max(counts["total"], 1),
+            "handoff_incomplete_rate": counts["handoff_incomplete_failures"] / denom,
+            "handoff_incompatible_rate": counts["handoff_incompatible_failures"] / denom,
+            "supervised_intervention_rate": counts["supervised_interventions"] / max(counts["total"], 1),
+        },
+    }
+    _write_json(root / "canary_scorecard.json", scorecard)
+
+    # Promotion-esque verdict tailored for bounded pilot
+    thresholds = {
+        "min_pilot_completion_rate": 0.5,
+        "max_ineligible_rate": 0.25,
+        "max_handoff_incomplete_rate": 0.35,
+        "max_handoff_incompatible_rate": 0.2,
+    }
+    r = scorecard["rates"]
+    if pilot_attempts == 0:
+        verdict = "pilot_not_ready"
+    elif (
+        r["pilot_completion_rate"] >= thresholds["min_pilot_completion_rate"]
+        and r["handoff_incomplete_rate"] <= thresholds["max_handoff_incomplete_rate"]
+        and r["handoff_incompatible_rate"] <= thresholds["max_handoff_incompatible_rate"]
+        and r["ineligible_rate"] <= thresholds["max_ineligible_rate"]
+    ):
+        verdict = "pilot_ready_to_widen"
+    elif r["pilot_completion_rate"] > 0.0:
+        verdict = "pilot_conditionally_ready_under_supervision"
+    else:
+        verdict = "pilot_not_ready"
+
+    promotion = {
+        "created_at": _utc_now_iso(),
+        "session_id": session_id,
+        "thresholds": thresholds,
+        "metrics": scorecard["metrics"],
+        "rates": r,
+        "verdict": verdict,
+    }
+    _write_json(root / "canary_promotion.json", promotion)
+
+    return {
+        "session_id": session_id,
+        "created_at": created_at,
+        "summary": counts,
+        "root": str(root),
+    }

@@ -27,12 +27,25 @@ Add a bounded two-task canary benchmark and scorecard that can evaluate supervis
 - Keep the existing one-task scorecard and promotion artifact compatible for the already-proven lane.
 - Produce durable canary artifacts that are suitable for later comparison by Task 175.
 
-## Create or update these exact files
-- src/builder/orchestrator/benchmark.py
-- src/builder/orchestrator/benchmark_scorecard.py
-- tests/test_benchmark_scorecard_integration.py
-- tasks/174_orchestrator_two_task_canary_scorecard_and_benchmark.md
-- docs/TRADINGBOT_PROJECT_STATE.md
+## Implementation notes
+
+- Two-task canary metrics are persisted to `canary_scorecard.json` in the benchmark session directory.
+- A canary verdict is written to `canary_promotion.json` mirroring the one-task `promotion.json` style, but with canary-appropriate thresholds.
+- The one-task strict scorecard artifacts remain unchanged:
+  - `scorecard.json`
+  - `scoreboard.json`
+  - `promotion.json`
+- The new public entrypoint for the bounded pilot is:
+  - `builder.orchestrator.benchmark.run_two_task_canary_benchmark(...)`
+    - Accepts a list of task specs with `"id"`
+    - Accepts an `executor(task_spec) -> result_dict` returning fields:
+      - `eligible_for_pilot` (bool)
+      - `admitted` (bool) or `blocked_admission` (bool)
+      - `completed` (bool)
+      - `handoff_status` (empty, `"incomplete"`, or `"incompatible"`)
+      - `supervised` (bool)
+    - Writes `canary_trials.json`, `canary_scorecard.json`, `canary_promotion.json` under the session dir
+- Compatibility guard: the canary entrypoint must not modify the one-task artifacts to keep the already-proven lane truth stable.
 
 ## Acceptance criteria
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from builder.orchestrator.benchmark import run_one_task_external_safe_benchmark
+from builder.orchestrator.benchmark import run_one_task_external_safe_benchmark, run_two_task_canary_benchmark
 from builder.orchestrator.benchmark_scorecard import BenchmarkSession as StrictBenchmarkSession
 
 
@@ -115,3 +115,96 @@ def test_benchmark_harness_writes_strict_scorecard_and_invalidates_manual_interv
 
     assert promo1["verdict"] == "not_ready"
     assert promo2["verdict"] == "ready_to_be_default"
+
+
+def test_two_task_canary_benchmark_persists_metrics_and_trials(tmp_path: Path) -> None:
+    tasks = [{"id": "A"}, {"id": "B"}, {"id": "C"}, {"id": "D"}, {"id": "E"}]
+
+    def executor(spec: dict[str, object]) -> dict[str, object]:
+        tid = spec["id"]
+        if tid == "A":
+            return {"eligible_for_pilot": True, "admitted": True, "completed": True, "handoff_status": "", "supervised": False}
+        if tid == "B":
+            return {"eligible_for_pilot": True, "admitted": False, "blocked_admission": True, "completed": False, "handoff_status": "", "supervised": False}
+        if tid == "C":
+            return {"eligible_for_pilot": False, "admitted": False, "completed": False, "handoff_status": "", "supervised": False}
+        if tid == "D":
+            return {"eligible_for_pilot": True, "admitted": True, "completed": False, "handoff_status": "incomplete", "supervised": True}
+        if tid == "E":
+            return {"eligible_for_pilot": True, "admitted": True, "completed": False, "handoff_status": "incompatible", "supervised": False}
+        return {}
+
+    run_two_task_canary_benchmark(tasks, artifacts_root=tmp_path / "canary", executor=executor)
+
+    score_path = tmp_path / "canary" / "canary_scorecard.json"
+    promo_path = tmp_path / "canary" / "canary_promotion.json"
+    trials_path = tmp_path / "canary" / "canary_trials.json"
+
+    assert score_path.exists()
+    assert promo_path.exists()
+    assert trials_path.exists()
+
+    score = json.loads(score_path.read_text(encoding="utf-8"))
+    metrics = score["metrics"]
+    assert metrics["total"] == 5
+    assert metrics["pilot_attempts"] == 4
+    assert metrics["ineligible_attempts"] == 1
+    assert metrics["admissions_blocked"] == 1
+    assert metrics["pilot_completions"] == 1
+    assert metrics["handoff_incomplete_failures"] == 1
+    assert metrics["handoff_incompatible_failures"] == 1
+    assert metrics["supervised_interventions"] == 1
+
+    promo = json.loads(promo_path.read_text(encoding="utf-8"))
+    assert "verdict" in promo
+    assert "thresholds" in promo
+    assert promo["metrics"]["pilot_attempts"] == 4
+
+    trials = json.loads(trials_path.read_text(encoding="utf-8"))
+    assert len(trials) == 5
+    by_id = {t["task_id"]: t for t in trials}
+    assert by_id["B"]["blocked_admission"] is True
+    assert by_id["C"]["eligible_for_pilot"] is False
+    assert by_id["D"]["handoff_status"] == "incomplete"
+    assert by_id["D"]["supervised"] is True
+    assert by_id["E"]["handoff_status"] == "incompatible"
+
+
+def test_canary_does_not_modify_strict_one_task_artifacts(tmp_path: Path) -> None:
+    def executor_canary(_spec: dict[str, object]) -> dict[str, object]:
+        return {"eligible_for_pilot": True, "admitted": True, "completed": True, "handoff_status": "", "supervised": False}
+
+    def executor_strict(_spec: dict[str, object]) -> dict[str, object]:
+        return {"completed": True, "self_heal_used": False}
+
+    # Write strict artifacts separately
+    run_one_task_external_safe_benchmark(
+        tasks=[{"id": "strict1"}],
+        artifacts_root=tmp_path / "strict_session",
+        executor=executor_strict,
+        manual_intervention=False,
+    )
+
+    # Canary writes only canary_* artifacts
+    run_two_task_canary_benchmark(
+        tasks=[{"id": "p1"}, {"id": "p2"}],
+        artifacts_root=tmp_path / "canary_session",
+        executor=executor_canary,
+    )
+
+    strict_root = tmp_path / "strict_session"
+    canary_root = tmp_path / "canary_session"
+
+    # One-task strict artifacts exist for strict session
+    assert (strict_root / "scorecard.json").exists()
+    assert (strict_root / "scoreboard.json").exists()
+    assert (strict_root / "promotion.json").exists()
+
+    # Canary session should not contain strict one-task artifacts
+    assert not (canary_root / "scorecard.json").exists()
+    assert not (canary_root / "scoreboard.json").exists()
+    assert not (canary_root / "promotion.json").exists()
+    # But must contain canary artifacts
+    assert (canary_root / "canary_scorecard.json").exists()
+    assert (canary_root / "canary_promotion.json").exists()
+    assert (canary_root / "canary_trials.json").exists()
