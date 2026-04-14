@@ -67,6 +67,8 @@ RUNTIME_ARTIFACT_NAMES = (
     "_last_agent_file_bundle.txt",
     "_last_agent_file_bundle_error.txt",
     "_last_model_capability.txt",
+    "_last_provider_call_path.txt",
+    "_last_raw_output_meta.txt",
     "_last_subset_preservation.json",
 )
 
@@ -76,6 +78,7 @@ class FileBundleError(ValueError):
 
 
 _KEEP_RUNTIME_ARTIFACTS_FOR_RUN = False
+_LAST_RUNTIME_CHAT_META: Dict[str, Any] = {}
 
 
 def _ensure_repo_root_on_sys_path() -> None:
@@ -2164,13 +2167,23 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
     expected_path = str(expected_path)
     expected_method_name = str(expected_method_name)
     _remove_model_capability_diagnostic_artifact(last_output_path)
+    _remove_transport_observability_artifacts(last_output_path)
     negotiation = negotiate_model_capability(provider=provider, model=model, required_transport="method_insertion", allow_fallback=True)
     if not bool(negotiation.get("compatible", False)):
         _write_model_capability_diagnostic_artifact(last_output_path=last_output_path, negotiation=negotiation, note="protected method insertion preflight mismatch")
         raise FileBundleError("Protected method insertion transport mismatch before execution: " + str(negotiation.get("reason", "unknown mismatch")))
     provider = str(negotiation.get("selected_provider", provider) or provider)
     model = str(negotiation.get("selected_model", model) or model)
-    out = chat(messages, model=model, provider=provider)
+    out = _invoke_runtime_chat(
+        messages,
+        model=model,
+        provider=provider,
+        last_output_path=last_output_path,
+        required_transport="method_insertion",
+        selected_transport=str(negotiation.get("selected_output_transport", "") or ""),
+        phase="method_insertion.initial",
+        retry_index=1,
+    )
     last_output_path.write_text(out + "\n", encoding="utf-8", newline="\n")
     if bool(negotiation.get("fallback_applied", False)) or len(normalize_newlines(out).strip()) == 0:
         _write_model_capability_diagnostic_artifact(last_output_path=last_output_path, negotiation=negotiation, raw_output=out, note="method insertion request completed")
@@ -2195,7 +2208,16 @@ def request_and_parse_method_insertion(messages: List[dict], model: str, provide
         "END_METHOD_INSERTION\n\n"
         f"Parser error: {first_error}"
     )
-    out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+    out2 = _invoke_runtime_chat(
+        messages + [{"role": "user", "content": reminder}],
+        model=model,
+        provider=provider,
+        last_output_path=last_output_path,
+        required_transport="method_insertion",
+        selected_transport=str(negotiation.get("selected_output_transport", "") or ""),
+        phase="method_insertion.retry",
+        retry_index=2,
+    )
     last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
     if len(normalize_newlines(out2).strip()) == 0:
         _write_model_capability_diagnostic_artifact(last_output_path=last_output_path, negotiation=negotiation, raw_output=out2, note="method insertion retry completed")
@@ -3730,7 +3752,9 @@ def chat_openai(messages: List[dict], model: str) -> str:
                         "This OpenAI SDK does not expose the Responses API client. Upgrade the `openai` package or set TRADINGBOT_OPENAI_API_MODE=chat_completions."
                     )
                 normalized = _openai_generate_via_responses(client, messages, model)
-            return normalized.text.strip()
+            cleaned = normalized.text.strip()
+            _record_runtime_chat_meta(provider="openai", model=model, api_mode=api_mode, request_id=normalized.request_id, stop_reason=normalized.stop_reason, output_length=len(cleaned), source="agents.run_task.chat_openai")
+            return cleaned
         except Exception as exc:
             last_err = exc
             if attempt == max_attempts or not _is_retryable_openai_error(exc):
@@ -3776,7 +3800,10 @@ def chat_anthropic(messages: List[dict], model: str) -> str:
             if effort in {"low", "medium", "high", "max"}:
                 request["output_config"] = {"effort": effort}
             resp = client.messages.create(**request)
-            return _normalize_anthropic_response(resp).text.strip()
+            normalized = _normalize_anthropic_response(resp)
+            cleaned = normalized.text.strip()
+            _record_runtime_chat_meta(provider="anthropic", model=model, api_mode="messages", request_id=normalized.request_id, stop_reason=normalized.stop_reason, output_length=len(cleaned), source="agents.run_task.chat_anthropic")
+            return cleaned
         except Exception as exc:
             last_err = exc
             if attempt == max_attempts or not _is_retryable_anthropic_error(exc):
@@ -4237,6 +4264,7 @@ def request_and_parse_bundle(
     last_output_path = Path(last_output_path)
     _remove_bundle_transport_diagnostic_artifact(last_output_path)
     _remove_model_capability_diagnostic_artifact(last_output_path)
+    _remove_transport_observability_artifacts(last_output_path)
     allowed_paths = [
         p.strip().replace("\\", "/")
         for p in (expected_paths or [])
@@ -4454,7 +4482,16 @@ def request_and_parse_bundle(
             + ". Do NOT emit FILE blocks for those paths here.\n"
         )
 
-    out = chat(messages, model=model, provider=provider)
+    out = _invoke_runtime_chat(
+        messages,
+        model=model,
+        provider=provider,
+        last_output_path=last_output_path,
+        required_transport=selected_transport,
+        selected_transport=str(negotiation.get("selected_output_transport", selected_transport) or selected_transport),
+        phase="bundle.initial",
+        retry_index=1,
+    )
     initial_raw_output = out
     if bool(negotiation.get("fallback_applied", False)) or len(normalize_newlines(out).strip()) == 0:
         _write_model_capability_diagnostic_artifact(last_output_path=last_output_path, negotiation=negotiation, raw_output=out, note="bundle request completed")
@@ -4491,7 +4528,16 @@ def request_and_parse_bundle(
                     + "\n\nRequired structure:\n"
                     + "BEGIN_FILE_BUNDLE\nFILE: path/to/file.ext\n<full file contents>\nEND_FILE\nEND_FILE_BUNDLE\n"
                 )
-                empty_retry_output = chat(messages + [{"role": "user", "content": empty_bundle_retry_prompt}], model=model, provider=provider)
+                empty_retry_output = _invoke_runtime_chat(
+                    messages + [{"role": "user", "content": empty_bundle_retry_prompt}],
+                    model=model,
+                    provider=provider,
+                    last_output_path=last_output_path,
+                    required_transport=selected_transport,
+                    selected_transport=str(negotiation.get("selected_output_transport", selected_transport) or selected_transport),
+                    phase="bundle.empty_retry",
+                    retry_index=2,
+                )
                 last_output_path.write_text(empty_retry_output + "\n", encoding="utf-8", newline="\n")
                 try:
                     parsed = _parse_validate_or_salvage(empty_retry_output, allowed_paths, require_all=bool(allowed_paths))
@@ -4555,7 +4601,16 @@ def request_and_parse_bundle(
                     "END_FILE_BUNDLE\n\n"
                     f"Parser/policy error: {e}"
                 )
-            out2 = chat(messages + [{"role": "user", "content": reminder}], model=model, provider=provider)
+            out2 = _invoke_runtime_chat(
+                messages + [{"role": "user", "content": reminder}],
+                model=model,
+                provider=provider,
+                last_output_path=last_output_path,
+                required_transport=selected_transport,
+                selected_transport=str(negotiation.get("selected_output_transport", selected_transport) or selected_transport),
+                phase="bundle.retry",
+                retry_index=2,
+            )
             last_output_path.write_text(out2 + "\n", encoding="utf-8", newline="\n")
             try:
                 if str(classification.get("failure_category") or "") == "bundle_underfilled_response":
@@ -4823,6 +4878,135 @@ def _choose_agent_branch(task_stem: str, push: bool) -> str:
         candidate = f"{base}-r{idx}"
     return candidate
 
+
+
+def _provider_call_path_artifact_path(last_output_path: Path) -> Path:
+    return Path(last_output_path).with_name("_last_provider_call_path.txt")
+
+
+def _raw_output_meta_artifact_path(last_output_path: Path) -> Path:
+    return Path(last_output_path).with_name("_last_raw_output_meta.txt")
+
+
+def _record_runtime_chat_meta(**kwargs: Any) -> None:
+    global _LAST_RUNTIME_CHAT_META
+    _LAST_RUNTIME_CHAT_META = dict(kwargs)
+
+
+def _clear_runtime_chat_meta() -> None:
+    global _LAST_RUNTIME_CHAT_META
+    _LAST_RUNTIME_CHAT_META = {}
+
+
+def _snapshot_runtime_chat_meta() -> Dict[str, Any]:
+    return dict(_LAST_RUNTIME_CHAT_META)
+
+
+def _write_provider_call_path_artifact(
+    *,
+    last_output_path: Path,
+    call_path: str,
+    provider: str,
+    model: str,
+    required_transport: str,
+    selected_transport: str,
+    phase: str,
+) -> Path:
+    path = _provider_call_path_artifact_path(last_output_path)
+    lines = [
+        f"call_path: {call_path}",
+        f"provider: {provider}",
+        f"model: {model}",
+        f"required_transport: {required_transport}",
+        f"selected_transport: {selected_transport}",
+        f"phase: {phase}",
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return path
+
+
+def _write_raw_output_meta_artifact(
+    *,
+    last_output_path: Path,
+    provider: str,
+    model: str,
+    required_transport: str,
+    selected_transport: str,
+    phase: str,
+    retry_index: int,
+    raw_output: str,
+    meta: Dict[str, Any] | None = None,
+) -> Path:
+    path = _raw_output_meta_artifact_path(last_output_path)
+    payload = dict(meta or {})
+    raw = normalize_newlines(str(raw_output or ""))
+    stripped = raw.strip()
+    lines = [
+        f"provider: {provider}",
+        f"model: {model}",
+        f"required_transport: {required_transport}",
+        f"selected_transport: {selected_transport}",
+        f"phase: {phase}",
+        f"retry_index: {retry_index}",
+        f"raw_output_length: {len(raw)}",
+        f"raw_output_nonempty: {bool(stripped)}",
+        f"raw_output_whitespace_only: {bool(raw) and not bool(stripped)}",
+        f"meta_provider: {payload.get('provider', '')}",
+        f"meta_model: {payload.get('model', '')}",
+        f"meta_api_mode: {payload.get('api_mode', '')}",
+        f"meta_request_id: {payload.get('request_id', '')}",
+        f"meta_stop_reason: {payload.get('stop_reason', '')}",
+        f"meta_output_length: {payload.get('output_length', '')}",
+        f"meta_source: {payload.get('source', '')}",
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return path
+
+
+def _remove_transport_observability_artifacts(last_output_path: Path) -> None:
+    for path in (_provider_call_path_artifact_path(last_output_path), _raw_output_meta_artifact_path(last_output_path)):
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
+
+
+def _invoke_runtime_chat(
+    messages: List[dict],
+    *,
+    model: str,
+    provider: str,
+    last_output_path: Path,
+    required_transport: str,
+    selected_transport: str,
+    phase: str,
+    retry_index: int,
+) -> str:
+    _clear_runtime_chat_meta()
+    call_path = f"agents.run_task.chat -> {provider}"
+    _write_provider_call_path_artifact(
+        last_output_path=last_output_path,
+        call_path=call_path,
+        provider=provider,
+        model=model,
+        required_transport=required_transport,
+        selected_transport=selected_transport,
+        phase=phase,
+    )
+    out = chat(messages, model=model, provider=provider)
+    _write_raw_output_meta_artifact(
+        last_output_path=last_output_path,
+        provider=provider,
+        model=model,
+        required_transport=required_transport,
+        selected_transport=selected_transport,
+        phase=phase,
+        retry_index=retry_index,
+        raw_output=out,
+        meta=_snapshot_runtime_chat_meta(),
+    )
+    return out
 
 
 def _model_capability_artifact_path(last_output_path: Path) -> Path:
