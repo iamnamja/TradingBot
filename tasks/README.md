@@ -15,3 +15,15 @@ Use this order after Task 175:
 Do **not** widen straight from Task 175 into broad multi-task autonomy or standalone-product work.
 
 The next tranche is specifically about operationalizing the already-approved bounded supervised two-task pilot, gathering real pair-level evidence, and keeping supervision truth explicit.
+
+## Standard numbered-task run command
+
+Use:
+
+`py -m agents.run_task <task-file> --push --keep-runtime-artifacts --provider openai --model gpt-5`
+
+## Branch hygiene reminder
+
+- Keep branch diffs narrow.
+- Do not ship runtime scratch artifacts.
+- If `_last_subset_preservation.json` appears in a branch diff, restore it from `origin/main` so it drops out of the change set.
