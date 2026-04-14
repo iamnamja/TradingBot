@@ -57,3 +57,11 @@ Task 188 has been split into:
 
 This split keeps the parser/apply adapter work in the normal lane first and defers protected `agents/run_task.py` integration to a separate step.
 
+## Contract and model transport checkpoint (Task 190)
+
+A conservative contract/model-transport checkpoint is now recorded via:
+- `src/builder/orchestrator/model_transport_checkpoint.py`
+- `reliability/model_transport_checkpoint.json`
+
+The current checkpoint posture remains **conditionally ready under supervision**. This means cautious bounded planning may resume, but unattended multi-task autonomy and standalone productization remain blocked.
+

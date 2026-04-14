@@ -99,3 +99,13 @@ This is an explicit contract declaration, not a promise of broader autonomy or t
 
 Task 188 has been split into 188a and 188b so the normal-lane parser/apply adapter can be proven before protected runner integration.
 
+### Contract and model transport checkpoint (Task 190)
+
+A conservative contract/model-transport checkpoint is now available via:
+- `src/builder/orchestrator/model_transport_checkpoint.py`
+- `reliability/model_transport_checkpoint.json`
+
+Checkpoint verdict: **conditionally ready under supervision**.
+
+This means cautious bounded planning may resume, but broad unattended multi-task autonomy and standalone productization remain blocked.
+
