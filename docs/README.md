@@ -70,3 +70,12 @@ These reduce broad repair attempts and reinforce protected and one-task proof su
 - New attempt/resume state helpers: agents/lib/resume_state.py and agents/lib/attempt_state.py
 - Tests: tests/test_attempt_state_resume.py
 - Behavior: durable resume checkpoints with conservative re-entry planning. Ambiguous or unsafe state forces safe restart; partial progress resumes at an explicit intended surface.
+
+## Reliability-first addition (Task 184)
+
+- New reliability benchmark and regression matrix: src/builder/orchestrator/reliability_benchmark.py
+- Additive artifacts under reliability/:
+  - reliability/one_task_reliability.json
+  - reliability/two_task_reliability.json
+  - reliability/reliability_matrix.json
+- Captures retry totals, supervision/intervention rate, recurring failure-family counts, admission-block frequency, and compatibility-regression frequency for both one-task and bounded two-task contexts.
