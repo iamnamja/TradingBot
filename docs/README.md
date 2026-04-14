@@ -2,89 +2,34 @@
 
 ## Current roadmap slice
 
-- `ORCHESTRATOR_ROADMAP_181_185.md` — reliability-first hardening slice after bounded two-task corpus re-proof
-- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task truth first, bounded two-task pilot second, reliability hardening next, cautious capability widening later, standalone app last
-- `ORCHESTRATOR_RELIABILITY_FIRST_181_185.md` — operator-facing rules, artifact expectations, and working cadence for the 181–185 tranche
+- `ORCHESTRATOR_ROADMAP_186_190.md` — contract and model-compatibility hardening after the post-185 reliability gate
+- `ORCHESTRATOR_PHASE_DIRECTION.md` — agreed phase order: one-task truth first, bounded two-task pilot second, reliability hardening next, contract/model compatibility next, cautious capability widening later, standalone app last
+- `ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md` — operator-facing rules, artifact expectations, and working cadence for the 186–190 tranche
 
 ## Current continuation note
 
-Tasks 157–170 materially strengthened the one-task lane and added a promotion verdict plus an explicit future two-task pilot gate.
-
-Tasks 171–175 completed bounded supervised two-task pilot preparation and re-proof:
-- Task 171: two-task pilot admission and eligibility truth
-- Task 172: dependency-aware A->B handoff contract
-- Task 173a: controller-contract compatibility for bounded pilot
-- Task 173b: supervised dev/test role split for bounded pilot
-- Task 174: two-task canary scorecard and benchmark artifacts
-- Task 175: bounded two-task pilot re-proof and product-direction checkpoint
-
-Tasks 176–180 operationalized the pilot over a real curated corpus and recorded a cautious widening checkpoint:
-- Task 176: exact two-task pilot runner and pair-level session ledger
-- Task 177: curated adjacent-pair corpus and admission manifest
-- Task 178: supervised-intervention artifact and pilot failure digest
-- Task 179: real bounded corpus benchmark artifacts under `two_task/bounded_corpus`
-- Task 180: bounded two-task corpus re-proof and `bounded_corpus_promotion.json` widening checkpoint
-
-Tasks 181–185 now shift to reliability first:
+Tasks 181–185 completed the reliability-first tranche:
 - Task 181: failure-family taxonomy and repair-target selection
 - Task 182: public/import compatibility guardrails for orchestrator benchmark surfaces
 - Task 183: resume-safe attempt checkpoint and recovery re-entry truth
 - Task 184: reliability benchmark and regression matrix for one-task and bounded two-task runs
 - Task 185: reliability checkpoint and explicit gate for when capability widening may resume
 
+Tasks 186–190 now target the next contract bottlenecks:
+- Task 186: docs status headline consistency guard
+- Task 187: model profile registry and output transport contract declaration
+- Task 188: Codex patch/apply transport and dual-mode output parsing
+- Task 189: provider/model capability negotiation and safe fallback diagnostics
+- Task 190: contract and model-transport checkpoint plus cautious next-slice gate
+
 ## Current next-step note
 
 The near-term focus stays conservative:
 
-- reduce recurring compatibility and task-admission regressions
-- improve repair-target precision instead of broad fallback patching
-- make interrupted or partially-green runs resume from explicit checkpoints
-- measure reliability with retry count, supervision rate, and recurring failure-family evidence
-- only consider capability widening after the post-185 reliability gate is satisfied
+- stop repeated docs/status narrative drift
+- stop assuming one output contract for every model family
+- keep the proven GPT file-bundle path intact while adding Codex-compatible transport additively
+- make model/profile incompatibility explicit and diagnosable instead of failing late in bundle transport
+- only consider capability widening after the post-190 checkpoint says the model/contract layer is materially more stable
 
-The immediate operator-facing reference for this slice is `ORCHESTRATOR_RELIABILITY_FIRST_181_185.md`.
-
-## Product-direction checkpoint
-
-- Bounded two-task pilot verdict: ready for a bounded supervised two-task pilot on the curated corpus.
-- Reliability-first checkpoint: stabilize runtime behavior and reduce recurring failure families before any new capability tranche.
-- Widening checkpoint: cautiously consider widening only after the post-185 reliability gate is satisfied. Broad unattended multi-task autonomy remains blocked. Standalone orchestrator-as-its-own-app remains blocked.
-
-## Reliability-first addition (Task 181)
-
-- New classification and narrow repair-target helpers: agents/lib/repair_targeting.py
-- Persisted classification truth for later reuse by repair logic
-- Tests: tests/test_repair_targeting.py
-
-These reduce broad repair attempts and reinforce protected and one-task proof surfaces.
-
-## Reliability-first addition (Task 182)
-
-- Explicit import/public compatibility guardrails for orchestrator benchmark surfaces
-- Canary and corpus benchmarks remain additive, never mutating strict one-task artifacts
-- Tests enforce import stability and OS-agnostic artifact path discipline (POSIX-normalized checks avoid OS-specific regressions)
-- Compatibility aliases and explicit module exports protect shared import surfaces going forward
-
-## Reliability-first addition (Task 183)
-
-- New attempt/resume state helpers: agents/lib/resume_state.py and agents/lib/attempt_state.py
-- Tests: tests/test_attempt_state_resume.py
-- Behavior: durable resume checkpoints with conservative re-entry planning. Ambiguous or unsafe state forces safe restart; partial progress resumes at an explicit intended surface.
-
-## Reliability-first addition (Task 184)
-
-- New reliability benchmark and regression matrix: src/builder/orchestrator/reliability_benchmark.py
-- Additive artifacts under reliability/:
-  - reliability/one_task_reliability.json
-  - reliability/two_task_reliability.json
-  - reliability/reliability_matrix.json
-- Captures retry totals, supervision/intervention rate, recurring failure-family counts, admission-block frequency, and compatibility-regression frequency for both one-task and bounded two-task contexts.
-
-## Reliability checkpoint and resume gate (Task 185)
-
-- New gate evaluation helpers in reliability benchmark module:
-  - `evaluate_reliability_resume_gate(...)`
-  - `write_reliability_checkpoint(...)`
-- New durable artifact:
-  - `reliability/reliability_checkpoint.json`
-- Gate verdict (conservative): conditionally ready under supervision. Any capability widening is bounded and cautious; broad unattended multi-task autonomy remains blocked; standalone orchestrator app extraction remains blocked.
+The immediate operator-facing reference for this slice is `ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md`.

@@ -44,25 +44,6 @@ This means:
 - broad multi-task autonomy is still not justified,
 - and the standalone orchestrator-app phase remains blocked behind stronger multi-task autonomy proof.
 
-## Separation of one-task truth and two-task pilot truth
-
-- One-task benchmark and promotion artifacts remain the source of truth for the already-proven lane. They persist into:
-  - `scorecard.json` (strict no-manual-intervention counts),
-  - `scoreboard.json` (pass-rate compatibility surface),
-  - `promotion.json` (promotion verdict for one-task lane).
-
-- Two-task pilot artifacts are persisted alongside the one-task artifacts, without altering the one-task surfaces:
-  - Canary pilot (entrypoint in the benchmark module):
-    - `canary_trials.json`
-    - `canary_scorecard.json`
-    - `canary_promotion.json`
-  - Real bounded corpus pilot (entrypoint `builder.orchestrator.bounded_corpus_benchmark.run_bounded_two_task_corpus_benchmark(...)`):
-    - `two_task/bounded_corpus/pairs.json`
-    - `two_task/bounded_corpus/summary.json`
-    - `two_task/bounded_corpus/bounded_corpus_promotion.json`
-
-Compatibility note: the canary and corpus benchmarks write only `canary_*` or `two_task/bounded_corpus/*` artifacts and never modify the strict one-task `scorecard.json`, `scoreboard.json`, or `promotion.json` files. Import/public contract guardrails now protect these entrypoints from accidental drift.
-
 ## Reliability-first continuation checkpoint (Tasks 181–185)
 
 A reliability tranche has been completed with the following evaluation:
@@ -80,14 +61,6 @@ Artifact paths:
 - `reliability/reliability_matrix.json`
 - `reliability/reliability_checkpoint.json` (Task 185)
 
-## Capability-resume gate verdict (Task 185)
-
-- Verdict: conditionally ready under supervision.
-- Gate meaning: a cautious bounded next slice may be planned under supervision if reliability metrics remain within conservative thresholds. This is not blanket permission for broad autonomy.
-- Blocked areas (remain explicit):
-  - broad unattended multi-task autonomy,
-  - standalone orchestrator productization.
-
 ## What still blocks the next phase
 
 Before broad multi-task autonomy or product extraction can be justified, the repo still needs:
@@ -97,12 +70,42 @@ Before broad multi-task autonomy or product extraction can be justified, the rep
 - durable pair-level ledgers that distinguish autonomous progress from operator help,
 - additional authority-corroboration truth and failure-family elimination for multi-task sequences beyond the first adjacent pair,
 - sharper failure-family classification so repair selection lands on the correct surface more often,
-- better resume-safe recovery so partially-successful runs re-enter from precise checkpoints instead of broad retries.
+- better resume-safe recovery so partially-successful runs re-enter from precise checkpoints instead of broad retries,
+- elimination of repeated docs/status narrative drift,
+- and explicit model/output-transport compatibility so Codex-style models do not fail on a GPT-specific file-bundle contract.
 
-## Immediate continuation target (Tasks 186+)
+## Immediate continuation target (Tasks 186–190)
 
-Continue reliability-first improvements while operating within the cautious bounded scope:
+Run a contract-and-model-compatibility hardening tranche before any cautious widening resumes:
 
-- maintain and improve supervision-rate, retry-count, and compatibility-regression metrics,
-- reduce resume/re-entry ambiguity and improve safe checkpointing,
-- only expand pilot boundaries when reliability checkpoint evidence meets or exceeds conservative thresholds for both lanes.
+- 186 — docs status headline consistency guard
+- 187 — model profile registry and output transport contract declaration
+- 188 — Codex patch/apply transport and dual-mode output parsing
+- 189 — provider capability negotiation and safe model fallback diagnostics
+- 190 — contract and model-transport checkpoint plus cautious next-slice gate
+
+## Operator workflow for the next tranche
+
+Use the next tranche conservatively:
+
+- review merged-main snapshots first,
+- plan narrowly from the uploaded source-of-truth files,
+- patch docs/tasks/code only as needed,
+- validate on a clean branch,
+- inspect diffs before merge,
+- preserve branch and runtime-artifact hygiene,
+- keep all new transport/model compatibility work additive to the proven GPT file-bundle path,
+- and do not interpret Codex compatibility as broad autonomy.
+
+Operational reference: `docs/ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md`
+
+## Next-tranche rationale
+
+The next bottleneck is no longer “prove bounded one-task/two-task exists.” It is “make the repo stop tripping over recurring contract drift.”
+
+Two concrete symptoms now justify this tranche:
+
+- repeated manual cleanup of stale status headlines in `README.md` and `docs/TRADINGBOT_PROJECT_STATE.md`
+- a failed `gpt-5-codex` run that reached model output but failed bundle transport because the harness still assumes a strict `FILE:/END_FILE` text bundle contract for all models
+
+The right next move is to harden narrative consistency and model/output-contract compatibility before trying to widen behavior.

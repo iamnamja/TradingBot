@@ -28,7 +28,7 @@ The repo can now honestly claim a materially hardened one-task lane with:
 - a dedicated reliability benchmark and regression matrix (Task 184)
 - an explicit post-185 reliability checkpoint and capability-resume gate (Task 185)
 
-Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_RELIABILITY_FIRST_181_185.md` as the operator-facing guide for the next tranche.
+Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_CONTRACT_AND_MODEL_COMPAT_186_190.md` as the operator-facing guide for the next tranche.
 
 ## What the repo can honestly claim today
 
@@ -47,12 +47,6 @@ It does not claim:
 - full self-hosting control-plane autonomy
 - a finished standalone orchestrator product
 
-## Two-task pilot re-proof verdict and product checkpoint
-
-- Bounded two-task pilot verdict (canary + corpus): ready for a bounded supervised two-task pilot on the curated adjacent-pair corpus, under supervision, using the explicit admission, handoff, role-split, and pilot truth persisted in `canary_*` artifacts and the bounded-corpus `bounded_corpus_promotion.json`.
-- Widening checkpoint: cautious widening of the curated pair corpus may be considered only under supervision and only when corpus metrics remain within conservative thresholds. Broad unattended multi-task autonomy remains blocked. Standalone orchestrator-as-its-own-app remains blocked.
-- Product-direction checkpoint: the orchestrator continues to operate inside this monorepo with a stable boundary and consumer bridge until broader multi-task autonomy proof is achieved.
-
 ## Reliability checkpoint and capability-resume gate (Task 185)
 
 - Gate inputs: reliability matrix artifacts under `reliability/` plus existing one-task and two-task pilot artifacts.
@@ -66,70 +60,22 @@ It does not claim:
 
 ## Next continuation target
 
-Stay conservative while keeping the scope fixed and improving runtime reliability first:
+Stay conservative while fixing recurring contract drift and model-transport mismatch before any new capability widening:
 
-- stabilize failure-family classification and repair-target selection so the orchestrator patches the right surface more often
-- harden import, benchmark, and public compatibility contracts so additive benchmark work stops regressing shared surfaces
-- persist resume-safe attempt state and recovery checkpoints so interrupted or partially-green runs can re-enter precisely
-- benchmark bounded one-task and two-task reliability by failure family, retry count, and supervision rate
-- only reopen capability widening after the reliability checkpoint shows lower intervention and fewer recurring compatibility failures
+- eliminate repeated README/project-state headline drift with an explicit docs-status consistency guard
+- define explicit model profiles and output-transport contracts instead of assuming one file-bundle mode for every model
+- add a Codex-compatible patch/apply transport path while preserving the proven GPT file-bundle path
+- add provider/model capability negotiation and safe fallback or explicit diagnostics when a selected model cannot satisfy the task transport contract
+- record a post-transport checkpoint before resuming any cautious bounded capability widening
 
-### Reliability-first hardening note (Task 181)
+### Contract and model-compat tranche note (Tasks 186–190)
 
-A durable orchestrator failure-family taxonomy and a conservative repair-target selection map have been added:
+This next tranche is still reliability work. It is not broad capability expansion.
 
-- Code: agents/lib/repair_targeting.py
-- Tests: tests/test_repair_targeting.py
+The focus is:
 
-The taxonomy classifies recurring failures (admission, import/public surface, artifact path/shape, benchmark compatibility, protected/static contract, and resume/re-entry) and maps them to narrow default repair surfaces. The behavior reduces broad repair attempts and preserves protected and one-task proof surfaces.
-
-### Reliability-first hardening note (Task 182)
-
-Import/public surface guardrails were added for orchestrator benchmark and bounded-corpus entrypoints:
-
-- One-task benchmark preserves strict scorecard and promotion artifacts.
-- Two-task canary benchmark writes only `canary_*` artifacts and does not modify strict one-task artifacts.
-- Bounded-corpus benchmark remains additive and writes only under `two_task/bounded_corpus/`.
-- Tests enforce import stability and artifact-path discipline across OSes using POSIX-normalized checks.
-- Compatibility aliases and explicit exports are preferred to preserve import/public surfaces.
-
-### Reliability-first hardening note (Task 183)
-
-Resume-safe attempt checkpoints and conservative re-entry truth were added:
-
-- Code: agents/lib/resume_state.py, agents/lib/attempt_state.py
-- Tests: tests/test_attempt_state_resume.py
-
-Behavior:
-
-- Records explicit checkpoints that capture last safe transition and intended re-entry surface.
-- Distinguishes fresh execution, retry after failure, resume after partial progress, and manual intervention before resume.
-- When state is ambiguous or unsafe, defaults to a safe restart instead of optimistic resume.
-
-### Reliability-first hardening note (Task 184)
-
-A dedicated reliability benchmark and regression matrix were added:
-
-- Code: src/builder/orchestrator/reliability_benchmark.py
-- Artifacts (additive, separate path):
-  - reliability/one_task_reliability.json
-  - reliability/two_task_reliability.json
-  - reliability/reliability_matrix.json
-- Metrics captured:
-  - task/run count
-  - retry count to green (aggregate retries)
-  - recurring failure-family counts
-  - supervision/intervention rate and count
-  - admission-block frequency
-  - compatibility-regression frequency
-- Tests: tests/test_reliability_benchmark.py
-
-These artifacts remain additive and do not overwrite existing one-task scorecard/promotion or two-task canary/corpus artifacts.
-
-### Reliability checkpoint artifact (Task 185)
-
-- Code: `src/builder/orchestrator/reliability_benchmark.py` now includes:
-  - `evaluate_reliability_resume_gate(matrix, previous_matrix=None, thresholds=None)`
-  - `write_reliability_checkpoint(base_dir, evaluation, matrix_snapshot=None)`
-- Artifact: `reliability/reliability_checkpoint.json`
-- Default gate verdict: conditionally ready under supervision; any capability widening remains bounded and cautious. Unattended multi-task autonomy and standalone productization remain blocked.
+- status/narrative consistency validation
+- model-profile awareness
+- dual transport compatibility (`FILE:/END_FILE` bundle mode and Codex-style patch mode)
+- provider/model capability negotiation and safe fallback
+- a conservative checkpoint after those contracts are in place
