@@ -25,7 +25,7 @@ The repo can now honestly claim a materially hardened one-task lane with:
 - a bounded supervised two-task canary benchmark flow and re-proof checkpoint integrated alongside the one-task artifacts
 - a real bounded two-task pilot runner exercised over a curated adjacent-pair corpus with a durable corpus benchmark and promotion/checkpoint artifact
 
-Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_BOUNDED_TWO_TASK_PILOT_OPERATIONS.md` as the operator-facing guide for the 176–180 tranche.
+Use `tasks/README.md` as the canonical task-order index, `docs/TRADINGBOT_PROJECT_STATE.md` as the authoritative status narrative, and `docs/ORCHESTRATOR_RELIABILITY_FIRST_181_185.md` as the operator-facing guide for the next tranche.
 
 ## What the repo can honestly claim today
 
@@ -51,10 +51,10 @@ It does not claim:
 
 ## Next continuation target
 
-Stay conservative while operating the bounded supervised pilot:
+Stay conservative while keeping the scope fixed and improving runtime reliability first:
 
-- continue running the exact two-task pilot runner with a pair-level session ledger
-- keep the curated adjacent-pair corpus and admission manifest as the source of truth for pilot scope
-- persist supervised-intervention truth explicitly so human help never gets misclassified as autonomous success
-- benchmark the real bounded pilot runner against the curated pair corpus and record `bounded_corpus_promotion.json`
-- only consider widening after real pilot corpus artifacts justify the next step, and keep one-task truth surfaces unchanged
+- stabilize failure-family classification and repair-target selection so the orchestrator patches the right surface more often
+- harden import, benchmark, and public compatibility contracts so additive benchmark work stops regressing shared surfaces
+- persist resume-safe attempt state and recovery checkpoints so interrupted or partially-green runs can re-enter precisely
+- benchmark bounded one-task and two-task reliability by failure family, retry count, and supervision rate
+- only reopen capability widening after the reliability checkpoint shows lower intervention and fewer recurring compatibility failures
