@@ -10,7 +10,7 @@ The current monorepo contains:
 - Numbered implementation tasks (`tasks`)
 - Documentation and project-state tracking (`docs`)
 
-## Current state (post-Task 182)
+## Current state (post-Task 184)
 
 - Tasks 157–182 are complete in bounded supervised scope.
 - The repo now has:
@@ -131,3 +131,17 @@ Task 183 adds explicit attempt-state persistence and resume-safe checkpoints:
 - Implementation: agents/lib/resume_state.py (serialized checkpoint objects), agents/lib/attempt_state.py (persistence and re-entry planner)
 - Tests: tests/test_attempt_state_resume.py
 - Behavior: distinguishes fresh execution, retry-after-failure, resume-after-partial, and manual-intervention; records last safe transition and intended surface; chooses conservative restart if state is ambiguous or unsafe.
+
+## Reliability-first addition (Task 184)
+
+Task 184 adds a dedicated reliability benchmark and regression matrix:
+
+- Code: src/builder/orchestrator/reliability_benchmark.py
+- Artifacts (additive, separate from promotion):
+  - reliability/one_task_reliability.json
+  - reliability/two_task_reliability.json
+  - reliability/reliability_matrix.json
+- Metrics: run count, aggregate retries to green, failure-family counts, supervision rate, admission-block frequency, and compatibility-regression frequency.
+- Tests: tests/test_reliability_benchmark.py
+
+This reliability view is additive and never overwrites strict one-task or two-task canary/corpus artifacts.

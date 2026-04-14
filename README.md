@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized reliability-and-promotion checkpoint is now complete through Task 182.
+The synchronized reliability-and-promotion checkpoint is now complete through Task 184.
 
 The repo can now honestly claim a materially hardened one-task lane with:
 
@@ -91,3 +91,23 @@ Behavior:
 - Records explicit checkpoints that capture last safe transition and intended re-entry surface.
 - Distinguishes fresh execution, retry after failure, resume after partial progress, and manual intervention before resume.
 - When state is ambiguous or unsafe, defaults to a safe restart instead of optimistic resume.
+
+### Reliability-first hardening note (Task 184)
+
+A dedicated reliability benchmark and regression matrix were added:
+
+- Code: src/builder/orchestrator/reliability_benchmark.py
+- Artifacts (additive, separate path):
+  - reliability/one_task_reliability.json
+  - reliability/two_task_reliability.json
+  - reliability/reliability_matrix.json
+- Metrics captured:
+  - task/run count
+  - retry count to green (aggregate retries)
+  - recurring failure-family counts
+  - supervision/intervention rate and count
+  - admission-block frequency
+  - compatibility-regression frequency
+- Tests: tests/test_reliability_benchmark.py
+
+These artifacts remain additive and do not overwrite existing one-task scorecard/promotion or two-task canary/corpus artifacts.
