@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized reliability-and-promotion checkpoint is now complete through Task 182.
+The synchronized reliability-and-promotion checkpoint is now complete through Task 184.
 
 The repo can now honestly claim a materially hardened one-task lane with:
 
