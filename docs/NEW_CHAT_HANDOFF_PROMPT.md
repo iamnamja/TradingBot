@@ -14,7 +14,7 @@ Current state:
   - supervised dev/test role split for bounded pilot,
   - two-task canary scorecard and benchmark artifacts,
   - bounded two-task pilot re-proof and product checkpoint,
-- the project is still **not** claiming broad multi-task autonomy,
+- the project is still NOT claiming broad multi-task autonomy,
 - the standalone orchestrator-as-its-own-app phase remains blocked.
 
 Honest posture right now:
@@ -77,4 +77,5 @@ What to do in the new chat:
 - Keep numbering aligned from 176 onward.
 - Do not drift into broad multi-task autonomy or standalone product claims.
 - Keep the next tranche focused on exact two-task pilot operation, curated pair evidence, supervision truth, and conservative widening checkpoints.
+- Use `docs/ORCHESTRATOR_BOUNDED_TWO_TASK_PILOT_OPERATIONS.md` as the working reference for operator rules and tranche expectations.
 - After I merge the new planning/docs patch, I will provide the same files again from updated `main`.

@@ -46,7 +46,7 @@ This means:
   - `promotion.json` (promotion verdict for one-task lane).
 
 - Two-task canary pilot artifacts are persisted alongside the one-task artifacts, without altering the one-task surfaces:
-  - `canary_trials.json` (per-attempt records: admission, eligibility, handoff state, supervision),
+  - `canary_trials.json` (per-attempt durable truth),
   - `canary_scorecard.json` (pilot attempts, completions, blocked admissions, ineligible attempts, handoff-incomplete/incompatible failures, supervised interventions),
   - `canary_promotion.json` (bounded-pilot readiness verdict and thresholds).
 
@@ -58,6 +58,16 @@ Compatibility note: the canary benchmark writes only `canary_*` artifacts and ne
 - Rationale: admission/handoff/role-split truth is explicit and measured; initial canary trials and scorecards are durable and conservative; supervision remains required.
 - Product checkpoint: the orchestrator continues to operate inside the monorepo with an explicit consumer bridge; the standalone app phase remains blocked pending broader multi-task autonomy proof.
 
+## Immediate continuation target
+
+The next active work is not broad widening. It is bounded supervised two-task pilot operation and evidence gathering through Tasks 176–180:
+
+- 176 — bounded two-task pilot runner and pair ledger
+- 177 — curated adjacent-pair corpus and admission manifest
+- 178 — supervised intervention artifact and pilot failure digest
+- 179 — real bounded two-task corpus benchmark
+- 180 — bounded two-task corpus re-proof and widening checkpoint
+
 ## What still blocks the next phase
 
 Before broad multi-task autonomy or product extraction can be justified, the repo still needs:
@@ -67,15 +77,18 @@ Before broad multi-task autonomy or product extraction can be justified, the rep
 - durable pair-level ledgers that distinguish autonomous progress from operator help,
 - additional authority-corroboration truth and failure-family elimination for multi-task sequences beyond the first adjacent pair.
 
-## Next continuation tranche (planned)
+## Operator workflow for the current tranche
 
-The next tranche is not broad multi-task widening. It is bounded supervised two-task pilot operation and evidence gathering:
+Use the current tranche conservatively:
 
-- 176 — bounded two-task pilot runner and pair ledger
-- 177 — curated adjacent-pair corpus and admission manifest
-- 178 — supervised intervention artifact and pilot failure digest
-- 179 — real bounded two-task corpus benchmark
-- 180 — bounded two-task corpus re-proof and widening checkpoint
+- review merged-main snapshots first,
+- plan narrowly from the uploaded source-of-truth files,
+- patch docs/tasks/code only as needed,
+- validate on a clean branch,
+- inspect diffs before merge,
+- and preserve branch and runtime-artifact hygiene.
+
+Operational reference: `docs/ORCHESTRATOR_BOUNDED_TWO_TASK_PILOT_OPERATIONS.md`
 
 ## Two-task canary benchmark entrypoint and artifacts
 
