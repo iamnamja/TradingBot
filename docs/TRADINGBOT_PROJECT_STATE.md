@@ -61,6 +61,10 @@ Before broad multi-task autonomy or product extraction can be justified, the rep
 - faster diagnosis of bundle vs method-insertion vs capture failures,
 - and a measurable reduction in transport-related empty-output failures.
 
+## Active tranche
+
+Current active tranche: 191-195.
+
 ## Immediate continuation target (Tasks 191–195)
 
 Run a transport-stability and observability tranche before any broader autonomy claims resume:

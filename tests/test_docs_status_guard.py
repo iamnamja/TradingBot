@@ -12,14 +12,12 @@ def test_extractors_find_values_current_snapshot():
     state_text = Path("docs/TRADINGBOT_PROJECT_STATE.md").read_text(encoding="utf-8")
     docs_readme_text = Path("docs/README.md").read_text(encoding="utf-8")
 
-    # Completed-through should be 185 from README and state doc (accepting different phrasings)
-    assert extract_completed_through_task(readme_text) == 187
-    assert extract_completed_through_task(state_text) == 187
+    assert extract_completed_through_task(readme_text) == 190
+    assert extract_completed_through_task(state_text) == 190
 
-    # Active tranche should be 186–190 across docs (hyphen or en-dash both acceptable)
-    assert extract_active_tranche(readme_text) == (186, 190)
-    assert extract_active_tranche(state_text) == (186, 190)
-    assert extract_active_tranche(docs_readme_text) == (186, 190)
+    assert extract_active_tranche(readme_text) == (191, 195)
+    assert extract_active_tranche(state_text) == (191, 195)
+    assert extract_active_tranche(docs_readme_text) == (191, 195)
 
 
 def test_validate_docs_status_ok_current_snapshot():
@@ -32,13 +30,11 @@ def test_validate_docs_status_ok_current_snapshot():
 
 
 def test_detects_completed_through_drift(tmp_path: Path):
-    # Create a modified README that incorrectly references a different "complete through Task" number
     readme_text = Path("README.md").read_text(encoding="utf-8")
-    # Replace the specific "complete through Task 186" phrasing; fall back to "post-Task 186" if needed
-    if "complete through Task 187" in readme_text:
-        mutated = readme_text.replace("complete through Task 187", "complete through Task 188")
+    if "complete through Task 190" in readme_text:
+        mutated = readme_text.replace("complete through Task 190", "complete through Task 191")
     else:
-        mutated = readme_text.replace("post-Task 187", "post-Task 188")
+        mutated = readme_text.replace("post-Task 190", "post-Task 191")
 
     mutated_path = tmp_path / "README.md"
     mutated_path.write_text(mutated, encoding="utf-8")
@@ -50,14 +46,14 @@ def test_detects_completed_through_drift(tmp_path: Path):
 
 
 def test_detects_tranche_range_drift(tmp_path: Path):
-    # Create a modified docs/README that incorrectly references a different tranche end
     docs_readme_text = Path("docs/README.md").read_text(encoding="utf-8")
-    # Change a "186–190" or "186-190" occurrence to "186–191" to simulate drift.
-    # Handle both en-dash and ASCII hyphen cases.
-    if "186–190" in docs_readme_text:
-        mutated = docs_readme_text.replace("186–190", "186–191")
+
+    if "191?195" in docs_readme_text:
+        mutated = docs_readme_text.replace("191?195", "191?196")
+    elif "191-195" in docs_readme_text:
+        mutated = docs_readme_text.replace("191-195", "191-196")
     else:
-        mutated = docs_readme_text.replace("186-190", "186-191")
+        raise AssertionError("Current docs/README.md does not contain a parseable 191?195 or 191-195 active tranche range.")
 
     mutated_path = tmp_path / "docs_README.md"
     mutated_path.write_text(mutated, encoding="utf-8")

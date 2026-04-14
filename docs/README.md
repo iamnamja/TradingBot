@@ -1,5 +1,9 @@
 # Docs Index Addendum
 
+## Active tranche
+
+Current active tranche: 191-195.
+
 ## Current roadmap slice
 
 - `ORCHESTRATOR_ROADMAP_191_195.md` — transport stability and observability hardening after the post-190 checkpoint

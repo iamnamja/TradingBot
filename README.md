@@ -56,6 +56,10 @@ It does not claim:
 - Meaning: a cautious bounded next slice may be planned only if it is aimed at stabilizing transport behavior and observability rather than widening autonomy.
 - Blocked areas remain explicit: broad unattended multi-task autonomy and standalone productization stay blocked.
 
+## Active tranche
+
+Current active tranche: 191-195.
+
 ## Next continuation target
 
 Stay conservative and focus on runner stability and fast observability:
