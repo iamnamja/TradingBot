@@ -6,6 +6,7 @@ from typing import Any, Dict, Mapping, Tuple
 # Public transport kinds (stable vocabulary)
 TRANSPORT_FILE_BUNDLE = "file_bundle"
 TRANSPORT_PATCH = "patch"
+TRANSPORT_METHOD_INSERTION = "method_insertion"
 
 # Public transport contracts (stable vocabulary)
 CONTRACT_STRICT_FILE_BUNDLE = "strict_file_bundle"
@@ -19,6 +20,7 @@ class ModelProfile:
     family: str
     output_transport: str
     transport_contract: str
+    supported_transports: Tuple[str, ...] = ()
     notes: str = ""
 
     def to_dict(self) -> Dict[str, object]:
@@ -34,6 +36,7 @@ _PROFILE_REGISTRY: Dict[str, ModelProfile] = {
         family="gpt",
         output_transport=TRANSPORT_FILE_BUNDLE,
         transport_contract=CONTRACT_STRICT_FILE_BUNDLE,
+        supported_transports=(TRANSPORT_FILE_BUNDLE, TRANSPORT_METHOD_INSERTION),
         notes="Strict BEGIN_FILE_BUNDLE/FILE:/END_FILE/END_FILE_BUNDLE transport. Known-good default path.",
     ),
     "codex_patch": ModelProfile(
@@ -42,6 +45,7 @@ _PROFILE_REGISTRY: Dict[str, ModelProfile] = {
         family="codex",
         output_transport=TRANSPORT_PATCH,
         transport_contract=CONTRACT_PATCH_APPLY_MODE,
+        supported_transports=(TRANSPORT_PATCH,),
         notes="Patch/diff-style transport. Not enabled by default in the runner yet.",
     ),
 }
@@ -114,3 +118,17 @@ def transport_contract_from_profile(profile: Mapping[str, Any] | None) -> str:
         return contract
     # Safe default preserves known-good GPT path
     return CONTRACT_STRICT_FILE_BUNDLE
+
+
+def supported_transports_from_profile(profile: Mapping[str, Any] | None) -> Tuple[str, ...]:
+    """Return the declared supported runner transports for a profile."""
+    payload = dict(profile or {})
+    raw = payload.get("supported_transports")
+    if isinstance(raw, (list, tuple)):
+        values = tuple(str(v).strip() for v in raw if str(v).strip())
+        if values:
+            return values
+    transport = output_transport_from_profile(profile)
+    if transport == TRANSPORT_PATCH:
+        return (TRANSPORT_PATCH,)
+    return (TRANSPORT_FILE_BUNDLE, TRANSPORT_METHOD_INSERTION)
