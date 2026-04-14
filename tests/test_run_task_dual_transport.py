@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib
 import re
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -138,3 +141,106 @@ def test_regression_patch_payload_would_fail_bundle_parser_but_succeeds_with_tra
         error_cls=TransportParseError,
     )
     assert files == {"sample.txt": "value\n"}
+
+def _import_run_task_module():
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    return importlib.import_module("agents.run_task")
+
+
+def test_declared_transport_contract_wrapper_delegates_to_provider_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_task = _import_run_task_module()
+    provider_client = importlib.import_module("agents.lib.provider_client")
+
+    def _fake_declared_transport_contract(provider=None, model=None):
+        assert provider == "openai"
+        assert model == "gpt-5-codex"
+        return {
+            "provider": "openai",
+            "model": "gpt-5-codex",
+            "model_profile_id": "codex_patch",
+            "output_transport": "patch",
+            "transport_contract": "patch_apply_mode",
+        }
+
+    monkeypatch.setattr(provider_client, "declared_transport_contract", _fake_declared_transport_contract)
+    payload = run_task.declared_transport_contract(provider="openai", model="gpt-5-codex")
+    assert payload["output_transport"] == "patch"
+    assert payload["transport_contract"] == "patch_apply_mode"
+
+
+def test_request_and_parse_bundle_selects_patch_transport(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    run_task = _import_run_task_module()
+
+    monkeypatch.setattr(
+        run_task,
+        "declared_transport_contract",
+        lambda provider=None, model=None: {
+            "provider": provider or "openai",
+            "model": model or "gpt-5-codex",
+            "model_profile_id": "codex_patch",
+            "output_transport": "patch",
+            "transport_contract": "patch_apply_mode",
+        },
+    )
+
+    seen: dict[str, object] = {}
+
+    def _fake_parse_transport_payload(text: str, *, transport: str, existing_files: dict[str, str] | None = None):
+        seen["transport"] = transport
+        seen["existing_files"] = dict(existing_files or {})
+        return {"x.txt": "hello\n"}
+
+    monkeypatch.setattr(run_task, "parse_transport_payload", _fake_parse_transport_payload)
+    monkeypatch.setattr(run_task, "chat", lambda messages, model, provider=None: "IGNORED")
+
+    parsed = run_task.request_and_parse_bundle(
+        messages=[{"role": "user", "content": "x"}],
+        model="gpt-5-codex",
+        provider="openai",
+        last_output_path=tmp_path / "last_output.txt",
+        expected_paths=["x.txt"],
+        baseline={"x.txt": "before\n"},
+    )
+
+    assert parsed == {"x.txt": "hello\n"}
+    assert seen["transport"] == "patch"
+    assert seen["existing_files"] == {"x.txt": "before\n"}
+
+
+def test_request_and_parse_bundle_keeps_file_bundle_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    run_task = _import_run_task_module()
+
+    monkeypatch.setattr(
+        run_task,
+        "declared_transport_contract",
+        lambda provider=None, model=None: {
+            "provider": provider or "openai",
+            "model": model or "gpt-5",
+            "model_profile_id": "gpt_file_bundle",
+            "output_transport": "file_bundle",
+            "transport_contract": "strict_file_bundle",
+        },
+    )
+
+    calls: list[str] = []
+
+    def _fake_parse_transport_payload(text: str, *, transport: str, existing_files: dict[str, str] | None = None):
+        calls.append(transport)
+        return {"x.txt": "hello\n"}
+
+    monkeypatch.setattr(run_task, "parse_transport_payload", _fake_parse_transport_payload)
+    monkeypatch.setattr(run_task, "chat", lambda messages, model, provider=None: "BEGIN_FILE_BUNDLE\nFILE: x.txt\nhello\nEND_FILE\nEND_FILE_BUNDLE")
+
+    parsed = run_task.request_and_parse_bundle(
+        messages=[{"role": "user", "content": "x"}],
+        model="gpt-5",
+        provider="openai",
+        last_output_path=tmp_path / "last_output.txt",
+        expected_paths=["x.txt"],
+        baseline={"x.txt": "before\n"},
+    )
+
+    assert parsed == {"x.txt": "hello\n"}
+    assert calls == ["file_bundle"]
