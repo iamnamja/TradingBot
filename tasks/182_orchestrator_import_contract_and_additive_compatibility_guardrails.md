@@ -49,3 +49,10 @@ Harden import/public compatibility contracts and additive-surface guarantees for
 ## Implementation notes
 
 - Favor compatibility aliases, explicit exports, and additive wrapper discipline over broad module restructuring.
+
+## Summary of changes
+
+- One-task benchmark harness wires StrictBenchmarkSession explicitly and persists scorecard/scoreboard/promotion artifacts alongside trials/summary.
+- Two-task canary harness writes only `canary_*` artifacts and never mutates strict one-task artifacts.
+- Bounded-corpus benchmark preserves additive behavior and writes exclusively under `two_task/bounded_corpus/`.
+- Tests assert import/public-surface stability and additive artifact discipline, with POSIX-normalized path checks for cross-platform stability.

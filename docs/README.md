@@ -27,10 +27,10 @@ Tasks 176–180 operationalized the pilot over a real curated corpus and recorde
 
 Tasks 181–185 now shift to reliability first:
 - Task 181: failure-family taxonomy and repair-target selection
-- Task 182: public/import compatibility guardrails for additive benchmark and runner work
+- Task 182: public/import compatibility guardrails for orchestrator benchmark surfaces
 - Task 183: resume-safe attempt checkpoint and recovery re-entry truth
 - Task 184: reliability benchmark and regression matrix for one-task and bounded two-task runs
-- Task 185: reliability checkpoint and explicit capability-resume gate
+- Task 185: reliability checkpoint and explicit gate for when capability widening may resume
 
 ## Current next-step note
 
@@ -40,7 +40,7 @@ The near-term focus stays conservative:
 - improve repair-target precision instead of broad fallback patching
 - make interrupted or partially-green runs resume from explicit checkpoints
 - measure reliability with retry count, supervision rate, and recurring failure-family evidence
-- only consider capability widening after the reliability checkpoint says the runtime is materially more stable
+- only consider capability widening after the post-185 reliability gate is satisfied
 
 The immediate operator-facing reference for this slice is `ORCHESTRATOR_RELIABILITY_FIRST_181_185.md`.
 
@@ -57,3 +57,10 @@ The immediate operator-facing reference for this slice is `ORCHESTRATOR_RELIABIL
 - Tests: tests/test_repair_targeting.py
 
 These reduce broad repair attempts and reinforce protected and one-task proof surfaces.
+
+## Reliability-first addition (Task 182)
+
+- Explicit import/public compatibility guardrails for orchestrator benchmark surfaces
+- Canary and corpus benchmarks remain additive, never mutating strict one-task artifacts
+- Tests enforce import stability and artifact-path discipline (POSIX-normalized checks avoid OS-specific regressions)
+- Compatibility aliases and explicit exports protect shared import surfaces going forward

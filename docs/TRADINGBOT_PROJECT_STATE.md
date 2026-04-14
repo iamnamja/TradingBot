@@ -10,9 +10,9 @@ The current monorepo contains:
 - Numbered implementation tasks (`tasks`)
 - Documentation and project-state tracking (`docs`)
 
-## Current state (post-Task 180)
+## Current state (post-Task 182)
 
-- Tasks 157–180 are complete in bounded supervised scope.
+- Tasks 157–182 are complete in bounded supervised scope.
 - The repo now has:
   - a strict no-manual-intervention one-task scorecard,
   - deliverable-contract and completion-integrity enforcement,
@@ -25,7 +25,8 @@ The current monorepo contains:
   - a supervised builder/verifier role split scoped for the pilot,
   - a durable two-task canary scorecard and benchmark artifacts integrated into the existing benchmark session directory,
   - a real bounded two-task pilot runner exercised over a curated adjacent-pair corpus,
-  - a bounded two-task pilot re-proof with explicit canary and corpus-backed promotion payloads.
+  - a bounded two-task pilot re-proof with explicit canary and corpus-backed promotion payloads,
+  - import/public compatibility guardrails for orchestrator benchmark surfaces to prevent additive regressions (Task 182).
 
 ## Honest current posture
 
@@ -56,7 +57,7 @@ This means:
     - `two_task/bounded_corpus/summary.json`
     - `two_task/bounded_corpus/bounded_corpus_promotion.json`
 
-Compatibility note: the canary and corpus benchmarks write only `canary_*` or `two_task/bounded_corpus/*` artifacts and never modify the strict one-task `scorecard.json`, `scoreboard.json`, or `promotion.json` files.
+Compatibility note: the canary and corpus benchmarks write only `canary_*` or `two_task/bounded_corpus/*` artifacts and never modify the strict one-task `scorecard.json`, `scoreboard.json`, or `promotion.json` files. Import/public contract guardrails now protect these entrypoints from accidental drift.
 
 ## Reliability-first continuation checkpoint (post-Task 180)
 
@@ -84,7 +85,7 @@ Before broad multi-task autonomy or product extraction can be justified, the rep
 Operate a reliability-first tranche before any capability widening:
 
 - 181 — classify recurring failure families and choose narrower repair targets
-- 182 — harden import/public benchmark compatibility contracts and additive-surface guarantees
+- 182 — harden import/public benchmark compatibility contracts and additive-surface guarantees (with cross-platform artifact path checks)
 - 183 — persist resume-safe attempt checkpoints and recovery re-entry truth
 - 184 — benchmark one-task and bounded two-task reliability by failure family, retry count, and supervision rate
 - 185 — record a reliability checkpoint and explicit gate for when capability widening may resume
@@ -112,3 +113,13 @@ Task 181 adds a durable failure-family taxonomy and conservative repair-target s
 - Behavior: narrows default repair surfaces per family, reduces broad fallback repairs, preserves protected and one-task proof surfaces.
 
 These helpers are additive and can be reused by the existing repair planner without broader orchestrator rewrites.
+
+## Reliability-first addition (Task 182)
+
+Task 182 adds explicit import/public compatibility guardrails across benchmark entrypoints:
+
+- One-task strict scorecard wiring is part of the public surface and is enforced by tests.
+- Two-task canary artifacts are isolated behind `canary_*` and never touch one-task artifacts.
+- Bounded-corpus benchmark writes exclusively to `two_task/bounded_corpus/` and emits a conservative promotion/checkpoint artifact.
+- Tests ensure import stability and OS-agnostic artifact path discipline.
+- Compatibility aliases and explicit module exports prevent accidental import-surface regression.
