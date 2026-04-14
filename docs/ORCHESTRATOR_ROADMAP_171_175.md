@@ -1,34 +1,25 @@
-# Orchestrator Roadmap 171–175
+# Orchestrator Roadmap 171-175
 
-## Theme
+## Current tranche posture
 
-Bounded two-task pilot preparation under supervision.
+This tranche remains about **bounded supervised two-task pilot preparation**, not broad multi-task autonomy.
 
-## Why this slice exists
+The intended order is still:
 
-Tasks 166–170 tightened one-task promotion truth and defined a conservative path toward bounded multi-task work. The repo is now conditionally ready under supervision for one-task work, but a two-task pilot still needs mechanical admission, dependency handoff, supervised role separation, and measured canary truth before it can be justified.
+- 171 — pilot admission and eligibility truth
+- 172 — dependency-aware adjacent-task handoff contract
+- 173 — supervised dev/test role split for bounded pilot
+- 174 — two-task canary scorecard and benchmark
+- 175 — bounded two-task pilot re-proof and product checkpoint
 
-This slice is not broad multi-task autonomy. It is the smallest credible supervised two-task pilot preparation slice.
+## Execution discipline for 173
 
-## Tasks
+Task 173 must be treated the same way Task 172 ultimately had to be treated:
 
-### 171 — two-task pilot admission and eligibility truth
-Make pilot admission mechanical and threshold-based.
+- additive extension only,
+- preserve frozen/public contract surfaces,
+- preserve single-task reporting/proof helpers,
+- preserve older compatibility keys and defaulting behavior,
+- and avoid rewriting shared controller-contract modules into slimmer alternate APIs.
 
-### 172 — dependency-aware two-task handoff contract
-Define the adjacent-task handoff truth that task two requires before starting.
-
-Execution discipline for 172: preserve frozen multi-agent/public surfaces and add the adjacent A->B handoff contract by bounded extension only. This task is not a contract rewrite.
-
-### 173 — supervised dev-test role split for bounded pilot
-Split dev and test roles explicitly for the supervised pilot lane.
-
-### 174 — two-task canary scorecard and benchmark
-Measure the pilot lane with durable scorecard truth.
-
-### 175 — bounded two-task pilot re-proof and product checkpoint
-Decide whether a bounded supervised two-task pilot is justified and whether productization remains blocked.
-
-## Exit signal
-
-Do not claim general multi-task autonomy or the separate orchestrator app phase at the end of this slice unless the bounded pilot re-proof explicitly justifies the next widening step.
+The goal of 173 is to make the supervised builder/verifier split explicit for the bounded pilot, not to redesign the repository's multi-agent contract surface.
