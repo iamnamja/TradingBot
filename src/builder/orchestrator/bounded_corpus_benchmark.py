@@ -35,6 +35,91 @@ def _safe_json_write(path: str, data: Any) -> None:
         json.dump(data, f, indent=2, sort_keys=True, default=str)
 
 
+def _promotion_verdict_and_checkpoint(summary: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Derive a conservative promotion/checkpoint verdict for the bounded two-task corpus.
+
+    Keeps two non-goals explicitly blocked:
+    - unattended broad multi-task autonomy
+    - standalone orchestrator productization
+    """
+    total_pairs = int(summary.get("total_pairs", 0))
+    eligible_pairs = int(summary.get("eligible_pairs", 0))
+    completed = int(summary.get("completed_bounded_pilot_pairs", 0))
+    blocked_adm = int(summary.get("blocked_admissions", 0))
+    handoff_fail = int(summary.get("handoff_failures", 0))
+    supervised = int(summary.get("supervised_interventions", 0))
+
+    denom = max(eligible_pairs, 1)
+    completed_rate = completed / denom
+    supervised_rate = supervised / denom
+    handoff_fail_rate = handoff_fail / denom
+    blocked_rate = blocked_adm / max(total_pairs, 1)
+
+    thresholds = {
+        "min_completed_rate_to_continue": 0.3,
+        "min_completed_rate_to_widen": 0.5,
+        "max_supervised_rate_for_continue": 0.5,
+        "max_handoff_failure_rate_for_continue": 0.4,
+        "max_admission_blocked_rate_for_widen": 0.2,
+    }
+
+    # Default conservative verdict
+    verdict = "conditionally_ready_under_supervision"
+
+    if eligible_pairs == 0 or completed_rate < 0.2:
+        verdict = "not_ready"
+    else:
+        # Consider continue vs widen conservatively
+        if (
+            completed_rate >= thresholds["min_completed_rate_to_widen"]
+            and supervised_rate <= thresholds["max_supervised_rate_for_continue"]
+            and handoff_fail_rate <= thresholds["max_handoff_failure_rate_for_continue"]
+            and blocked_rate <= thresholds["max_admission_blocked_rate_for_widen"]
+        ):
+            verdict = "cautiously_ready_to_expand_corpus_under_supervision"
+        elif (
+            completed_rate >= thresholds["min_completed_rate_to_continue"]
+            and supervised_rate <= thresholds["max_supervised_rate_for_continue"]
+            and handoff_fail_rate <= thresholds["max_handoff_failure_rate_for_continue"]
+        ):
+            verdict = "ready_to_continue_bounded_pilot"
+        else:
+            verdict = "conditionally_ready_under_supervision"
+
+    may_widen = verdict == "cautiously_ready_to_expand_corpus_under_supervision"
+
+    widening_checkpoint = {
+        "bounded_two_task_corpus_verdict": verdict,
+        "may_widen_curated_corpus_under_supervision": bool(may_widen),
+        "broad_unattended_multi_task_autonomy_blocked": True,
+        "standalone_orchestrator_productization_blocked": True,
+        "notes": (
+            "Widening remains supervised and bounded. One-task truth surfaces are unchanged. "
+            "Broader unattended multi-task autonomy and standalone productization remain blocked."
+        ),
+    }
+
+    return {
+        "verdict": verdict,
+        "thresholds": thresholds,
+        "metrics": {
+            "total_pairs": total_pairs,
+            "eligible_pairs": eligible_pairs,
+            "completed_pairs": completed,
+            "blocked_admissions": blocked_adm,
+            "handoff_failures": handoff_fail,
+            "supervised_interventions": supervised,
+            "completed_rate": round(completed_rate, 4),
+            "supervised_rate": round(supervised_rate, 4),
+            "handoff_failure_rate": round(handoff_fail_rate, 4),
+            "admission_blocked_rate": round(blocked_rate, 4),
+        },
+        "widening_checkpoint": widening_checkpoint,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
 def run_bounded_two_task_corpus_benchmark(
     session_dir: Optional[str] = None,
     pairs: Optional[List[Dict[str, Any]]] = None,
@@ -44,6 +129,7 @@ def run_bounded_two_task_corpus_benchmark(
     - Loads curated adjacent pairs using existing manifest helpers if not provided.
     - Runs the real bounded pilot runner for each pair.
     - Persists durable artifacts in a two_task/bounded_corpus directory under the session_dir.
+    - Writes a conservative promotion/checkpoint artifact alongside the corpus outputs.
     - Returns a summary dict with benchmark metrics.
     """
     # Resolve session/artifacts directory using existing conventions where possible.
@@ -175,5 +261,9 @@ def run_bounded_two_task_corpus_benchmark(
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     _safe_json_write(os.path.join(bounded_dir, "summary.json"), summary)
+
+    # Write a promotion/checkpoint artifact for the bounded corpus evidence
+    promotion = _promotion_verdict_and_checkpoint(summary)
+    _safe_json_write(os.path.join(bounded_dir, "bounded_corpus_promotion.json"), promotion)
 
     return summary

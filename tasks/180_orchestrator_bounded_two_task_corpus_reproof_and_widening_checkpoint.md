@@ -66,3 +66,14 @@ Run a corpus-backed bounded two-task re-proof and record a conservative widening
 - Docs record an explicit widening checkpoint and what remains blocked.
 - Scope honesty is preserved: broader autonomy and product extraction remain blocked unless the evidence clearly justifies the next step.
 - `README.md` and `docs/TRADINGBOT_PROJECT_STATE.md` do not overclaim broad multi-task autonomy or standalone orchestrator product readiness.
+
+## Implementation notes
+
+- The bounded-corpus benchmark entrypoint remains additive: `builder.orchestrator.bounded_corpus_benchmark.run_bounded_two_task_corpus_benchmark(...)`.
+- The corpus benchmark persists its own session directory at `two_task/bounded_corpus/`.
+- A durable promotion/checkpoint artifact named `bounded_corpus_promotion.json` is written alongside `pairs.json` and `summary.json`.
+- The promotion artifact includes:
+  - `verdict` (conservative),
+  - `thresholds` (explicit),
+  - `metrics` (derived from the corpus run),
+  - `widening_checkpoint` (explicitly stating that broad unattended multi-task autonomy and standalone productization remain blocked).

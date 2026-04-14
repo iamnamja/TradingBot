@@ -18,6 +18,13 @@ Tasks 171–175 completed bounded supervised two-task pilot preparation and re-p
 - Task 174: two-task canary scorecard and benchmark artifacts
 - Task 175: bounded two-task pilot re-proof and product-direction checkpoint
 
+Tasks 176–180 operationalize the pilot over a real curated corpus and record a cautious widening checkpoint:
+- Task 176: exact two-task pilot runner and pair-level session ledger
+- Task 177: curated adjacent-pair corpus and admission manifest
+- Task 178: supervised-intervention artifact and pilot failure digest
+- Task 179: real bounded corpus benchmark artifacts under `two_task/bounded_corpus`
+- Task 180: bounded two-task corpus re-proof and `bounded_corpus_promotion.json` widening checkpoint
+
 ## Current next-step note
 
 The near-term focus stays conservative:
@@ -32,5 +39,5 @@ The immediate operator-facing reference for this slice is `ORCHESTRATOR_BOUNDED_
 
 ## Product-direction checkpoint
 
-- Bounded two-task pilot verdict: ready for a bounded supervised two-task pilot.
-- Standalone orchestrator-as-its-own-app: remains blocked pending broader multi-task autonomy and stability proof.
+- Bounded two-task pilot verdict: ready for a bounded supervised two-task pilot on the curated corpus.
+- Widening checkpoint: cautiously consider widening the curated pair corpus only while staying supervised and only when corpus metrics are within conservative thresholds. Broad unattended multi-task autonomy remains blocked. Standalone orchestrator-as-its-own-app remains blocked.
