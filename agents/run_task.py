@@ -402,6 +402,59 @@ def parse_file_bundle(text: str) -> Dict[str, str]:
         raise FileBundleError("No FILE: blocks could be parsed (check FILE:/END_FILE lines).")
 
     return files
+
+
+def declared_transport_contract(provider: str | None = None, model: str | None = None) -> Dict[str, str]:
+    try:
+        from agents.lib.provider_client import declared_transport_contract as _declared_transport_contract  # type: ignore
+    except Exception:
+        _declared_transport_contract = None  # type: ignore[assignment]
+
+    if callable(_declared_transport_contract):
+        try:
+            payload = _declared_transport_contract(provider=provider, model=model)
+            if isinstance(payload, dict):
+                return {str(k): str(v) for k, v in payload.items()}
+        except Exception:
+            pass
+
+    chosen_provider = (provider or default_provider()).strip().lower()
+    chosen_model = (model or default_model_for_provider(chosen_provider)).strip()
+    return {
+        "provider": chosen_provider,
+        "model": chosen_model,
+        "model_profile_id": "gpt_file_bundle",
+        "output_transport": "file_bundle",
+        "transport_contract": "strict_file_bundle",
+    }
+
+
+def parse_transport_payload(
+    text: str,
+    *,
+    transport: str,
+    existing_files: Dict[str, str] | None = None,
+) -> Dict[str, str]:
+    try:
+        from agents.lib.bundle_parser import parse_transport_payload as _parse_transport_payload  # type: ignore
+    except Exception:
+        _parse_transport_payload = None  # type: ignore[assignment]
+
+    if _parse_transport_payload is not None:
+        return _parse_transport_payload(
+            text=text,
+            transport=transport,
+            normalize_newlines=normalize_newlines,
+            file_bundle_begin=FILE_BUNDLE_BEGIN,
+            file_bundle_end=FILE_BUNDLE_END,
+            file_header_re=FILE_HEADER_RE,
+            file_end=FILE_END,
+            error_cls=FileBundleError,
+            existing_files=dict(existing_files or {}),
+        )
+
+    return parse_file_bundle(text)
+
 def write_files(files: Dict[str, str]) -> None:
     repo_root = Path(".").resolve()
     for rel, data in files.items():
@@ -4136,6 +4189,9 @@ def request_and_parse_bundle(
     ]
     baseline = dict(baseline or {})
 
+    transport_decl = declared_transport_contract(provider=provider, model=model)
+    selected_transport = str(transport_decl.get("output_transport", "file_bundle") or "file_bundle").strip().lower() or "file_bundle"
+
     gate_ok, gate_message = enforce_meta_file_task_gate(allowed_paths, forbidden_paths)
     if not gate_ok:
         raise FileBundleError(gate_message)
@@ -4181,8 +4237,28 @@ def request_and_parse_bundle(
         *,
         require_all: bool = False,
     ) -> Dict[str, str]:
+        target_paths = allowed_paths_subset or allowed_paths
+        existing_subset = {
+            path: baseline[path]
+            for path in target_paths
+            if path in baseline
+        }
+
+        if selected_transport != "file_bundle":
+            parsed = parse_transport_payload(
+                raw,
+                transport=selected_transport,
+                existing_files=existing_subset,
+            )
+            return _validate_transport(parsed, allowed_paths_subset, require_all=require_all)
+
         try:
-            return _validate_transport(parse_file_bundle(raw), allowed_paths_subset, require_all=require_all)
+            parsed = parse_transport_payload(
+                raw,
+                transport="file_bundle",
+                existing_files=existing_subset,
+            )
+            return _validate_transport(parsed, allowed_paths_subset, require_all=require_all)
         except Exception:
             salvage_scope = allowed_paths_subset or allowed_paths
             salvaged, warnings = _parse_file_bundle_transport_resilient(raw, expected_paths=salvage_scope)
