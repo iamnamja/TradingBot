@@ -208,3 +208,17 @@ tests.zip
 !agents/lib/
 !agents/lib/*.py
 !agents/lib/**/*.py
+
+# Runtime/debug scratch artifacts
+last_output.txt
+_last_agent_model_output.txt
+_last_agent_file_bundle.txt
+_last_agent_file_bundle_error.txt
+_last_agent_file_bunddle_error.txt
+_last_subset_preservation.json
+_last_model_capability.txt
+_last_provider_call_path.txt
+_last_raw_output_meta.txt
+_last_openai_response_meta.txt
+_last_openai_raw_response_repr.txt
+_last_empty_model_response.txt

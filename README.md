@@ -60,6 +60,25 @@ It does not claim:
 
 Current active tranche: 191-195.
 
+## Transport capture-result artifact (Task 191 addendum)
+
+Transport failures now persist an explicit raw-output capture-result artifact:
+
+- Path: `_last_raw_output_capture_result.json`
+- Always written when transport diagnostics are emitted
+- Classification values:
+  - `non_empty` — raw output captured and non-empty
+  - `empty_zero_length` — raw output file exists but length is zero
+  - `empty_whitespace_only` — raw output contains only whitespace
+  - `failed_before_payload` — capture failed before any payload was available
+  - `truncated_or_redacted` — raw output was truncated or redacted for safety
+- Related observability artifacts:
+  - `_last_provider_call_path.txt` — provider/model/phase call path
+  - `_last_raw_output_meta.txt` — raw-output meta including length and non-empty flags
+  - `_last_agent_file_bundle_error.txt` — bundle-parse failure summary
+
+These artifacts are additive and do not change the existing `_last_agent_model_output.txt` behavior; they make the emptiness case explicit rather than implicit.
+
 ## Next continuation target
 
 Stay conservative and focus on runner stability and fast observability:
