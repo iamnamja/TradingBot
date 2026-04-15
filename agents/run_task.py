@@ -5537,9 +5537,11 @@ def _runtime_foundations_exports() -> Dict[str, object]:
     return {
         "default_provider": getattr(provider_client, "default_provider", _default_provider_local),
         "default_model_for_provider": getattr(provider_client, "default_model_for_provider", _default_model_for_provider_local),
-        "chat_openai": getattr(provider_client, "chat_openai", _chat_openai_local),
-        "chat_anthropic": getattr(provider_client, "chat_anthropic", _chat_anthropic_local),
-        "chat": getattr(provider_client, "chat", _chat_local),
+        # Known provider chat must stay on the local runtime implementations.
+        # provider_client.chat* are public/test shims and may be empty placeholders.
+        "chat_openai": _chat_openai_local,
+        "chat_anthropic": _chat_anthropic_local,
+        "chat": _chat_local,
         "run": getattr(git_ops, "run", _run_local),
         "capture": getattr(git_ops, "capture", _capture_local),
         "capture_result": getattr(check_runner, "capture_result", _capture_result_local),

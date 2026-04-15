@@ -22,17 +22,10 @@ def _write_task_file(tmp_path: Path, body: str = "Implement feature safely") -> 
     return task_file
 
 
-def test_provider_wrapper_delegates_to_extracted_module(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_wrapper_uses_local_runtime_for_known_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     run_task = _import_run_task_module()
-    provider_client = importlib.import_module("agents.lib.provider_client")
 
-    def _fake_chat(messages: list[dict[str, str]], model: str, provider: str | None = None) -> str:
-        assert messages == [{"role": "user", "content": "x"}]
-        assert model == "m"
-        assert provider == "openai"
-        return "OK"
-
-    monkeypatch.setattr(provider_client, "chat", _fake_chat)
+    monkeypatch.setattr(run_task, "_chat_openai_local", lambda messages, model: "OK")
 
     assert run_task.chat([{"role": "user", "content": "x"}], model="m", provider="openai") == "OK"
 
