@@ -52,6 +52,44 @@ def _read_ledger(path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
+def _coerce_resume_truth(task_a: Dict[str, Any], task_b: Dict[str, Any], *, handoff_ok: bool) -> Dict[str, str]:
+    """
+    Persist a tiny adjacent-pair resume-truth summary:
+    - Prefer an explicit 'resume_plan' dict on either task (B overrides A).
+    - Else infer 'unknown' with conservative defaults.
+    """
+    plan_obj = {}
+    if isinstance(task_a.get("resume_plan"), dict):
+        plan_obj = dict(task_a.get("resume_plan") or {})
+    if isinstance(task_b.get("resume_plan"), dict):
+        # B takes precedence if provided
+        plan_obj = dict(task_b.get("resume_plan") or {}) or plan_obj
+
+    mode = str(plan_obj.get("mode", "")).strip()
+    surface = str(plan_obj.get("surface", "")).strip()
+    precision = str(plan_obj.get("precision", "")).strip().lower()
+
+    if not precision:
+        if mode == "resume" and surface:
+            precision = "precise"
+        elif mode in {"fresh", "restart"}:
+            precision = "broad"
+        else:
+            precision = "unknown"
+
+    if not mode:
+        mode = "unknown"
+
+    source = "task_payload" if plan_obj else "inferred"
+    if source == "inferred" and handoff_ok:
+        # With an eligible adjacent handoff but no explicit plan, keep precision unknown rather than
+        # guessing at broad or precise.
+        mode = "default" if mode == "unknown" else mode
+        precision = "unknown"
+
+    return {"mode": mode, "precision": precision, "source": source}
+
+
 def run_bounded_two_task_pilot(
     tasks: List[Dict[str, Any]],
     artifact_dir: Optional[str] = None,
@@ -82,6 +120,8 @@ def run_bounded_two_task_pilot(
         admission = {"accepted": False, "reason": "requires exactly two tasks"}
         handoff = {"eligible": False, "reason": "requires exactly two tasks"}
 
+    resume_truth = _coerce_resume_truth(task_a, task_b, handoff_ok=bool(handoff.get("eligible", False)))
+
     ledger: Dict[str, Any] = {
         "pair_id": pair_id,
         "task_a_id": task_a_id,
@@ -90,6 +130,7 @@ def run_bounded_two_task_pilot(
         "handoff": handoff,
         "role_sequence": role_sequence,
         "supervision_required": supervision_required,
+        "resume_truth": resume_truth,
         "outcome": "rejected",  # default; may become success/failed
         "tasks": [],
     }

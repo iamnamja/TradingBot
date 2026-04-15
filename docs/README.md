@@ -50,3 +50,7 @@ The bounded supervised two-task pilot was rerun on the recovered runtime path. T
 - and preserve the explicit supervised-widening checkpoint. Broader unattended multi-task autonomy and standalone productization remain blocked pending stronger post-200 evidence.
 
 All artifacts are written on the recovered runtime path to ensure transport-stability parity with the post-195 checkpoint.
+
+## Adjacent-pair resume precision note (Task 198)
+
+Adjacent-pair runs now persist a small resume-truth signal that distinguishes precise checkpointed re-entry from broad reruns. The attempt-state re-entry plan adds an explicit precision field, and the bounded two-task pilot ledger records a compact resume_truth section when an adjacent follow-on is declared. This keeps re-entry behavior observable and conservative without widening the pilot beyond its current scope.

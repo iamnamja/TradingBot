@@ -54,6 +54,8 @@ def init_attempt_state(root: Path | str, attempt_id: str) -> AttemptStateRecord:
         failure_count=0,
         manual_intervention=False,
         checkpoint_history=[],
+        last_reentry_precision="",
+        reentry_plan_history=[],
     )
     _atomic_write_json(path, state.to_dict())
     return state
@@ -76,6 +78,8 @@ def load_attempt_state(root: Path | str) -> AttemptStateRecord:
             failure_count=0,
             manual_intervention=True,
             checkpoint_history=[],
+            last_reentry_precision="",
+            reentry_plan_history=[],
         )
     try:
         with path.open("r", encoding="utf-8") as f:
@@ -92,6 +96,8 @@ def load_attempt_state(root: Path | str) -> AttemptStateRecord:
             failure_count=0,
             manual_intervention=True,
             checkpoint_history=[],
+            last_reentry_precision="",
+            reentry_plan_history=[],
         )
 
 
@@ -117,6 +123,8 @@ def record_checkpoint(
     cp = ResumeCheckpoint(stage=stage, surface=surface, ts=time.time(), safe=safe, details=details or {})
     state.last_checkpoint = cp
     state.checkpoint_history.append(cp)
+    # Reset re-entry precision since checkpoint moved forward
+    state.last_reentry_precision = ""
     return _save_state(root, state)
 
 
@@ -142,6 +150,7 @@ def mark_manual_intervention(root: Path | str, note: Optional[str] = None) -> At
     cp = ResumeCheckpoint(stage=CheckpointStage.STARTED, surface="restart", ts=time.time(), safe=False, details=details)
     state.last_checkpoint = cp
     state.checkpoint_history.append(cp)
+    state.last_reentry_precision = "broad"
     return _save_state(root, state)
 
 
@@ -168,22 +177,27 @@ def plan_reentry(state: AttemptStateRecord) -> Dict[str, str]:
     - When manual intervention is detected, or checkpoints are unsafe/ambiguous -> restart.
     - Else when a safe checkpoint exists -> resume at its intended surface.
     - Else -> fresh.
+
+    The plan includes a precision field that distinguishes precise checkpointed re-entry
+    from broad rerun behavior.
     """
     if state.manual_intervention:
         return {
             "mode": "restart",
             "reason": "manual_intervention",
+            "precision": "broad",
         }
 
     cp = state.last_checkpoint
     if not cp:
         # No checkpoint recorded; choose safe fresh start
-        return {"mode": "fresh"}
+        return {"mode": "fresh", "precision": "broad"}
 
     if not cp.safe:
         return {
             "mode": "restart",
             "reason": "unsafe_checkpoint",
+            "precision": "broad",
         }
 
     # Known safe stages to resume from; anything else falls back to fresh as a guard.
@@ -194,11 +208,12 @@ def plan_reentry(state: AttemptStateRecord) -> Dict[str, str]:
         CheckpointStage.WORKSPACE_PREPARED,
         CheckpointStage.ADMISSION_OK,
     }
-    if cp.stage in safe_resume_stages:
+    if cp.stage in safe_resume_stages and cp.surface:
         return {
             "mode": "resume",
             "surface": cp.surface,
             "from_stage": cp.stage.value,
+            "precision": "precise",
         }
 
     # For complete/terminal checkpoints, allow a conservative post-completion surface if provided,
@@ -213,14 +228,35 @@ def plan_reentry(state: AttemptStateRecord) -> Dict[str, str]:
             "mode": "resume",
             "surface": cp.surface,
             "from_stage": cp.stage.value,
+            "precision": "precise",
         }
 
-    return {"mode": "fresh"}
+    return {"mode": "fresh", "precision": "broad"}
 
 
 def determine_reentry(root: Path | str) -> Dict[str, str]:
     """
     Convenience wrapper that loads state and computes a re-entry plan.
+    Also persists a minimal truth record of the computed plan for later
+    adjacent-pair resume diagnostics.
     """
     state = load_attempt_state(root)
-    return plan_reentry(state)
+    plan = plan_reentry(state)
+    # Persist minimal plan truth for later visibility
+    try:
+        state.last_reentry_precision = str(plan.get("precision", "") or "")
+        state.reentry_plan_history.append(
+            {
+                "ts": time.time(),
+                "mode": str(plan.get("mode", "")),
+                "precision": state.last_reentry_precision or "",
+                "from_stage": str(plan.get("from_stage", "")),
+                "surface": str(plan.get("surface", "")),
+                "reason": str(plan.get("reason", "")),
+            }
+        )
+        _save_state(root, state)
+    except Exception:
+        # Do not let persistence issues prevent computing a plan
+        pass
+    return plan

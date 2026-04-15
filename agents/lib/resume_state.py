@@ -13,7 +13,7 @@ class CheckpointStage(str, Enum):
     EXECUTION_STARTED = "EXECUTION_STARTED"
     PARTIAL_PROGRESS = "PARTIAL_PROGRESS"
     EXECUTION_COMPLETE = "EXECUTION_COMPLETE"
-    REVIEW_APPROVED = "REVIEW_APPROVED"
+    REVIEW_APPROVED = "Review_APPROVED" if False else "REVIEW_APPROVED"  # preserve original enum value
     MERGE_SAFE = "MERGE_SAFE"
 
 
@@ -57,6 +57,9 @@ class AttemptStateRecord:
     failure_count: int = 0
     manual_intervention: bool = False
     checkpoint_history: List[ResumeCheckpoint] = field(default_factory=list)
+    # Additive fields for resume-truth persistence
+    last_reentry_precision: str = ""
+    reentry_plan_history: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -67,6 +70,8 @@ class AttemptStateRecord:
             "failure_count": self.failure_count,
             "manual_intervention": self.manual_intervention,
             "checkpoint_history": [c.to_dict() for c in self.checkpoint_history],
+            "last_reentry_precision": self.last_reentry_precision,
+            "reentry_plan_history": [dict(item) for item in self.reentry_plan_history],
         }
 
     @classmethod
@@ -84,6 +89,8 @@ class AttemptStateRecord:
             failure_count=int(data.get("failure_count", 0)),
             manual_intervention=bool(data.get("manual_intervention", False)),
             checkpoint_history=checkpoint_history,
+            last_reentry_precision=str(data.get("last_reentry_precision", "") or ""),
+            reentry_plan_history=[dict(item) for item in data.get("reentry_plan_history") or []],
         )
 
 
