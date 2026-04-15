@@ -1,6 +1,0 @@
-call_path: agents.run_task.chat -> provider
-provider: provider
-model: model
-required_transport: method_insertion
-selected_transport: file_bundle
-phase: method_insertion.retry
