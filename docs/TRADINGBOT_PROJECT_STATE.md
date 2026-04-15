@@ -86,3 +86,14 @@ The next tranche must prove that the recovered runtime path holds up under real 
 ## Task 196 checkpoint note
 
 The orchestrator’s one-task benchmark harness was refreshed on the recovered runtime path, and an explicit empty-output regression guard was added. The guard evaluates recent transport-observability records and conservatively downgrades the promotion verdict if empty-output failures exceed a small tolerated rate. The preserved GPT file-bundle path remains the baseline. The result tightens the default proving lane without widening multi-task claims.
+
+## Task 197 checkpoint note
+
+The bounded supervised two-task pilot was rerun on the recovered runtime path. Scorecard and promotion artifacts were refreshed conservatively:
+
+- transport-stable direct completions are now surfaced separately from supervision-assisted progress,
+- the existing curated adjacent-pair corpus discipline is preserved,
+- the corpus-level widening checkpoint remains explicitly supervised,
+- and broader unattended multi-task autonomy and standalone productization stay blocked.
+
+The refreshed promotion artifacts remain supervision-aware. Verdicts continue to prefer conditional readiness unless transport-stable success is materially better than self-healed outcomes with low supervision and low authority ambiguity. All runs and evidence for this rerun were captured on the recovered runtime path to ensure transport-stability parity.

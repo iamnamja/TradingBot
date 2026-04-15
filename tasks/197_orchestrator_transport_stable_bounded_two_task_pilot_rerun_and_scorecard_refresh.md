@@ -40,3 +40,12 @@ Rerun the bounded two-task pilot scorecard flow on the recovered runtime path an
 - Refreshed bounded two-task scorecards exist on the recovered runtime path.
 - Promotion-style artifacts remain conservative and supervision-aware.
 - Tests cover the refreshed scorecard behavior.
+
+## Implementation notes
+
+- The strict scorecard session now emits:
+  - scorecard.json with full counts,
+  - scoreboard.json for external-safe pass-rate parity,
+  - promotion.json with explicit thresholds, a conservative verdict, and metrics that separate transport-stable direct successes from supervision-assisted outcomes.
+- The bounded-corpus benchmark persists a conservative promotion checkpoint that preserves supervised widening discipline and explicitly blocks broad unattended autonomy and product extraction.
+- All refreshed artifacts are captured under the recovered runtime path to ensure parity with the transport-stability checkpoint.

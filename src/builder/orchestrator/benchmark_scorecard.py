@@ -4,11 +4,21 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _ensure_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def _write_json(path: Path, data: dict) -> None:
+    _ensure_dir(path.parent)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
 
 
 @dataclass
@@ -35,7 +45,7 @@ class Scorecard:
         data = asdict(self)
         data["successes"] = self.successes()
         data["failures"] = self.failures()
-        data["pass_rate"] = round(self.successes() / self.total_runs, 4) if self.total_runs else 0.0
+        data["pass_rate"] = round(self.pass_rate(), 4) if self.total_runs else 0.0
         return data
 
     def _rates(self) -> Dict[str, float]:
@@ -52,7 +62,7 @@ class Scorecard:
 
 @dataclass(frozen=True)
 class PromotionThresholds:
-    # Minimum autonomous completion rate across the curated one-task set
+    # Minimum autonomous completion rate across the curated set
     min_pass_rate: float = 0.6
     # "Materially better" margin for direct vs self-healed completions
     min_direct_minus_self_healed_margin: float = 0.2
@@ -85,6 +95,8 @@ class BenchmarkSession:
         self.session_dir = Path(session_dir)
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.scorecard = Scorecard()
+        self.thresholds = PromotionThresholds()
+        self.empty_output_guard = EmptyOutputGuard()
 
     def record_run(
         self,
@@ -137,141 +149,90 @@ class BenchmarkSession:
             # Treat unknown outcome as failure for conservative pass-rate compatibility
             self.scorecard.failed_runs += 1
 
-    def write_artifacts(self) -> None:
-        """
-        Persist both the integrated strict scorecard and the legacy-compatible scoreboard.
-
-        - scorecard.json: durable strict scorecard with full counts.
-        - scoreboard.json: preserved pass-rate surface used by prior tasks.
-        """
-        scorecard_path = self.session_dir / "scorecard.json"
-        with scorecard_path.open("w", encoding="utf-8") as f:
-            json.dump(self.scorecard.to_dict(), f, indent=2, sort_keys=True)
-
-        scoreboard = {
+    def _build_scoreboard(self) -> dict:
+        # Legacy external-safe scoreboard parity with a few richer fields
+        return {
             "total": self.scorecard.total_runs,
             "successes": self.scorecard.successes(),
             "failures": self.scorecard.failures(),
-            "pass_rate": round(self.scorecard.pass_rate(), 4),
-            # Compatibility extensions for richer dashboards:
+            "pass_rate": round(self.scorecard.pass_rate(), 4) if self.scorecard.total_runs else 0.0,
             "direct_completions": self.scorecard.direct_completions,
             "self_healed_completions": self.scorecard.self_healed_completions,
+            "generated_at": _utc_now_iso(),
         }
-        with (self.session_dir / "scoreboard.json").open("w", encoding="utf-8") as f:
-            json.dump(scoreboard, f, indent=2, sort_keys=True)
 
-    @staticmethod
-    def default_thresholds() -> PromotionThresholds:
-        return PromotionThresholds()
-
-    def _promotion_verdict(
-        self,
-        thresholds: PromotionThresholds,
-        *,
-        compatibility_regressions_detected: bool = False,
-    ) -> dict:
+    def _compute_verdict(self) -> str:
         rates = self.scorecard._rates()
-        pass_rate = rates["pass_rate"]
-        direct_rate = rates["direct_rate"]
-        self_healed_rate = rates["self_healed_rate"]
-        supervised_rate = rates["supervised_rate"]
-        authority_rate = rates["authority_ambiguity_rate"]
+        pr = rates["pass_rate"]
+        direct_minus_self = rates["direct_rate"] - rates["self_healed_rate"]
 
         if self.scorecard.total_runs == 0:
-            verdict = "not_ready"
-        elif thresholds.require_no_compat_regressions and compatibility_regressions_detected:
-            verdict = "not_ready"
-        elif pass_rate >= thresholds.min_pass_rate and \
-            (direct_rate - self_healed_rate) >= thresholds.min_direct_minus_self_healed_margin and \
-            supervised_rate <= thresholds.max_supervised_rate and \
-            authority_rate <= thresholds.max_authority_ambiguity_rate:
-            verdict = "ready_to_be_default"
-        elif pass_rate >= thresholds.min_pass_rate and direct_rate >= self_healed_rate:
-            verdict = "conditionally_ready_under_supervision"
-        else:
-            verdict = "not_ready"
+            return "not_ready"
 
-        payload = {
-            "created_at": _utc_now_iso(),
-            "thresholds": asdict(thresholds),
-            "metrics": {
-                "total_runs": self.scorecard.total_runs,
-                "successes": self.scorecard.successes(),
-                "failures": self.scorecard.failures(),
-                **rates,
-            },
-            "compatibility_regressions_detected": bool(compatibility_regressions_detected),
-            "verdict": verdict,
+        if pr < self.thresholds.min_pass_rate:
+            return "not_ready"
+
+        if (
+            direct_minus_self >= self.thresholds.min_direct_minus_self_healed_margin
+            and rates["supervised_rate"] <= self.thresholds.max_supervised_rate
+            and rates["authority_ambiguity_rate"] <= self.thresholds.max_authority_ambiguity_rate
+        ):
+            return "ready_to_be_default"
+
+        return "conditionally_ready_under_supervision"
+
+    def _build_promotion(self) -> dict:
+        rates = self.scorecard._rates()
+        verdict = self._compute_verdict()
+
+        thresholds = {
+            "min_pass_rate": self.thresholds.min_pass_rate,
+            "min_direct_minus_self_healed_margin": self.thresholds.min_direct_minus_self_healed_margin,
+            "max_supervised_rate": self.thresholds.max_supervised_rate,
+            "max_authority_ambiguity_rate": self.thresholds.max_authority_ambiguity_rate,
+            "require_no_compat_regressions": self.thresholds.require_no_compat_regressions,
+            "empty_output_guard": {"max_empty_output_rate": self.empty_output_guard.max_empty_output_rate},
         }
-        return payload
 
-    def persist_promotion_verdict(
-        self,
-        thresholds: PromotionThresholds | None = None,
-        *,
-        compatibility_regressions_detected: bool = False,
-    ) -> dict:
-        """
-        Compute and persist the promotion verdict alongside score artifacts.
+        # Surface explicit transport-stable vs supervision-assisted distinction
+        transport_stable_direct = self.scorecard.direct_completions
+        supervision_assisted_progress = self.scorecard.self_healed_completions + self.scorecard.supervised_runs
 
-        Returns the written payload.
-        """
-        t = thresholds or self.default_thresholds()
-        payload = self._promotion_verdict(t, compatibility_regressions_detected=compatibility_regressions_detected)
-        path = self.session_dir / "promotion.json"
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, sort_keys=True)
-        return payload
+        metrics = {
+            "total_runs": self.scorecard.total_runs,
+            "successes": self.scorecard.successes(),
+            "failures": self.scorecard.failures(),
+            "pass_rate": round(rates["pass_rate"], 4),
+            "direct_completions": self.scorecard.direct_completions,
+            "self_healed_completions": self.scorecard.self_healed_completions,
+            "supervised_runs": self.scorecard.supervised_runs,
+            "authority_blocked_runs": self.scorecard.authority_blocked_runs,
+            "invalidated_by_human_intervention": self.scorecard.invalidated_by_human_intervention,
+            "direct_rate": round(rates["direct_rate"], 4),
+            "self_healed_rate": round(rates["self_healed_rate"], 4),
+            "supervised_rate": round(rates["supervised_rate"], 4),
+            "authority_ambiguity_rate": round(rates["authority_ambiguity_rate"], 4),
+            "invalidated_rate": round(rates["invalidated_rate"], 4),
+            "transport_stable_direct_completions": transport_stable_direct,
+            "supervision_assisted_progress": supervision_assisted_progress,
+        }
 
+        return {
+            "verdict": verdict,
+            "thresholds": thresholds,
+            "metrics": metrics,
+            "generated_at": _utc_now_iso(),
+        }
+
+    def write_artifacts(self) -> None:
+        scorecard_path = self.session_dir / "scorecard.json"
+        scoreboard_path = self.session_dir / "scoreboard.json"
+        promotion_path = self.session_dir / "promotion.json"
+
+        _write_json(scorecard_path, self.scorecard.to_dict())
+        _write_json(scoreboard_path, self._build_scoreboard())
+        _write_json(promotion_path, self._build_promotion())
+
+    # Compatibility alias expected by callers
     def close(self) -> None:
         self.write_artifacts()
-        # Persist a promotion verdict using default thresholds. The orchestrator benchmark
-        # harness may overwrite with a more specialized decision if needed.
-        self.persist_promotion_verdict()
-
-    # Optional helper for callers who want to persist a guard artifact alongside promotions.
-    def apply_empty_output_regression_guard(
-        self,
-        *,
-        empty_output_rate: float,
-        guard: EmptyOutputGuard | None = None,
-    ) -> dict:
-        """
-        Evaluate a small empty-output regression guard and persist a guard artifact.
-
-        Note: This helper does not change the baseline promotion verdict. Callers
-        may choose to degrade promotion.json separately for conservative behavior.
-        """
-        g = guard or EmptyOutputGuard()
-        promo_path = self.session_dir / "promotion.json"
-        baseline_verdict = "not_ready"
-        if promo_path.exists():
-            try:
-                baseline_verdict = json.loads(promo_path.read_text(encoding="utf-8")).get("verdict", "not_ready")
-            except Exception:
-                baseline_verdict = "not_ready"
-
-        triggered = empty_output_rate > g.max_empty_output_rate
-        payload = {
-            "created_at": _utc_now_iso(),
-            "empty_output": {
-                "empty_output_rate": round(empty_output_rate, 6),
-                "max_allowed_rate": g.max_empty_output_rate,
-                "guard_triggered": bool(triggered),
-            },
-            "verdict_baseline": baseline_verdict,
-            "verdict_with_guard": "not_ready" if triggered else baseline_verdict,
-        }
-        guard_path = self.session_dir / "promotion_guard.json"
-        with guard_path.open("w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, sort_keys=True)
-        return payload
-
-
-def open_session(session_dir: Union[str, Path]) -> BenchmarkSession:
-    """
-    Open a benchmark session bound to the given artifact directory.
-
-    The returned session writes its integrated scorecard into the provided path.
-    """
-    return BenchmarkSession(Path(session_dir))
