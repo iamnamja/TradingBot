@@ -49,3 +49,25 @@ Record a durable post-transport execution checkpoint and bounded next-slice gate
 - A durable post-200 checkpoint artifact exists.
 - The bounded next-slice verdict is explicit, conservative, and supervision-aware.
 - Tests cover the checkpoint decision branches.
+
+## Implementation notes
+
+- Added conservative transport-stability evaluation and checkpoint writers:
+  - `evaluate_transport_stability_gate(summary, families, gpt_file_bundle_preserved=...)`
+  - `write_transport_stability_checkpoint(base_dir, evaluation, evidence_snapshot=...)`
+  - `compute_and_write_transport_stability(corpus, base_dir, gpt_file_bundle_preserved=True)`
+- Extended model-transport checkpoint module with a post-200 execution checkpoint:
+  - `evaluate_post_transport_execution_checkpoint(...)`
+  - `write_post_transport_execution_checkpoint(base_dir, evaluation, evidence_snapshot=None)`
+- Documentation updated with a brief Task 200 checkpoint note without altering tranche/completed-through headlines.
+
+## Operator-facing artifact surfaces
+
+- Transport-health artifacts:
+  - `.../_transport_health_summary.json`
+  - `.../_transport_failure_families.json`
+  - `.../_transport_stability_checkpoint.json`
+- Post-200 execution checkpoint:
+  - `.../reliability/post_200_execution_checkpoint.json`
+
+These artifacts are conservative, supervision-aware, and do not widen claims beyond the explicitly admitted bounded shapes.

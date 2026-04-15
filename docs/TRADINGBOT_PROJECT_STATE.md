@@ -107,3 +107,19 @@ Attempt-state now persists a small re-entry truth alongside checkpoints. The com
 ## Task 199 supervised three-step canary note
 
 A supervised three-step canary chain contract (A→B→C) is defined for cautious widening. Admission is explicitly narrow: all three tasks must be admitted, B must follow A, and C must follow B. Supervision truth remains first-class in scorecards/ledgers (no-manual-intervention accounting is preserved). This contract does not generalize to arbitrary three-task autonomy or unattended chains; it is a canary-only shape built on top of adjacent-pair truth and resume/transport artifacts from Tasks 191–198.
+
+## Post-200 execution checkpoint note
+
+The post-200 execution checkpoint remains conservative and supervision-aware:
+
+- one-task reproof and bounded two-task refresh are evaluated on the recovered runtime path,
+- adjacent-pair resume precision truth is considered part of readiness,
+- any three-step widening remains limited to the explicit supervised canary chain,
+- recurring transport failure-family rates must remain within tight bounds and preserve GPT file-bundle parity.
+
+Verdict summary:
+- bounded next-slice planning: conditionally ready under supervision,
+- three-step widening: admitted only for the explicit supervised canary chain,
+- unattended multi-task autonomy and standalone productization: still blocked.
+
+This preserves honest scope and ensures widening only occurs where checkpoint evidence can defend it.

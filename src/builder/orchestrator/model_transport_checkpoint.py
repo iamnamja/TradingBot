@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from agents.lib.docs_status_guard import default_guard_paths, validate_docs_status
 from agents.lib.model_profiles import model_profile_registry
@@ -106,8 +106,119 @@ def write_model_transport_checkpoint(base_dir: str, evaluation: Dict[str, Any], 
     return checkpoint_path
 
 
+def _rate(n: int, d: int) -> float:
+    return (n / d) if d else 0.0
+
+
+def evaluate_post_transport_execution_checkpoint(
+    *,
+    one_task_evidence: Mapping[str, Any],
+    two_task_evidence: Mapping[str, Any],
+    resume_truth: Mapping[str, Any],
+    supervision_truth: Mapping[str, Any],
+    transport_summary: Mapping[str, int],
+    transport_families: Mapping[str, int],
+    gpt_file_bundle_preserved: bool,
+) -> Dict[str, Any]:
+    """Conservative post-200 execution checkpoint across multiple evidence surfaces.
+
+    Inputs are small dict snapshots produced by existing harnesses/benchmarks.
+    This function only evaluates; it does not read or mutate artifacts.
+    """
+    counts = {
+        "transport_runs": int(transport_summary.get("run_count", 0)),
+        "transport_empty": int(transport_summary.get("empty_capture_count", 0)),
+        "bundle_parse_failures": int(transport_summary.get("bundle_parse_failure_count", 0)),
+        "method_insertion_failures": int(transport_summary.get("method_insertion_failure_count", 0)),
+        "fallback_count": int(transport_summary.get("fallback_count", 0)),
+    }
+    rates = {
+        "empty_rate": _rate(counts["transport_empty"], counts["transport_runs"]),
+        "bundle_parse_failure_rate": _rate(counts["bundle_parse_failures"], counts["transport_runs"]),
+        "method_insertion_failure_rate": _rate(counts["method_insertion_failures"], counts["transport_runs"]),
+        "fallback_rate": _rate(counts["fallback_count"], counts["transport_runs"]),
+    }
+
+    # Extract minimal comparable metrics from provided benchmark snapshots
+    one_task_pass_rate = float(one_task_evidence.get("pass_rate", one_task_evidence.get("metrics", {}).get("pass_rate", 0.0)))
+    two_task_direct_rate = float(two_task_evidence.get("direct_rate", two_task_evidence.get("metrics", {}).get("direct_rate", 0.0)))
+    two_task_supervised_rate = float(two_task_evidence.get("supervised_rate", two_task_evidence.get("metrics", {}).get("supervised_rate", 0.0)))
+
+    resume_precise = bool(resume_truth.get("precise", resume_truth.get("precision") == "precise"))
+    three_step_admitted = bool(supervision_truth.get("three_step_canary_admitted", supervision_truth.get("admitted", False)))
+    three_step_requires_supervision = bool(supervision_truth.get("supervision_required", True))
+
+    evaluated_categories = {
+        "proven_gpt_file_bundle_path_preserved": bool(gpt_file_bundle_preserved),
+        "transport_empty_rate_within_bounds": rates["empty_rate"] <= 0.15,
+        "transport_failure_rates_within_bounds": (rates["bundle_parse_failure_rate"] + rates["method_insertion_failure_rate"]) <= 0.30,
+        "fallback_rate_within_bounds": rates["fallback_rate"] <= 0.60,
+        "one_task_pass_rate_nonzero": one_task_pass_rate > 0.0,
+        "two_task_direct_or_supervised_present": (two_task_direct_rate + two_task_supervised_rate) > 0.0,
+        "adjacent_pair_resume_precision_observed": resume_precise,
+        "three_step_canary_surface_limited_and_supervised": three_step_admitted and three_step_requires_supervision,
+    }
+
+    # Conservative verdict selection
+    verdict = "not_ready"
+    if not evaluated_categories["proven_gpt_file_bundle_path_preserved"]:
+        verdict = "not_ready"
+    else:
+        healthy_transport = (
+            evaluated_categories["transport_empty_rate_within_bounds"]
+            and evaluated_categories["transport_failure_rates_within_bounds"]
+            and evaluated_categories["fallback_rate_within_bounds"]
+        )
+        baseline_execution_present = evaluated_categories["one_task_pass_rate_nonzero"] and evaluated_categories["two_task_direct_or_supervised_present"]
+        if healthy_transport and baseline_execution_present:
+            # Narrowest widening: three-step canary only, if admitted and supervised.
+            if evaluated_categories["three_step_canary_surface_limited_and_supervised"]:
+                verdict = "three_step_canary_only"
+            # Otherwise, bounded next-slice planning under supervision.
+            verdict = "conditionally_ready_under_supervision"
+
+    return {
+        "verdict": verdict,
+        "counts": counts,
+        "rates": {k: round(v, 4) for k, v in rates.items()},
+        "evaluated_categories": evaluated_categories,
+        "policy": {
+            "unattended_multi_task_autonomy": "blocked",
+            "standalone_productization": "blocked",
+            "widening_scope": "bounded_supervised_only",
+        },
+        "recurring_transport_failure_families": dict(sorted(transport_families.items())),
+        "notes": "Checkpoint remains conservative. Any widening is explicitly supervised and bounded.",
+    }
+
+
+def write_post_transport_execution_checkpoint(
+    base_dir: str,
+    evaluation: Mapping[str, Any],
+    evidence_snapshot: Optional[Mapping[str, Any]] = None,
+) -> str:
+    """Persist the post-200 execution checkpoint alongside other reliability artifacts."""
+    reliability_dir = os.path.join(base_dir, "reliability")
+    os.makedirs(reliability_dir, exist_ok=True)
+    checkpoint_path = os.path.join(reliability_dir, "post_200_execution_checkpoint.json")
+
+    payload: Dict[str, Any] = {
+        "checkpoint_kind": "post_transport_execution_checkpoint_200",
+        "evaluation": dict(evaluation),
+    }
+    if evidence_snapshot is not None:
+        payload["evidence"] = dict(evidence_snapshot)
+
+    with open(checkpoint_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+
+    return checkpoint_path
+
+
 __all__ = [
     "collect_model_transport_evidence",
     "evaluate_model_transport_checkpoint",
     "write_model_transport_checkpoint",
+    "evaluate_post_transport_execution_checkpoint",
+    "write_post_transport_execution_checkpoint",
 ]
