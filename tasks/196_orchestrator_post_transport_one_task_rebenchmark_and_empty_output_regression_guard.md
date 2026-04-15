@@ -43,3 +43,9 @@ Refresh one-task benchmark evidence on the recovered runtime path and add an exp
 - One-task benchmark artifacts are refreshed on the recovered runtime path.
 - Empty-output regressions are evaluated explicitly in the refreshed one-task verdict.
 - Tests cover the new guard behavior.
+
+## Implementation notes
+
+- The one-task benchmark harness now wires the strict scorecard writer directly into the live session flow and persists `scorecard.json`, `scoreboard.json`, and `promotion.json`.
+- An explicit empty-output regression guard persists `promotion_guard.json` and degrades `promotion.json` to `not_ready` when the observed empty-output rate exceeds a small tolerated threshold.
+- The two-task canary harness writes additive `canary_*` artifacts without touching the strict one-task benchmark surface.

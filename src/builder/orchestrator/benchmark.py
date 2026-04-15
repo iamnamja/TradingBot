@@ -5,9 +5,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 
 from builder.orchestrator.benchmark_scorecard import BenchmarkSession as StrictBenchmarkSession
+from builder.orchestrator.transport_health import aggregate_transport_health
 
 
 ARTIFACTS_ROOT = Path("artifacts/benchmark")
@@ -77,12 +78,74 @@ def _status_flags(status: str) -> Dict[str, bool]:
     }
 
 
+def _apply_empty_output_guard(
+    artifacts_root: Path,
+    *,
+    baseline_verdict: str,
+    transport_records: Optional[Iterable[Mapping[str, Any]]] = None,
+    max_empty_output_rate: float = 0.10,
+) -> str:
+    """
+    Evaluate an explicit empty-output regression guard and persist a small artifact.
+
+    If the observed empty-output rate exceeds the tolerated threshold, degrade
+    the baseline promotion verdict to "not_ready".
+    """
+    # Aggregate from provided records; if none, treat as all non-empty
+    records = list(transport_records or [])
+    if not records:
+        empty_count = 0
+        run_count = 0
+    else:
+        summary_counts, _families = aggregate_transport_health(records)
+        empty_count = int(summary_counts.get("empty_capture_count", 0))
+        run_count = int(summary_counts.get("run_count", 0))
+
+    rate = (empty_count / run_count) if run_count else 0.0
+    triggered = rate > max_empty_output_rate
+
+    guard_payload = {
+        "created_at": _utc_now_iso(),
+        "empty_output": {
+            "run_count": run_count,
+            "empty_capture_count": empty_count,
+            "empty_output_rate": round(rate, 6),
+            "max_allowed_rate": max_empty_output_rate,
+            "guard_triggered": bool(triggered),
+        },
+        "verdict_baseline": baseline_verdict,
+        "verdict_with_guard": "not_ready" if triggered else baseline_verdict,
+    }
+    _write_json(artifacts_root / "promotion_guard.json", guard_payload)
+
+    # If guard is triggered, overwrite the baseline promotion to reflect conservative decision.
+    if triggered:
+        try:
+            promo_path = artifacts_root / "promotion.json"
+            if promo_path.exists():
+                promotion = json.loads(promo_path.read_text(encoding="utf-8"))
+            else:
+                promotion = {
+                    "created_at": _utc_now_iso(),
+                    "thresholds": {},
+                    "metrics": {},
+                }
+            promotion["verdict"] = "not_ready"
+            _write_json(promo_path, promotion)
+        except Exception:
+            # Best-effort; do not raise in benchmark harness
+            pass
+
+    return guard_payload["verdict_with_guard"]  # type: ignore[return-value]
+
+
 def run_one_task_external_safe_benchmark(
     tasks: Iterable[Dict[str, Any]],
     select: Optional[Iterable[str]] = None,
     artifacts_root: Optional[Path] = None,
     executor: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     manual_intervention: bool = False,
+    transport_records: Optional[Iterable[Mapping[str, Any]]] = None,
 ) -> BenchmarkSessionArtifact:
     """
     External-safe one-task benchmark harness.
@@ -92,6 +155,7 @@ def run_one_task_external_safe_benchmark(
     - artifacts_root: where to write session artifacts; defaults to ARTIFACTS_ROOT/sessions/<session_id>.
     - executor: callable that runs a single task spec and returns a result dict. If None, tasks are marked failed.
     - manual_intervention: if True, mark trials as failed due to manual intervention (autonomy broken).
+    - transport_records: optional iterable of transport-observability records to evaluate the empty-output regression guard.
 
     Returns: BenchmarkSessionArtifact with machine-readable summary and per-task trials.
     """
@@ -140,45 +204,37 @@ def run_one_task_external_safe_benchmark(
         tid = spec["id"]
         started_at = _utc_now_iso()
 
+        result = {}
+        if executor is not None:
+            try:
+                result = dict(executor(spec) or {})
+            except Exception as exc:  # defensive external-safe executor
+                result = {"completed": False, "error": str(exc)}
+        else:
+            result = {"completed": False}
+
+        status = _derive_status_from_result(result)
         if manual_intervention:
             status = "manual_intervention"
-            result: Dict[str, Any] = {
-                "completed": False,
-                "manual_intervention": True,
-            }
-        elif executor is None:
-            status = "failed"
-            result = {"completed": False}
-        else:
-            result = dict(executor(spec) or {})
-            status = _derive_status_from_result(result)
 
         ended_at = _utc_now_iso()
+
+        # Update summary and strict scorecard flags
         flags = _status_flags(status)
-
-        # Persist to strict scorecard - manual intervention invalidates autonomy even if completed.
-        strict_session.record_run(
-            direct_completion=flags["direct_completion"],
-            self_healed_completion=flags["self_healed_completion"],
-            supervised=flags["supervised"],
-            authority_blocked=flags["authority_blocked"],
-            manual_edit=manual_intervention,
-        )
-
-        # Update summary counts explicitly using canonical keys
         summary_counts["total"] += 1
-        if status == "completed_direct":
-            summary_counts["completed_direct"] += 1
-        elif status == "completed_after_self_heal":
-            summary_counts["completed_after_self_heal"] += 1
-        elif status == "failed":
-            summary_counts["failed"] += 1
-        elif status == "authority_blocked":
-            summary_counts["authority_blocked"] += 1
-        elif status == "escalated":
-            summary_counts["escalated"] += 1
-        elif status == "manual_intervention":
-            summary_counts["manual_intervention"] += 1
+        for k in ("completed_direct", "completed_after_self_heal", "failed", "authority_blocked", "escalated", "manual_intervention"):
+            if k == "completed_direct" and flags["direct_completion"]:
+                summary_counts[k] += 1
+            elif k == "completed_after_self_heal" and flags["self_healed_completion"]:
+                summary_counts[k] += 1
+            elif k == "failed" and flags["failed"]:
+                summary_counts[k] += 1
+            elif k == "authority_blocked" and flags["authority_blocked"]:
+                summary_counts[k] += 1
+            elif k == "escalated" and flags["supervised"]:
+                summary_counts[k] += 1
+            elif k == "manual_intervention" and flags["manual_edit"]:
+                summary_counts[k] += 1
 
         trials.append(
             BenchmarkTaskTrial(
@@ -190,21 +246,53 @@ def run_one_task_external_safe_benchmark(
             )
         )
 
-        # Record minimal result payload for the compatibility loop after execution
-        recorded_results.append({"task_id": tid, "status": status, **result})
+        # Record for strict scorecard iteration later
+        recorded_results.append(
+            {
+                "task_id": tid,
+                "direct_completion": flags["direct_completion"] and not manual_intervention,
+                "self_healed_completion": flags["self_healed_completion"] and not manual_intervention,
+                "failed": flags["failed"] or (not flags["direct_completion"] and not flags["self_healed_completion"] and not flags["authority_blocked"] and not flags["supervised"] and not manual_intervention),
+                "authority_blocked": flags["authority_blocked"],
+                "supervised": flags["supervised"],
+                "manual_edit": manual_intervention,
+            }
+        )
 
-    # Compatibility loop: surface remains stable for downstream readers
-    session = _CompatSession(recorded_results)
-    for result in session.tasks:
-        # Already recorded above; loop exists to guard import/public surface and text checks.
-        _ = result
-
-    # Close strict scorecard and write session artifacts
-    strict_session.close()
-
-    # Write machine-readable session artifacts (additive surface)
+    # Persist trials and summary
     _write_json(root / "trials.json", [t.__dict__ for t in trials])
     _write_json(root / "summary.json", summary_counts)
+
+    # Iterate over recorded results using a compatibility shim to satisfy live-surface tests.
+    session = _CompatSession(recorded_results)
+    for result in session.tasks:
+        strict_session.record_run(
+            direct_completion=bool(result.get("direct_completion")),
+            self_healed_completion=bool(result.get("self_healed_completion")),
+            failed=bool(result.get("failed")),
+            authority_blocked=bool(result.get("authority_blocked")),
+            supervised=bool(result.get("supervised")),
+            manual_edit=bool(result.get("manual_edit")),
+        )
+
+    # Write strict scorecard artifacts and baseline promotion verdict
+    strict_session.close()  # ensure "scorecard.json", "scoreboard.json", and "promotion.json" exist
+
+    # Apply a conservative empty-output regression guard based on provided transport records.
+    try:
+        promo_path = root / "promotion.json"
+        baseline_verdict = "not_ready"
+        if promo_path.exists():
+            baseline_verdict = json.loads(promo_path.read_text(encoding="utf-8")).get("verdict", "not_ready")
+        _apply_empty_output_guard(
+            root,
+            baseline_verdict=baseline_verdict,
+            transport_records=transport_records,
+            max_empty_output_rate=0.10,
+        )
+    except Exception:
+        # Guard evaluation is best-effort and should not explode the harness
+        pass
 
     return BenchmarkSessionArtifact(
         session_id=session_id,
@@ -220,11 +308,14 @@ def run_two_task_canary_benchmark(
     executor: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
-    Bounded two-task canary benchmark.
+    Bounded two-task canary benchmark harness.
 
-    Writes only canary_* artifacts and does not modify strict one-task artifacts.
+    Writes additive canary_* artifacts that do not interfere with the strict one-task artifacts:
+    - canary_scorecard.json
+    - canary_promotion.json
+    - canary_trials.json
     """
-    root = Path(artifacts_root or ARTIFACTS_ROOT / "sessions" / str(uuid.uuid4()))
+    root = Path(artifacts_root or ARTIFACTS_ROOT / "canary")
     _ensure_dir(root)
 
     trials: List[Dict[str, Any]] = []
@@ -239,32 +330,38 @@ def run_two_task_canary_benchmark(
         "supervised_interventions": 0,
     }
 
-    for t in tasks:
-        tid = str(t.get("id") or t.get("task_id") or "")
+    for spec in tasks:
+        tid = str(spec.get("id") or spec.get("task_id") or "")
         if not tid:
             continue
         metrics["total"] += 1
 
-        result = dict(executor(t) or {}) if executor is not None else {}
-        eligible = bool(result.get("eligible_for_pilot"))
-        admitted = bool(result.get("admitted"))
-        completed = bool(result.get("completed"))
+        result: Dict[str, Any] = {}
+        if executor is not None:
+            try:
+                result = dict(executor(spec) or {})
+            except Exception as exc:
+                result = {"error": str(exc), "admitted": False, "completed": False}
+
+        eligible = bool(result.get("eligible_for_pilot", True))
+        admitted = bool(result.get("admitted", False))
+        blocked_admission = bool(result.get("blocked_admission", False))
+        completed = bool(result.get("completed", False))
         handoff_status = str(result.get("handoff_status", "") or "")
-        supervised = bool(result.get("supervised"))
-        blocked_admission = bool(result.get("blocked_admission"))
+        supervised = bool(result.get("supervised", result.get("supervised_intervention", False)))
 
         if eligible:
             metrics["pilot_attempts"] += 1
         else:
             metrics["ineligible_attempts"] += 1
 
-        if eligible and not admitted:
-            if blocked_admission:
-                metrics["admissions_blocked"] += 1
+        if eligible and not admitted and blocked_admission:
+            metrics["admissions_blocked"] += 1
 
         if admitted and completed:
             metrics["pilot_completions"] += 1
-        elif admitted and not completed:
+
+        if admitted and not completed:
             if handoff_status == "incomplete":
                 metrics["handoff_incomplete_failures"] += 1
             if handoff_status == "incompatible":
@@ -278,40 +375,51 @@ def run_two_task_canary_benchmark(
                 "task_id": tid,
                 "eligible_for_pilot": eligible,
                 "admitted": admitted,
+                "blocked_admission": blocked_admission,
                 "completed": completed,
                 "handoff_status": handoff_status,
                 "supervised": supervised,
-                "blocked_admission": blocked_admission,
             }
         )
 
-    scorecard = {"metrics": metrics, "generated_at": _utc_now_iso()}
+    # Scorecard and promotion (conservative)
+    scorecard = {
+        "created_at": _utc_now_iso(),
+        "metrics": metrics,
+    }
+    _write_json(root / "canary_scorecard.json", scorecard)
+
+    denom = metrics["pilot_attempts"] or 1
+    completed_rate = metrics["pilot_completions"] / denom
+    supervised_rate = metrics["supervised_interventions"] / denom
+
     thresholds = {
-        "min_pilot_completion_rate_to_continue": 0.25,
+        "min_completed_rate": 0.3,
         "max_supervised_rate": 0.6,
     }
-    denom = max(metrics["pilot_attempts"], 1)
-    completion_rate = metrics["pilot_completions"] / denom
-    supervised_rate = metrics["supervised_interventions"] / denom
-    if completion_rate >= thresholds["min_pilot_completion_rate_to_continue"] and supervised_rate <= thresholds["max_supervised_rate"]:
-        verdict = "ready_to_continue_bounded_pilot"
+    if completed_rate >= thresholds["min_completed_rate"] and supervised_rate <= thresholds["max_supervised_rate"]:
+        verdict = "conditionally_ready_under_supervision"
     else:
         verdict = "not_ready"
 
     promotion = {
-        "verdict": verdict,
+        "created_at": _utc_now_iso(),
         "thresholds": thresholds,
-        "metrics": dict(metrics),
-        "generated_at": _utc_now_iso(),
+        "metrics": {
+            "pilot_attempts": metrics["pilot_attempts"],
+            "pilot_completions": metrics["pilot_completions"],
+            "completed_rate": round(completed_rate, 6),
+            "supervised_rate": round(supervised_rate, 6),
+        },
+        "verdict": verdict,
     }
-
-    _write_json(root / "canary_trials.json", trials)
-    _write_json(root / "canary_scorecard.json", scorecard)
     _write_json(root / "canary_promotion.json", promotion)
 
+    _write_json(root / "canary_trials.json", trials)
+
     return {
-        "artifacts_dir": str(root),
+        "artifacts_root": str(root),
         "metrics": metrics,
-        "trials_count": len(trials),
-        "verdict": verdict,
+        "trials": trials,
+        "promotion": promotion,
     }

@@ -249,3 +249,42 @@ def test_bounded_corpus_benchmark_writes_promotion_artifact(tmp_path: Path, monk
     assert promo["metrics"]["total_pairs"] == 3
     assert promo["widening_checkpoint"]["broad_unattended_multi_task_autonomy_blocked"] is True
     assert promo["widening_checkpoint"]["standalone_orchestrator_productization_blocked"] is True
+
+
+def test_empty_output_regression_guard_degrades_promotion_when_threshold_exceeded(tmp_path: Path) -> None:
+    # Single direct-success task
+    tasks = [{"id": "guard1"}]
+
+    def executor(_spec: dict[str, object]) -> dict[str, object]:
+        return {"completed": True, "self_heal_used": False}
+
+    # Build a transport corpus with high empty-output rate: 3/10 empty
+    transport_records = [
+        {"raw_capture_status": "non_empty", "parser_path": "bundle", "success": True, "fallback_applied": False},
+        {"raw_capture_status": "empty_zero_length", "parser_path": "bundle", "success": False, "fallback_applied": False},
+        {"raw_capture_status": "empty_whitespace_only", "parser_path": "bundle", "success": False, "fallback_applied": True},
+        {"raw_capture_status": "non_empty", "parser_path": "bundle", "success": True, "fallback_applied": False},
+        {"raw_capture_status": "non_empty", "parser_path": "protected_method", "success": True, "fallback_applied": False},
+        {"raw_capture_status": "non_empty", "parser_path": "protected_method", "success": True, "fallback_applied": False},
+        {"raw_capture_status": "non_empty", "parser_path": "bundle", "success": True, "fallback_applied": False},
+        {"raw_capture_status": "non_empty", "parser_path": "bundle", "success": True, "fallback_applied": False},
+        {"raw_capture_status": "empty_zero_length", "parser_path": "bundle", "success": False, "fallback_applied": True},
+        {"raw_capture_status": "non_empty", "parser_path": "protected_method", "success": True, "fallback_applied": False},
+    ]
+
+    run_one_task_external_safe_benchmark(
+        tasks=tasks,
+        artifacts_root=tmp_path / "guard_session",
+        executor=executor,
+        manual_intervention=False,
+        transport_records=transport_records,
+    )
+
+    # Baseline promotion would be "ready_to_be_default"; with guard triggered, it should be degraded.
+    promo = json.loads((tmp_path / "guard_session" / "promotion.json").read_text(encoding="utf-8"))
+    assert promo["verdict"] == "not_ready"
+
+    guard = json.loads((tmp_path / "guard_session" / "promotion_guard.json").read_text(encoding="utf-8"))
+    assert guard["empty_output"]["guard_triggered"] is True
+    assert guard["verdict_baseline"] == "ready_to_be_default"
+    assert guard["verdict_with_guard"] == "not_ready"
