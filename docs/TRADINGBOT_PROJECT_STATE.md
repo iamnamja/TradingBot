@@ -116,22 +116,13 @@ The next tranche therefore should not jump to arbitrary multi-task manifests. It
 - benchmarked,
 - and still reversible if the evidence degrades.
 
-## Task 201 note
+## Task 201 update
 
-Task 201 should add a real exactly-three-task canary runner and a durable chain ledger. This is the first step from canary contract truth toward operational canary execution truth.
+A supervised three-step canary runner and durable chain ledger have been added:
 
-## Task 202 note
+- Runner: `agents/lib/three_step_canary.py`
+- Ledger path format: `<artifacts_dir>/three_step_canary/<session_id>/chain_ledger.json`
+- The ledger records: session id, task ids and order, adjacency truth for A->B and B->C, supervision truth, resume truth per adjacent pair, and terminal chain outcome.
 
-Task 202 should make the three-step canary corpus explicit and curated. Positive, negative, and supervision-heavy cases should be durable and inspectable rather than ad hoc.
-
-## Task 203 note
-
-Task 203 should benchmark the three-step canary path and keep supervision accounting first-class. Direct chain progress, supervision-assisted progress, and chain-break categories should be explicit.
-
-## Task 204 note
-
-Task 204 should strengthen the controller’s role-routing trace and resume reconstruction surfaces for chained canary work. This aligns the widening tranche more directly with the project goal of the orchestrator sitting in the middle and choosing which role should act next.
-
-## Task 205 note
-
-Task 205 should decide whether a tiny adjacent-manifest gate is justified under supervision. Even if that gate opens, it should remain bounded, adjacent, curated, and checkpoint-driven. Arbitrary multi-task autonomy and standalone productization remain blocked.
+A corresponding test verifies acceptance of exactly three adjacent tasks, conservative rejection of malformed shapes, and durable ledger persistence:
+- `tests/test_three_step_canary.py`

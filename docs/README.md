@@ -15,7 +15,7 @@ Current active tranche: 201-205.
 Tasks 196-200 completed the post-transport execution reproof tranche:
 - Task 196: post-transport one-task rebenchmark and empty-output regression guard
 - Task 197: transport-stable bounded two-task pilot rerun and scorecard refresh
-- Task 198: adjacent-pair resume precision and checkpointed re-entry truth
+- Task 198: adjacent-pair resume precision truth
 - Task 199: supervised three-step canary admission and chain contract
 - Task 200: post-transport execution checkpoint and bounded next-slice gate
 
@@ -59,3 +59,16 @@ This tranche is still not about arbitrary scheduling, unattended autonomy, or a 
 - from a contract-only three-step canary shape,
 - to a real supervised three-step canary execution path,
 - and only then to a tiny adjacent-manifest gate if the evidence is strong enough.
+
+## New runtime seam (Task 201)
+
+A supervised three-step canary runner now exists at:
+- `agents/lib/three_step_canary.py`
+
+It accepts exactly three explicitly admitted adjacent tasks (A->B->C under strict adjacency), requires supervision, and persists a durable chain ledger under:
+- `<artifacts_dir>/three_step_canary/<session_id>/chain_ledger.json`
+
+The ledger records chain/session id, task ids and order, adjacency truth for A->B and B->C, supervision truth, resume truth per adjacent pair, and the terminal chain outcome.
+
+A test proving acceptance, adjacency validation, durable ledgers, and conservative rejection of malformed shapes is included:
+- `tests/test_three_step_canary.py`
