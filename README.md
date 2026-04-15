@@ -111,3 +111,24 @@ Protected-method transport preflight and retry discipline are now explicitly tra
   - Written additively alongside transport-failure artifacts to make retries explainable rather than opaque.
 
 These traces reuse Task 189 capability negotiation and build on Tasks 191/192 observability artifacts. They are additive and do not change prior artifact formats or the acceptance path. Operators can inspect these JSON files to understand protected-method selection, capability fallback, and the applied retry strategy.
+
+## Transport health benchmark and failure-family corpus (Task 194)
+
+A small additive transport-health benchmark summarizes transport observability across a synthetic or live corpus:
+
+- Summary fields:
+  - run count,
+  - empty-capture count,
+  - bundle-parse failure count,
+  - method-insertion failure count,
+  - fallback count,
+  - recurring failure-family counts.
+- Artifacts written:
+  - `_transport_health_summary.json`
+  - `_transport_failure_families.json`
+
+This benchmark is separate from trading runtime metrics and reuses the Task 191–193 observability seams.
+- Code-level entrypoints:
+  - `aggregate_transport_health(corpus)`
+  - `write_transport_health(base_dir, summary, families)`
+  - `compute_and_write_transport_health(corpus, base_dir)`
