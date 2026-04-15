@@ -75,6 +75,17 @@ Run a transport-stability and observability tranche before any broader autonomy 
 - 194 — transport health benchmark and recurring failure-family corpus
 - 195 — transport stability checkpoint and cautious autonomy-resume gate
 
+## Transport capture-result (Task 191)
+
+To remove ambiguity when `_last_agent_model_output.txt` is empty or whitespace-only, every transport failure now persists:
+
+- `_last_raw_output_capture_result.json` — explicit classification of capture outcome:
+  - `non_empty`, `empty_zero_length`, `empty_whitespace_only`, `failed_before_payload`, `truncated_or_redacted`
+- `_last_raw_output_meta.txt` — raw-output meta (length, non-empty flags, provider/model/phase)
+- `_last_provider_call_path.txt` — provider/model transport call-path trace
+
+These artifacts are additive and follow repository hygiene and subset-preservation rules.
+
 ## Why this tranche exists
 
 The project now has enough contract/model clarity to see the real runtime problem:

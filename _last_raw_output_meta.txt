@@ -1,0 +1,16 @@
+provider: provider
+model: model
+required_transport: method_insertion
+selected_transport: file_bundle
+phase: method_insertion.retry
+retry_index: 2
+raw_output_length: 98
+raw_output_nonempty: True
+raw_output_whitespace_only: False
+meta_provider: 
+meta_model: 
+meta_api_mode: 
+meta_request_id: 
+meta_stop_reason: 
+meta_output_length: 
+meta_source: 

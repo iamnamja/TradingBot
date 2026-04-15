@@ -27,6 +27,21 @@ Harden raw model-output capture integrity and persist an explicit capture result
 - Keep existing `_last_agent_model_output.txt` behavior, but make the emptiness case explicit rather than implicit.
 - Add tests that cover zero-length, whitespace-only, and non-empty capture cases.
 
+## Implementation notes
+
+- New capture-result artifact:
+  - Path: `_last_raw_output_capture_result.json`
+  - Written alongside the legacy `_last_agent_model_output.txt`
+  - Deterministic fields:
+    - `status`: one of `non_empty`, `empty_zero_length`, `empty_whitespace_only`, `failed_before_payload`, `truncated_or_redacted`
+    - `raw_output_length`, `raw_output_nonempty`, `raw_output_whitespace_only`
+    - `provider`, `model`, `required_transport`, `selected_transport`, `phase`, `retry_index` (when meta is available)
+    - `paths.raw_output_path`, `paths.raw_output_meta_path`
+- Related additive observability artifacts:
+  - `_last_provider_call_path.txt` — call path and phase for the provider request
+  - `_last_raw_output_meta.txt` — raw-output meta with length and non-empty flags
+  - `_last_agent_file_bundle_error.txt` — bundle-parse diagnostics, including explicit empty-bundle notes
+
 ## Create or update these exact files
 
 - `agents/run_task.py`
