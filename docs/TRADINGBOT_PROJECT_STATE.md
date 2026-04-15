@@ -97,3 +97,7 @@ The bounded supervised two-task pilot was rerun on the recovered runtime path. S
 - and broader unattended multi-task autonomy and standalone productization stay blocked.
 
 The refreshed promotion artifacts remain supervision-aware. Verdicts continue to prefer conditional readiness unless transport-stable success is materially better than self-healed outcomes with low supervision and low authority ambiguity. All runs and evidence for this rerun were captured on the recovered runtime path to ensure transport-stability parity.
+
+## Task 198 resume precision note
+
+Attempt-state now persists a small re-entry truth alongside checkpoints. The computed re-entry plan includes a precision field, allowing operators and tests to distinguish precise checkpointed re-entry from broad reruns. The bounded two-task pilot ledger adds a compact resume_truth section when adjacent A→B handoff is declared, remaining additive and fully compatible with the current pilot scope.

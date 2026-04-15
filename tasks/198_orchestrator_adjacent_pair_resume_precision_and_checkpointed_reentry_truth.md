@@ -21,20 +21,14 @@ Tighten adjacent-pair resume precision and persist clearer checkpointed re-entry
 - Keep the implementation additive and compatible with the bounded pilot runner.
 - Add tests for representative partial-success and re-entry scenarios.
 
-## Create or update these exact files
+## Implementation notes
 
-- `agents/lib/attempt_state.py`
-- `agents/lib/resume_state.py`
-- `agents/lib/bounded_pilot.py`
-- `tests/test_attempt_state_resume.py`
-- `docs/TRADINGBOT_PROJECT_STATE.md`
-- `docs/README.md`
-- `tasks/198_orchestrator_adjacent_pair_resume_precision_and_checkpointed_reentry_truth.md`
-
-## Non-goals
-
-- Do not introduce unattended multi-task sequencing.
-- Do not broaden beyond adjacent-pair resume precision.
+- Attempt-state re-entry planning now includes a precision field:
+  - precision: precise when resuming from a safe checkpoint with a clear surface
+  - precision: broad when restarting/fresh or resuming is unsafe/ambiguous
+- The bounded two-task pilot persists a small resume_truth section in the pair ledger:
+  - { mode, precision, source }, where source is task_payload when provided, otherwise inferred.
+- All behavior is additive; existing ledger fields and attempt-state semantics remain stable.
 
 ## Acceptance criteria
 
