@@ -46,7 +46,7 @@ The bounded supervised two-task pilot was rerun on the recovered runtime path. T
 
 - keep the curated adjacent-pair corpus discipline unchanged,
 - distinguish transport-stable direct completions from supervision-assisted progress explicitly in both scorecards and promotion metrics,
-- remain conservative in promotion verdicts (conditional readiness unless direct success materially dominates self-healed paths),
+- remain conservative in promotion verdicts (conditional readiness unless direct success materially dominates self-healed paths with low supervision and low authority ambiguity),
 - and preserve the explicit supervised-widening checkpoint. Broader unattended multi-task autonomy and standalone productization remain blocked pending stronger post-200 evidence.
 
 All artifacts are written on the recovered runtime path to ensure transport-stability parity with the post-195 checkpoint.
@@ -54,3 +54,12 @@ All artifacts are written on the recovered runtime path to ensure transport-stab
 ## Adjacent-pair resume precision note (Task 198)
 
 Adjacent-pair runs now persist a small resume-truth signal that distinguishes precise checkpointed re-entry from broad reruns. The attempt-state re-entry plan adds an explicit precision field, and the bounded two-task pilot ledger records a compact resume_truth section when an adjacent follow-on is declared. This keeps re-entry behavior observable and conservative without widening the pilot beyond its current scope.
+
+## Supervised three-step canary admission note (Task 199)
+
+A narrowly admitted, explicitly supervised three-step canary chain (A→B→C) is now defined at the contract surface. The admission is:
+- explicit and narrow (all links must be adjacent and admitted),
+- supervision-first (no-manual-intervention truth remains first-class in scorecards/ledgers),
+- and non-generalizing (this does not claim general three-task autonomy or arbitrary chain execution).
+
+This supervised canary chain reuses adjacent-pair admission and handoff truth, existing supervision accounting, and transport-health and resume-truth artifacts introduced in Tasks 191–198. It establishes the smallest honest widening step beyond the bounded two-task pilot without removing supervision gates or widening to arbitrary task chains.

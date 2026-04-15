@@ -42,11 +42,13 @@ The current monorepo contains:
 - One-task lane: conditionally ready under supervision, now on a recovered runtime path with explicit transport observability. A small empty-output regression guard (Task 196) now backs the refreshed one-task verdict to prevent silent drift back into empty-output failures.
 - Two-task lane (bounded pilot): valid in bounded supervised scope on the curated adjacent-pair corpus, but still requires fresh post-transport execution proof before any wider claims.
 - Post-195 checkpoint: conditionally ready under supervision to plan a cautious post-transport execution reproof tranche. This still does not justify unattended multi-task autonomy or standalone productization.
+- Three-step lane (canary chain): an explicit, supervised A→B→C admission contract now exists (Task 199). It reuses adjacent-pair admission and handoff truth and requires supervision signals to remain first-class in scorecards and ledgers. This is not a claim of general three-task autonomy.
 
 This means:
 
 - one-task work remains the default proving path under light supervision,
 - the bounded supervised two-task pilot remains the only justified multi-task form,
+- a narrowly admitted, supervised three-step canary chain is defined for explicit canary evaluation,
 - transport behavior is now much more observable than before,
 - broad unattended multi-task autonomy is still not justified,
 - and the standalone orchestrator-app phase remains blocked behind stronger execution proof.
@@ -101,3 +103,7 @@ The refreshed promotion artifacts remain supervision-aware. Verdicts continue to
 ## Task 198 resume precision note
 
 Attempt-state now persists a small re-entry truth alongside checkpoints. The computed re-entry plan includes a precision field, allowing operators and tests to distinguish precise checkpointed re-entry from broad reruns. The bounded two-task pilot ledger adds a compact resume_truth section when adjacent A→B handoff is declared, remaining additive and fully compatible with the current pilot scope.
+
+## Task 199 supervised three-step canary note
+
+A supervised three-step canary chain contract (A→B→C) is defined for cautious widening. Admission is explicitly narrow: all three tasks must be admitted, B must follow A, and C must follow B. Supervision truth remains first-class in scorecards/ledgers (no-manual-intervention accounting is preserved). This contract does not generalize to arbitrary three-task autonomy or unattended chains; it is a canary-only shape built on top of adjacent-pair truth and resume/transport artifacts from Tasks 191–198.
