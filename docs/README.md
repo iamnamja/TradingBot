@@ -30,8 +30,27 @@ These are additive, hygiene-compatible, and preserve subset behavior. The legacy
 To make parser-path and contract choices immediately visible during failures, a compact machine-readable artifact is now persisted:
 
 - Artifact: `_last_transport_failure_details.json`
-- Captures provider/model, required/selected transport and contract, parser-path attempted (bundle vs method-insertion), retry index, raw-output length, parsed bundle file-count or method block count, protected-method mode flag, and a short failure category.
+- Captures provider/model, required/selected transport and contract, parser-path attempted (bundle vs method-insertion), retry index, raw-output length, parsed bundle file-count or method block count, protected-mode flag, and a short failure category.
 - References sibling observability files so operators can pivot quickly to underlying payloads.
+
+## Protected-method preflight and retry discipline (Task 193)
+
+Protected-method selection and retry behavior are now explicitly traced:
+
+- Preflight trace: `_last_protected_method_preflight.json`
+  - why protected-method mode was selected (meta harness path, explicit target, or inference),
+  - protected vs normal partition results,
+  - capability negotiation snapshot for method insertion transport, including fallback attempted/applied,
+  - and the retry discipline policy for protected-mode parsing.
+
+- Retry-discipline trace: `_last_retry_discipline_trace.json`
+  - last phase and retry index,
+  - attempted phases,
+  - transport support compatibility snapshot,
+  - fallback attempted/applied flags,
+  - and pointers to sibling artifacts.
+
+These artifacts reuse Task 189 capability negotiation and Tasks 191/192 transport observability. They are additive and keep default behavior unchanged.
 
 ## Current continuation note
 

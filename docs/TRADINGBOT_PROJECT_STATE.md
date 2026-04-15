@@ -92,13 +92,13 @@ To speed operator diagnosis and preserve small, machine-readable observability, 
 
 - `_last_transport_failure_details.json` — provider/model, required/selected transport, transport contract, parser path (bundle vs protected method), retry index, raw-output length, parsed bundle file-count or method-block count, a protected-mode flag, and a short failure category, with pointers to sibling artifacts.
 
-## Why this tranche exists
+## Protected-method preflight and retry discipline (Task 193)
 
-The project now has enough contract/model clarity to see the real runtime problem:
+- Preflight trace: `_last_protected_method_preflight.json`
+  - Captures why protected-method mode was selected, the protected vs normal partition, and a capability-negotiation snapshot for method-insertion transport (including whether fallback was attempted/applied).
+  - Includes a compact description of the retry discipline policy that will be applied under protected-mode parsing.
 
-- automated runs on some protected-surface and transport-sensitive tasks still fail before lint/tests,
-- `_last_model_capability.txt` can report the selected model/transport as compatible,
-- while `_last_agent_model_output.txt` can still end up effectively empty,
-- and the parsed bundle artifact may reduce to `BEGIN_FILE_BUNDLE / END_FILE_BUNDLE` with no file entries.
+- Retry discipline: `_last_retry_discipline_trace.json`
+  - Provides a terse, machine-readable log of which protected-method retry phases were attempted (initial vs retry), the latest retry index, and fallback attempted/applied flags, with pointers to the sibling capability and preflight artifacts.
 
-That means the next bottleneck is not “model selection” in the abstract. It is “capture, persistence, and observability of transport failures.”
+These are additive artifacts that reuse Task 189 capability negotiation and the Task 191/192 observability foundation.

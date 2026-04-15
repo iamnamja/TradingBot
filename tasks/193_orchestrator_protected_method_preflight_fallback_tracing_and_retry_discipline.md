@@ -32,3 +32,22 @@ Instrument protected-method preflight and retry shaping with explicit trace arti
 - `docs/TRADINGBOT_PROJECT_STATE.md`
 - `docs/README.md`
 - `tasks/193_orchestrator_protected_method_preflight_fallback_tracing_and_retry_discipline.md`
+
+## Trace artifacts
+
+Protected-method preflight and retry discipline must persist small, machine-readable JSON artifacts:
+
+- `_last_protected_method_preflight.json`
+  - selection rationale (why protected mode was chosen),
+  - partition of required paths into protected vs normal,
+  - capability negotiation snapshot for method insertion (including fallback attempted/applied),
+  - protected-mode retry policy description.
+
+- `_last_retry_discipline_trace.json`
+  - most recent phase and retry index,
+  - attempted phases,
+  - fallback attempted/applied,
+  - compact transport support snapshot,
+  - pointers to sibling artifacts.
+
+These are additive observability artifacts and do not change prior artifact formats or the acceptance flow.
