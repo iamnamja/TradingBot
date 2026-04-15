@@ -96,12 +96,18 @@ Transport-failure artifacts are expanded to immediately surface parser-path and 
   - pointers to sibling artifacts (`_last_provider_call_path.txt`, `_last_raw_output_meta.txt`, `_last_agent_file_bundle_error.txt`)
 - This artifact is machine-readable and small, and is written additively alongside the existing capture-result and bundle-error files.
 
-## Next continuation target
+## Protected-method preflight and retry discipline (Task 193)
 
-Stay conservative and focus on runner stability and fast observability:
+Protected-method transport preflight and retry discipline are now explicitly traced:
 
-- make raw model-output capture non-empty or explicitly diagnosable on every transport failure
-- add durable transport-failure artifacts that explain exactly what parser path and contract were attempted
-- make protected-method transport preflight and fallback behavior explicit before expensive retries
-- benchmark transport health and recurring failure families over real runs
-- only reopen any next capability slice after transport stability is measurably improved
+- Protected-method preflight trace
+  - Path: `_last_protected_method_preflight.json`
+  - Captures why protected-method mode was selected, which paths were partitioned to protected vs normal bundle, and the capability negotiation snapshot for method insertion transport (including whether fallback was attempted/applied).
+  - Includes a compact retry policy description for protected-method parsing.
+
+- Retry-discipline trace
+  - Path: `_last_retry_discipline_trace.json`
+  - Captures the most recent execution phase, which retry phases were attempted, and whether fallback was attempted/applied.
+  - Written additively alongside transport-failure artifacts to make retries explainable rather than opaque.
+
+These traces reuse Task 189 capability negotiation and build on Tasks 191/192 observability artifacts. They are additive and do not change prior artifact formats or the acceptance path. Operators can inspect these JSON files to understand protected-method selection, capability fallback, and the applied retry strategy.

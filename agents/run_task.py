@@ -4831,41 +4831,147 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
             norm_normal = _norm_list(normal or [])
             norm_protected = [p for p in _norm_list(protected or []) if not p.startswith(never_protected_prefixes)]
             # Ensure stable deterministic ordering and dedupe.
-            return sorted(set(norm_normal)), sorted(set(norm_protected))
+            out_normal = sorted(set(norm_normal))
+            out_protected = sorted(set(norm_protected))
         except Exception:
             # Fall back locally on any delegation failure.
-            pass
+            out_normal = []
+            out_protected = []
+            seen_out_n: set[str] = set()
+            seen_out_p: set[str] = set()
+            explicit_protected_paths = {
+                str(t.get("path")).strip().replace("\\", "/")
+                for t in normalized_protected_targets
+                if isinstance(t, dict) and str(t.get("path", "")).strip()
+            }
+            for path in normalized_required:
+                if path.startswith(never_protected_prefixes):
+                    if path not in seen_out_n:
+                        seen_out_n.add(path)
+                        out_normal.append(path)
+                    continue
+                if path in protected_meta_paths or path in explicit_protected_paths:
+                    if path not in seen_out_p:
+                        seen_out_p.add(path)
+                        out_protected.append(path)
+                else:
+                    if path not in seen_out_n:
+                        seen_out_n.add(path)
+                        out_normal.append(path)
+            out_normal = sorted(out_normal)
+            out_protected = sorted(out_protected)
+    else:
+        # Local conservative fallback: explicit protected + meta harness files are protected.
+        explicit_protected_paths = {
+            str(t.get("path")).strip().replace("\\", "/")
+            for t in normalized_protected_targets
+            if isinstance(t, dict) and str(t.get("path", "")).strip()
+        }
 
-    # Local conservative fallback: explicit protected + meta harness files are protected.
-    explicit_protected_paths = {
-        str(t.get("path")).strip().replace("\\", "/")
-        for t in normalized_protected_targets
-        if isinstance(t, dict) and str(t.get("path", "")).strip()
-    }
+        out_normal = []
+        out_protected = []
+        seen_out_n: set[str] = set()
+        seen_out_p: set[str] = set()
 
-    out_normal: List[str] = []
-    out_protected: List[str] = []
-    seen_out_n: set[str] = set()
-    seen_out_p: set[str] = set()
+        for path in normalized_required:
+            # Never route these to protected lane.
+            if path.startswith(never_protected_prefixes):
+                if path not in seen_out_n:
+                    seen_out_n.add(path)
+                    out_normal.append(path)
+                continue
+            # Meta harness and explicit protected targets go to protected lane.
+            if path in protected_meta_paths or path in explicit_protected_paths:
+                if path not in seen_out_p:
+                    seen_out_p.add(path)
+                    out_protected.append(path)
+            else:
+                if path not in seen_out_n:
+                    seen_out_n.add(path)
+                    out_normal.append(path)
 
-    for path in normalized_required:
-        # Never route these to protected lane.
-        if path.startswith(never_protected_prefixes):
-            if path not in seen_out_n:
-                seen_out_n.add(path)
-                out_normal.append(path)
-            continue
-        # Meta harness and explicit protected targets go to protected lane.
-        if path in protected_meta_paths or path in explicit_protected_paths:
-            if path not in seen_out_p:
-                seen_out_p.add(path)
-                out_protected.append(path)
+        out_normal = sorted(out_normal)
+        out_protected = sorted(out_protected)
+
+    # Persist a protected-method preflight trace artifact to make mode/transport/retry shaping explainable.
+    try:
+        # Selection rationale
+        selection = "protected" if out_protected else "normal_only"
+        if out_protected:
+            if any(p in protected_meta_paths for p in out_protected):
+                selection_reason = "meta_harness_paths_present"
+            elif normalized_protected_targets:
+                selection_reason = "explicit_protected_targets_present"
+            else:
+                selection_reason = "auto_inferred_protected_targets_present"
         else:
-            if path not in seen_out_n:
-                seen_out_n.add(path)
-                out_normal.append(path)
+            selection_reason = "no_protected_targets"
 
-    return sorted(out_normal), sorted(out_protected)
+        # Capability negotiation snapshot for method insertion transport
+        try:
+            prov = default_provider()
+        except Exception:
+            prov = _default_provider_impl()  # type: ignore[name-defined]
+        try:
+            mdl = default_model_for_provider(prov)
+        except Exception:
+            mdl = default_model_for_provider(prov)  # type: ignore[misc]
+        negotiation = negotiate_model_capability(provider=prov, model=mdl, required_transport="method_insertion", allow_fallback=True)
+        compat = bool(negotiation.get("compatible", False))
+        fallback_applied = bool(negotiation.get("fallback_applied", False))
+        selected_output_transport = str(negotiation.get("selected_output_transport", "") or "")
+        selected_transport_contract = str(negotiation.get("selected_transport_contract", "") or "")
+        negotiation_status = str(negotiation.get("status", "") or "")
+        negotiation_reason = str(negotiation.get("reason", "") or "")
+
+        # Retry discipline plan for protected-method mode (aligned with request_and_parse_method_insertion)
+        retry_policy = {
+            "policy_kind": "two_phase_parse_recovery",
+            "max_attempts": 2,
+            "phases": [
+                {"name": "initial", "phase_tag": "method_insertion.initial"},
+                {"name": "retry_on_parse_error", "phase_tag": "method_insertion.retry"},
+            ],
+            "explanation": "Attempt method insertion once; on parser/policy error, retry with strict reminder and structural template.",
+        }
+
+        payload = {
+            "artifact_type": "protected_method_preflight",
+            "created_at_epoch": time.time(),
+            "required_paths_count": len(normalized_required),
+            "selection": selection,
+            "selection_reason": selection_reason,
+            "never_protected_prefixes": list(never_protected_prefixes),
+            "protected_meta_paths": sorted(protected_meta_paths),
+            "normalized_required_preview": normalized_required[:50],
+            "normalized_protected_targets": [
+                {k: v for k, v in t.items() if k in {"path", "mode", "method_name", "anchor"}}
+                for t in normalized_protected_targets
+            ],
+            "partition_result": {
+                "normal_paths": out_normal,
+                "protected_paths": out_protected,
+            },
+            "transport_preflight": {
+                "provider": prov,
+                "model": mdl,
+                "required_transport": "method_insertion",
+                "selected_output_transport": selected_output_transport,
+                "selected_transport_contract": selected_transport_contract,
+                "compatible": compat,
+                "fallback_applied": fallback_applied,
+                "negotiation_status": negotiation_status,
+                "negotiation_reason": negotiation_reason,
+                "fallback_attempted": True,  # allow_fallback=True in negotiation call
+            },
+            "retry_policy": retry_policy,
+        }
+        Path("_last_protected_method_preflight.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    except Exception:
+        # Never let observability break partitioning.
+        pass
+
+    return out_normal, out_protected
 def _local_branch_exists(branch: str) -> bool:
     try:
         out = capture(["git", "branch", "--list", branch]).strip()
@@ -5463,6 +5569,59 @@ def _emit_failure_artifact_messages(
                 return 0
             return 0
 
+        # Parse capability/fallback details from capability artifact (if present)
+        capability_fallback_applied = False
+        capability_compatible = False
+        capability_selected_output_transport = ""
+        try:
+            if capability_artifact.exists():
+                cap_lines = capability_artifact.read_text(encoding="utf-8", errors="replace").splitlines()
+                for line in cap_lines:
+                    if ":" not in line:
+                        continue
+                    k, v = line.split(":", 1)
+                    key = k.strip().lower()
+                    val = v.strip().lower()
+                    if key == "fallback_applied":
+                        capability_fallback_applied = val in {"true", "1", "yes", "on"}
+                    elif key == "compatible":
+                        capability_compatible = val in {"true", "1", "yes", "on"}
+                    elif key == "selected_output_transport":
+                        capability_selected_output_transport = v.strip()
+        except Exception:
+            capability_fallback_applied = capability_fallback_applied
+            capability_compatible = capability_compatible
+            capability_selected_output_transport = capability_selected_output_transport
+
+        # Read protected-method preflight trace (if available) to enrich failure details and retry discipline
+        preflight_artifact_path = last_output_path.with_name("_last_protected_method_preflight.json")
+        preflight_exists = preflight_artifact_path.exists()
+        preflight_transport = {}
+        preflight_retry_policy = {}
+        preflight_selection = ""
+        preflight_selection_reason = ""
+        preflight_fallback_attempted = False
+        try:
+            if preflight_exists:
+                pf_raw = preflight_artifact_path.read_text(encoding="utf-8", errors="replace")
+                pf = json.loads(pf_raw)
+                preflight_selection = str(pf.get("selection", "") or "")
+                preflight_selection_reason = str(pf.get("selection_reason", "") or "")
+                tp = pf.get("transport_preflight", {}) or {}
+                if isinstance(tp, dict):
+                    preflight_transport = tp
+                    preflight_fallback_attempted = bool(tp.get("fallback_attempted", False))
+                rp = pf.get("retry_policy", {}) or {}
+                if isinstance(rp, dict):
+                    preflight_retry_policy = rp
+        except Exception:
+            preflight_transport = {}
+            preflight_retry_policy = {}
+            preflight_selection = preflight_selection
+            preflight_selection_reason = preflight_selection_reason
+            preflight_fallback_attempted = preflight_fallback_attempted
+
+        # Build and persist transport failure details (enriched with preflight/fallback/retry info)
         transport_failure = {
             "artifact_type": "transport_failure_details",
             "created_at_epoch": time.time(),
@@ -5489,6 +5648,7 @@ def _emit_failure_artifact_messages(
                 "raw_output_meta_path": meta_path.as_posix() if meta_exists else "",
                 "model_capability_path": capability_artifact.as_posix() if capability_artifact.exists() else "",
                 "bundle_transport_error_path": bundle_error_artifact.as_posix() if bundle_error_artifact.exists() else "",
+                "preflight_artifact_path": preflight_artifact_path.as_posix() if preflight_exists else "",
             },
             "artifact_lengths": {
                 "raw_output_txt": computed_len if raw_output_exists else 0,
@@ -5497,11 +5657,105 @@ def _emit_failure_artifact_messages(
                 "raw_output_meta_txt": _safe_len_for_path(meta_path),
                 "model_capability_txt": _safe_len_for_path(capability_artifact),
                 "bundle_transport_error_txt": _safe_len_for_path(bundle_error_artifact),
+                "preflight_json": _safe_len_for_path(preflight_artifact_path),
+            },
+            "capability_snapshot": {
+                "compatible": capability_compatible,
+                "fallback_applied": capability_fallback_applied,
+                "selected_output_transport": capability_selected_output_transport or selected_transport,
+            },
+            "preflight_snapshot": {
+                "selection": preflight_selection,
+                "selection_reason": preflight_selection_reason,
+                "transport": preflight_transport,
+                "retry_policy": preflight_retry_policy,
             },
         }
         details_path = last_output_path.with_name("_last_transport_failure_details.json")
         details_path.parent.mkdir(parents=True, exist_ok=True)
         details_path.write_text(json.dumps(transport_failure, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+
+        # Also persist a compact retry-discipline trace to make retries explainable rather than opaque.
+        phase_name = ""
+        if phase.startswith("method_insertion."):
+            phase_name = phase.split("method_insertion.", 1)[1]
+        elif phase.startswith("bundle."):
+            phase_name = phase.split("bundle.", 1)[1]
+        else:
+            phase_name = phase or "initial"
+
+        attempted_phases: List[str] = []
+        if phase.startswith("method_insertion"):
+            # Protected-method mode: two-phase parse recovery policy
+            attempted_phases = ["initial"] if retry_index <= 1 else ["initial", "retry"]
+            discipline_kind = "protected_method.two_phase"
+            retry_policy = preflight_retry_policy or {
+                "policy_kind": "two_phase_parse_recovery",
+                "max_attempts": 2,
+                "phases": [
+                    {"name": "initial", "phase_tag": "method_insertion.initial"},
+                    {"name": "retry_on_parse_error", "phase_tag": "method_insertion.retry"},
+                ],
+                "explanation": "Attempt method insertion once; on parser/policy error, retry with strict reminder.",
+            }
+        else:
+            # Normal bundle mode: initial -> optional targeted retry or empty-bundle retry
+            if "empty_retry" in phase_name:
+                attempted_phases = ["initial", "empty_retry"]
+            elif "retry" in phase_name:
+                attempted_phases = ["initial", "retry"]
+            else:
+                attempted_phases = ["initial"]
+            discipline_kind = "bundle.contract_salvage"
+            retry_policy = {
+                "policy_kind": "bundle_transport_repair",
+                "max_attempts": 2,
+                "phases": [
+                    {"name": "initial", "phase_tag": "bundle.initial"},
+                    {"name": "retry_on_parse_or_contract_error", "phase_tag": "bundle.retry|bundle.empty_retry"},
+                ],
+                "explanation": "Attempt bundle once; on parse/contract failure perform a focused retry with structural reminder or empty-bundle repair.",
+            }
+
+        # Fallback attempted/applied truth (prefer preflight, then capability snapshot)
+        fallback_attempted = bool(preflight_fallback_attempted) or phase.startswith("method_insertion")
+        fallback_applied = bool(preflight_transport.get("fallback_applied", capability_fallback_applied))
+
+        retry_trace = {
+            "artifact_type": "retry_discipline_trace",
+            "created_at_epoch": time.time(),
+            "task_file": task_file_path,
+            "mode": "protected_method" if phase.startswith("method_insertion") or protected_method_mode_selected else "normal_bundle",
+            "discipline_kind": discipline_kind,
+            "last_phase": phase,
+            "last_phase_name": phase_name,
+            "last_retry_index": retry_index,
+            "attempted_phases": attempted_phases,
+            "retry_policy": retry_policy,
+            "transport_support": {
+                "required_transport": required_transport,
+                "selected_transport": selected_transport,
+                "compatible": capability_compatible or bool(preflight_transport.get("compatible", False)),
+            },
+            "fallback": {
+                "attempted": fallback_attempted,
+                "applied": fallback_applied,
+            },
+            "artifacts": {
+                "preflight_path": preflight_artifact_path.as_posix() if preflight_exists else "",
+                "capability_path": capability_artifact.as_posix() if capability_artifact.exists() else "",
+                "raw_output_meta_path": meta_path.as_posix() if meta_exists else "",
+            },
+            "context": {
+                "normal_bundle_attempted": bool(normal_bundle_attempted),
+                "protected_execution_attempted": bool(protected_execution_attempted),
+                "mixed_task": bool(mixed_task),
+                "protected_targets_identified": protected_targets_list,
+            },
+        }
+        retry_trace_path = last_output_path.with_name("_last_retry_discipline_trace.json")
+        retry_trace_path.parent.mkdir(parents=True, exist_ok=True)
+        retry_trace_path.write_text(json.dumps(retry_trace, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     except Exception:
         # Best-effort only; never raise.
         pass

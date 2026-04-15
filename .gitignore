@@ -222,3 +222,5 @@ _last_raw_output_meta.txt
 _last_openai_response_meta.txt
 _last_openai_raw_response_repr.txt
 _last_empty_model_response.txt
+
+_last_protected_method_preflight.json
