@@ -8,6 +8,7 @@ from builder.orchestrator.transport_health import (
     aggregate_transport_health,
     compute_and_write_transport_health,
     evaluate_transport_stability_gate,
+    write_transport_stability_checkpoint,
 )
 
 
@@ -125,3 +126,19 @@ def test_transport_stability_evaluation_is_conservative() -> None:
     assert evaluation["evaluated_categories"]["proven_gpt_file_bundle_path_preserved"] is True
     # With conservative policy and small sample size, verdict should remain conditional at best.
     assert evaluation["verdict"] in {"conditionally_ready_under_supervision", "not_ready"}
+
+
+def test_transport_stability_checkpoint_persists_payload(tmp_path: Path) -> None:
+    # Minimal evaluation payload
+    evaluation = {
+        "verdict": "conditionally_ready_under_supervision",
+        "counts": {"run_count": 3},
+        "evaluated_categories": {"proven_gpt_file_bundle_path_preserved": True},
+    }
+    path = write_transport_stability_checkpoint(tmp_path, evaluation, evidence_snapshot={"summary": {"run_count": 3}, "families": {}})
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert data["checkpoint_kind"] == "transport_stability_checkpoint"
+    assert data["evaluation"]["verdict"] == "conditionally_ready_under_supervision"
+    assert data["evaluation"]["counts"]["run_count"] == 3
+    assert "evidence" in data
