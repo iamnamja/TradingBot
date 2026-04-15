@@ -40,7 +40,7 @@ Protected-method selection and retry behavior are now explicitly traced:
 - Preflight trace: `_last_protected_method_preflight.json`
   - why protected-method mode was selected (meta harness path, explicit target, or inference),
   - protected vs normal partition results,
-  - capability negotiation snapshot for method insertion transport, including fallback attempted/applied,
+  - capability negotiation snapshot for method-insertion transport, including fallback attempted/applied,
   - and the retry discipline policy for protected-mode parsing.
 
 - Retry-discipline trace: `_last_retry_discipline_trace.json`
@@ -51,6 +51,27 @@ Protected-method selection and retry behavior are now explicitly traced:
   - and pointers to sibling artifacts.
 
 These artifacts reuse Task 189 capability negotiation and Tasks 191/192 transport observability. They are additive and keep default behavior unchanged.
+
+## Transport health benchmark and failure-family corpus (Task 194)
+
+A small transport-health benchmark aggregates results from transport observability artifacts and records:
+
+- Fields summarized:
+  - run count,
+  - empty-capture count,
+  - bundle-parse failure count,
+  - method-insertion failure count,
+  - fallback count,
+  - recurring failure-family counts.
+- Artifacts persisted:
+  - `_transport_health_summary.json` — compact machine-readable summary
+  - `_transport_failure_families.json` — recurring failure-family histogram
+
+These remain separate from trading/runtime metrics and reuse the Task 191–193 artifacts.
+- Code-level entrypoints:
+  - `aggregate_transport_health(corpus)`
+  - `write_transport_health(base_dir, summary, families)`
+  - `compute_and_write_transport_health(corpus, base_dir)`
 
 ## Current continuation note
 

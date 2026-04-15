@@ -71,9 +71,9 @@ Run a transport-stability and observability tranche before any broader autonomy 
 
 - 191 — raw model output capture integrity and non-empty artifact guarantee
 - 192 — transport failure artifact expansion and parser-path observability
-- 193 — protected-method preflight, fallback tracing, and retry discipline
+- 193 — protected method preflight, fallback tracing, and retry discipline
 - 194 — transport health benchmark and recurring failure-family corpus
-- 195 — transport stability checkpoint and cautious autonomy-resume gate
+- 195 — transport stability checkpoint and cautious autonomy resume gate
 
 ## Transport capture-result (Task 191)
 
@@ -102,3 +102,24 @@ To speed operator diagnosis and preserve small, machine-readable observability, 
   - Provides a terse, machine-readable log of which protected-method retry phases were attempted (initial vs retry), the latest retry index, and fallback attempted/applied flags, with pointers to the sibling capability and preflight artifacts.
 
 These are additive artifacts that reuse Task 189 capability negotiation and the Task 191/192 observability foundation.
+
+## Transport health benchmark and failure-family corpus (Task 194)
+
+The orchestrator now includes a small additive transport-health benchmark that summarizes corpus-backed transport outcomes:
+
+- Fields summarized:
+  - run count,
+  - empty-capture count,
+  - bundle-parse failure count,
+  - method-insertion failure count,
+  - fallback count,
+  - recurring failure-family counts.
+- Artifacts:
+  - `_transport_health_summary.json` — compact benchmark summary
+  - `_transport_failure_families.json` — recurring failure-family histogram
+
+These measurements remain separate from trading/runtime metrics and reuse the Task 191–193 observability seams to quantify whether transport health is improving.
+- Code-level entrypoints:
+  - `aggregate_transport_health(corpus)`
+  - `write_transport_health(base_dir, summary, families)`
+  - `compute_and_write_transport_health(corpus, base_dir)`
