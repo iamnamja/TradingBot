@@ -41,3 +41,28 @@ Define the admission and contract surface for a supervised three-step canary cha
 - A supervised three-step canary admission contract exists.
 - Supervision truth remains explicit and benchmark-visible.
 - Tests cover contract acceptance and rejection conditions.
+
+## Machine-readable contract outline
+
+- Contract kind: `three_step_canary`
+- Admission:
+  - accepted: boolean (all tasks explicitly admitted)
+  - reasons: list of strings
+- Handoff:
+  - adjacent_pairs_ok: boolean (`B.follows == A.id` and `C.follows == B.id`)
+  - reasons: list of strings
+- Supervision:
+  - required: true (canary is supervised-only)
+  - no_manual_intervention: boolean (true only if no manual intervention observed)
+  - manual_intervention_observed: boolean
+  - profile: string (e.g., `explicit_supervision` or `unspecified`)
+- Chain:
+  - task_ids: [A, B, C]
+  - pairs: [[A, B], [B, C]]
+  - resume_truth:
+    - A_B: {mode, precision, surface, source}
+    - B_C: {mode, precision, surface, source}
+
+Notes:
+- This contract is canary-only and does not imply general three-task autonomy.
+- It reuses adjacent-pair admission and handoff truth and preserves first-class supervision and transport-health observability.

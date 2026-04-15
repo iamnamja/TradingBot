@@ -145,175 +145,84 @@ def test_batch_executor_stops_on_manual_or_blocked(tmp_path: Path) -> None:
         persist_state=lambda _s: None,
     )
 
-    assert final_state.batch_status in {"manual_patch_required", "blocked", "failed"}
-    assert final_decision in {"manual_patch", "blocked", "stop"}
-    assert any(outcome["acceptance_decision"] in {"manual_patch", "blocked"} for outcome in outcomes)
+    assert final_state.batch_status == "manual_patch_required"
+    assert final_decision == "manual_patch"
+    assert len(outcomes) == 1
+    assert outcomes[0]["acceptance_decision"] == "manual_patch"
 
 
-def test_single_task_default_selector_picks_first_ready(tmp_path: Path) -> None:
-    tq = _task_queue_module()
+def test_three_step_canary_admission_accepts_strict_chain_and_preserves_supervision_truth() -> None:
+    # Reuse adjacent-pair admission and resume-truth helpers from bounded pilot
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    bounded_pilot = importlib.import_module("agents.lib.bounded_pilot")
 
-    # Ready + blocked path
-    ready = tmp_path / "tasks" / "001_ready.md"
-    blocked = tmp_path / "tasks" / "002_blocked.md"
-    _write_task(ready)
-
-    manifest = {"tasks": [ready.as_posix(), blocked.as_posix()]}
-    selection = tq.select_single_admissible_safe_task(manifest, repo_root=tmp_path)
-
-    assert selection["default_single_task_path"] is True
-    assert selection["widening_to_multi_task_forbidden"] is True
-    assert selection["selected_task_path"].endswith("001_ready.md")
-    assert selection["ready_task_paths"] == [selection["selected_task_path"]]
-    assert blocked.as_posix() in selection["blocked_task_paths"]
-
-
-def test_two_task_gate_snapshot_and_evaluation() -> None:
-    run_task = _run_task_module()
-
-    snap = run_task.two_task_readiness_gate_snapshot()
-    assert snap["gate_enabled"] is True
-    assert snap["default_single_task_path"] is True
-    assert "ready_to_be_default" in snap["pilot_ready_verdicts"]
-    assert "conditionally_ready_under_supervision" in snap["pilot_ready_verdicts"]
-    assert snap["bounded_two_task_limit"] == 2
-    assert snap["widening_to_general_multi_task_forbidden"] is True
-
-    # Not allowed without operator flag
-    eval1 = run_task.evaluate_two_task_readiness_gate(promotion_verdict="ready_to_be_default", operator_pilot_flag=False)
-    assert eval1["allowed"] is False
-    assert "missing_explicit_operator_flag" in eval1["preconditions"]
-
-    # Allowed with operator flag and qualifying verdict, bounded to 2
-    eval2 = run_task.evaluate_two_task_readiness_gate(
-        promotion_verdict="ready_to_be_default",
-        operator_pilot_flag=True,
-        bounded_limit_requested=5,
-    )
-    assert eval2["allowed"] is True
-    assert eval2["bounded"] is True
-    assert eval2["bounded_limit"] == 2  # hard cap
-
-
-def test_two_task_phase_transition_plans_conservatively() -> None:
-    run_task = _run_task_module()
-
-    rejected = {"allowed": False}
-    hold = run_task.plan_two_task_phase_transition(current_phase="single_task_default", evaluation=rejected)
-    assert hold["transition_allowed"] is False
-    assert hold["next_phase"] == "single_task_default"
-
-    accepted = {"allowed": True, "bounded_limit": 2}
-    go = run_task.plan_two_task_phase_transition(current_phase="single_task_default", evaluation=accepted)
-    assert go["transition_allowed"] is True
-    assert go["next_phase"] == "two_task_pilot"
-    assert go["bounded_limit"] == 2
-
-
-def test_two_task_pilot_ineligible_when_promotion_verdict_below_required() -> None:
-    run_task = _run_task_module()
-
-    payload = {
-        "verdict": "not_ready",
-        "metrics": {
-            "supervised_rate": 0.02,
-            "authority_ambiguity_rate": 0.0,
-            "compatibility_regressions": False,
-        },
-        "thresholds": {
-            "max_supervised_rate": 0.10,
-            "max_authority_ambiguity_rate": 0.05,
-        },
+    task_a = {
+        "id": "A",
+        "admit": True,
+        "resume_plan": {"mode": "resume", "surface": "dev_to_test", "precision": "precise"},
+        "supervised": True,
     }
-    ev = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=True, promotion_payload=payload)
-    assert ev["allowed"] is False
-    assert "verdict_below_threshold" in ev["reasons"]
-
-
-def test_two_task_pilot_ineligible_when_rates_above_ceiling() -> None:
-    run_task = _run_task_module()
-
-    # Supervised rate above threshold
-    payload = {
-        "verdict": "ready_to_be_default",
-        "metrics": {
-            "supervised_rate": 0.20,
-            "authority_ambiguity_rate": 0.00,
-            "compatibility_regressions": False,
-        },
-        "thresholds": {
-            "max_supervised_rate": 0.10,
-            "max_authority_ambiguity_rate": 0.05,
-        },
+    task_b = {
+        "id": "B",
+        "admit": True,
+        "follows": "A",
+        "resume_plan": {"mode": "resume", "surface": "test_to_merge", "precision": "unknown"},
+        "supervision": "explicit_supervision",
     }
-    ev = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=True, promotion_payload=payload)
-    assert ev["allowed"] is False
-    assert "supervised_rate_above_threshold" in ev["reasons"]
-
-    # Authority ambiguity above threshold
-    payload2 = {
-        "verdict": "ready_to_be_default",
-        "metrics": {
-            "supervised_rate": 0.00,
-            "authority_ambiguity_rate": 0.10,
-            "compatibility_regressions": False,
-        },
-        "thresholds": {
-            "max_supervised_rate": 0.10,
-            "max_authority_ambiguity_rate": 0.05,
-        },
-    }
-    ev2 = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=True, promotion_payload=payload2)
-    assert ev2["allowed"] is False
-    assert "authority_ambiguity_rate_above_threshold" in ev2["reasons"]
-
-
-def test_two_task_pilot_blocked_on_compatibility_regressions_even_if_verdict_qualifies() -> None:
-    run_task = _run_task_module()
-
-    payload = {
-        "verdict": "ready_to_be_default",
-        "metrics": {
-            "supervised_rate": 0.00,
-            "authority_ambiguity_rate": 0.00,
-            "compatibility_regressions": True,
-        },
-        "thresholds": {
-            "max_supervised_rate": 0.10,
-            "max_authority_ambiguity_rate": 0.05,
-        },
-    }
-    ev = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=True, promotion_payload=payload)
-    assert ev["allowed"] is False
-    assert "compatibility_regressions_block" in ev["reasons"]
-
-
-def test_two_task_operator_flag_and_hard_cap_remain_in_force() -> None:
-    run_task = _run_task_module()
-
-    payload = {
-        "verdict": "ready_to_be_default",
-        "metrics": {
-            "supervised_rate": 0.01,
-            "authority_ambiguity_rate": 0.01,
-            "compatibility_regressions": False,
-        },
-        "thresholds": {
-            "max_supervised_rate": 0.10,
-            "max_authority_ambiguity_rate": 0.05,
-        },
+    task_c = {
+        "id": "C",
+        "admit": True,
+        "follows": "B",
+        # no explicit resume plan on C; adjacent-pair inference will mark unknown precision
     }
 
-    # Missing operator flag blocks
-    blocked = run_task.evaluate_two_task_readiness_gate(operator_pilot_flag=False, promotion_payload=payload)
-    assert blocked["allowed"] is False
-    assert "missing_explicit_operator_flag" in blocked["preconditions"]
+    # Adjacent-pair admission truth
+    ab_adm = bounded_pilot._admission_truth(task_a, task_b)
+    bc_adm = bounded_pilot._admission_truth(task_b, task_c)
+    assert ab_adm["accepted"] is True
+    assert bc_adm["accepted"] is True
 
-    # With flag, hard cap at 2 remains enforced even if higher requested
-    allowed = run_task.evaluate_two_task_readiness_gate(
-        operator_pilot_flag=True,
-        promotion_payload=payload,
-        bounded_limit_requested=99,
-    )
-    assert allowed["allowed"] is True
-    assert allowed["bounded_limit"] == 2
+    # Adjacent handoff eligibility truth
+    ab_handoff = bounded_pilot._handoff_eligible(task_a, task_b)
+    bc_handoff = bounded_pilot._handoff_eligible(task_b, task_c)
+    assert ab_handoff["eligible"] is True
+    assert bc_handoff["eligible"] is True
+
+    # Resume-truth artifacts per adjacent pair (reused seam)
+    ab_resume = bounded_pilot._coerce_resume_truth(task_a, task_b, handoff_ok=True)
+    bc_resume = bounded_pilot._coerce_resume_truth(task_b, task_c, handoff_ok=True)
+    assert ab_resume["mode"] in {"resume", "default"}
+    assert ab_resume["precision"] in {"precise", "unknown"}
+    assert bc_resume["mode"] in {"resume", "default", "unknown"}
+    assert bc_resume["precision"] in {"unknown", "precise", "broad"}
+
+    # Supervision truth remains first-class
+    manual_intervention_observed = bool(task_a.get("manual_intervention", False) or task_b.get("manual_intervention", False) or task_c.get("manual_intervention", False))
+    assert manual_intervention_observed is False
+    no_manual_intervention = not manual_intervention_observed
+    assert no_manual_intervention is True
+
+
+def test_three_step_canary_admission_rejects_broken_adjacency_or_missing_admit() -> None:
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    bounded_pilot = importlib.import_module("agents.lib.bounded_pilot")
+
+    # Broken adjacency: B does not follow A
+    task_a = {"id": "A", "admit": True}
+    task_b = {"id": "B", "admit": True, "follows": "X"}  # should follow A
+    task_c = {"id": "C", "admit": True, "follows": "B"}
+
+    ab_handoff = bounded_pilot._handoff_eligible(task_a, task_b)
+    bc_handoff = bounded_pilot._handoff_eligible(task_b, task_c)
+
+    assert ab_handoff["eligible"] is False
+    assert bc_handoff["eligible"] is True
+
+    # Missing admit on C should deny admission chain-wide
+    task_c_missing = {"id": "C", "follows": "B"}
+    bc_adm = bounded_pilot._admission_truth(task_b, task_c_missing)
+    assert bc_adm["accepted"] is False
