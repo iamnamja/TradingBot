@@ -64,6 +64,12 @@ class PromotionThresholds:
     require_no_compat_regressions: bool = True
 
 
+@dataclass(frozen=True)
+class EmptyOutputGuard:
+    """Small regression guard configuration for empty-output failures."""
+    max_empty_output_rate: float = 0.10
+
+
 class BenchmarkSession:
     """
     Integrated scorecard writer for benchmark sessions.
@@ -222,6 +228,44 @@ class BenchmarkSession:
         # Persist a promotion verdict using default thresholds. The orchestrator benchmark
         # harness may overwrite with a more specialized decision if needed.
         self.persist_promotion_verdict()
+
+    # Optional helper for callers who want to persist a guard artifact alongside promotions.
+    def apply_empty_output_regression_guard(
+        self,
+        *,
+        empty_output_rate: float,
+        guard: EmptyOutputGuard | None = None,
+    ) -> dict:
+        """
+        Evaluate a small empty-output regression guard and persist a guard artifact.
+
+        Note: This helper does not change the baseline promotion verdict. Callers
+        may choose to degrade promotion.json separately for conservative behavior.
+        """
+        g = guard or EmptyOutputGuard()
+        promo_path = self.session_dir / "promotion.json"
+        baseline_verdict = "not_ready"
+        if promo_path.exists():
+            try:
+                baseline_verdict = json.loads(promo_path.read_text(encoding="utf-8")).get("verdict", "not_ready")
+            except Exception:
+                baseline_verdict = "not_ready"
+
+        triggered = empty_output_rate > g.max_empty_output_rate
+        payload = {
+            "created_at": _utc_now_iso(),
+            "empty_output": {
+                "empty_output_rate": round(empty_output_rate, 6),
+                "max_allowed_rate": g.max_empty_output_rate,
+                "guard_triggered": bool(triggered),
+            },
+            "verdict_baseline": baseline_verdict,
+            "verdict_with_guard": "not_ready" if triggered else baseline_verdict,
+        }
+        guard_path = self.session_dir / "promotion_guard.json"
+        with guard_path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, sort_keys=True)
+        return payload
 
 
 def open_session(session_dir: Union[str, Path]) -> BenchmarkSession:

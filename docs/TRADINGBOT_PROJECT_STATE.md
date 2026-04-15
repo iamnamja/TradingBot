@@ -39,7 +39,7 @@ The current monorepo contains:
 
 ## Honest current posture
 
-- One-task lane: conditionally ready under supervision, now on a recovered runtime path with explicit transport observability.
+- One-task lane: conditionally ready under supervision, now on a recovered runtime path with explicit transport observability. A small empty-output regression guard (Task 196) now backs the refreshed one-task verdict to prevent silent drift back into empty-output failures.
 - Two-task lane (bounded pilot): valid in bounded supervised scope on the curated adjacent-pair corpus, but still requires fresh post-transport execution proof before any wider claims.
 - Post-195 checkpoint: conditionally ready under supervision to plan a cautious post-transport execution reproof tranche. This still does not justify unattended multi-task autonomy or standalone productization.
 
@@ -82,3 +82,7 @@ Run a post-transport execution reproof tranche before any broader autonomy claim
 Tasks 191-195 fixed a real bottleneck: the runner now preserves non-empty output more honestly and reports transport behavior more clearly. That is necessary, but it is not enough to widen autonomy claims.
 
 The next tranche must prove that the recovered runtime path holds up under real one-task and bounded two-task work, then add only the smallest carefully-admitted widening step.
+
+## Task 196 checkpoint note
+
+The orchestrator’s one-task benchmark harness was refreshed on the recovered runtime path, and an explicit empty-output regression guard was added. The guard evaluates recent transport-observability records and conservatively downgrades the promotion verdict if empty-output failures exceed a small tolerated rate. The preserved GPT file-bundle path remains the baseline. The result tightens the default proving lane without widening multi-task claims.

@@ -35,3 +35,7 @@ The near-term focus stays conservative:
 - tighten adjacent-pair resume precision before adding any wider chained execution claims
 - make any three-step work explicitly supervised, admitted, and benchmarked
 - only reopen a broader capability slice after the post-200 checkpoint says the recovered runtime is durable enough
+
+## Post-transport one-task guard note (Task 196)
+
+A small, explicit empty-output regression guard now backs the refreshed one-task benchmark verdict. The proven GPT file-bundle path remains the baseline. If empty-output capture failures reappear above the tolerated threshold, the one-task promotion verdict is conservatively degraded to not_ready and surfaced alongside strict scorecard artifacts. This keeps default proving-lane truth conservative and supervision-aware without widening claims.
