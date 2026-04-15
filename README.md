@@ -10,7 +10,7 @@ This repository contains:
 
 ## Current continuation status
 
-The synchronized reliability-and-promotion checkpoint is now complete through Task 190.
+The synchronized reliability-and-promotion checkpoint is now complete through Task 195.
 
 The repo can now honestly claim a materially hardened one-task lane with:
 
@@ -58,7 +58,7 @@ It does not claim:
 
 ## Active tranche
 
-Current active tranche: 191-195.
+Current active tranche: 196-200.
 
 ## Transport capture-result artifact (Task 191 addendum)
 
@@ -145,3 +145,8 @@ A conservative transport-stability checkpoint evaluates:
 Checkpoint verdict: conditionally ready under supervision.
 - Meaning: with transport observability now durable, a cautious bounded next slice may be planned only if it continues stabilizing transport behavior. Broader autonomy and any widening remain blocked until measurable reductions in empty-capture and parser-path failure rates are demonstrated across a larger corpus.
 - Artifact: `_transport_stability_checkpoint.json` (additive; lives alongside transport-health artifacts).
+
+## Active tranche
+
+Current active tranche: 196-200.
+
