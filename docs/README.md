@@ -39,3 +39,14 @@ The near-term focus stays conservative:
 ## Post-transport one-task guard note (Task 196)
 
 A small, explicit empty-output regression guard now backs the refreshed one-task benchmark verdict. The proven GPT file-bundle path remains the baseline. If empty-output capture failures reappear above the tolerated threshold, the one-task promotion verdict is conservatively degraded to not_ready and surfaced alongside strict scorecard artifacts. This keeps default proving-lane truth conservative and supervision-aware without widening claims.
+
+## Post-transport bounded two-task rerun note (Task 197)
+
+The bounded supervised two-task pilot was rerun on the recovered runtime path. The refreshed artifacts:
+
+- keep the curated adjacent-pair corpus discipline unchanged,
+- distinguish transport-stable direct completions from supervision-assisted progress explicitly in both scorecards and promotion metrics,
+- remain conservative in promotion verdicts (conditional readiness unless direct success materially dominates self-healed paths),
+- and preserve the explicit supervised-widening checkpoint. Broader unattended multi-task autonomy and standalone productization remain blocked pending stronger post-200 evidence.
+
+All artifacts are written on the recovered runtime path to ensure transport-stability parity with the post-195 checkpoint.

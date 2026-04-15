@@ -49,12 +49,16 @@ def _promotion_verdict_and_checkpoint(summary: Dict[str, Any]) -> Dict[str, Any]
     blocked_adm = int(summary.get("blocked_admissions", 0))
     handoff_fail = int(summary.get("handoff_failures", 0))
     supervised = int(summary.get("supervised_interventions", 0))
+    direct_completions = int(summary.get("direct_completions", 0))
+    assisted_completions = int(summary.get("assisted_completions", 0))
 
     denom = max(eligible_pairs, 1)
     completed_rate = completed / denom
     supervised_rate = supervised / denom
     handoff_fail_rate = handoff_fail / denom
     blocked_rate = blocked_adm / max(total_pairs, 1)
+    direct_rate = direct_completions / denom
+    assisted_rate = assisted_completions / denom
 
     thresholds = {
         "min_completed_rate_to_continue": 0.3,
@@ -114,6 +118,10 @@ def _promotion_verdict_and_checkpoint(summary: Dict[str, Any]) -> Dict[str, Any]
             "supervised_rate": round(supervised_rate, 4),
             "handoff_failure_rate": round(handoff_fail_rate, 4),
             "admission_blocked_rate": round(blocked_rate, 4),
+            "transport_stable_direct_rate": round(direct_rate, 4),
+            "supervision_assisted_rate": round(assisted_rate, 4),
+            "transport_stable_direct_completions": direct_completions,
+            "supervision_assisted_completions": assisted_completions,
         },
         "widening_checkpoint": widening_checkpoint,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -156,6 +164,8 @@ def run_bounded_two_task_corpus_benchmark(
     blocked_admissions = 0
     handoff_failures = 0
     supervised_interventions = 0
+    direct_completions = 0
+    assisted_completions = 0
 
     for pair in resolved_pairs:
         if not bool(pair.get("eligible", False)):
@@ -172,6 +182,10 @@ def run_bounded_two_task_corpus_benchmark(
 
         if admitted and completed:
             completed_bounded_pilot_pairs += 1
+            if supervised:
+                assisted_completions += 1
+            else:
+                direct_completions += 1
         elif not admitted:
             blocked_admissions += 1
 
@@ -187,6 +201,8 @@ def run_bounded_two_task_corpus_benchmark(
         "blocked_admissions": blocked_admissions,
         "handoff_failures": handoff_failures,
         "supervised_interventions": supervised_interventions,
+        "direct_completions": direct_completions,
+        "assisted_completions": assisted_completions,
         "artifacts_dir": bounded_dir,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
