@@ -86,6 +86,12 @@ To remove ambiguity when `_last_agent_model_output.txt` is empty or whitespace-o
 
 These artifacts are additive and follow repository hygiene and subset-preservation rules.
 
+## Transport failure details (Task 192)
+
+To speed operator diagnosis and preserve small, machine-readable observability, transport failures also persist:
+
+- `_last_transport_failure_details.json` — provider/model, required/selected transport, transport contract, parser path (bundle vs protected method), retry index, raw-output length, parsed bundle file-count or method-block count, a protected-mode flag, and a short failure category, with pointers to sibling artifacts.
+
 ## Why this tranche exists
 
 The project now has enough contract/model clarity to see the real runtime problem:

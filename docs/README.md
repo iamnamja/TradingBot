@@ -25,6 +25,14 @@ Transport failures now persist an explicit capture-result artifact to remove amb
 
 These are additive, hygiene-compatible, and preserve subset behavior. The legacy `_last_agent_model_output.txt` is still written; emptiness is now explicitly classified.
 
+## Transport failure details (Task 192)
+
+To make parser-path and contract choices immediately visible during failures, a compact machine-readable artifact is now persisted:
+
+- Artifact: `_last_transport_failure_details.json`
+- Captures provider/model, required/selected transport and contract, parser-path attempted (bundle vs method-insertion), retry index, raw-output length, parsed bundle file-count or method block count, protected-method mode flag, and a short failure category.
+- References sibling observability files so operators can pivot quickly to underlying payloads.
+
 ## Current continuation note
 
 Tasks 186–190 completed the contract/model compatibility tranche:

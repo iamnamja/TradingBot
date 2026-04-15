@@ -4794,9 +4794,9 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
         "agents/lib/protected_file_policy.py",
     }
 
-    # Certain paths should never be diverted into protected mode via partition
-    # even if a caller misclassifies them: keep tests in the normal bundle lane.
-    never_protected_prefixes = ("tests/",)
+    # Paths that should never be diverted into protected mode by partitioning,
+    # even if a caller misclassifies them (e.g., tests/docs/tasks belong in normal bundle).
+    never_protected_prefixes = ("tests/", "docs/", "tasks/")
 
     # If an external partitioner exists, prefer its decision but re-normalize outputs.
     if callable(_partition):
@@ -4828,10 +4828,10 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
                         out.append(c)
                 return out
 
-            # Apply override rule to keep tests in normal lane if mis-partitioned.
             norm_normal = _norm_list(normal or [])
             norm_protected = [p for p in _norm_list(protected or []) if not p.startswith(never_protected_prefixes)]
-            return sorted(norm_normal), sorted(norm_protected)
+            # Ensure stable deterministic ordering and dedupe.
+            return sorted(set(norm_normal)), sorted(set(norm_protected))
         except Exception:
             # Fall back locally on any delegation failure.
             pass
@@ -4849,12 +4849,14 @@ def _partition_required_paths_for_normal_bundle(required_paths: List[str], prote
     seen_out_p: set[str] = set()
 
     for path in normalized_required:
+        # Never route these to protected lane.
         if path.startswith(never_protected_prefixes):
             if path not in seen_out_n:
                 seen_out_n.add(path)
                 out_normal.append(path)
             continue
-        if path in explicit_protected_paths or path in protected_meta_paths:
+        # Meta harness and explicit protected targets go to protected lane.
+        if path in protected_meta_paths or path in explicit_protected_paths:
             if path not in seen_out_p:
                 seen_out_p.add(path)
                 out_protected.append(path)
@@ -5137,7 +5139,8 @@ def _emit_failure_artifact_messages(
         protected_targets_identified: List[str] | None = None,
     ) -> None:
     # Resilient artifact emission: never raise, always attempt to persist minimal diagnostics/placeholders.
-    # Additionally persist an explicit raw-output capture result artifact for transport failures.
+    # Additionally persist an explicit raw-output capture result artifact for transport failures and
+    # a richer transport-failure detail artifact including parser path and contract/length observability.
 
     # Normalize inputs
     task_file_path = Path(task_file).as_posix() if task_file else ""
@@ -5180,24 +5183,25 @@ def _emit_failure_artifact_messages(
         meta_exists = False
         meta_info = {}
 
-    def _as_int(token: Any, default: int = 0) -> int:
-        try:
-            return int(str(token).strip())
-        except Exception:
-            return default
-
-    def _as_bool(token: Any) -> bool:
-        sval = str(token).strip().lower()
-        if sval in {"true", "1", "yes", "on"}:
-            return True
-        if sval in {"false", "0", "no", "off"}:
-            return False
-        return bool(sval)
-
     # Derive meta values (fall back to computed values if missing)
-    meta_raw_len = _as_int(meta_info.get("raw_output_length", ""), 0)
-    meta_nonempty = _as_bool(meta_info.get("raw_output_nonempty", "false"))
-    meta_ws_only = _as_bool(meta_info.get("raw_output_whitespace_only", "false"))
+    try:
+        meta_raw_len = int(str(meta_info.get("raw_output_length", "")).strip())
+    except Exception:
+        meta_raw_len = 0
+    sval_nonempty = str(meta_info.get("raw_output_nonempty", "false")).strip().lower()
+    if sval_nonempty in {"true", "1", "yes", "on"}:
+        meta_nonempty = True
+    elif sval_nonempty in {"false", "0", "no", "off"}:
+        meta_nonempty = False
+    else:
+        meta_nonempty = bool(sval_nonempty)
+    sval_ws = str(meta_info.get("raw_output_whitespace_only", "false")).strip().lower()
+    if sval_ws in {"true", "1", "yes", "on"}:
+        meta_ws_only = True
+    elif sval_ws in {"false", "0", "no", "off"}:
+        meta_ws_only = False
+    else:
+        meta_ws_only = bool(sval_ws)
 
     computed_len = len(raw_output_text)
     computed_nonempty = bool(raw_output_text.strip())
@@ -5213,7 +5217,6 @@ def _emit_failure_artifact_messages(
         if not meta_exists and not raw_output_exists:
             status = "failed_before_payload"
         else:
-            # Prefer concrete text if available; otherwise rely on meta
             if raw_output_exists:
                 if computed_nonempty:
                     status = "non_empty"
@@ -5223,52 +5226,54 @@ def _emit_failure_artifact_messages(
                 if meta_nonempty:
                     status = "non_empty"
                 else:
-                    # Distinguish zero-length vs whitespace-only from meta if possible
                     if meta_raw_len == 0:
                         status = "empty_zero_length"
                     else:
                         status = "empty_whitespace_only"
 
     # Build capture-result artifact payload
-    capture_result = {
-        "artifact_type": "raw_output_capture_result",
-        "created_at_epoch": time.time(),
-        "task_file": task_file_path,
-        "failure_category": category_text,
-        "reason": normalized_reason,
-        "before_model_output": bool(before_model_output),
-        "normal_bundle_attempted": bool(normal_bundle_attempted),
-        "protected_execution_attempted": bool(protected_execution_attempted),
-        "mixed_task": bool(mixed_task),
-        "protected_files": protected_files_list,
-        "protected_targets_identified": protected_targets_list,
-        "paths": {
-            "raw_output_path": last_output_path.as_posix(),
-            "raw_output_meta_path": meta_path.as_posix() if meta_exists else "",
-        },
-        "provider": str(meta_info.get("provider", "")),
-        "model": str(meta_info.get("model", "")),
-        "required_transport": str(meta_info.get("required_transport", "")),
-        "selected_transport": str(meta_info.get("selected_transport", "")),
-        "phase": str(meta_info.get("phase", "")),
-        "retry_index": _as_int(meta_info.get("retry_index", "0"), 0),
-        "raw_output_length": meta_raw_len if meta_exists else computed_len,
-        "raw_output_nonempty": meta_nonempty if meta_exists else computed_nonempty,
-        "raw_output_whitespace_only": meta_ws_only if meta_exists else computed_ws_only,
-        "status": status,  # one of: non_empty, empty_zero_length, empty_whitespace_only, failed_before_payload, truncated_or_redacted
-        "classification": (
-            "captured_non_empty" if status == "non_empty"
-            else "captured_empty_zero_length" if status == "empty_zero_length"
-            else "captured_empty_whitespace_only" if status == "empty_whitespace_only"
-            else "capture_failed_before_payload" if status == "failed_before_payload"
-            else "captured_truncated_or_redacted"
-        ),
-        "capture_available": status != "failed_before_payload",
-        "truncated_or_redacted": status == "truncated_or_redacted",
-    }
-
-    # Write capture-result artifact (JSON)
     try:
+        meta_retry_raw = meta_info.get("retry_index", "0")
+        try:
+            meta_retry_idx = int(str(meta_retry_raw).strip())
+        except Exception:
+            meta_retry_idx = 0
+        capture_result = {
+            "artifact_type": "raw_output_capture_result",
+            "created_at_epoch": time.time(),
+            "task_file": task_file_path,
+            "failure_category": category_text,
+            "reason": normalized_reason,
+            "before_model_output": bool(before_model_output),
+            "normal_bundle_attempted": bool(normal_bundle_attempted),
+            "protected_execution_attempted": bool(protected_execution_attempted),
+            "mixed_task": bool(mixed_task),
+            "protected_files": protected_files_list,
+            "protected_targets_identified": protected_targets_list,
+            "paths": {
+                "raw_output_path": last_output_path.as_posix(),
+                "raw_output_meta_path": meta_path.as_posix() if meta_exists else "",
+            },
+            "provider": str(meta_info.get("provider", "")),
+            "model": str(meta_info.get("model", "")),
+            "required_transport": str(meta_info.get("required_transport", "")),
+            "selected_transport": str(meta_info.get("selected_transport", "")),
+            "phase": str(meta_info.get("phase", "")),
+            "retry_index": meta_retry_idx,
+            "raw_output_length": meta_raw_len if meta_exists else computed_len,
+            "raw_output_nonempty": meta_nonempty if meta_exists else computed_nonempty,
+            "raw_output_whitespace_only": meta_ws_only if meta_exists else computed_ws_only,
+            "status": status,  # one of: non_empty, empty_zero_length, empty_whitespace_only, failed_before_payload, truncated_or_redacted
+            "classification": (
+                "captured_non_empty" if status == "non_empty"
+                else "captured_empty_zero_length" if status == "empty_zero_length"
+                else "captured_empty_whitespace_only" if status == "empty_whitespace_only"
+                else "capture_failed_before_payload" if status == "failed_before_payload"
+                else "captured_truncated_or_redacted"
+            ),
+            "capture_available": status != "failed_before_payload",
+            "truncated_or_redacted": status == "truncated_or_redacted",
+        }
         capture_result_path = last_output_path.with_name("_last_raw_output_capture_result.json")
         capture_result_path.parent.mkdir(parents=True, exist_ok=True)
         capture_result_path.write_text(json.dumps(capture_result, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
@@ -5389,6 +5394,117 @@ def _emit_failure_artifact_messages(
                 last_output_path.write_text(json.dumps(output_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
             except Exception:
                 pass
+
+    # Build richer transport-failure detail artifact (machine-readable, small).
+    try:
+        # Attempt to infer parser path and protected-method mode from phase/flags.
+        phase = str(meta_info.get("phase", "") or "")
+        retry_raw = meta_info.get("retry_index", "0")
+        try:
+            retry_index = int(str(retry_raw).strip())
+        except Exception:
+            retry_index = 0
+        required_transport = str(meta_info.get("required_transport", "") or "")
+        selected_transport = str(meta_info.get("selected_transport", "") or "")
+        provider = str(meta_info.get("provider", "") or "")
+        model = str(meta_info.get("model", "") or "")
+
+        # parser_path: prefer phase prefixes; otherwise fall back to selected/required transport.
+        if phase.startswith("method_insertion"):
+            parser_path = "method_insertion"
+        elif phase.startswith("bundle"):
+            parser_path = "file_bundle"
+        else:
+            parser_path = selected_transport or required_transport or ""
+
+        protected_method_mode_selected = bool(
+            protected_execution_attempted or phase.startswith("method_insertion")
+        )
+
+        # Compute artifact lengths / counts.
+        parsed_bundle_length = 0
+        file_bundle_file_count = 0
+        try:
+            if last_bundle_path.exists():
+                bundle_text = last_bundle_path.read_text(encoding="utf-8", errors="replace")
+                parsed_bundle_length = len(bundle_text)
+                # Count FILE: headers when a real bundle is present (JSON placeholder will have 0).
+                file_bundle_file_count = sum(1 for line in bundle_text.splitlines() if line.strip().startswith("FILE:"))
+        except Exception:
+            parsed_bundle_length = 0
+            file_bundle_file_count = 0
+
+        # Method block count from raw output in protected mode (best-effort).
+        method_block_count = 0
+        if parser_path == "method_insertion" and raw_output_text:
+            # Prefer explicit BEGIN_METHOD markers; fallback to counting top-level def lines.
+            method_block_count = raw_output_text.count("BEGIN_METHOD")
+            if method_block_count == 0:
+                method_block_count = sum(1 for line in raw_output_text.splitlines() if line.startswith("def "))
+
+        # Transport contract name via declared transport contract (reuse capability truth).
+        transport_contract = ""
+        try:
+            decl = declared_transport_contract(provider=provider or None, model=model or None)
+            transport_contract = str(decl.get("transport_contract", "") or "")
+        except Exception:
+            transport_contract = ""
+
+        # Existing supportive artifacts
+        provider_call_artifact = _provider_call_path_artifact_path(last_output_path)
+        capability_artifact = _model_capability_artifact_path(last_output_path)
+        bundle_error_artifact = _bundle_transport_error_path(last_output_path)
+
+        def _safe_len_for_path(p: Path) -> int:
+            try:
+                if p.exists():
+                    return len(p.read_text(encoding="utf-8", errors="replace"))
+            except Exception:
+                return 0
+            return 0
+
+        transport_failure = {
+            "artifact_type": "transport_failure_details",
+            "created_at_epoch": time.time(),
+            "task_file": task_file_path,
+            "failure_category": category_text,
+            "reason": normalized_reason,
+            "provider": provider,
+            "model": model,
+            "required_transport": required_transport,
+            "selected_transport": selected_transport,
+            "transport_contract": transport_contract,
+            "parser_path": parser_path,
+            "phase": phase,
+            "retry_index": retry_index,
+            "protected_method_mode_selected": protected_method_mode_selected,
+            "raw_output_length": meta_raw_len if meta_exists else computed_len,
+            "parsed_bundle_length": parsed_bundle_length,
+            "file_bundle_file_count": file_bundle_file_count,
+            "method_block_count": method_block_count,
+            "artifacts": {
+                "raw_output_path": last_output_path.as_posix(),
+                "bundle_path": last_bundle_path.as_posix(),
+                "provider_call_path": provider_call_artifact.as_posix() if provider_call_artifact.exists() else "",
+                "raw_output_meta_path": meta_path.as_posix() if meta_exists else "",
+                "model_capability_path": capability_artifact.as_posix() if capability_artifact.exists() else "",
+                "bundle_transport_error_path": bundle_error_artifact.as_posix() if bundle_error_artifact.exists() else "",
+            },
+            "artifact_lengths": {
+                "raw_output_txt": computed_len if raw_output_exists else 0,
+                "bundle_artifact": _safe_len_for_path(last_bundle_path),
+                "provider_call_txt": _safe_len_for_path(provider_call_artifact),
+                "raw_output_meta_txt": _safe_len_for_path(meta_path),
+                "model_capability_txt": _safe_len_for_path(capability_artifact),
+                "bundle_transport_error_txt": _safe_len_for_path(bundle_error_artifact),
+            },
+        }
+        details_path = last_output_path.with_name("_last_transport_failure_details.json")
+        details_path.parent.mkdir(parents=True, exist_ok=True)
+        details_path.write_text(json.dumps(transport_failure, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    except Exception:
+        # Best-effort only; never raise.
+        pass
 
     # Friendly console notes; never raise.
     if last_output_path.exists():
