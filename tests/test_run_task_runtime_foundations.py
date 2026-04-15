@@ -47,16 +47,10 @@ def _load_runtime_modules():
     )
 
 
-def test_provider_client_delegation(monkeypatch) -> None:
-    run_task, _, _, provider_client, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
+def test_known_provider_chat_uses_local_runtime_implementation(monkeypatch) -> None:
+    run_task, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = _load_runtime_modules()
 
-    def fake_chat(messages, model, provider=None):
-        assert messages == [{"role": "user", "content": "x"}]
-        assert model == "m"
-        assert provider == "openai"
-        return "ok"
-
-    monkeypatch.setattr(provider_client, "chat", fake_chat)
+    monkeypatch.setattr(run_task, "_chat_openai_local", lambda messages, model: "ok")
     assert run_task.chat([{"role": "user", "content": "x"}], model="m", provider="openai") == "ok"
 
 
