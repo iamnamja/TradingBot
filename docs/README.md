@@ -73,6 +73,14 @@ These remain separate from trading/runtime metrics and reuse the Task 191–193 
   - `write_transport_health(base_dir, summary, families)`
   - `compute_and_write_transport_health(corpus, base_dir)`
 
+## Transport stability checkpoint and cautious autonomy-resume gate (Task 195)
+
+A conservative transport-stability checkpoint evaluates capture integrity, parser-path observability, protected-method fallback tracing, recurring failure-family rates, and preservation of the proven GPT file-bundle path.
+
+- Verdict: conditionally ready under supervision.
+- Artifact: `_transport_stability_checkpoint.json` (additive to prior health artifacts).
+- Gate: only a cautious bounded next slice focused on transport stability is in-bounds; broader autonomy remains blocked pending improved corpus evidence.
+
 ## Current continuation note
 
 Tasks 186–190 completed the contract/model compatibility tranche:
@@ -88,7 +96,7 @@ Tasks 191–195 now target the next operational bottleneck:
 - Task 192: transport failure artifact expansion and parser-path observability
 - Task 193: protected-method preflight, fallback tracing, and retry discipline
 - Task 194: transport health benchmark and recurring failure-family corpus
-- Task 195: transport stability checkpoint and cautious autonomy-resume gate
+- Task 195: transport stability checkpoint and cautious autonomy resume gate
 
 ## Current next-step note
 
