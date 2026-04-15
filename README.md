@@ -132,3 +132,16 @@ This benchmark is separate from trading runtime metrics and reuses the Task 191â
   - `aggregate_transport_health(corpus)`
   - `write_transport_health(base_dir, summary, families)`
   - `compute_and_write_transport_health(corpus, base_dir)`
+
+## Transport stability checkpoint and cautious autonomy-resume gate (Task 195)
+
+A conservative transport-stability checkpoint evaluates:
+- capture integrity,
+- parser-path observability,
+- protected-method fallback tracing,
+- recurring transport failure-family rates,
+- preservation of the proven GPT file-bundle path.
+
+Checkpoint verdict: conditionally ready under supervision.
+- Meaning: with transport observability now durable, a cautious bounded next slice may be planned only if it continues stabilizing transport behavior. Broader autonomy and any widening remain blocked until measurable reductions in empty-capture and parser-path failure rates are demonstrated across a larger corpus.
+- Artifact: `_transport_stability_checkpoint.json` (additive; lives alongside transport-health artifacts).

@@ -123,3 +123,16 @@ These measurements remain separate from trading/runtime metrics and reuse the Ta
   - `aggregate_transport_health(corpus)`
   - `write_transport_health(base_dir, summary, families)`
   - `compute_and_write_transport_health(corpus, base_dir)`
+
+## Transport stability checkpoint and cautious autonomy-resume gate (Task 195)
+
+The repository records a conservative transport-stability checkpoint that evaluates:
+- capture integrity (non-empty raw-output capture or an explicit empty-capture classification),
+- parser-path observability (bundle vs method-insertion coverage),
+- protected-method fallback tracing (bounded and explainable),
+- recurring transport failure-family rates (reduced and measurable),
+- preservation of the proven GPT file-bundle path (from the contract/model checkpoint).
+
+Verdict: conditionally ready under supervision.
+- Gate: planning for a cautious bounded next slice is permitted only if it continues stabilizing the transport layer. Broader autonomy and any widening remain blocked until improvement is demonstrated.
+- Artifact: `_transport_stability_checkpoint.json` (additive and machine-readable, colocated with other transport-health artifacts).
