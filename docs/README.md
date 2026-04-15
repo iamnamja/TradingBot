@@ -23,7 +23,7 @@ Tasks 201-205 now target the next conservative step:
 - Task 201: supervised three-step canary runner and durable chain ledger
 - Task 202: curated three-step canary corpus and manifest truth
 - Task 203: three-step canary benchmark and supervision-aware scorecard
-- Task 204: controller route trace and resume reconstruction for chained canary runs
+- Task 204: controller route trace and resume reconstruction for canary runs
 - Task 205: supervised multi-task canary checkpoint and adjacent-manifest gate
 
 ## Current next-step note
@@ -72,3 +72,24 @@ The ledger records chain/session id, task ids and order, adjacency truth for A->
 
 A test proving acceptance, adjacency validation, durable ledgers, and conservative rejection of malformed shapes is included:
 - `tests/test_three_step_canary.py`
+
+## Curated three-step manifest (Task 202)
+
+A curated three-step canary manifest schema and corpus now exist:
+- Schema/loader: `agents/lib/three_step_manifest.py`
+- Curated manifest accessor: `agents.lib.three_step_manifest.get_curated_manifest()`
+- Optional dumper: `agents.lib.three_step_manifest.dump_curated_manifest(<path>)`
+
+Schema keys (per chain):
+- id: string
+- tasks: { A: string, B: string, C: string }
+- adjacency: { A_to_B: boolean, B_to_C: boolean, reasons?: { <link>: <note> } }
+- benchmark_eligible: boolean
+- status: "eligible" | "blocked" | "incompatible" | "supervision-heavy"
+- supervision?: { profile: string, notes?: string }
+- notes?: string
+
+Runner-facing export preserves exactly-three adjacency without widening:
+- payload: { chain_id, tasks: {A,B,C}, adjacency: {A_to_B,B_to_C} }
+
+The curated corpus includes both positive/eligible chains and explicit negative cases (blocked, incompatible, supervision-heavy) with explanatory reasons for rejected links to keep evaluation honest and reproducible.
