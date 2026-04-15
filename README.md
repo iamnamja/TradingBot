@@ -79,6 +79,23 @@ Transport failures now persist an explicit raw-output capture-result artifact:
 
 These artifacts are additive and do not change the existing `_last_agent_model_output.txt` behavior; they make the emptiness case explicit rather than implicit.
 
+## Transport failure details (Task 192)
+
+Transport-failure artifacts are expanded to immediately surface parser-path and transport-contract context:
+
+- Path: `_last_transport_failure_details.json`
+- Fields include:
+  - provider and model
+  - required and selected transport, plus transport contract
+  - parser path attempted (bundle vs method-insertion)
+  - retry index
+  - raw output length and basic capture classification parity
+  - parsed bundle length and file-count, or method-block count for protected-mode
+  - protected-method mode selected flag
+  - short failure family/category
+  - pointers to sibling artifacts (`_last_provider_call_path.txt`, `_last_raw_output_meta.txt`, `_last_agent_file_bundle_error.txt`)
+- This artifact is machine-readable and small, and is written additively alongside the existing capture-result and bundle-error files.
+
 ## Next continuation target
 
 Stay conservative and focus on runner stability and fast observability:
