@@ -48,7 +48,7 @@ The current monorepo contains:
 - Two-task lane (bounded pilot): this is the only real multi-task execution shape with durable operational proof today. It remains bounded, supervised, and curated.
 - Three-step lane (canary chain): admitted and checkpoint-authorized only as a narrow supervised shape. The repo has the contract surface for A->B->C, but it does not yet have durable real-run proof that this should be treated as an operational multi-task path.
 - Multi-agent role orchestration: controller / builder / verifier surfaces exist and are useful inside bounded flows, but they are not yet proven as a general role-routing system across arbitrary multi-task sequences.
-- Post-200 checkpoint: conditionally ready under supervision to plan one more cautious widening slice. This still does not justify unattended multi-task autonomy, arbitrary scheduling, or standalone productization.
+- Post-200 checkpoint: conditionally ready under supervision to plan one more cautious widening slice. This still does not justify unattended multi-task autonomy, arbitrary scheduling, or standalone product extraction.
 
 This means:
 
@@ -101,7 +101,7 @@ Convert the admitted three-step canary surface into real supervised execution pr
 - 201 — supervised three-step canary runner and durable chain ledger
 - 202 — curated three-step canary corpus and manifest truth
 - 203 — three-step canary benchmark and supervision-aware scorecard
-- 204 — controller route trace and resume reconstruction for chained canary runs
+- 204 — controller route trace and resume reconstruction for canary runs
 - 205 — supervised multi-task canary checkpoint and adjacent-manifest gate
 
 ## Why this tranche exists
@@ -126,3 +126,24 @@ A supervised three-step canary runner and durable chain ledger have been added:
 
 A corresponding test verifies acceptance of exactly three adjacent tasks, conservative rejection of malformed shapes, and durable ledger persistence:
 - `tests/test_three_step_canary.py`
+
+## Task 202 update
+
+A curated three-step canary manifest schema and explicit corpus have been added:
+
+- Manifest module: `agents/lib/three_step_manifest.py`
+- Accessor: `agents.lib.three_step_manifest.get_curated_manifest()`
+- Dumper: `agents.lib.three_step_manifest.dump_curated_manifest(path)`
+
+Manifest entry fields:
+- chain id
+- task A, B, and C ids
+- expected adjacency truth (A->B, B->C) with optional reasons
+- benchmark eligibility flag
+- status: `eligible`, `blocked`, `incompatible`, or `supervision-heavy`
+- optional supervision profile and notes
+
+The curated corpus contains both positive/eligible chains and negative cases (blocked, incompatible, supervision-heavy). Runner-facing payloads exported by the manifest preserve exactly-three adjacency and do not widen scope.
+
+Curated corpus note:
+- The curated set is intentionally small and explicit. Negative cases include clear explanatory reasons for at least one rejected adjacency handoff to support honest evaluation and reproducibility.
