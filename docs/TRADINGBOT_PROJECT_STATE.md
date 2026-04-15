@@ -10,9 +10,9 @@ The current monorepo contains:
 - Numbered implementation tasks (`tasks`)
 - Documentation and project-state tracking (`docs`)
 
-## Current state (post-Task 195)
+## Current state (post-Task 200)
 
-- Tasks 157-195 are complete in bounded supervised scope.
+- Tasks 157-200 are complete in bounded supervised scope.
 - The repo now has:
   - a strict no-manual-intervention one-task scorecard,
   - deliverable-contract and completion-integrity enforcement,
@@ -35,91 +35,103 @@ The current monorepo contains:
   - expanded transport-failure artifacts and parser-path observability,
   - protected-method preflight tracing and fallback discipline,
   - transport-health benchmarking and a recurring failure-family corpus,
-  - and a post-195 transport-stability checkpoint.
+  - a post-195 transport-stability checkpoint,
+  - a post-transport one-task rebenchmark and empty-output regression guard,
+  - a transport-stable bounded two-task scorecard refresh on the recovered runtime path,
+  - adjacent-pair resume precision truth,
+  - an explicit supervised three-step canary admission contract,
+  - and a post-200 execution checkpoint that keeps widening bounded and supervision-aware.
 
 ## Honest current posture
 
-- One-task lane: conditionally ready under supervision, now on a recovered runtime path with explicit transport observability. A small empty-output regression guard (Task 196) now backs the refreshed one-task verdict to prevent silent drift back into empty-output failures.
-- Two-task lane (bounded pilot): valid in bounded supervised scope on the curated adjacent-pair corpus, but still requires fresh post-transport execution proof before any wider claims.
-- Post-195 checkpoint: conditionally ready under supervision to plan a cautious post-transport execution reproof tranche. This still does not justify unattended multi-task autonomy or standalone productization.
-- Three-step lane (canary chain): an explicit, supervised A→B→C admission contract now exists (Task 199). It reuses adjacent-pair admission and handoff truth and requires supervision signals to remain first-class in scorecards and ledgers. This is not a claim of general three-task autonomy.
+- One-task lane: this is the strongest proven path. It is conditionally ready under supervision on the recovered runtime path, with explicit transport observability and an empty-output regression guard.
+- Two-task lane (bounded pilot): this is the only real multi-task execution shape with durable operational proof today. It remains bounded, supervised, and curated.
+- Three-step lane (canary chain): admitted and checkpoint-authorized only as a narrow supervised shape. The repo has the contract surface for A->B->C, but it does not yet have durable real-run proof that this should be treated as an operational multi-task path.
+- Multi-agent role orchestration: controller / builder / verifier surfaces exist and are useful inside bounded flows, but they are not yet proven as a general role-routing system across arbitrary multi-task sequences.
+- Post-200 checkpoint: conditionally ready under supervision to plan one more cautious widening slice. This still does not justify unattended multi-task autonomy, arbitrary scheduling, or standalone productization.
 
 This means:
 
 - one-task work remains the default proving path under light supervision,
-- the bounded supervised two-task pilot remains the only justified multi-task form,
-- a narrowly admitted, supervised three-step canary chain is defined for explicit canary evaluation,
-- transport behavior is now much more observable than before,
+- the bounded supervised two-task pilot remains the only justified operational multi-task form,
+- a three-step canary may now be pursued only as an explicitly supervised proof path,
+- transport behavior is materially more observable and diagnosable than before,
 - broad unattended multi-task autonomy is still not justified,
-- and the standalone orchestrator-app phase remains blocked behind stronger execution proof.
+- and the standalone orchestrator-app phase remains blocked behind stronger chained execution proof.
+
+## What the repo is good at now
+
+The repo is now good at:
+
+- completing one task with a conservative supervised loop,
+- recovering from some transport and bundle-shape failures that used to collapse runs early,
+- preserving exact deliverable contracts and protected-surface discipline,
+- measuring two-task bounded pilot behavior honestly,
+- distinguishing direct progress from supervision-assisted progress in the bounded two-task lane,
+- and persisting resume and checkpoint truth well enough to reason about adjacent re-entry.
+
+## What still needs work
+
+The repo still needs work on:
+
+- converting the three-step canary from contract-only truth into real execution proof,
+- making controller route decisions durable and resumable across chained runs,
+- improving confidence that a small adjacent manifest can stop, resume, and fail honestly without broad human steering,
+- keeping compatibility-surface regressions from leaking into widening tasks,
+- and reducing reliance on protected-method or control-plane-sensitive edits during widening slices.
 
 ## What still blocks the next phase
 
 Before broader autonomy or product extraction can be justified, the repo still needs:
 
-- fresh one-task benchmark evidence on the recovered runtime path,
-- fresh bounded two-task evidence on the recovered runtime path,
-- lower intervention and retry rates on adjacent-pair execution,
-- more precise resume-safe re-entry for partially-successful adjacent-pair runs,
-- an explicit admission and supervision contract for any three-step canary execution,
-- recurring transport health metrics that stay stable across real runs,
-- and a post-200 checkpoint that proves the recovered runtime remains durable under real execution pressure.
+- a real supervised three-step canary runner,
+- a curated three-step canary corpus with explicit positive and negative cases,
+- a benchmark and scorecard for three-step canary behavior that keeps supervision truth first-class,
+- durable controller-route trace and resume reconstruction across chained canary runs,
+- and a checkpoint that decides whether a tiny adjacent-manifest gate is justified under supervision.
 
 ## Active tranche
 
-Current active tranche: 196-200.
+Current active tranche: 201-205.
 
-## Immediate continuation target (Tasks 196-200)
+## Immediate continuation target (Tasks 201-205)
 
-Run a post-transport execution reproof tranche before any broader autonomy claims resume:
+Convert the admitted three-step canary surface into real supervised execution proof before attempting any broader multi-task gate:
 
-- 196 — post-transport one-task rebenchmark and empty-output regression guard
-- 197 — transport-stable bounded two-task pilot rerun and scorecard refresh
-- 198 — adjacent-pair resume precision and checkpointed re-entry truth
-- 199 — supervised three-step canary admission and chain contract
-- 200 — post-transport execution checkpoint and bounded next-slice gate
+- 201 — supervised three-step canary runner and durable chain ledger
+- 202 — curated three-step canary corpus and manifest truth
+- 203 — three-step canary benchmark and supervision-aware scorecard
+- 204 — controller route trace and resume reconstruction for chained canary runs
+- 205 — supervised multi-task canary checkpoint and adjacent-manifest gate
 
 ## Why this tranche exists
 
-Tasks 191-195 fixed a real bottleneck: the runner now preserves non-empty output more honestly and reports transport behavior more clearly. That is necessary, but it is not enough to widen autonomy claims.
+Tasks 196-200 finished the post-transport execution reproof tranche honestly. That checkpoint did not reopen broad autonomy. It only authorized a very narrow next step.
 
-The next tranche must prove that the recovered runtime path holds up under real one-task and bounded two-task work, then add only the smallest carefully-admitted widening step.
+The next tranche therefore should not jump to arbitrary multi-task manifests. It should first prove the smallest newly admitted widening shape in real execution:
 
-## Task 196 checkpoint note
+- exactly three adjacent tasks,
+- explicitly supervised,
+- controller-route and resume truth preserved,
+- benchmarked,
+- and still reversible if the evidence degrades.
 
-The orchestrator’s one-task benchmark harness was refreshed on the recovered runtime path, and an explicit empty-output regression guard was added. The guard evaluates recent transport-observability records and conservatively downgrades the promotion verdict if empty-output failures exceed a small tolerated rate. The preserved GPT file-bundle path remains the baseline. The result tightens the default proving lane without widening multi-task claims.
+## Task 201 note
 
-## Task 197 checkpoint note
+Task 201 should add a real exactly-three-task canary runner and a durable chain ledger. This is the first step from canary contract truth toward operational canary execution truth.
 
-The bounded supervised two-task pilot was rerun on the recovered runtime path. Scorecard and promotion artifacts were refreshed conservatively:
+## Task 202 note
 
-- transport-stable direct completions are now surfaced separately from supervision-assisted progress,
-- the existing curated adjacent-pair corpus discipline is preserved,
-- the corpus-level widening checkpoint remains explicitly supervised,
-- and broader unattended multi-task autonomy and standalone productization stay blocked.
+Task 202 should make the three-step canary corpus explicit and curated. Positive, negative, and supervision-heavy cases should be durable and inspectable rather than ad hoc.
 
-The refreshed promotion artifacts remain supervision-aware. Verdicts continue to prefer conditional readiness unless transport-stable success is materially better than self-healed outcomes with low supervision and low authority ambiguity. All runs and evidence for this rerun were captured on the recovered runtime path to ensure transport-stability parity.
+## Task 203 note
 
-## Task 198 resume precision note
+Task 203 should benchmark the three-step canary path and keep supervision accounting first-class. Direct chain progress, supervision-assisted progress, and chain-break categories should be explicit.
 
-Attempt-state now persists a small re-entry truth alongside checkpoints. The computed re-entry plan includes a precision field, allowing operators and tests to distinguish precise checkpointed re-entry from broad reruns. The bounded two-task pilot ledger adds a compact resume_truth section when adjacent A→B handoff is declared, remaining additive and fully compatible with the current pilot scope.
+## Task 204 note
 
-## Task 199 supervised three-step canary note
+Task 204 should strengthen the controller’s role-routing trace and resume reconstruction surfaces for chained canary work. This aligns the widening tranche more directly with the project goal of the orchestrator sitting in the middle and choosing which role should act next.
 
-A supervised three-step canary chain contract (A→B→C) is defined for cautious widening. Admission is explicitly narrow: all three tasks must be admitted, B must follow A, and C must follow B. Supervision truth remains first-class in scorecards/ledgers (no-manual-intervention accounting is preserved). This contract does not generalize to arbitrary three-task autonomy or unattended chains; it is a canary-only shape built on top of adjacent-pair truth and resume/transport artifacts from Tasks 191–198.
+## Task 205 note
 
-## Post-200 execution checkpoint note
-
-The post-200 execution checkpoint remains conservative and supervision-aware:
-
-- one-task reproof and bounded two-task refresh are evaluated on the recovered runtime path,
-- adjacent-pair resume precision truth is considered part of readiness,
-- any three-step widening remains limited to the explicit supervised canary chain,
-- recurring transport failure-family rates must remain within tight bounds and preserve GPT file-bundle parity.
-
-Verdict summary:
-- bounded next-slice planning: conditionally ready under supervision,
-- three-step widening: admitted only for the explicit supervised canary chain,
-- unattended multi-task autonomy and standalone productization: still blocked.
-
-This preserves honest scope and ensures widening only occurs where checkpoint evidence can defend it.
+Task 205 should decide whether a tiny adjacent-manifest gate is justified under supervision. Even if that gate opens, it should remain bounded, adjacent, curated, and checkpoint-driven. Arbitrary multi-task autonomy and standalone productization remain blocked.
